@@ -1,0 +1,103 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # PR pushes supersede each other; every main push must finish, because
+  # build:affected only diffs the newest push (github.event.before).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gt_sales_crm_test
+      MIGRATION_DATABASE_SSL_MODE: disable
+      TEST_MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gt_sales_crm_test
+      DB_TEST_ALLOW_DESTRUCTIVE: '1'
+      DATABASE_URL: postgresql://app_runtime:local_ci_runtime_password@localhost:5432/gt_sales_crm_test
+      DATABASE_SSL_MODE: disable
+      # Lead contacts are hashed for email suppression/consent. Non-secret test
+      # value; >= 16 chars as `requireContactHashSecret` demands.
+      EMAIL_CONTACT_HASH_SECRET: ci-email-contact-hash-secret-0123456789
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_DB: gt_sales_crm_test
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gt_sales_crm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify the admin cannot import the database package
+        run: pnpm run check:frontend-db-boundary
+      - name: Record release metadata (no credentials)
+        run: |
+          git rev-parse HEAD
+          sha256sum pnpm-lock.yaml
+      - name: Apply migrations to an empty disposable Postgres
+        run: pnpm --filter @gt-sales/db db:migrate
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run format
+      - run: pnpm run test:tooling
+      - name: Prove no Supabase service-role key appears in application code
+        run: |
+          if git grep -n -E 'SUPABASE_SERVICE_ROLE_KEY|service_role' -- 'apps/**' 'packages/**/src/**' 'jobs/**' 'scripts/**'; then
+            echo 'Supabase service-role usage is forbidden in application code.' >&2
+            exit 1
+          fi
+      - name: Integration suites must not be skipped
+        run: test -n "$TEST_MIGRATION_DATABASE_URL" && test "$DB_TEST_ALLOW_DESTRUCTIVE" = '1'
+      - run: pnpm run test
+      - name: Verify the generated API contract is current
+        run: |
+          pnpm --filter @gt-sales/contracts build
+          git diff --exit-code -- docs/api/openapi.json
+      - name: Build affected applications and their shared dependencies
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: pnpm run build:affected
+      # Shell journeys run on every change, so the admin must be built even when
+      # only the backend changed. This is test setup, not a deployment selection.
+      - name: Ensure the admin build exists for browser tests
+        run: test -f apps/admin/.next/BUILD_ID || pnpm --filter admin build
+      - name: Prove the admin browser-test session seam is not in the normal build
+        run: |
+          if grep -rqE 'E2E_STAFF|e2e-staff' apps/admin/.next/static; then
+            echo 'The e2e staff session seam leaked into the normal admin build.' >&2
+            exit 1
+          fi
+      - run: pnpm --filter admin exec playwright install --with-deps chromium
+      - name: Create the disposable e2e database
+        run: PGPASSWORD=postgres createdb -h localhost -U postgres gt_sales_crm_e2e_test
+      - run: pnpm run test:e2e
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: browser-failures
+          path: |
+            apps/admin/playwright-report
+            apps/admin/test-results
+          retention-days: 7
+# No production credentials or deployment steps. The owner selects all releases.

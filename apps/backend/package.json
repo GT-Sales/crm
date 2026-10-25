@@ -1,0 +1,34 @@
+{
+  "name": "backend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env.local --import tsx --watch src/server.ts",
+    "catalogue:job": "tsx src/catalogue/manual.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gt-sales/adapters": "workspace:*",
+    "@gt-sales/contracts": "workspace:*",
+    "@gt-sales/db": "workspace:*",
+    "@gt-sales/jobs": "workspace:*",
+    "@gt-sales/types": "workspace:*",
+    "@supabase/supabase-js": "2.116.0",
+    "drizzle-orm": "catalog:",
+    "express": "5.2.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@gt-sales/config": "workspace:*",
+    "@types/express": "5.0.6",
+    "@types/node": "catalog:",
+    "postgres": "3.4.9",
+    "tsup": "9.0.0",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

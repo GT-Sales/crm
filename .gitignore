@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+.next-e2e/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Test / coverage
+coverage/
+playwright-report/
+test-results/
+blob-report/
+# A2 evidence is captured by the e2e run and collected from the CI artifact,
+# not committed straight from a local run.
+e2e-evidence/
+
+# Vercel
+.vercel/
+
+# Editor / OS
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local tool state
+.vitest/
+.claude-tmp/

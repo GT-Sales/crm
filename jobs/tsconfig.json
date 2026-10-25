@@ -1,0 +1,9 @@
+{
+  "extends": "@gt-sales/config/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node"],
+    "strict": true
+  },
+  "include": ["src", "tests"]
+}

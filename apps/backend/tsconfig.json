@@ -1,0 +1,18 @@
+{
+  "extends": "@gt-sales/config/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node"],
+    "lib": ["ES2023", "DOM"],
+    "strict": true,
+    // Vercel's backend-framework builder type-checks src/server.ts's import
+    // graph with these parsed options; when it cannot resolve the `extends`
+    // package path and finds no module/moduleResolution here, its fallback
+    // force-disables strict, which then fails the deployment on strict-only
+    // narrowing code. Stating them explicitly keeps the deployed type-check
+    // identical to `pnpm typecheck` regardless of extends resolution.
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["src", "tests"]
+}

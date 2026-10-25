@@ -1,0 +1,22 @@
+# Keep the Docker build context small and native. Without this, `COPY . .`
+# would overwrite the image's Linux node_modules with the developer's host
+# install (and Windows symlinks), which breaks resolution in the container.
+# Mirrors .gitignore.
+.git
+**/node_modules
+**/dist
+**/build
+**/.next
+**/out
+**/.turbo
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+**/coverage
+**/playwright-report
+**/test-results
+**/blob-report
+**/.vercel
+**/.DS_Store
+**/*.log

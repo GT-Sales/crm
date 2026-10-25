@@ -1,0 +1,8 @@
+{
+  "extends": "@gt-sales/config/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src", "tests", "drizzle.config.ts", "vitest.config.ts"]
+}

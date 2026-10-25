@@ -1,0 +1,13 @@
+import { defineConfig } from 'drizzle-kit';
+
+export default defineConfig({
+  dialect: 'postgresql',
+  schema: './src/schema.ts',
+  out: './drizzle',
+  schemaFilter: ['app'],
+  entities: {
+    roles: {
+      include: ['app_runtime'],
+    },
+  },
+});

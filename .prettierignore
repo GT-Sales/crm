@@ -1,0 +1,25 @@
+# Generated
+pnpm-lock.yaml
+node_modules
+dist
+.next
+.next-e2e
+coverage
+playwright-report
+test-results
+apps/*/next-env.d.ts
+
+# Pre-existing planning documents (owner-authored, not this task's to
+# reformat). New docs added by scaffold tasks are still Prettier-checked.
+CLAUDE.md
+PLATFORM_CONTEXT.md
+README.md
+docs/BUILD_TASKS.md
+docs/IMPLEMENTATION_PLAN.md
+docs/OPEN_INPUTS.md
+docs/OWNER_PLAYBOOK.md
+docs/REQUIREMENTS.md
+docs/ADR/0000-reviewed-planning-baseline.md
+
+# Point-in-time external audit report, kept verbatim
+docs/EVIDENCE/audit/codebase-audit-2026-10-22.md

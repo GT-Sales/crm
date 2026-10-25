@@ -1,0 +1,10 @@
+{
+  "extends": "@gt-sales/config/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node"],
+    "lib": ["ES2023", "DOM"],
+    "strict": true
+  },
+  "include": ["src", "scripts"]
+}
