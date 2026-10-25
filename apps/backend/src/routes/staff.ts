@@ -26,7 +26,13 @@ import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
-import { createAuthorize, denyReasonOf, type StaffAction } from '../staff/authorization.js';
+import {
+  createAuthorize,
+  decideAccess,
+  denyReasonOf,
+  type StaffAccessSnapshot,
+  type StaffAction,
+} from '../staff/authorization.js';
 import { DatabaseStaffStore, type StaffStore } from '../staff/store.js';
 import { generateServiceSecret } from '../website/credential.js';
 import {
@@ -127,16 +133,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   /**
    * Whether this actor may see a lead's name, email and phone. Only roles that
    * work leads or money see contact details; read-only roles get leads without
-   * them. Decided from the same live permission read the mutations use.
+   * them. Decided from the access snapshot the request's own authorization
+   * already loaded, so it adds no database round trips: three extra membership
+   * reads here were most of the leads inbox's latency.
    */
-  async function canSeeContacts(req: Request, workspaceId: string): Promise<boolean> {
-    const actor = session(req);
-    const [leadsAccess, orders, finance] = await Promise.all([
-      authorize({ actorId: actor.actorId, workspaceId, action: 'lead.manage' }),
-      authorize({ actorId: actor.actorId, workspaceId, action: 'order.manage' }),
-      authorize({ actorId: actor.actorId, workspaceId, action: 'financial.read' }),
-    ]);
-    return leadsAccess.allowed || orders.allowed || finance.allowed;
+  function canSeeContacts(access: StaffAccessSnapshot): boolean {
+    return (['lead.manage', 'order.manage', 'financial.read'] as const).some(
+      (action) => decideAccess(access, action).allowed,
+    );
   }
 
   router.get('/workspaces', async (req, res) => {
@@ -214,7 +218,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         page: query.data.page,
         pageSize: query.data.pageSize,
       });
-      const leads = (await canSeeContacts(req, workspaceId.data))
+      const leads = canSeeContacts(decision.access)
         ? result.leads
         : result.leads.map((lead) => ({ ...lead, contact: {} }));
       res.json({ leads, page: result.page, requestId: req.id });

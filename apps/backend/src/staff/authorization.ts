@@ -101,35 +101,45 @@ export interface AuthorizeInput {
 }
 
 /**
- * Per-action authorization: an active membership, then an individual deny,
- * then an individual allow or a role allow. Owner decision (25 Oct 2026):
- * there is no multi-factor step, so a signed-in session with the right role
- * or permission is the whole gate, privileged actions included.
+ * The decision for one action against an access snapshot that is already
+ * loaded: an active membership, then an individual deny, then an individual
+ * allow or a role allow. Owner decision (25 Oct 2026): there is no
+ * multi-factor step, so a signed-in session with the right role or permission
+ * is the whole gate, privileged actions included. Pure, so a request that
+ * needs several decisions for one actor loads the membership once.
  */
+export function decideAccess(
+  access: StaffAccessSnapshot | undefined,
+  action: StaffAction,
+): AuthorizationDecision {
+  if (!access) return { allowed: false, reason: 'membership_missing' };
+  if (access.status === 'pending') return { allowed: false, reason: 'membership_pending' };
+  if (access.status === 'revoked') return { allowed: false, reason: 'membership_revoked' };
+
+  const matchingOverrides = access.permissions.filter(
+    (permission) => permissionActions[permission.name] === action,
+  );
+  if (matchingOverrides.some((permission) => permission.effect === 'deny')) {
+    return { allowed: false, reason: 'permission_denied' };
+  }
+
+  const individualAllowed = matchingOverrides.some((permission) => permission.effect === 'allow');
+  const roleAllowed = access.roles.some((role) => roleActions[role].has(action));
+  if (!individualAllowed && !roleAllowed) {
+    return { allowed: false, reason: 'permission_denied' };
+  }
+
+  return {
+    allowed: true,
+    reason: individualAllowed ? 'individual_allowed' : 'role_allowed',
+    access,
+  };
+}
+
+/** Per-action authorization from a live membership read. */
 export function createAuthorize(options: { accessStore: StaffAccessStore }) {
   return async function authorize(input: AuthorizeInput): Promise<AuthorizationDecision> {
     const access = await options.accessStore.loadStaffAccess(input.actorId, input.workspaceId);
-    if (!access) return { allowed: false, reason: 'membership_missing' };
-    if (access.status === 'pending') return { allowed: false, reason: 'membership_pending' };
-    if (access.status === 'revoked') return { allowed: false, reason: 'membership_revoked' };
-
-    const matchingOverrides = access.permissions.filter(
-      (permission) => permissionActions[permission.name] === input.action,
-    );
-    if (matchingOverrides.some((permission) => permission.effect === 'deny')) {
-      return { allowed: false, reason: 'permission_denied' };
-    }
-
-    const individualAllowed = matchingOverrides.some((permission) => permission.effect === 'allow');
-    const roleAllowed = access.roles.some((role) => roleActions[role].has(input.action));
-    if (!individualAllowed && !roleAllowed) {
-      return { allowed: false, reason: 'permission_denied' };
-    }
-
-    return {
-      allowed: true,
-      reason: individualAllowed ? 'individual_allowed' : 'role_allowed',
-      access,
-    };
+    return decideAccess(access, input.action);
   };
 }

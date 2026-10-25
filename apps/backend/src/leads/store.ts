@@ -413,6 +413,9 @@ export class DatabaseLeadStore implements LeadStore {
             consentVersion: leads.consentVersion,
             createdAt: leads.createdAt,
             updatedAt: leads.updatedAt,
+            // The page's total rides on each row instead of a second query;
+            // the window runs over the filtered set before limit/offset.
+            total: sql<number>`count(*) over()::int`,
           })
           .from(leads)
           .where(conditions)
@@ -420,10 +423,18 @@ export class DatabaseLeadStore implements LeadStore {
           .limit(pageSize)
           .offset(offset);
 
-        const [totalRow] = await tx
-          .select({ count: sql<number>`count(*)::int` })
-          .from(leads)
-          .where(conditions);
+        // An empty page past the end still needs the real total, which no
+        // row carried; the first page being empty means zero.
+        const total =
+          rows[0]?.total ??
+          (offset === 0
+            ? 0
+            : ((
+                await tx
+                  .select({ count: sql<number>`count(*)::int` })
+                  .from(leads)
+                  .where(conditions)
+              )[0]?.count ?? 0));
 
         const items: LeadListItem[] = rows.map((row) => {
           const attribution = attributionSchema.parse(row.attribution ?? {});
@@ -449,7 +460,7 @@ export class DatabaseLeadStore implements LeadStore {
           };
         });
 
-        return { leads: items, page: { page, pageSize, total: totalRow?.count ?? 0 } };
+        return { leads: items, page: { page, pageSize, total } };
       },
     );
   }
