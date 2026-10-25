@@ -1,0 +1,349 @@
+# GT Sales CRM — build plan
+
+**Status:** approved to start · **Written:** 2026-10-25 · **Owner:** Md Takibuddin
+(builds and runs it) · **Client:** GT Sales (owns it)
+
+This replaces `docs/CRM_PLATFORM_PLAN.md` in the Get-Canada-Sim repo, which now
+points here.
+
+---
+
+## 1. Decisions
+
+| # | Decision | Notes |
+|---|---|---|
+| 1 | Websites today: **Get Canada Sim** and **CanadaWide**. More will follow. | A new site must need no new tables or admin pages. |
+| 2 | **This repo** holds the backend, the admin and the shared packages. Each website stays in its own repo. | Backend and admin change together; websites rarely touch the API. |
+| 3 | **Every SIM order is also a lead** in the shared inbox. | The order keeps its fulfilment screens. |
+| 4 | **People are merged by email** across sites. | Trimmed + lower-cased. Email only — never name or phone. Admins can split a wrong merge. |
+| 5 | **The database stays where it is**: the existing Get Canada Sim Supabase project (Mumbai, `ap-south-1`). | Additive changes only. No copy to a new database. |
+| 6 | **Copy and adapt the Canadian Plans platform** instead of building from scratch. | Canadian Plans is the owner's own code. Its structure, infrastructure, auth, admin shell and tooling are reused. Its business data, brand, legal texts, plan catalogue and Sanity CMS are **not**. |
+| 7 | Follows from 6: **Drizzle over a pooled Postgres connection with row-level security**, **Supabase Auth for staff**, **a service credential per website**, **S3-compatible object storage adapter**. | Replaces Get Canada Sim's supabase-js-with-secret-key pattern. |
+| 8 | **Orders, partners, finance, blog and the partner portal keep Get Canada Sim's business rules and tables.** | They are ported into the backend and the new admin, not replaced by Canadian Plans' order/commission model. Staff keep the workflow they know; existing data needs no reshaping. |
+| 9 | In code, a website is a **`workspace`** (Canadian Plans' term). The UI says **Site**. | Keeps the copied code intact. |
+
+Reuse note: Canadian Plans has no LICENSE file and is owned solely by the
+owner, so copying it into this private client repo is the owner granting the
+client a copy. Check the client contract if exclusivity matters. The Canadian
+Plans repo is public on GitHub.
+
+## 2. Sources
+
+| Repo | Contributes |
+|---|---|
+| `Canadian-Plans/canadianplans-web-app` | Monorepo tooling, strict TS + lint boundaries, CI, Dockerfile, Railway config; backend core (request ids, logging, errors, shutdown, scheduler, rate limits, machine registry); staff auth + MFA + RBAC; website credentials; documents (signed upload, signature verification); outbox + email module; audit; deletion/retention; admin shell, auth pages, site switcher, API client; `packages/*`. |
+| `Md-Takibuddin/Get-Canada-Sim` | Everything the business actually does: order flow, statuses, partners, commissions, invoices, blog editor, admin boards, partner portal, email templates, plan catalogue (`data.ts`), 44 SQL migrations, 30 test programs (converted to Vitest where useful). |
+| `Md-Takibuddin/Canadawide-Sales-website` | Field rules for internet and mobility leads (`lib/lead.ts`, `lib/mobility-application.ts`), ID upload step. Phase 1 switches its three API routes to the backend. |
+
+## 3. Target architecture
+
+```
+getcanadasim.com ──┐
+CanadaWide site ───┼── service credential ──►  Backend (Express, Railway) ──► Supabase Postgres
+next website ──────┘                                   ▲          │             (pooled, RLS)
+                                                       │          └──► Supabase Storage (S3 API)
+                                            Admin / CRM (Next.js, Vercel)
+                                            Supabase Auth session + MFA
+```
+
+### Repo layout
+
+```
+crm/
+  apps/
+    backend/          Express + strict TS. The only database client. Long-lived container on Railway.
+    admin/            Next.js CRM. API client only.
+    portal/           Phase 3 — partner portal (Next.js), ported from Get Canada Sim.
+  packages/
+    contracts/        Zod request/response schemas, typed client, OpenAPI generator.
+    db/               Drizzle schema, migrations, withTenantTx. Imported only by the backend.
+    adapters/         Object store (S3), email (Resend), alerts, error tracking, logging.
+    ui/               shadcn primitives + tokens.
+    config/           tsconfig, ESLint (db import boundary), Prettier, Vitest, Playwright presets.
+    observability/    Log-record builder + PII scrubber.
+    types/            Shared domain types.
+  jobs/               Outbox handlers; backup/restore tooling later.
+  supabase/legacy/    Get Canada Sim's 0001–0044 SQL, read-only record of the `public` schema.
+  docs/
+```
+
+### Hosting
+
+- **Backend:** Railway, Southeast Asia (Singapore), the nearest region to the
+  Mumbai database. Long-lived container; in-process scheduler runs the outbox,
+  the monthly invoice job and the daily notification drain.
+- **Admin:** its own Vercel project.
+- **Database / Auth / Storage:** the existing Supabase project. Backend connects
+  through the transaction-mode pooler (port 6543) as a restricted
+  `app_runtime` role. Staff sign in with Supabase Auth. Files stay in the
+  existing private buckets, reached through Storage's S3-compatible endpoint.
+
+### Rules
+
+1. **The backend is the only database client.** Websites and the admin never
+   hold a database key. (Browser-direct upload via a backend-issued signed URL
+   is the one documented exception, as in both source repos.)
+2. **Every tenant table carries `workspace_id NOT NULL`.** Cross-site tables
+   are only `workspaces`, `memberships`, the Auth identities and `contacts`
+   (§5.4).
+3. **Isolation is enforced twice:** the backend authorizes each request, and
+   Postgres RLS reads `app.workspace_id` set per transaction. Missing context
+   denies.
+4. **Each website authenticates with its own service credential**, stored
+   hashed, revocable, scoped to the lead types it may submit.
+5. **Server-side validation per lead type**: length caps, allow-listed enums,
+   date formats, file signatures from magic bytes.
+6. **Admin access = role × site membership.** An admin with membership only in
+   CanadaWide never sees a Get Canada Sim lead, including on a merged contact.
+7. **Sensitive values are protected.** ID documents stay private behind
+   short-lived signed URLs; SINs are encrypted and shown masked; every reveal
+   or download is audited.
+8. **External side effects go through the outbox**, executed after commit.
+9. **No PII in logs, errors or URLs.** No service-role key in application code.
+10. **Strict TypeScript, no `any`.** Types, schemas and DB rows derive from one
+    source; API responses expose only the fields each audience may see.
+11. **"Not configured" and "the query failed" are different states.** A failed
+    load shows an error, never sample data. A website never fakes success.
+
+## 4. Reuse map
+
+Legend: **Copy** = as-is apart from the package rename · **Adapt** = copy, then
+change · **New** · **Drop** = not copied.
+
+### Tooling and packages
+
+| Item | Action | Notes |
+|---|---|---|
+| pnpm workspace, catalog, Node 22.19 / pnpm 9.15 pins, `.npmrc` | Copy | Package scope `@canadian-plans/*` → `@gt-sales/*`. |
+| `packages/config` (tsconfig, ESLint boundary rule, Prettier, Vitest, Playwright) | Copy | The rule that only the backend may import `@gt-sales/db` stays. |
+| `packages/observability`, `packages/types` | Copy | Prune catalogue/quote types. |
+| `packages/contracts` | Adapt | Keep `common`, `health`, `client`, `openapi`, `staff-auth`, `files`, `deletion`, `jobs`, `reports`. Adapt `leads`. New: `sites`, `contacts`, `activities`, `tasks`, `lead-types`. Drop `catalogue`, `cms/*`, `quotes`, `orders` (CP's), `partners` (CP's), `regions`, `region-waitlist`. |
+| `packages/db` | Adapt | Keep `index` (pooled client, `withTenantTx`), `migrate`, `ssl`, `tenantPolicy`, test helpers. Keep tables: `workspaces` (+ `domain`, `status`), `memberships`, `roles`, `membership_roles`, `permissions`, `membership_permissions`, `service_credentials`, `audit_events`, `rate_limit_buckets`, `idempotency_keys`, `outbox_jobs`, `outbox_job_alerts`, `files`, `file_revisions`, `file_review_events`, `email_*`, `marketing_consents`, `follow_up_schedules`, `deletion_*`, `tracking_challenges`. Adapt `leads`. New: `contacts`, `lead_activities`, `lead_tasks`, `saved_views`. Drop `products`, `offer_versions`, `product_availability`, `catalogue_sync_*`, `quotes`, CP `orders`/`order_*`, `commission_*`, `invoices`/`invoice_lines`, `dispatch_records`, `payment_records`, `region_waitlist`, `backup_leases` (until the backup job returns). **Fresh migration history**: one squashed `0001` for the `app` schema. |
+| `packages/adapters` | Adapt | Keep `r2-s3` + `sigv4` (rename `object-store`; endpoint → Supabase Storage S3), `messaging` (Resend; drop SES), `alerts`, `error-tracking`, `logging`. Drop `sanity`, `static-catalogue`, `analytics` (Umami sink; add back if wanted), `deletion-ledger` (phase 4 if the backup job returns). |
+| `packages/ui` | Adapt | Keep primitives, sidebar, sheet, table, file-drop, stepper. Drop `canadian-plans` tokens/components; add GT tokens when the client supplies a brand. |
+| CI (`ci.yml`), `Dockerfile`, `railway.json`, `.dockerignore` | Adapt | Remove site-1 steps and Sanity; keep migration test against a disposable Postgres, boundary lint, typecheck, lint, format, unit tests, build, admin e2e. |
+| `jobs/` | Adapt | Keep the outbox handler framework. Backup/monitor/restore/retention CLIs: phase 4 option. |
+
+### Backend (`apps/backend`)
+
+| Module | Action | Notes |
+|---|---|---|
+| `app`, `server`, `requestId`, `shutdown`, `scheduler`, `http/*`, `config/*`, `types/*` | Copy | Mount list pruned. |
+| `machines/registry` | Copy | Scheduler identity, webhook secrets. |
+| `auth/session` (Supabase session + `aal2` check) | Copy | |
+| `staff/*` (memberships, roles, permissions, `authorize`, invitations, bootstrap lookup) | Adapt | Add a `leads` role; map Get Canada Sim sections (§5.7). |
+| `website/*` (credential middleware, session, turnstile) | Adapt | Turnstile optional — websites already run their own bot checks. |
+| `leads/*` (attribution, source sanitizer, draft-grant token, store) | Adapt | Lead types, contacts, assignment, soft delete. |
+| `documents/*` (grant, finalize, signature check, resolver, store) | Copy | Store points at Supabase Storage. |
+| `tracking/*` (OTP, cipher) | Copy | `cipher.ts` (AES-256-GCM) generalized to seal SINs. Tracking itself returns in phase 3 for `/track`. |
+| `email/*`, `jobs/*`, `deletion/*`, `retention/*`, `synthetic/*` | Copy | Email wired in phase 3. |
+| `routes/health`, `routes/staff`, `routes/jobs`, `routes/email`, `routes/synthetic-check` | Adapt | Prune catalogue and CP-order endpoints. |
+| `routes/website` | Adapt | Keep credential auth, rate limits, leads create/resume, documents. Drop offers/quotes/orders routes (Get Canada Sim's order flow arrives in phase 3). |
+| `catalogue/*`, `orders/*`, `partners/*` (CP's), `waitlist/*`, `routes/catalogue-sync`, `routes/sanity-webhook`, `reports/*` | Drop | Reports return later on CRM data. |
+
+### Admin (`apps/admin`)
+
+| Item | Action | Notes |
+|---|---|---|
+| App shell, `app-sidebar`, `top-bar`, `workspace-switcher`, `protected-workspace-shell`, `staff-session-provider`, `lib/api`, `lib/supabase-auth`, `instrumentation`, error tracking | Copy | Switcher gains **All sites**. |
+| `/login`, `/mfa/enroll`, `/mfa/challenge`, `/recovery`, `/denied` | Copy | |
+| `/w/[workspace]/settings` (service credentials manager, jobs status, customer-data deletion, staff invite) | Copy | Credentials manager = site keys. |
+| `leads-list`, `/w/[workspace]/leads`, `/documents` | Adapt | Starting point for the CRM inbox. |
+| `/orders`, `/partners`, `/settings/catalogue`, `catalogue-status`, `source-report` | Drop | Replaced in phase 3 by Get Canada Sim's boards. |
+| CRM pages: inbox, kanban, lead page, contact page, my tasks, saved views | New | Phase 2. |
+
+### From Get Canada Sim (phase 3, ported into the backend + admin)
+
+| Item | Size | Notes |
+|---|---|---|
+| `lib/orders.ts`, `admin/actions.ts`, `OrdersBoard.tsx` | ~5.2k lines | PostgREST chains → Drizzle queries; board copied (already Tailwind + shadcn), data layer swapped to the API client. |
+| `lib/partners.ts`, `PartnersBoard.tsx`, `admin/partners` | ~1k | |
+| `lib/invoices.ts`, `admin/finance` | ~1.7k | Monthly cron → scheduler job. |
+| `admin/blog`, `lib/posts-server.ts`, `lib/markdown.ts` | ~1.8k | MDX editor stays in the admin; sanitizer moves to the backend. |
+| `admin/admins`, `lib/admin-users.ts` | ~1.5k | Becomes staff management on top of CP memberships/roles. |
+| `app/portal` | ~2.8k | New `apps/portal`, partner login via OTP as today. |
+| `lib/email.ts` (templates) | ~1.3k | Rendered in the backend, sent via the outbox. |
+| `lib/data.ts` (plans, prices), `lib/faq.ts` | — | Plan catalogue lives in the backend; the website reads it. |
+| `scripts/test-*.mts` | 30 files | Behaviour carried into Vitest tests next to the ported code. |
+
+## 5. Key adaptations
+
+### 5.1 Site = workspace
+
+`app.workspaces` gains `domain` and `status`. Seed rows: `getcanadasim`,
+`canadawide`. Service credentials = site keys; their `scopes` list the lead
+types the site may submit (`leads:internet`, `leads:mobility`, `leads:sim_order`,
+`leads:partner_application`, `leads:contact_message`, `documents`).
+
+### 5.2 "All sites" reads
+
+Canadian Plans' RLS allows one workspace per transaction. For the shared
+inbox the backend runs one query per site the admin belongs to (2–5 sites)
+and merges the results. No RLS change. If the number of sites grows, switch to
+an `app.workspace_ids` setting with an `= any(...)` policy — a contained
+change in `tenantPolicy`.
+
+### 5.3 Leads
+
+`app.leads` keeps `workspace_id`, `status`, contact fields, `payload`,
+`attribution`, `consent_version`, `partner_id`, timestamps, and gains
+`lead_type`, `contact_id`, `assigned_actor_id`, `deleted_at`, `external_ref`
+(order or partner id after phase 3). `selected_offer_version_id` is dropped.
+
+**Lead types are a registry in backend code** — Zod schema for `payload`,
+allowed statuses, labels, which fields are PII. Adding a form = a registry
+entry + a scope on the site's credential.
+
+| Type | Site | Statuses |
+|---|---|---|
+| `internet` | CanadaWide | `new`, `contacted`, `qualified`, `existing_shaw`, `non_serviceable_address`, `old_due`, `installed`, `won`, `lost` |
+| `mobility` | CanadaWide | `new`, `contacted`, `qualified`, `activated`, `won`, `lost` |
+| `sim_order` | Get Canada Sim | The order's own statuses (`incomplete` … `cancelled`); stored once, on the order, from phase 3 |
+| `partner_application` | Get Canada Sim | `new`, `contacted`, `approved`, `declined` |
+| `contact_message` | Get Canada Sim | `new`, `replied`, `closed` — **proposed**; today only emailed |
+
+### 5.4 Contacts (merge by email)
+
+`app.contacts`: `id`, `email_normalized` (unique), `email`, `full_name`,
+`phone`, timestamps. Global by design — the documented exception to rule 2.
+Its RLS policy allows a row only when a lead in the current workspace points
+at it, so an admin never sees a contact they have no lead for. Intake
+normalizes the email, finds-or-creates the contact, attaches the lead. Gmail
+dots and `+tags` are not stripped. Split/merge actions are audited.
+
+### 5.5 Activities and tasks
+
+Canadian Plans' `order_notes`, `order_status_history` and `order_reminders`
+patterns become `lead_activities` (append-only timeline: note, status change,
+assignment, email, call, edit, document, merge) and `lead_tasks` (title,
+`due_on`, assignee, `done_at`). Get Canada Sim's per-table `reminder_*`
+columns migrate into `lead_tasks`.
+
+### 5.6 Documents on Supabase Storage
+
+Canadian Plans' `files` tables and documents service are kept whole. The S3
+adapter's endpoint is set to the Supabase project's Storage S3 endpoint with
+Storage S3 access keys, so the existing `documents` and `mobility-ids` buckets
+stay put and existing objects are registered as `files` rows during
+migration. Verify the endpoint and presigned URLs in phase 1 before relying on
+it; fallback is a thin Supabase Storage adapter behind the same interface.
+
+### 5.7 Staff auth and roles
+
+Supabase Auth (already part of the project, unused today) with MFA. Mapping
+from Get Canada Sim:
+
+| Get Canada Sim | Here |
+|---|---|
+| Super admin | `owner` role in every workspace |
+| Section `orders` / `partners` / `finance` / `blog` (edit) | Roles `orders` / `partners` / `finance` / `content` |
+| Sections `internet_leads`, `mobility_leads` | New role `leads` + membership in the matching site |
+| View-only on a section | `viewer` role (whole workspace). Per-section view-only can be added as permissions later if needed |
+| Email-or-username login, scrypt | Supabase Auth email + password. Existing hashes can't be imported, so each admin receives an invite and sets a new password once |
+| Break-glass env super admin | Canadian Plans' recovery runbook (Auth dashboard) |
+
+MFA is required for `owner` and `finance` (Canadian Plans' rule), optional
+otherwise. Confirm with the client.
+
+### 5.8 Intake API (what websites call)
+
+Server-to-server with `Authorization: Bearer <credential>`.
+
+| Route | Purpose |
+|---|---|
+| `POST /api/v1/website/leads` | Create a lead: `type`, `contact`, `payload`, `consent`, `attribution`, idempotency key. Returns `leadId` + a draft grant. |
+| `PATCH /api/v1/website/leads/:id` | Step 2 of a two-step form (`X-Draft-Grant`). Same site only; expires. |
+| `POST /api/v1/website/documents/grant` → `.../finalize` | Signed upload URL for one path; backend re-reads the bytes, sniffs the type, attaches or deletes. |
+
+Idempotent per site + key; rate-limited per credential, forwarded IP and
+email (`rate_limit_buckets`). Websites keep their own emails and ad events
+until phase 3.
+
+### 5.9 Sensitive values
+
+SIN (CanadaWide mobility, `mobility_id_uploads.sin`, plain text today) is
+sealed with `cipher.ts` (AES-256-GCM, key `SENSITIVE_FIELDS_KEY` held only by
+the backend) at migration and on intake; shown as `*** *** 123`; full reveal
+needs permission `sensitive.reveal` and writes an audit event. Documents:
+private buckets, signed URLs, audited downloads.
+
+### 5.10 Dropped from Canadian Plans
+
+Sanity and the CMS contracts, catalogue sync, offer versions and quotes,
+CP's orders/commissions/invoices, site-1, region waitlist, SES, Umami sink,
+backup jobs (revisit in phase 4), Turnstile (optional).
+
+## 6. Database plan
+
+- **Schemas:** new CRM tables in `app` (RLS, Drizzle migrations). Get Canada
+  Sim's existing tables stay in `public`; phase 3 adds `workspace_id` + RLS
+  policies there when the backend takes them over.
+- **Roles:** `app_runtime` (no `BYPASSRLS`, no superuser) for the backend over
+  the pooled `DATABASE_URL`; migrations as the project's `postgres` role over
+  `MIGRATION_DATABASE_URL`. `SET LOCAL app.workspace_id / app.actor_id` per
+  transaction (`withTenantTx`), which works under the transaction-mode pooler.
+- **Migration history:** fresh `0001_app_foundation` for the `app` schema.
+  Get Canada Sim's `supabase/migrations` are copied to `supabase/legacy/` as
+  the record of `public`; future `public` changes are Drizzle migrations here.
+- **Auth:** enable email sign-in; custom SMTP via Resend so invites are not
+  rate-limited; invite the owner first.
+- **Storage:** create Storage S3 access keys; buckets unchanged.
+- **Data migration** (phase 1, rehearsed on a Supabase branch or local
+  restore, then row counts reconciled):
+  1. seed `workspaces` + credentials;
+  2. `internet_leads` → `leads(internet)` + `contacts`; `notes` → activity;
+     `reminder_*` → task; keep `deleted_at`;
+  3. `mobility_leads` + `mobility_id_uploads` → `leads(mobility)` + `files`,
+     sealing SINs;
+  4. `orders` → `leads(sim_order)` + contacts; `partners` →
+     `leads(partner_application)`;
+  5. old lead tables read-only; dropped in phase 4 with the anon insert
+     policies.
+
+## 7. Phases
+
+| Phase | Work | Done when | Effort |
+|---|---|---|---|
+| **0. Scaffold + deploy** | Copy and prune per §4; rename scope; fresh `0001`; backend builds with auth, RBAC, credentials, documents, outbox, rate limits, audit; admin builds with shell, auth pages, switcher, settings; Supabase roles + Auth; Railway (Singapore) + Vercel; CI | Health check live on Railway; owner signs in with MFA; sees `getcanadasim` and `canadawide`; can create a site key; CI green | ~1 week |
+| **1. Data + intake** | Leads/contacts/activities/tasks tables; lead-type registry; intake routes; documents on Supabase Storage; SIN sealing; data migration; CanadaWide's three routes → backend; drop anon policies | New CanadaWide submissions land in `app.leads`; counts reconcile; no anon write path left | ~1.5 weeks |
+| **2. CRM screens** | Inbox (all sites, filters, search, saved views), kanban per type, lead page (timeline, notes, tasks, documents, assign, status), contact page, my tasks, split/merge | Staff work every lead here; old Internet/Mobility Leads pages retired | ~2 weeks |
+| **3. Move the rest** | Port Get Canada Sim orders, partners, finance, blog, staff management, portal (`apps/portal`); emails via outbox; crons → scheduler; Get Canada Sim forms → intake API; `public` tables get `workspace_id` + RLS | The Get Canada Sim website holds no database key; old `/admin` and `/portal` retired | ~3 weeks |
+| **4. Clean-up** | Remove admin/portal/db code from the website repos; drop legacy lead tables; docs and runbooks; optional backup job | Website repos contain only website code | ~3 days |
+
+**Total: about 7.5–8.5 weeks. The CRM is usable at the end of phase 2
+(~4.5 weeks).** Against the from-scratch estimate (8–11 weeks) the saving is
+roughly two weeks — and phase 0 now ships MFA, RBAC, audit, outbox, rate
+limiting and signature-verified uploads that a from-scratch build would have
+cut or deferred.
+
+## 8. Verification
+
+Every phase ends with CI green: boundary lint (no `@gt-sales/db` outside the
+backend), typecheck, lint, format, Vitest (including the RLS negative tests
+against a disposable Postgres: missing context denies, wrong workspace sees
+zero rows, runtime role cannot bypass), build, admin e2e. Phases 1 and 3 add
+a rehearsed data migration with reconciled counts before the real run. Nothing
+reaches production without the owner's approval.
+
+## 9. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Supabase Storage S3 endpoint differs from R2 in a detail the adapter relies on | Verified first thing in phase 1; thin Storage adapter behind the same interface as fallback |
+| Custom `app_runtime` role + pooler on Supabase | Canadian Plans runs exactly this; proven in its CI against disposable Postgres |
+| Admins must re-onboard (new password, MFA) | Small team; invites sent by the owner; runbook copied |
+| Two admins in parallel during phases 2–3 | Link between them; move one area at a time |
+| Losing leads during the CanadaWide switch | Switch one route at a time; old route stays deployable until the new one is verified |
+| Wrong merges by email | Email-only matching; audited split/merge |
+| PII (SIN, IDs, DOB, addresses) under PIPEDA | Sealed fields, private storage, signed URLs, audited access, least privilege |
+
+## 10. Needed from the owner
+
+| Item | Needed by |
+|---|---|
+| **Railway** workspace (client's) with billing, Singapore region, owner as admin | Phase 0, deploy step |
+| **Vercel** team/project for the admin (client's) | Phase 0, deploy step |
+| **Supabase** (project `xykrphbgpwisqacpyeiv`): permission to create the `app` schema and `app_runtime` role; pooled + direct connection strings; Storage S3 access keys; Auth email sign-in enabled with Resend SMTP. The Supabase tools connected to this session reach only the Canadian Plans project, so either connect this project too or run the SQL I prepare | Phase 0 |
+| List of admins to invite, and who is `owner` / `finance` (MFA required) | Phase 0 |
+| Confirm storing contact-form messages as leads (`contact_message`) | Phase 3 |
+| Product name (working title: GT Sales CRM) and brand tokens | Any time |
