@@ -313,7 +313,7 @@ databaseTest('tenant RLS and transaction-pool context', () => {
         id: STAFF_SEED_IDS.canadaWideWorkspace,
         slug: 'canadawide',
         name: 'CanadaWide',
-        domain: 'canadawidesales.com',
+        domain: 'canadawideinternet.com',
       },
       {
         id: STAFF_SEED_IDS.getCanadaSimWorkspace,

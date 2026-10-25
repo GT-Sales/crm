@@ -32,7 +32,7 @@ export const SEED_WORKSPACES = [
     id: STAFF_SEED_IDS.canadaWideWorkspace,
     slug: 'canadawide',
     name: 'CanadaWide',
-    domain: 'canadawidesales.com',
+    domain: 'canadawideinternet.com',
   },
 ] as const;
 
