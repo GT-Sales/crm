@@ -1,8 +1,9 @@
 # GT Sales CRM — guide for AI agents and new sessions
 
-Read this first, then [docs/PLAN.md](docs/PLAN.md) (decisions, architecture,
-phases) and [docs/ENV.md](docs/ENV.md) (every variable). Keep both current
-when you change what they describe.
+Read this first, then [docs/HANDOFF.md](docs/HANDOFF.md) (what is live, what
+was done, what comes next and how, with the architecture map),
+[docs/PLAN.md](docs/PLAN.md) (decisions, phases) and [docs/ENV.md](docs/ENV.md)
+(every variable). Keep all three current when you change what they describe.
 
 ## What this is
 
