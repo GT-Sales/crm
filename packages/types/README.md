@@ -1,4 +1,4 @@
-# @canadian-plans/types
+# @gt-sales/types
 
 Shared domain TypeScript types (no runtime code, no validation logic).
 
@@ -10,7 +10,7 @@ need to agree on, in exactly one place.
 
 ## Must never import
 
-- `@canadian-plans/db` (row types live there; this package defines
+- `@gt-sales/db` (row types live there; this package defines
   domain-level types, not persistence types).
-- `@canadian-plans/contracts`, `@canadian-plans/adapters`, `@canadian-plans/ui`.
+- `@gt-sales/contracts`, `@gt-sales/adapters`, `@gt-sales/ui`.
 - Any app (`apps/*`), any provider SDK, or any secret.

@@ -70,7 +70,7 @@ export interface UmamiAnalyticsOptions {
  * the constant sanitized path `/` (never the customer's URL), and the only data
  * field is the opaque internal subject id.
  */
-const DEFAULT_UMAMI_USER_AGENT = 'Mozilla/5.0 (compatible; CanadianPlansServer/1.0)';
+const DEFAULT_UMAMI_USER_AGENT = 'Mozilla/5.0 (compatible; GTSalesCrmServer/1.0)';
 
 export class UmamiAnalyticsSink implements AnalyticsSink {
   private readonly doFetch: typeof fetch;

@@ -13,5 +13,5 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   splitting: false,
-  noExternal: [/^@canadian-plans\//],
+  noExternal: [/^@gt-sales\//],
 });

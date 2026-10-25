@@ -7,7 +7,7 @@ export interface TrackingCodeBinding {
 }
 
 function key(secret: string): Buffer {
-  return createHmac('sha256', secret).update('canadian-plans:tracking-outbox:v1').digest();
+  return createHmac('sha256', secret).update('gt-sales-crm:sealed-value:v1').digest();
 }
 function aad(binding: TrackingCodeBinding): Buffer {
   return Buffer.from(JSON.stringify([binding.workspaceId, binding.orderId, binding.challengeId]));

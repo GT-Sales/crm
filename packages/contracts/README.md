@@ -1,4 +1,4 @@
-# @canadian-plans/contracts
+# @gt-sales/contracts
 
 Zod request/response schemas, the error envelope, generated OpenAPI (added
 later), the typed API client, and browser-safe CMS schema definitions under
@@ -12,9 +12,9 @@ re-declaring it.
 
 ## Must never import
 
-- `@canadian-plans/db` — DB row types are not API response types
+- `@gt-sales/db` — DB row types are not API response types
   (PLATFORM_CONTEXT.md §4 invariant 14). Contracts expose only the fields
   each audience is allowed to see.
-- `@canadian-plans/adapters` or any provider SDK/secret — this package is
+- `@gt-sales/adapters` or any provider SDK/secret — this package is
   bundled into the browser.
 - Any app (`apps/*`).
