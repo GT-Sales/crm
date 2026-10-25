@@ -66,16 +66,7 @@ let store: ConfigurableStaffStore;
 
 beforeEach(async () => {
   verifier = new TokenVerifier();
-  verifier.sessions.set('token', {
-    actorId: ACTOR,
-    verifiedEmail: 'viewer@example.test',
-    assuranceLevel: 'aal1',
-  });
-  verifier.sessions.set('mfa-token', {
-    actorId: ACTOR,
-    verifiedEmail: 'viewer@example.test',
-    assuranceLevel: 'aal2',
-  });
+  verifier.sessions.set('token', { actorId: ACTOR, verifiedEmail: 'viewer@example.test' });
   store = new ConfigurableStaffStore();
   server = createApp({
     staff: {
@@ -134,11 +125,8 @@ describe('staff document download permission (REQ 23; gate 5)', () => {
       roles: ['viewer'],
       permissions: [{ name: 'document_download', effect: 'allow' }],
     };
-    // Owner decision (22 Oct 2026): a granted privileged permission needs MFA too.
-    const withoutMfa = await requestDownloadLink();
-    expect(withoutMfa.status).toBe(403);
-    expect(await withoutMfa.json()).toMatchObject({ error: { code: 'mfa_required' } });
-    const response = await requestDownloadLink('mfa-token');
+    // Owner decision (25 Oct 2026): the grant alone is enough; no multi-factor step.
+    const response = await requestDownloadLink();
     expect(response.status).toBe(200);
     const body: unknown = await response.json();
     expect(body).toMatchObject({ url: 'memory://signed' });

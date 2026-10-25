@@ -48,7 +48,7 @@ export function createDefaultEmailRouteDependencies(
     unsubscribeConsentVersion: process.env.MARKETING_CONSENT_VERSION ?? '1',
     registry: loadMachineRegistry(),
     authorizeDeliveryView: async (actorId, workspaceId) => {
-      const authorize = createAuthorize({ accessStore: staffStore, assuranceLevel: 'aal1' });
+      const authorize = createAuthorize({ accessStore: staffStore });
       const decision = await authorize({ actorId, workspaceId, action: 'workspace.read' });
       return decision.allowed;
     },

@@ -173,16 +173,7 @@ let jobStore: MemoryJobStore;
 
 beforeEach(async () => {
   verifier = new TokenVerifier();
-  verifier.sessions.set('aal1-token', {
-    actorId: ACTOR,
-    verifiedEmail: 'owner@example.test',
-    assuranceLevel: 'aal1',
-  });
-  verifier.sessions.set('aal2-token', {
-    actorId: ACTOR,
-    verifiedEmail: 'owner@example.test',
-    assuranceLevel: 'aal2',
-  });
+  verifier.sessions.set('token', { actorId: ACTOR, verifiedEmail: 'owner@example.test' });
   store = new MemoryStaffStore();
   leadStore = new MemoryLeadStore();
   jobStore = new MemoryJobStore();
@@ -229,7 +220,7 @@ describe('protected staff routes', () => {
     try {
       const response = await fetch(
         `http://127.0.0.1:${address.port}/api/v1/staff/workspaces/${WORKSPACE}/leads`,
-        { headers: { authorization: 'Bearer aal1-token' } },
+        { headers: { authorization: 'Bearer token' } },
       );
       expect(response.status).toBe(500);
       expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('internal_error');
@@ -257,7 +248,7 @@ describe('protected staff routes', () => {
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/invitations`, {
       method: 'POST',
       headers: {
-        authorization: 'Bearer aal2-token',
+        authorization: 'Bearer token',
         'content-type': 'application/json',
       },
       body: '{"email":',
@@ -280,13 +271,13 @@ describe('protected staff routes', () => {
 
   it('lists only the verified actor workspaces and exposes current access', async () => {
     const list = await fetch(`${baseUrl}/api/v1/staff/workspaces`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
     const listBody = staffWorkspacesResponseSchema.parse(await list.json());
     expect(listBody.workspaces).toEqual([workspace]);
 
     const access = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/access`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(staffWorkspaceAccessResponseSchema.parse(await access.json()).workspace).toEqual(
       workspace,
@@ -295,39 +286,23 @@ describe('protected staff routes', () => {
 
   it('denies a revoked member on the very next request with the same live token', async () => {
     const before = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/access`, {
-      headers: { authorization: 'Bearer aal2-token' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(before.status).toBe(200);
 
     store.access = { ...store.access, status: 'revoked' };
     const after = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/access`, {
-      headers: { authorization: 'Bearer aal2-token' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(after.status).toBe(403);
     expect(apiErrorResponseSchema.parse(await after.json()).error.code).toBe('membership_revoked');
   });
 
-  it('rejects a forged assurance header when the verified session is only aal1', async () => {
+  it('lets an owner invite staff on the signed-in session alone', async () => {
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/invitations`, {
       method: 'POST',
       headers: {
-        authorization: 'Bearer aal1-token',
-        'content-type': 'application/json',
-        'x-auth-assurance-level': 'aal2',
-      },
-      body: JSON.stringify({ email: 'new.staff@example.test', roles: ['orders'] }),
-    });
-
-    expect(response.status).toBe(403);
-    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('mfa_required');
-    expect(store.inviteStaff).not.toHaveBeenCalled();
-  });
-
-  it('allows the same privileged invitation with a verified aal2 session', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/invitations`, {
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer aal2-token',
+        authorization: 'Bearer token',
         'content-type': 'application/json',
       },
       body: JSON.stringify({ email: 'new.staff@example.test', roles: ['orders'] }),
@@ -341,7 +316,7 @@ describe('protected staff routes', () => {
   it('lists active members as assignee options for any workspace reader', async () => {
     store.access = { ...store.access, roles: ['viewer'] };
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/members`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(response.status).toBe(200);
     const body = listAssignableMembersResponseSchema.parse(await response.json());
@@ -352,7 +327,7 @@ describe('protected staff routes', () => {
   it('denies a foreign workspace the member list with 403 and no store call', async () => {
     const response = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/10000000-0000-4000-8000-0000000000ff/members`,
-      { headers: { authorization: 'Bearer aal1-token' } },
+      { headers: { authorization: 'Bearer token' } },
     );
     expect(response.status).toBe(403);
     expect(store.listAssignableMembers).not.toHaveBeenCalled();
@@ -361,7 +336,7 @@ describe('protected staff routes', () => {
   it('lists leads for any active member, with attribution, and applies the status filter', async () => {
     const response = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/leads?status=incomplete`,
-      { headers: { authorization: 'Bearer aal1-token' } },
+      { headers: { authorization: 'Bearer token' } },
     );
     expect(response.status).toBe(200);
     const body = listWorkspaceLeadsResponseSchema.parse(await response.json());
@@ -381,7 +356,7 @@ describe('protected staff routes', () => {
     const listAs = async (roles: StaffAccessSnapshot['roles']) => {
       store.access = { ...store.access, roles };
       const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/leads`, {
-        headers: { authorization: 'Bearer aal1-token' },
+        headers: { authorization: 'Bearer token' },
       });
       expect(response.status).toBe(200);
       return listWorkspaceLeadsResponseSchema.parse(await response.json()).leads;
@@ -389,17 +364,16 @@ describe('protected staff routes', () => {
     for (const role of ['viewer', 'content', 'partners'] as const) {
       expect(await listAs([role])).toEqual([{ ...sampleLead, contact: {} }]);
     }
-    // Finance sees contacts too, but only with an MFA-verified session.
-    for (const role of ['leads', 'orders'] as const) {
+    // Finance sees contacts too, through financial.read.
+    for (const role of ['leads', 'orders', 'finance'] as const) {
       expect(await listAs([role])).toEqual([sampleLead]);
     }
-    expect(await listAs(['finance'])).toEqual([{ ...sampleLead, contact: {} }]);
   });
 
   it('denies a revoked member the leads list', async () => {
     store.access = { ...store.access, status: 'revoked' };
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/leads`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(response.status).toBe(403);
     expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
@@ -410,7 +384,7 @@ describe('protected staff routes', () => {
   it('rejects an unknown status filter value', async () => {
     const response = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/leads?status=archived`,
-      { headers: { authorization: 'Bearer aal1-token' } },
+      { headers: { authorization: 'Bearer token' } },
     );
     expect(response.status).toBe(400);
     expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('invalid_request');
@@ -420,7 +394,7 @@ describe('protected staff routes', () => {
     store.access = { ...store.access, roles: ['viewer'], permissions: [] };
 
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/jobs`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
 
     expect(response.status).toBe(200);
@@ -436,7 +410,7 @@ describe('protected staff routes', () => {
   it('reports the full active-job total when the list is capped', async () => {
     jobStore.total = 612;
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/jobs`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
     const body = listWorkspaceJobsResponseSchema.parse(await response.json());
     expect(body.jobs).toHaveLength(1);
@@ -453,24 +427,20 @@ describe('protected staff routes', () => {
 
     it('denies a viewer with 403 and no store call', async () => {
       store.access = { ...store.access, roles: ['viewer'], permissions: [] };
-      const response = await resolve('aal2-token', { delivered: true });
+      const response = await resolve('token', { delivered: true });
       expect(response.status).toBe(403);
       expect(jobStore.resolveCalls).toEqual([]);
     });
 
-    it('needs an MFA session, then records delivered or not delivered', async () => {
+    it('records delivered or not delivered', async () => {
       store.access = { ...store.access, roles: ['owner'], permissions: [] };
-      const unverified = await resolve('aal1-token', { delivered: true });
-      expect(unverified.status).toBe(403);
-      expect(apiErrorResponseSchema.parse(await unverified.json()).error.code).toBe('mfa_required');
-
-      const delivered = await resolve('aal2-token', { delivered: true });
+      const delivered = await resolve('token', { delivered: true });
       expect(delivered.status).toBe(200);
       expect(resolveUncertainJobResponseSchema.parse(await delivered.json())).toMatchObject({
         jobId: sampleJob.id,
         status: 'completed',
       });
-      const notDelivered = await resolve('aal2-token', { delivered: false });
+      const notDelivered = await resolve('token', { delivered: false });
       expect(resolveUncertainJobResponseSchema.parse(await notDelivered.json()).status).toBe(
         'failed',
       );
@@ -482,15 +452,15 @@ describe('protected staff routes', () => {
 
     it('rejects a missing answer, and a job that is not uncertain', async () => {
       store.access = { ...store.access, roles: ['owner'], permissions: [] };
-      expect((await resolve('aal2-token', {})).status).toBe(400);
+      expect((await resolve('token', {})).status).toBe(400);
       jobStore.resolveResult = 'not_uncertain';
-      const conflict = await resolve('aal2-token', { delivered: true });
+      const conflict = await resolve('token', { delivered: true });
       expect(conflict.status).toBe(409);
       expect(apiErrorResponseSchema.parse(await conflict.json()).error.code).toBe(
         'job_not_uncertain',
       );
       jobStore.resolveResult = 'not_found';
-      expect((await resolve('aal2-token', { delivered: true })).status).toBe(404);
+      expect((await resolve('token', { delivered: true })).status).toBe(404);
     });
   });
 
@@ -499,7 +469,7 @@ describe('protected staff routes', () => {
 
     const response = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/jobs/${sampleJob.id}/retry`,
-      { method: 'POST', headers: { authorization: 'Bearer aal1-token' } },
+      { method: 'POST', headers: { authorization: 'Bearer token' } },
     );
 
     expect(response.status).toBe(403);
@@ -507,25 +477,15 @@ describe('protected staff routes', () => {
   });
 
   it('lets an integration-management holder retry a failed job', async () => {
-    // `integration.manage` is privileged, so an owner session must have
-    // completed MFA (aal2) before the retry is allowed.
     store.access = {
       ...store.access,
       roles: ['owner'],
       permissions: [{ name: 'integration_management', effect: 'allow' }],
     };
 
-    const unverified = await fetch(
-      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/jobs/${sampleJob.id}/retry`,
-      { method: 'POST', headers: { authorization: 'Bearer aal1-token' } },
-    );
-    expect(unverified.status).toBe(403);
-    expect(apiErrorResponseSchema.parse(await unverified.json()).error.code).toBe('mfa_required');
-    expect(jobStore.retryCalls).toEqual([]);
-
     const response = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/jobs/${sampleJob.id}/retry`,
-      { method: 'POST', headers: { authorization: 'Bearer aal2-token' } },
+      { method: 'POST', headers: { authorization: 'Bearer token' } },
     );
 
     expect(response.status).toBe(200);
@@ -538,7 +498,7 @@ describe('protected staff routes', () => {
     const FOREIGN_WORKSPACE = '10000000-0000-4000-8000-0000000000ff';
 
     const response = await fetch(`${baseUrl}/api/v1/staff/workspaces/${FOREIGN_WORKSPACE}/jobs`, {
-      headers: { authorization: 'Bearer aal1-token' },
+      headers: { authorization: 'Bearer token' },
     });
 
     expect(response.status).toBe(403);

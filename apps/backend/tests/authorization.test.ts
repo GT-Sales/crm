@@ -34,50 +34,54 @@ describe('central staff authorization', () => {
   it('denies an owner in workspace A from reading workspace B without membership', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['owner']));
-    const authorize = createAuthorize({ accessStore: store, assuranceLevel: 'aal2' });
+    const authorize = createAuthorize({ accessStore: store });
 
     await expect(
       authorize({ actorId: ACTOR, workspaceId: WORKSPACE_B, action: 'workspace.read' }),
     ).resolves.toEqual({ allowed: false, reason: 'membership_missing' });
   });
 
+  it('denies a pending or revoked membership before looking at roles', async () => {
+    const store = new MemoryAccessStore();
+    const authorize = createAuthorize({ accessStore: store });
+    for (const status of ['pending', 'revoked'] as const) {
+      store.rows.set(`${ACTOR}:${WORKSPACE_A}`, { ...activeAccess(['owner']), status });
+      await expect(
+        authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'workspace.read' }),
+      ).resolves.toEqual({ allowed: false, reason: `membership_${status}` });
+    }
+  });
+
   it('denies the Orders role a document download without an individual permission', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['orders']));
-    const authorize = createAuthorize({ accessStore: store, assuranceLevel: 'aal1' });
+    const authorize = createAuthorize({ accessStore: store });
 
     await expect(
       authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'document.download' }),
     ).resolves.toEqual({ allowed: false, reason: 'permission_denied' });
   });
 
-  it('requires MFA for an individually granted privileged permission, not only for Owner/Finance', async () => {
+  it('allows an individually granted privileged permission alongside ordinary work', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(
       `${ACTOR}:${WORKSPACE_A}`,
       activeAccess(['orders'], [{ name: 'document_download', effect: 'allow' }]),
     );
-    const withoutMfa = createAuthorize({ accessStore: store, assuranceLevel: 'aal1' });
-    await expect(
-      withoutMfa({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'document.download' }),
-    ).resolves.toEqual({ allowed: false, reason: 'mfa_required' });
-    // Ordinary work stays available without MFA.
-    await expect(
-      withoutMfa({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'order.manage' }),
-    ).resolves.toMatchObject({ allowed: true });
-  });
-
-  it('lets an explicit allow grant override a role denial and lets an explicit deny override a role allow', async () => {
-    const store = new MemoryAccessStore();
-    const authorize = createAuthorize({ accessStore: store, assuranceLevel: 'aal2' });
-    store.rows.set(
-      `${ACTOR}:${WORKSPACE_A}`,
-      activeAccess(['orders'], [{ name: 'document_download', effect: 'allow' }]),
-    );
+    const authorize = createAuthorize({ accessStore: store });
+    // Owner decision (25 Oct 2026): no multi-factor step, so the grant alone
+    // is enough for a privileged action.
     await expect(
       authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'document.download' }),
     ).resolves.toMatchObject({ allowed: true, reason: 'individual_allowed' });
+    await expect(
+      authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'order.manage' }),
+    ).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+  });
 
+  it('lets an explicit deny override a role allow', async () => {
+    const store = new MemoryAccessStore();
+    const authorize = createAuthorize({ accessStore: store });
     store.rows.set(
       `${ACTOR}:${WORKSPACE_A}`,
       activeAccess(['owner'], [{ name: 'document_download', effect: 'deny' }]),
@@ -87,33 +91,25 @@ describe('central staff authorization', () => {
     ).resolves.toEqual({ allowed: false, reason: 'permission_denied' });
   });
 
-  it('denies an MFA-less Finance member a privileged finance action', async () => {
+  it('allows a Finance member a privileged finance action', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['finance']));
-    const authorize = createAuthorize({ accessStore: store, assuranceLevel: 'aal1' });
+    const authorize = createAuthorize({ accessStore: store });
 
     await expect(
       authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'financial.read' }),
-    ).resolves.toEqual({ allowed: false, reason: 'mfa_required' });
+    ).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
   });
 
-  it('denies an Owner privileged action at aal1 and allows it at verified aal2', async () => {
+  it('allows an Owner every privileged action on the signed-in session alone', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['owner']));
+    const authorize = createAuthorize({ accessStore: store });
 
-    await expect(
-      createAuthorize({ accessStore: store, assuranceLevel: 'aal1' })({
-        actorId: ACTOR,
-        workspaceId: WORKSPACE_A,
-        action: 'staff.invite',
-      }),
-    ).resolves.toEqual({ allowed: false, reason: 'mfa_required' });
-    await expect(
-      createAuthorize({ accessStore: store, assuranceLevel: 'aal2' })({
-        actorId: ACTOR,
-        workspaceId: WORKSPACE_A,
-        action: 'staff.invite',
-      }),
-    ).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+    for (const action of ['staff.invite', 'record.delete', 'integration.manage'] as const) {
+      await expect(
+        authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action }),
+      ).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+    }
   });
 });

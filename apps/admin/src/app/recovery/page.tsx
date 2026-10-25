@@ -36,7 +36,7 @@ export default function RecoveryPage() {
       if (updateMode) {
         const result = await auth.updateUser({ password });
         if (result.error) throw result.error;
-        setMessage('Password updated. MFA is still required for privileged actions.');
+        setMessage('Password updated. Sign in with the new password.');
       } else {
         await auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/recovery?mode=update`,
@@ -66,7 +66,7 @@ export default function RecoveryPage() {
             <h1>Recover staff access</h1>
           </CardTitle>
           <CardDescription>
-            Password recovery never bypasses the backend&apos;s verified aal2 requirement.
+            Request a recovery email, then set a new password from its link.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
@@ -110,19 +110,6 @@ export default function RecoveryPage() {
               {message}
             </p>
           ) : null}
-          <section className="space-y-2 border-t pt-4" aria-labelledby="lost-mfa-title">
-            <h2 id="lost-mfa-title" className="font-medium">
-              Lost an authenticator?
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Use another enrolled TOTP factor. If every factor is lost, follow the controlled staff
-              recovery runbook; a factor reset must be performed in the provider console and a new
-              factor enrolled before privileged work resumes.
-            </p>
-            <Link href="/mfa/challenge" className="text-sm text-primary underline">
-              Try a backup authenticator
-            </Link>
-          </section>
           <Button asChild variant="outline">
             <Link href="/login">Back to sign in</Link>
           </Button>

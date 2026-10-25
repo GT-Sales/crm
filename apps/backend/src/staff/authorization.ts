@@ -5,8 +5,6 @@ import type {
   StaffRoleName,
 } from '@gt-sales/types';
 
-import type { AssuranceLevel } from '../auth/session.js';
-
 const tuple = <const Values extends readonly string[]>(...values: Values): Values => values;
 
 const actionNames = tuple(
@@ -47,18 +45,6 @@ const permissionActions = {
   integration_management: 'integration.manage',
 } satisfies Record<StaffPermissionName, StaffAction>;
 
-const privilegedActions = new Set<StaffAction>([
-  'staff.invite',
-  'staff.remove',
-  'staff.roles.manage',
-  'document.download',
-  'financial.read',
-  'export.bulk',
-  'record.delete',
-  'invoice.approve',
-  'integration.manage',
-]);
-
 export interface IndividualPermission {
   name: StaffPermissionName;
   effect: PermissionEffect;
@@ -78,11 +64,7 @@ export interface StaffAccessStore {
 export type AuthorizationAllowReason = 'role_allowed' | 'individual_allowed';
 
 export type AuthorizationDenyReason =
-  | 'membership_missing'
-  | 'membership_pending'
-  | 'membership_revoked'
-  | 'permission_denied'
-  | 'mfa_required';
+  'membership_missing' | 'membership_pending' | 'membership_revoked' | 'permission_denied';
 
 export type AuthorizationReason = AuthorizationAllowReason | AuthorizationDenyReason;
 
@@ -106,7 +88,6 @@ export function denyReasonOf(decision: AuthorizationDecision): AuthorizationDeny
     case 'membership_pending':
     case 'membership_revoked':
     case 'permission_denied':
-    case 'mfa_required':
       return decision.reason;
     default:
       throw new Error('denyReasonOf called with an allowed AuthorizationDecision');
@@ -119,10 +100,13 @@ export interface AuthorizeInput {
   action: StaffAction;
 }
 
-export function createAuthorize(options: {
-  accessStore: StaffAccessStore;
-  assuranceLevel: AssuranceLevel;
-}) {
+/**
+ * Per-action authorization: an active membership, then an individual deny,
+ * then an individual allow or a role allow. Owner decision (25 Oct 2026):
+ * there is no multi-factor step, so a signed-in session with the right role
+ * or permission is the whole gate, privileged actions included.
+ */
+export function createAuthorize(options: { accessStore: StaffAccessStore }) {
   return async function authorize(input: AuthorizeInput): Promise<AuthorizationDecision> {
     const access = await options.accessStore.loadStaffAccess(input.actorId, input.workspaceId);
     if (!access) return { allowed: false, reason: 'membership_missing' };
@@ -140,13 +124,6 @@ export function createAuthorize(options: {
     const roleAllowed = access.roles.some((role) => roleActions[role].has(input.action));
     if (!individualAllowed && !roleAllowed) {
       return { allowed: false, reason: 'permission_denied' };
-    }
-
-    // Owner decision (22 Oct 2026): every privileged action needs an MFA-verified
-    // session, whoever holds it — including an individually granted permission
-    // on an Orders/Viewer/Content/Partners member, not only Owner/Finance roles.
-    if (privilegedActions.has(input.action) && options.assuranceLevel !== 'aal2') {
-      return { allowed: false, reason: 'mfa_required' };
     }
 
     return {

@@ -18,19 +18,19 @@ Supabase Auth, and the machine registry for the scheduler.
 
 ## Where things are
 
-| Path                                        | What it holds                                                                                                                            |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/app.ts`, `src/server.ts`               | App wiring (middleware, CORS, routes) and the listener with graceful shutdown.                                                           |
-| `src/scheduler.ts`, `src/shutdown.ts`       | In-process schedule with overlap guards; shutdown inside Railway's drain window.                                                         |
-| `src/routes/`                               | `website` (lead intake, draft resume, customer uploads), `staff` (admin), `email` (Resend events), `jobs` (manual runs), `health`.       |
-| `src/website/`, `src/auth/`, `src/staff/`   | Service-credential auth, per-endpoint rate limits and bot check; Supabase staff sessions, per-action authorization and the `aal2` check. |
-| `src/leads/`                                | Lead store (lead types, contact merge by normalized email, draft grants, attribution sanitizer, source label).                           |
-| `src/documents/`                            | Signed upload intents, finalize with file-signature verification, staff review, download links, expired-upload cleanup.                  |
-| `src/email/`, `src/jobs/`, `src/retention/` | Email persistence (hashed contacts, suppressions, consents, follow-ups), outbox store and provider wiring, retention tasks.              |
-| `src/machines/`                             | The server-only machine registry (webhook and scheduler identities).                                                                     |
-| `src/crypto/cipher.ts`                      | AES-256-GCM sealing, kept for SIN protection in phase 1.                                                                                 |
-| `tests/`                                    | Vitest unit tests and `*.integration.test.ts` against a disposable Postgres; `isolation.spec.ts` is the tenant-isolation gate.           |
-| `Dockerfile`                                | Root-context image build for Railway (`railway.json` at the repo root).                                                                  |
+| Path                                        | What it holds                                                                                                                      |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app.ts`, `src/server.ts`               | App wiring (middleware, CORS, routes) and the listener with graceful shutdown.                                                     |
+| `src/scheduler.ts`, `src/shutdown.ts`       | In-process schedule with overlap guards; shutdown inside Railway's drain window.                                                   |
+| `src/routes/`                               | `website` (lead intake, draft resume, customer uploads), `staff` (admin), `email` (Resend events), `jobs` (manual runs), `health`. |
+| `src/website/`, `src/auth/`, `src/staff/`   | Service-credential auth, per-endpoint rate limits and bot check; Supabase staff sessions, per-action authorization.                |
+| `src/leads/`                                | Lead store (lead types, contact merge by normalized email, draft grants, attribution sanitizer, source label).                     |
+| `src/documents/`                            | Signed upload intents, finalize with file-signature verification, staff review, download links, expired-upload cleanup.            |
+| `src/email/`, `src/jobs/`, `src/retention/` | Email persistence (hashed contacts, suppressions, consents, follow-ups), outbox store and provider wiring, retention tasks.        |
+| `src/machines/`                             | The server-only machine registry (webhook and scheduler identities).                                                               |
+| `src/crypto/cipher.ts`                      | AES-256-GCM sealing, kept for SIN protection in phase 1.                                                                           |
+| `tests/`                                    | Vitest unit tests and `*.integration.test.ts` against a disposable Postgres; `isolation.spec.ts` is the tenant-isolation gate.     |
+| `Dockerfile`                                | Root-context image build for Railway (`railway.json` at the repo root).                                                            |
 
 ## Reference
 

@@ -19,7 +19,6 @@ import {
   SupabaseStaffSessionVerifier,
   type StaffRateLimit,
   type StaffSessionVerifier,
-  type VerifiedStaffSession,
 } from '../auth/session.js';
 import { isConnectionLevelError, logRequestError } from '../http/logger.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
@@ -88,12 +87,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   const router = Router();
   router.use(requireStaffSession(dependencies.sessionVerifier, dependencies.rateLimit));
 
-  function authorizeWith(actor: VerifiedStaffSession) {
-    return createAuthorize({
-      accessStore: dependencies.store,
-      assuranceLevel: actor.assuranceLevel,
-    });
-  }
+  const authorize = createAuthorize({ accessStore: dependencies.store });
 
   /**
    * Every handler's last-resort failure path: a scrubbed log record plus the
@@ -126,7 +120,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   /** One live authorization decision for this actor and workspace. */
   async function decide(req: Request, workspaceId: string, action: StaffAction) {
     const actor = session(req);
-    const authorize = authorizeWith(actor);
     const decision = await authorize({ actorId: actor.actorId, workspaceId, action });
     return { actor, decision };
   }
@@ -138,7 +131,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
    */
   async function canSeeContacts(req: Request, workspaceId: string): Promise<boolean> {
     const actor = session(req);
-    const authorize = authorizeWith(actor);
     const [leadsAccess, orders, finance] = await Promise.all([
       authorize({ actorId: actor.actorId, workspaceId, action: 'lead.manage' }),
       authorize({ actorId: actor.actorId, workspaceId, action: 'order.manage' }),
@@ -264,7 +256,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
     try {
       const actor = session(req);
-      const authorize = authorizeWith(actor);
       const decision = await authorize({
         actorId: actor.actorId,
         workspaceId: workspaceId.data,

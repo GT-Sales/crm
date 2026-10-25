@@ -18,7 +18,6 @@ export const staffAuthErrorCodeSchema = z.enum([
   'membership_pending',
   'membership_revoked',
   'permission_denied',
-  'mfa_required',
   'membership_not_found',
   'membership_conflict',
   'internal_error',

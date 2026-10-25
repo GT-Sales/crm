@@ -4,12 +4,9 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
 import { sendStaffAuthError } from '../http/staff-errors.js';
 
-export type AssuranceLevel = 'aal1' | 'aal2';
-
 export interface VerifiedStaffSession {
   actorId: string;
   verifiedEmail: string;
-  assuranceLevel: AssuranceLevel;
 }
 
 export interface StaffSessionVerifier {
@@ -39,10 +36,11 @@ export function isJwtShaped(token: string): boolean {
 
 export class SupabaseStaffSessionVerifier implements StaffSessionVerifier {
   async verify(accessToken: string): Promise<VerifiedStaffSession | undefined> {
-    // REL-17: a token that cannot be a Supabase JWT never costs two Auth calls.
+    // REL-17: a token that cannot be a Supabase JWT never costs an Auth call.
     if (!isJwtShaped(accessToken)) return undefined;
-    // A fresh stateless client is created for each request. Identity and AAL
-    // both come from Supabase Auth server calls for this exact bearer token.
+    // A fresh stateless client is created for each request. Identity comes
+    // from a Supabase Auth server call for this exact bearer token, never
+    // from the token's own claims.
     const auth = authClient();
     const userResult = await auth.getUser(accessToken);
     const user = userResult.data.user;
@@ -50,14 +48,7 @@ export class SupabaseStaffSessionVerifier implements StaffSessionVerifier {
       return undefined;
     }
 
-    const assurance = await auth.mfa.getAuthenticatorAssuranceLevel(accessToken);
-    if (assurance.error || !assurance.data.currentLevel) return undefined;
-
-    return {
-      actorId: user.id,
-      verifiedEmail: user.email,
-      assuranceLevel: assurance.data.currentLevel === 'aal2' ? 'aal2' : 'aal1',
-    };
+    return { actorId: user.id, verifiedEmail: user.email };
   }
 }
 

@@ -47,14 +47,8 @@ const { secret: REVOKED_WEBSITE_SECRET } = generateServiceSecret();
 const { secret: FOREIGN_WEBSITE_SECRET } = generateServiceSecret();
 
 const sessions = new Map<string, VerifiedStaffSession>([
-  [
-    'owner-aal2',
-    { actorId: OWNER_A, verifiedEmail: 'owner-a@example.test', assuranceLevel: 'aal2' },
-  ],
-  [
-    'viewer-forged-role',
-    { actorId: VIEWER_B, verifiedEmail: 'viewer-b@example.test', assuranceLevel: 'aal2' },
-  ],
+  ['owner', { actorId: OWNER_A, verifiedEmail: 'owner-a@example.test' }],
+  ['viewer-forged-role', { actorId: VIEWER_B, verifiedEmail: 'viewer-b@example.test' }],
 ]);
 const signingKey = 'disposable-auth-fixture-signing-key';
 const issuedTokens = new Map<string, { session: VerifiedStaffSession; expiresAt: number }>();
@@ -67,7 +61,6 @@ for (const [name, session] of sessions) {
       JSON.stringify({
         sub: session.actorId,
         email: session.verifiedEmail,
-        aal: session.assuranceLevel,
         exp: expiresAt,
         iat: expiresAt - 3600,
       }),
@@ -218,7 +211,7 @@ databaseTest('Phase A tenant isolation gate', () => {
   test('altered staff workspace IDs and foreign fixture IDs fail closed', async () => {
     const alteredWorkspace = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE_B}/access`,
-      { headers: bearer('owner-aal2') },
+      { headers: bearer('owner') },
     );
     expect(alteredWorkspace.status).toBe(403);
     expect(apiErrorResponseSchema.parse(await alteredWorkspace.json()).error.code).toBe(
@@ -227,13 +220,13 @@ databaseTest('Phase A tenant isolation gate', () => {
 
     const foreignMembership = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE_A}/memberships/${VIEWER_MEMBERSHIP_B}`,
-      { method: 'DELETE', headers: bearer('owner-aal2') },
+      { method: 'DELETE', headers: bearer('owner') },
     );
     expect(foreignMembership.status).toBe(404);
 
     const foreignCredential = await fetch(
       `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE_A}/service-credentials/${FOREIGN_CREDENTIAL_B}`,
-      { method: 'DELETE', headers: bearer('owner-aal2') },
+      { method: 'DELETE', headers: bearer('owner') },
     );
     expect(foreignCredential.status).toBe(404);
 
@@ -249,7 +242,7 @@ databaseTest('Phase A tenant isolation gate', () => {
 
   test('a removed membership is denied on the next request with the same session', async () => {
     const before = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE_A}/access`, {
-      headers: bearer('owner-aal2'),
+      headers: bearer('owner'),
     });
     expect(before.status).toBe(200);
     await admin`
@@ -258,7 +251,7 @@ databaseTest('Phase A tenant isolation gate', () => {
       where id = ${OWNER_MEMBERSHIP_A}
     `;
     const after = await fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE_A}/access`, {
-      headers: bearer('owner-aal2'),
+      headers: bearer('owner'),
     });
     expect(after.status).toBe(403);
     expect(apiErrorResponseSchema.parse(await after.json()).error.code).toBe('membership_revoked');

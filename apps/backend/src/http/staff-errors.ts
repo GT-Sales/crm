@@ -10,7 +10,6 @@ const messages: Record<StaffAuthErrorCode, string> = {
   membership_pending: 'The staff membership is still pending.',
   membership_revoked: 'The staff membership has been revoked.',
   permission_denied: 'The staff member lacks the required permission.',
-  mfa_required: 'A verified multi-factor session is required for this action.',
   membership_not_found: 'The staff membership is unavailable.',
   membership_conflict: 'A matching staff membership already exists.',
   internal_error: 'The request could not be completed.',

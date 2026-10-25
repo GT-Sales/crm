@@ -34,7 +34,7 @@ function stubSupabaseRejecting() {
 }
 
 describe('Supabase staff session verification', () => {
-  it('lets Supabase reject a well-formed token with a forged aal2 payload', async () => {
+  it('lets Supabase reject a well-formed token with a forged payload', async () => {
     const request = stubSupabaseRejecting();
     const forged = `${FORGED_PAYLOAD}.c2lnbmF0dXJl`;
     await expect(new SupabaseStaffSessionVerifier().verify(forged)).resolves.toBeUndefined();
@@ -72,7 +72,6 @@ describe('staff route rate limit (REL-17)', () => {
     verify: vi.fn(async () => ({
       actorId: '20000000-0000-4000-8000-000000000001',
       verifiedEmail: 'owner@example.test',
-      assuranceLevel: 'aal1' as const,
     })),
   });
 

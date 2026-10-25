@@ -44,7 +44,7 @@ function buildCsp(): string {
     'object-src': ["'none'"],
     'frame-ancestors': ["'none'"],
     'form-action': ["'self'"],
-    // Admin loads only its own icon and the data: MFA QR code.
+    // Admin loads only its own icon; data: and blob: cover inline previews.
     'img-src': ["'self'", 'data:', 'blob:'],
     'font-src': ["'self'", 'data:'],
     'style-src': ["'self'", "'unsafe-inline'"],

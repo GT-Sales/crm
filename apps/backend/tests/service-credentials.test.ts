@@ -99,16 +99,7 @@ const credentialsPath = `/api/v1/staff/workspaces/${WORKSPACE}/service-credentia
 
 beforeEach(async () => {
   verifier = new TokenVerifier();
-  verifier.sessions.set('aal1', {
-    actorId: ACTOR,
-    verifiedEmail: 'o@example.test',
-    assuranceLevel: 'aal1',
-  });
-  verifier.sessions.set('aal2', {
-    actorId: ACTOR,
-    verifiedEmail: 'o@example.test',
-    assuranceLevel: 'aal2',
-  });
+  verifier.sessions.set('token', { actorId: ACTOR, verifiedEmail: 'o@example.test' });
   store = new MemoryStaffStore();
   credentialStore = new MemoryCredentialStore();
   server = createApp({
@@ -133,8 +124,8 @@ function create(token: string, body: unknown) {
 }
 
 describe('service credential management', () => {
-  it('issues a credential once for a verified aal2 owner and stores only its hash', async () => {
-    const response = await create('aal2', { scopes: ['leads:write', 'uploads:customer'] });
+  it('issues a credential once for an owner and stores only its hash', async () => {
+    const response = await create('token', { scopes: ['leads:write', 'uploads:customer'] });
     expect(response.status).toBe(201);
     const body = createServiceCredentialResponseSchema.parse(await response.json());
     expect(body.secret.startsWith('gtsk_')).toBe(true);
@@ -143,16 +134,9 @@ describe('service credential management', () => {
     expect(credentialStore.lastSecretHash).toBe(hashServiceSecret(body.secret));
   });
 
-  it('refuses an owner whose session is only aal1', async () => {
-    const response = await create('aal1', { scopes: ['leads:write'] });
-    expect(response.status).toBe(403);
-    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('mfa_required');
-    expect(credentialStore.records).toHaveLength(0);
-  });
-
   it('refuses a role without integration management', async () => {
     store.access = { ...store.access, roles: ['viewer'] };
-    const response = await create('aal2', { scopes: ['leads:write'] });
+    const response = await create('token', { scopes: ['leads:write'] });
     expect(response.status).toBe(403);
     expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
       'permission_denied',
@@ -160,14 +144,14 @@ describe('service credential management', () => {
   });
 
   it('rejects an empty or unknown scope set', async () => {
-    expect((await create('aal2', { scopes: [] })).status).toBe(400);
-    expect((await create('aal2', { scopes: ['staff:everything'] })).status).toBe(400);
+    expect((await create('token', { scopes: [] })).status).toBe(400);
+    expect((await create('token', { scopes: ['staff:everything'] })).status).toBe(400);
   });
 
   it('lists and revokes credentials', async () => {
-    await create('aal2', { scopes: ['leads:write'] });
+    await create('token', { scopes: ['leads:write'] });
     const list = await fetch(`${baseUrl}${credentialsPath}`, {
-      headers: { authorization: 'Bearer aal2' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(listServiceCredentialsResponseSchema.parse(await list.json()).credentials).toHaveLength(
       1,
@@ -175,7 +159,7 @@ describe('service credential management', () => {
 
     const revoke = await fetch(`${baseUrl}${credentialsPath}/${CREDENTIAL}`, {
       method: 'DELETE',
-      headers: { authorization: 'Bearer aal2' },
+      headers: { authorization: 'Bearer token' },
     });
     expect(revoke.status).toBe(200);
     expect(revokeServiceCredentialResponseSchema.parse(await revoke.json()).id).toBe(CREDENTIAL);
@@ -184,7 +168,7 @@ describe('service credential management', () => {
   it('returns credential_not_found when revoking a missing credential', async () => {
     const response = await fetch(
       `${baseUrl}${credentialsPath}/90000000-0000-4000-8000-000000000999`,
-      { method: 'DELETE', headers: { authorization: 'Bearer aal2' } },
+      { method: 'DELETE', headers: { authorization: 'Bearer token' } },
     );
     expect(response.status).toBe(404);
     expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(

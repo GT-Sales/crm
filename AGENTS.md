@@ -41,7 +41,8 @@ The code was copied from the Canadian Plans platform and pruned
    the empty file. Never edit an applied migration.
 4. **Staff authorization is per action** (`apps/backend/src/staff/authorization.ts`).
    Roles: `owner`, `leads`, `orders`, `partners`, `finance`, `content`,
-   `viewer`. Privileged actions need an MFA-verified (`aal2`) session.
+   `viewer`. A privileged action needs only the role or per-member permission that
+   grants it; there is no authenticator-code step (owner decision, 25 Oct 2026).
    Contact details on the leads list are shown only to roles with
    `lead.manage`, `order.manage` or `financial.read`.
 5. **Websites authenticate with a service credential** (`gtsk_…`, hashed at

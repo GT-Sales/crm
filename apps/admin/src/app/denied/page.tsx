@@ -11,7 +11,6 @@ const descriptions: Record<StaffAuthErrorCode, string> = {
   membership_pending: 'Your membership has not been accepted yet.',
   membership_revoked: 'Your membership has been revoked.',
   permission_denied: 'Your current roles and permissions do not allow this action.',
-  mfa_required: 'Complete multi-factor verification for this privileged action.',
   membership_not_found: 'The requested membership is unavailable.',
   membership_conflict: 'A matching membership already exists.',
   internal_error: 'The authorization check could not be completed.',
@@ -40,11 +39,6 @@ export default async function DeniedPage({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-center font-mono text-xs text-muted-foreground">Reason: {reason}</p>
-          {reason === 'mfa_required' ? (
-            <Button asChild className="w-full">
-              <Link href="/mfa/challenge">Verify MFA</Link>
-            </Button>
-          ) : null}
           <Button asChild variant="outline" className="w-full">
             <Link href="/login">Back to sign in</Link>
           </Button>
