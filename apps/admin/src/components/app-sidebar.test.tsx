@@ -17,25 +17,38 @@ function renderSidebar(workspace: string) {
 
 describe('AppSidebar', () => {
   it('marks the current section as the active page', () => {
-    usePathname.mockReturnValue('/w/site-1/orders');
-    renderSidebar('site-1');
+    usePathname.mockReturnValue('/w/getcanadasim/leads');
+    renderSidebar('getcanadasim');
 
-    expect(screen.getByRole('link', { name: /orders/i }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: /leads/i }).getAttribute('aria-current')).toBe('page');
   });
 
   it('does not mark a different section as active', () => {
-    usePathname.mockReturnValue('/w/site-1/orders');
-    renderSidebar('site-1');
+    usePathname.mockReturnValue('/w/getcanadasim/leads');
+    renderSidebar('getcanadasim');
 
-    expect(screen.getByRole('link', { name: /leads/i }).getAttribute('aria-current')).toBeNull();
+    expect(
+      screen.getByRole('link', { name: /documents/i }).getAttribute('aria-current'),
+    ).toBeNull();
   });
 
-  it('links every nav item to the current workspace slug', () => {
-    usePathname.mockReturnValue('/w/site-2/leads');
-    renderSidebar('site-2');
+  it('links every nav item to the current site slug', () => {
+    usePathname.mockReturnValue('/w/canadawide/leads');
+    renderSidebar('canadawide');
 
-    expect(screen.getByRole('link', { name: /partners/i }).getAttribute('href')).toBe(
-      '/w/site-2/partners',
+    expect(screen.getByRole('link', { name: /documents/i }).getAttribute('href')).toBe(
+      '/w/canadawide/documents',
     );
+  });
+
+  it('offers only sections that exist', () => {
+    usePathname.mockReturnValue('/w/canadawide/leads');
+    renderSidebar('canadawide');
+
+    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+      'Leads',
+      'Documents',
+      'Settings',
+    ]);
   });
 });

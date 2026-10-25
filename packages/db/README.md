@@ -1,39 +1,76 @@
-# @canadian-plans/db
+# @gt-sales/db
 
-**This package is imported ONLY by `apps/backend` among business applications.** The defining package can import itself. An exact-file allowlist for offline migration/backup/restore/database-test tooling is currently empty; neither `jobs/**` nor `scripts/**` receives blanket access.
+**Imported only by `apps/backend`.** The ESLint boundary rule
+(`check:frontend-db-boundary` in CI) fails any other import.
 
-## Single responsibility
+## What it owns
 
-Own the Drizzle persistence schema, checked-in migrations, row types, pooled runtime client and tenant transaction helper. The first migration creates the global workspace registry plus tenant-owned memberships, roles, role assignments, permissions, permission assignments, service credentials and audit events in the private `app` schema.
+The Drizzle schema (`src/schema.ts`), the checked-in migrations (`drizzle/`),
+row types, the pooled runtime client with `withTenantTx` / `withActorTx`, and
+the synthetic development seed.
 
-## Connections and migrations
+Tables live in the private `app` schema: the site registry (`workspaces`),
+staff access (`memberships`, `roles`, `membership_roles`, `permissions`,
+`membership_permissions`), the global `contacts` table (merge by normalized
+email), `leads` with `lead_activities` and `lead_tasks`, `draft_grants`, the
+outbox, `service_credentials`, `rate_limit_buckets`, `audit_events`, documents
+(`files`, `file_revisions`, `file_review_events`) and the email tables.
 
-The backend runtime uses `DATABASE_URL`, connected as the non-owner `app_runtime` role through Supavisor transaction mode. The Postgres.js client is module-scoped, capped at one connection per warm serverless instance, and always sets `prepare: false` because transaction mode does not support named prepared statements.
+## Migrations
 
-T5 adds `withActorTx(actorId, fn)` for the two fixed-shape staff bootstrap functions only. It sets just transaction-local `app.actor_id`; it is not a general cross-tenant query path. `app.list_staff_workspaces()` returns only the verified actor's active membership metadata. `app.accept_staff_invitations(email, requestId)` binds only pending invitations matching the verified Auth email and writes an audit event.
+- `0000_app_foundation.sql` — drizzle-kit output (tables, indexes, checks,
+  policies, `ENABLE ROW LEVEL SECURITY`) with the `app_runtime` role block
+  prepended.
+- `0001_runtime_functions.sql` — hand-written: grants per table, `FORCE ROW
+LEVEL SECURITY`, the SECURITY DEFINER bootstrap functions
+  (`list_staff_workspaces`, `accept_staff_invitations`,
+  `resolve_website_credential`, `rate_limit_hit`, `prune_operational_rows`),
+  and the audit-redaction and customer-restriction triggers.
 
-Migrations use the separate, privileged `MIGRATION_DATABASE_URL`; never point it at the runtime role. Apply checked-in migrations with:
+After changing `schema.ts`: `pnpm --filter @gt-sales/db db:generate`, then
+`pnpm exec drizzle-kit generate --custom --name <grants>` for the grants and
+FORCE RLS the generator does not emit. Never edit an applied migration.
+
+Apply with the separate, privileged `MIGRATION_DATABASE_URL` (direct port
+5432, `postgres` role), never the runtime role:
 
 ```sh
-pnpm --filter @canadian-plans/db db:migrate
+pnpm --filter @gt-sales/db db:migrate
 ```
 
-Both connections require TLS by default. Local disposable PostgreSQL may set `DATABASE_SSL_MODE=disable` and `MIGRATION_DATABASE_SSL_MODE=disable`; deployed Supabase environments leave both at `require` (or omit them).
+See [docs/RUNBOOKS/database.md](../../docs/RUNBOOKS/database.md) for the
+hosted project, including how to record a migration applied by other means.
 
-## Tenant transactions
+## Connections
 
-Every runtime unit of work uses `withTenantTx({ workspaceId, actorId }, fn)`. It starts a transaction on the pooled client and calls `set_config(..., true)` for both `app.workspace_id` and `app.actor_id`; the `true` flag is PostgreSQL's parameter-safe equivalent of `SET LOCAL`.
+The backend runtime uses `DATABASE_URL` as the non-owner `app_runtime` role
+through Supabase's transaction-mode pooler. The client always sets
+`prepare: false` (transaction mode has no named prepared statements) and a
+small application-side pool (`DATABASE_POOL_MAX`, default 8).
 
-Transaction-local settings are mandatory under transaction pooling. A session-level `SET` could remain on a physical connection and be inherited by an unrelated request when the pooler reuses that connection. `SET LOCAL` disappears automatically on commit or rollback. Policies also use `current_setting(..., true)` plus `nullif(..., '')`, so fresh sessions and reused connections with cleared custom settings both fail closed.
+Every runtime unit of work is `withTenantTx({ workspaceId, actorId }, fn)`: a
+transaction that sets `app.workspace_id` and `app.actor_id` with
+`set_config(..., true)` (transaction-local, so a pooled connection never leaks
+context). Policies use `current_setting(..., true)` plus `nullif(..., '')`, so a
+fresh session fails closed. `withActorTx(actorId, fn)` exists only for the two
+staff bootstrap functions; it is not a cross-tenant query path.
 
-The Vitest integration suite runs only when `TEST_MIGRATION_DATABASE_URL` and `DB_TEST_ALLOW_DESTRUCTIVE=1` are both present. The URL must name a database ending in `_test`; never reuse `MIGRATION_DATABASE_URL`, because the suite changes the runtime-role password and writes fixtures. CI provides a disposable PostgreSQL service, applies the migration to an empty database first, then verifies missing/wrong context, composite tenant foreign keys, non-bypass runtime privileges, denied workspace enumeration, append-only audit privileges and pooled-connection context cleanup.
+## Tests and seed
 
-For local development, `DB_SEED_ALLOW_SYNTHETIC=1 pnpm --filter @canadian-plans/db db:seed` adds two deterministic synthetic workspaces and actors. It refuses to run without that flag, when `NODE_ENV=production`, or against any hosted Supabase host (`*.supabase.co` / `*.supabase.com`) unless the database name ends in `_test` or `_dev`; it never renames an existing workspace and never creates Auth users.
+The Vitest integration suite runs only when `TEST_MIGRATION_DATABASE_URL` and
+`DB_TEST_ALLOW_DESTRUCTIVE=1` are both set and the database name ends in
+`_test`: it sets the runtime role's password to a fixed CI value and writes
+fixtures. CI applies the migrations to an empty Postgres first, then proves
+missing/wrong context, composite tenant foreign keys, non-bypass runtime
+privileges, denied site enumeration, append-only audit and pooled-connection
+context cleanup.
+
+`DB_SEED_ALLOW_SYNTHETIC=1 pnpm --filter @gt-sales/db db:seed` adds the two
+client sites (`getcanadasim`, `canadawide`) with invented staff. It refuses
+`NODE_ENV=production` and any hosted Supabase host unless the database name
+ends in `_test` or `_dev`, never renames an existing site and never creates
+Auth users.
 
 ## Must never import
 
-- Applications (`apps/*`).
-- UI or API response contracts; persistence rows are not audience-specific responses.
-- Supabase service-role credentials. Runtime connections use only the restricted pooled Postgres role.
-
-The shared `canadian-plans/data-boundary` ESLint rule enforces static/dynamic/re-export/relative import boundaries. See `packages/config/README.md` for tooling policy and negative tests.
+Applications, UI or API contracts, or any Supabase service-role credential.

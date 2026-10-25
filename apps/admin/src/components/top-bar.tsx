@@ -16,7 +16,7 @@ export function TopBar({
   onSignOut(): Promise<void>;
 }) {
   const pathname = usePathname();
-  const section = pathname.split('/')[3] ?? 'orders';
+  const section = pathname.split('/')[3] ?? 'leads';
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4">
@@ -24,7 +24,7 @@ export function TopBar({
       <div className="h-6 w-px bg-border" aria-hidden="true" />
       <WorkspaceSwitcher
         currentWorkspace={workspace}
-        currentSection={section === 'reports' ? 'reports/sources' : section}
+        currentSection={section}
         workspaces={workspaces}
       />
       <Button variant="ghost" className="ml-auto" onClick={() => void onSignOut()}>

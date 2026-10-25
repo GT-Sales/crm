@@ -32,7 +32,7 @@ test('an unconfigured or unauthenticated deployment never renders a workspace sh
     /^(Staff authentication unavailable|Staff sign in)$/,
   );
   await expect(page.getByRole('heading', { name: 'Leads' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Switch workspace' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Switch site' })).toHaveCount(0);
 });
 
 test('invitation acceptance and recovery entry points stay usable', async ({ page }) => {

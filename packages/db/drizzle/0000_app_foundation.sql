@@ -1,7 +1,10 @@
 -- The backend's restricted runtime role. Created here, before any policy names
 -- it, with no password: the owner sets one out of band (never in a migration),
 -- so the role cannot log in until then. NOBYPASSRLS and non-ownership of every
--- table are what make the row-level policies below binding.
+-- table are what make the row-level policies below binding. Created once and
+-- never re-asserted with ALTER ROLE: on Supabase the migration role is not a
+-- superuser, and PostgreSQL 16+ lets only superusers mention SUPERUSER,
+-- REPLICATION or BYPASSRLS in ALTER ROLE, even as NO*.
 DO $$
 BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
@@ -9,8 +12,6 @@ BEGIN
 	END IF;
 END
 $$;
---> statement-breakpoint
-ALTER ROLE app_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 --> statement-breakpoint
 CREATE SCHEMA "app";
 --> statement-breakpoint

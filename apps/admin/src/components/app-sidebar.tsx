@@ -2,14 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  BarChart3Icon,
-  ClipboardListIcon,
-  FileTextIcon,
-  SettingsIcon,
-  ShieldCheckIcon,
-  UsersIcon,
-} from 'lucide-react';
+import { FileTextIcon, SettingsIcon, UsersIcon } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -23,12 +16,14 @@ import {
   useSidebar,
 } from '@gt-sales/ui';
 
+/**
+ * Only sections that exist. Orders, partners, finance and reports arrive with
+ * the phases that port them (docs/PLAN.md §7); a link to a missing page is a
+ * 404, not a placeholder.
+ */
 const NAV_ITEMS = [
-  { section: 'orders', label: 'Orders', icon: ClipboardListIcon },
   { section: 'leads', label: 'Leads', icon: UsersIcon },
-  { section: 'partners', label: 'Partners', icon: ShieldCheckIcon },
   { section: 'documents', label: 'Documents', icon: FileTextIcon },
-  { section: 'reports/sources', label: 'Reports', icon: BarChart3Icon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ] as const;
 
@@ -51,9 +46,9 @@ export function AppSidebar({ workspace }: { workspace: string }) {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+          <SidebarGroupLabel>Site</SidebarGroupLabel>
           <SidebarGroupContent>
-            <nav aria-label="Workspace navigation">
+            <nav aria-label="Site navigation">
               <SidebarMenu>
                 {NAV_ITEMS.map(({ section, label, icon: Icon }) => {
                   const href = `/w/${workspace}/${section}`;

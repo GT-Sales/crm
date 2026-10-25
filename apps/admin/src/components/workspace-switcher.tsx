@@ -27,13 +27,13 @@ export function WorkspaceSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" aria-label="Switch workspace" className="min-w-0 max-w-64">
+        <Button variant="outline" aria-label="Switch site" className="min-w-0 max-w-64">
           <span className="truncate">{currentWorkspace.name}</span>
           <ChevronsUpDownIcon className="size-4 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-56">
-        <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+        <DropdownMenuLabel>Sites</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {workspaces.map((workspace) => (
           <DropdownMenuItem
@@ -43,6 +43,10 @@ export function WorkspaceSwitcher({
             {workspace.name}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        {/* The cross-site inbox is phase 2 (docs/PLAN.md §5.2); shown disabled so
+            the shape of the menu is settled now. */}
+        <DropdownMenuItem disabled>All sites — coming soon</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
