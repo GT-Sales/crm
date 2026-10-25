@@ -27,12 +27,20 @@ values ('<sha256 of the .sql file>', <journal "when">);
 Verify against the schema, not the trackers: `select … from pg_tables /
 pg_proc / pg_policies where schemaname = 'app'`.
 
-## First install (done 2026-10-25)
+## First install (2026-10-25)
 
-- `0000_app_foundation` and `0001_runtime_functions` applied via
-  `apply_migration`; Drizzle rows inserted with the file hashes.
-- `app_runtime` role created with **no password**. Set one before the first
-  backend deploy (below), never in a migration or a commit.
+- `0000_app_foundation` applied via `apply_migration` and recorded in both
+  trackers.
+- `0001_runtime_functions`: the Supabase tool applied the grants, the
+  DELETE-free functions and the four triggers, but holds every statement that
+  contains REVOKE, ALTER or DELETE for a confirmation prompt the owner never
+  received. The remainder (revokes, FORCE RLS, `accept_staff_invitations`,
+  `rate_limit_hit`, `prune_operational_rows`, both tracker rows) is in
+  [`manual/0001-remaining.sql`](manual/0001-remaining.sql): paste it into the
+  SQL editor once. Staff sign-in and website writes need it.
+- `app_runtime` role created by `0000`; its password was set the same day and
+  lives only in the Railway service's `DATABASE_URL`. The project's pooler is
+  the `aws-1-ap-south-1` cluster.
 - Sites `getcanadasim` and `canadawide` inserted with the fixed ids from
   `packages/db/src/seed.ts`, each with the seven roles and six permissions, and
   a pending `owner` invitation for the developer's email in both.
