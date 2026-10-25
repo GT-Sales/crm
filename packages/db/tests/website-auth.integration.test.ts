@@ -30,8 +30,8 @@ const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 const WORKSPACE = '11000000-0000-4000-8000-000000000601';
-const ACTIVE_SECRET = 'cplsk_integration_active_secret_value';
-const REVOKED_SECRET = 'cplsk_integration_revoked_secret_value';
+const ACTIVE_SECRET = 'gtsk_integration_active_secret_value';
+const REVOKED_SECRET = 'gtsk_integration_revoked_secret_value';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -60,8 +60,8 @@ databaseTest('website credential and rate-limit bootstrap', () => {
     await admin`
       insert into app.service_credentials (workspace_id, secret_hash, scopes)
       values
-        (${WORKSPACE}, ${sha256(ACTIVE_SECRET)}, ARRAY['leads:write', 'quotes:create']),
-        (${WORKSPACE}, ${sha256(REVOKED_SECRET)}, ARRAY['orders:create'])
+        (${WORKSPACE}, ${sha256(ACTIVE_SECRET)}, ARRAY['leads:write', 'uploads:customer']),
+        (${WORKSPACE}, ${sha256(REVOKED_SECRET)}, ARRAY['leads:write'])
       on conflict (secret_hash) do nothing
     `;
     await admin`
@@ -92,7 +92,7 @@ databaseTest('website credential and rate-limit bootstrap', () => {
     expect(resolution).toEqual({
       credentialId: expect.any(String),
       workspaceId: WORKSPACE,
-      scopes: ['leads:write', 'quotes:create'],
+      scopes: ['leads:write', 'uploads:customer'],
       revoked: false,
     });
   });
@@ -113,7 +113,7 @@ databaseTest('website credential and rate-limit bootstrap', () => {
 
   test('returns nothing for an unknown secret hash', async () => {
     expect(
-      await tenantDatabase.resolveWebsiteCredential(sha256('cplsk_never_issued')),
+      await tenantDatabase.resolveWebsiteCredential(sha256('gtsk_never_issued')),
     ).toBeUndefined();
   });
 

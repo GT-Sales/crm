@@ -134,11 +134,11 @@ function create(token: string, body: unknown) {
 
 describe('service credential management', () => {
   it('issues a credential once for a verified aal2 owner and stores only its hash', async () => {
-    const response = await create('aal2', { scopes: ['leads:write', 'orders:create'] });
+    const response = await create('aal2', { scopes: ['leads:write', 'uploads:customer'] });
     expect(response.status).toBe(201);
     const body = createServiceCredentialResponseSchema.parse(await response.json());
-    expect(body.secret.startsWith('cplsk_')).toBe(true);
-    expect(body.credential.scopes).toEqual(['leads:write', 'orders:create']);
+    expect(body.secret.startsWith('gtsk_')).toBe(true);
+    expect(body.credential.scopes).toEqual(['leads:write', 'uploads:customer']);
     // The persisted value is the hash of the shown secret, never the secret itself.
     expect(credentialStore.lastSecretHash).toBe(hashServiceSecret(body.secret));
   });

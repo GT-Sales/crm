@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /** Human-visible prefix so a leaked secret is greppable and obviously ours. */
-const SECRET_PREFIX = 'cplsk_';
+const SECRET_PREFIX = 'gtsk_';
 const SECRET_BYTES = 32;
 
 export interface GeneratedServiceSecret {

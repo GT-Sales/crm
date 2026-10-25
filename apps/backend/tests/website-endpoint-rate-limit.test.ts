@@ -48,7 +48,7 @@ class FakeLeadStore implements LeadStore {
         status: 'incomplete',
         updatedAt: '2026-09-14T00:00:00.000Z',
       },
-      grant: { token: 'cpldg_test', expiresAt: '2026-10-14T00:00:00.000Z' },
+      grant: { token: 'gtdg_test', expiresAt: '2026-10-14T00:00:00.000Z' },
     };
   }
   async updateLead(): Promise<UpdateLeadOutcome> {
@@ -102,11 +102,11 @@ let leadStore: FakeLeadStore;
 const resolution: WebsiteCredentialResolution = {
   credentialId: CREDENTIAL,
   workspaceId: WORKSPACE,
-  scopes: ['leads:write', 'quotes:create'],
+  scopes: ['leads:write', 'uploads:customer'],
   revoked: false,
 };
 
-const VALID_LEAD_BODY = { consentVersion: 'terms-2026-09' };
+const VALID_LEAD_BODY = { leadType: 'sim_order', consentVersion: 'terms-2026-09' };
 
 function post(path: string, headers: Record<string, string>, body?: unknown) {
   return fetch(`${baseUrl}${path}`, {

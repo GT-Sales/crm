@@ -11,6 +11,7 @@ const tuple = <const Values extends readonly string[]>(...values: Values): Value
 
 const actionNames = tuple(
   'workspace.read',
+  'lead.manage',
   'order.manage',
   'staff.invite',
   'staff.remove',
@@ -29,6 +30,7 @@ const actions = (...values: StaffAction[]): ReadonlySet<StaffAction> => new Set(
 
 const roleActions = {
   owner: actions(...actionNames),
+  leads: actions('workspace.read', 'lead.manage'),
   orders: actions('workspace.read', 'order.manage'),
   partners: actions('workspace.read'),
   finance: actions('workspace.read', 'financial.read', 'invoice.approve'),

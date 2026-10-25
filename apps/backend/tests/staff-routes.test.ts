@@ -92,11 +92,14 @@ const INVITATION = '30000000-0000-4000-8000-000000000002';
 const sampleLead: LeadListItem = {
   id: '90000000-0000-4000-8000-000000000001',
   workspaceId: WORKSPACE,
+  leadType: 'sim_order',
   status: 'incomplete',
   contact: { email: 'jane@example.test' },
+  contactId: null,
+  assignedActorId: null,
+  externalRef: null,
   source: 'utm:google/cpc',
   attribution: { utmSource: 'google', utmMedium: 'cpc' },
-  selectedOfferVersionId: null,
   consentVersion: 'terms-2026-09',
   createdAt: '2026-09-14T00:00:00.000Z',
   updatedAt: '2026-09-14T00:00:00.000Z',
@@ -386,7 +389,11 @@ describe('protected staff routes', () => {
     for (const role of ['viewer', 'content', 'partners'] as const) {
       expect(await listAs([role])).toEqual([{ ...sampleLead, contact: {} }]);
     }
-    expect(await listAs(['orders'])).toEqual([sampleLead]);
+    // Finance sees contacts too, but only with an MFA-verified session.
+    for (const role of ['leads', 'orders'] as const) {
+      expect(await listAs([role])).toEqual([sampleLead]);
+    }
+    expect(await listAs(['finance'])).toEqual([{ ...sampleLead, contact: {} }]);
   });
 
   it('denies a revoked member the leads list', async () => {

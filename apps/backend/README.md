@@ -18,17 +18,17 @@ website service credentials, the machine registry, and the provider keys the tas
 
 ## Where things are
 
-| Path                              | What it holds                                                                                |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `src/app.ts`, `src/server.ts`     | App wiring (middleware, CORS, routes) and the listener.                                      |
-| `src/scheduler.ts`, `src/shutdown.ts` | In-process schedule with overlap guards; graceful shutdown inside Railway's drain window. |
-| `src/routes/`                     | `website` (storefront), `staff` (admin), `email` (provider webhooks), `jobs`, `catalogue-sync`, `sanity-webhook`, `synthetic-check`, `health`. |
-| `src/website/`, `src/auth/`, `src/staff/` | Service-credential auth, rate limits and bot check; Supabase staff sessions, permissions and the `aal2` check. |
-| `src/orders/`, `src/leads/`, `src/tracking/`, `src/documents/`, `src/partners/`, `src/deletion/`, `src/retention/`, `src/waitlist/` | Domain services and tenant-scoped stores. |
-| `src/catalogue/`, `src/jobs/`, `src/email/`, `src/synthetic/` | Catalogue sync, outbox runner wiring, email dispatch and the synthetic order check. |
-| `src/machines/`                   | The server-only machine registry (webhook and scheduler identities, PLATFORM_CONTEXT §4b).  |
-| `tests/`                          | Vitest unit tests and `*.integration.test.ts` against a disposable Postgres; `tests/e2e` holds the real-backend harness used by the admin and site-1 browser suites. |
-| `Dockerfile`                      | Root-context image build for Railway (`railway.json` at the repo root).                       |
+| Path                                                                                                                                | What it holds                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app.ts`, `src/server.ts`                                                                                                       | App wiring (middleware, CORS, routes) and the listener.                                                                                                              |
+| `src/scheduler.ts`, `src/shutdown.ts`                                                                                               | In-process schedule with overlap guards; graceful shutdown inside Railway's drain window.                                                                            |
+| `src/routes/`                                                                                                                       | `website` (storefront), `staff` (admin), `email` (provider webhooks), `jobs`, `catalogue-sync`, `sanity-webhook`, `synthetic-check`, `health`.                       |
+| `src/website/`, `src/auth/`, `src/staff/`                                                                                           | Service-credential auth, rate limits and bot check; Supabase staff sessions, permissions and the `aal2` check.                                                       |
+| `src/orders/`, `src/leads/`, `src/tracking/`, `src/documents/`, `src/partners/`, `src/deletion/`, `src/retention/`, `src/waitlist/` | Domain services and tenant-scoped stores.                                                                                                                            |
+| `src/catalogue/`, `src/jobs/`, `src/email/`, `src/synthetic/`                                                                       | Catalogue sync, outbox runner wiring, email dispatch and the synthetic order check.                                                                                  |
+| `src/machines/`                                                                                                                     | The server-only machine registry (webhook and scheduler identities, PLATFORM_CONTEXT §4b).                                                                           |
+| `tests/`                                                                                                                            | Vitest unit tests and `*.integration.test.ts` against a disposable Postgres; `tests/e2e` holds the real-backend harness used by the admin and site-1 browser suites. |
+| `Dockerfile`                                                                                                                        | Root-context image build for Railway (`railway.json` at the repo root).                                                                                              |
 
 ## Reference
 

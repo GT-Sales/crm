@@ -22,7 +22,7 @@ import {
 } from '../lib/api';
 import { useStaffSession } from './staff-session-provider';
 
-const DEFAULT_SCOPES: readonly WebsiteScopeName[] = ['leads:write', 'quotes:create'];
+const DEFAULT_SCOPES: readonly WebsiteScopeName[] = ['leads:write', 'uploads:customer'];
 
 export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: string }) {
   const staff = useStaffSession();

@@ -47,7 +47,6 @@ export interface DatabaseClient {
   withTenantTx<T>(ctx: TenantContext, fn: (tx: TenantTransaction) => Promise<T> | T): Promise<T>;
   resolveWebsiteCredential(secretHash: string): Promise<WebsiteCredentialResolution | undefined>;
   rateLimitHit(input: RateLimitInput): Promise<RateLimitResult>;
-  isBackupInProgress(): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -104,7 +103,7 @@ export function createDatabaseClient(options: DatabaseClientOptions): DatabaseCl
         );
         return fn(tx);
       }),
-    // Pre-tenant website bootstrap (PLATFORM_CONTEXT §4b): resolve a credential
+    // Pre-tenant website bootstrap: resolve a credential
     // to its own workspace/scopes/revocation through the SECURITY DEFINER
     // function without any caller-supplied workspace and without tenant context.
     resolveWebsiteCredential: async (secretHash) => {
@@ -136,15 +135,6 @@ export function createDatabaseClient(options: DatabaseClientOptions): DatabaseCl
       const row = rows[0];
       if (!row) throw new Error('rate_limit_hit returned no row');
       return { allowed: row.allowed, retryAfterSeconds: row.retryAfterSeconds };
-    },
-    // Read-only via the SECURITY DEFINER function (IMPLEMENTATION_PLAN §13):
-    // `app_runtime` has no direct grant on `backup_leases`. Only the
-    // independent backup runner's own privileged credential writes it.
-    isBackupInProgress: async () => {
-      const rows = await db.execute<{ [key: string]: unknown; active: boolean }>(sql`
-        select app.backup_lease_active() as active
-      `);
-      return rows[0]?.active === true;
     },
     close: () => sqlClient.end(),
   };
@@ -223,9 +213,4 @@ export function resolveWebsiteCredential(
 /** Records one hit against a bounded per-key rate-limit window and reports whether it is allowed. */
 export function rateLimitHit(input: RateLimitInput): Promise<RateLimitResult> {
   return getDefaultClient().rateLimitHit(input);
-}
-
-/** True while the independent backup runner holds an active lease (IMPLEMENTATION_PLAN §13). */
-export function isBackupInProgress(): Promise<boolean> {
-  return getDefaultClient().isBackupInProgress();
 }

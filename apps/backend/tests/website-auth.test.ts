@@ -26,7 +26,7 @@ class FakeCredentialResolver {
   resolution: WebsiteCredentialResolution | undefined = {
     credentialId: CREDENTIAL,
     workspaceId: WORKSPACE,
-    scopes: ['leads:write', 'quotes:create'],
+    scopes: ['leads:write', 'uploads:customer'],
     revoked: false,
   };
 
@@ -67,7 +67,7 @@ class FakeLeadStore implements LeadStore {
         status: 'incomplete',
         updatedAt: '2026-09-14T00:00:00.000Z',
       },
-      grant: { token: 'cpldg_test', expiresAt: '2026-10-14T00:00:00.000Z' },
+      grant: { token: 'gtdg_test', expiresAt: '2026-10-14T00:00:00.000Z' },
     };
   }
 
@@ -134,7 +134,7 @@ function post(path: string, headers: Record<string, string>, body?: unknown) {
   });
 }
 
-const VALID_LEAD_BODY = { consentVersion: 'terms-2026-09' };
+const VALID_LEAD_BODY = { leadType: 'sim_order', consentVersion: 'terms-2026-09' };
 
 beforeEach(async () => {
   resolver = new FakeCredentialResolver();
@@ -199,7 +199,7 @@ describe('public website credential authentication', () => {
       const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/website/leads`, {
         method: 'POST',
         headers: {
-          authorization: `Bearer cplsk_${'0'.repeat(16)}`,
+          authorization: `Bearer gtsk_${'0'.repeat(16)}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify(VALID_LEAD_BODY),
@@ -344,7 +344,7 @@ describe('public website credential authentication', () => {
       (
         await post(
           '/api/v1/website/leads',
-          { authorization: `Bearer cplsk_${'0'.repeat(16)}` },
+          { authorization: `Bearer gtsk_${'0'.repeat(16)}` },
           VALID_LEAD_BODY,
         )
       ).status,

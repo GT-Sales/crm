@@ -54,7 +54,7 @@ const securitySchemes: JsonObject = {
     type: 'http',
     scheme: 'bearer',
     description:
-      'Per-site service credential (`cplsk_…`); resolves to one workspace and its scopes.',
+      'Per-site service credential (`gtsk_…`); resolves to one workspace and its scopes.',
   },
   machineSignature: {
     type: 'apiKey',

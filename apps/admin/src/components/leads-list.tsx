@@ -102,6 +102,7 @@ export function LeadsList({ workspaceSlug }: { workspaceSlug: string }) {
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground uppercase">
                 <th className="py-2 pr-4 font-medium">Contact</th>
+                <th className="py-2 pr-4 font-medium">Type</th>
                 <th className="py-2 pr-4 font-medium">Status</th>
                 <th className="py-2 pr-4 font-medium">Source</th>
                 <th className="py-2 pr-4 font-medium">Updated</th>
@@ -111,6 +112,11 @@ export function LeadsList({ workspaceSlug }: { workspaceSlug: string }) {
               {leads.map((lead) => (
                 <tr key={lead.id} className="border-b last:border-0">
                   <td className="py-2 pr-4">{contactLabel(lead.contact)}</td>
+                  <td className="py-2 pr-4">
+                    <code className="text-xs" title={lead.externalRef ?? undefined}>
+                      {lead.leadType}
+                    </code>
+                  </td>
                   <td className="py-2 pr-4">
                     <Badge variant={lead.status === 'submitted' ? 'default' : 'secondary'}>
                       {lead.status}

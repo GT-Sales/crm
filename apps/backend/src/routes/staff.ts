@@ -139,11 +139,12 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   async function canSeeContacts(req: Request, workspaceId: string): Promise<boolean> {
     const actor = session(req);
     const authorize = authorizeWith(actor);
-    const [manage, finance] = await Promise.all([
+    const [leadsAccess, orders, finance] = await Promise.all([
+      authorize({ actorId: actor.actorId, workspaceId, action: 'lead.manage' }),
       authorize({ actorId: actor.actorId, workspaceId, action: 'order.manage' }),
       authorize({ actorId: actor.actorId, workspaceId, action: 'financial.read' }),
     ]);
-    return manage.allowed || finance.allowed;
+    return leadsAccess.allowed || orders.allowed || finance.allowed;
   }
 
   router.get('/workspaces', async (req, res) => {
@@ -217,6 +218,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         workspaceId: workspaceId.data,
         actorId: actor.actorId,
         status: query.data.status,
+        leadType: query.data.type,
         page: query.data.page,
         pageSize: query.data.pageSize,
       });

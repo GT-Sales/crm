@@ -49,7 +49,7 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
   [
     'createLeadRequest',
     createLeadRequestSchema,
-    { contact: { email: 'a@b.co' }, form, consentVersion: 'terms-2026-09' },
+    { leadType: 'sim_order', contact: { email: 'a@b.co' }, form, consentVersion: 'terms-2026-09' },
   ],
   [
     'createLeadResponse',
@@ -77,11 +77,14 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
         {
           id: UUID_A,
           workspaceId: UUID_B,
+          leadType: 'sim_order',
           status: 'incomplete',
           contact: { email: 'a@b.co' },
+          contactId: null,
+          assignedActorId: null,
+          externalRef: 'MS-1001',
           source: 'utm:google/cpc',
           attribution: { utmSource: 'google', utmMedium: 'cpc' },
-          selectedOfferVersionId: null,
           consentVersion: 'terms-2026-09',
           createdAt: NOW,
           updatedAt: NOW,

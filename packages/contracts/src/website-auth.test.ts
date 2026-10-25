@@ -23,11 +23,11 @@ describe('website auth contracts', () => {
     const value = {
       credential: {
         id: '80000000-0000-4000-8000-000000000101',
-        scopes: ['leads:write', 'orders:create'],
+        scopes: ['leads:write', 'uploads:customer'],
         createdAt: '2026-09-14T00:00:00.000Z',
         revokedAt: null,
       },
-      secret: 'cplsk_example_secret',
+      secret: 'gtsk_example_secret',
       requestId: '70000000-0000-4000-8000-000000000101',
     };
     const parsed = createServiceCredentialResponseSchema.parse(value);

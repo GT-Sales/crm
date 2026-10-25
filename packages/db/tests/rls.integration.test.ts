@@ -301,23 +301,25 @@ databaseTest('tenant RLS and transaction-pool context', () => {
     expect(second).toEqual({ actorId: ACTOR_B, pid: first?.pid, workspaceId: WORKSPACE_B });
   });
 
-  test('synthetic seed creates two deliberately named isolated workspaces with owner in both', async () => {
-    const workspaces = await admin<{ id: string; name: string; slug: string }[]>`
-      select id, slug, name
+  test('synthetic seed creates the two client sites with the owner in both', async () => {
+    const workspaces = await admin<{ id: string; name: string; slug: string; domain: string }[]>`
+      select id, slug, name, domain
       from app.workspaces
-      where id in (${STAFF_SEED_IDS.siteWorkspace}, ${STAFF_SEED_IDS.demoWorkspace})
+      where id in (${STAFF_SEED_IDS.getCanadaSimWorkspace}, ${STAFF_SEED_IDS.canadaWideWorkspace})
       order by slug
     `;
     expect(workspaces).toEqual([
       {
-        id: STAFF_SEED_IDS.demoWorkspace,
-        slug: 'demo-2',
-        name: 'Maple Demo Sandbox',
+        id: STAFF_SEED_IDS.canadaWideWorkspace,
+        slug: 'canadawide',
+        name: 'CanadaWide',
+        domain: 'canadawidesales.com',
       },
       {
-        id: STAFF_SEED_IDS.siteWorkspace,
-        slug: 'site-1',
-        name: 'Northern Arrival Mobile',
+        id: STAFF_SEED_IDS.getCanadaSimWorkspace,
+        slug: 'getcanadasim',
+        name: 'Get Canada Sim',
+        domain: 'getcanadasim.com',
       },
     ]);
 
@@ -328,14 +330,16 @@ databaseTest('tenant RLS and transaction-pool context', () => {
     `;
     expect(ownerMemberships).toHaveLength(2);
 
-    const siteStaffWorkspaces = await tenantDatabase.withActorTx(STAFF_SEED_IDS.siteActor, (tx) =>
-      tx.execute(sql`select workspace_slug from app.list_staff_workspaces()`),
+    const simStaffWorkspaces = await tenantDatabase.withActorTx(
+      STAFF_SEED_IDS.getCanadaSimActor,
+      (tx) => tx.execute(sql`select workspace_slug from app.list_staff_workspaces()`),
     );
-    const demoStaffWorkspaces = await tenantDatabase.withActorTx(STAFF_SEED_IDS.demoActor, (tx) =>
-      tx.execute(sql`select workspace_slug from app.list_staff_workspaces()`),
+    const wideStaffWorkspaces = await tenantDatabase.withActorTx(
+      STAFF_SEED_IDS.canadaWideActor,
+      (tx) => tx.execute(sql`select workspace_slug from app.list_staff_workspaces()`),
     );
-    expect(siteStaffWorkspaces).toEqual([{ workspace_slug: 'site-1' }]);
-    expect(demoStaffWorkspaces).toEqual([{ workspace_slug: 'demo-2' }]);
+    expect(simStaffWorkspaces).toEqual([{ workspace_slug: 'getcanadasim' }]);
+    expect(wideStaffWorkspaces).toEqual([{ workspace_slug: 'canadawide' }]);
   });
 
   test('restricted bootstrap lists only the server-verified actor active memberships', async () => {
@@ -346,7 +350,10 @@ databaseTest('tenant RLS and transaction-pool context', () => {
           order by workspace_slug
         `),
     );
-    expect(ownerWorkspaces).toEqual([{ workspaceSlug: 'demo-2' }, { workspaceSlug: 'site-1' }]);
+    expect(ownerWorkspaces).toEqual([
+      { workspaceSlug: 'canadawide' },
+      { workspaceSlug: 'getcanadasim' },
+    ]);
 
     const noContext = await runtimeSql`select workspace_slug from app.list_staff_workspaces()`;
     expect(noContext).toHaveLength(0);
@@ -356,12 +363,15 @@ databaseTest('tenant RLS and transaction-pool context', () => {
     const invitedActor = '20000000-0000-4000-8000-000000000199';
     const invitationId = '30000000-0000-4000-8000-000000000199';
     const requestId = '70000000-0000-4000-8000-000000000199';
+    // A persistent local database still holds the accepted row from the last run.
+    await admin`delete from app.audit_events where entity_id = ${invitationId}`;
+    await admin`delete from app.memberships where id = ${invitationId}`;
     await admin`
       insert into app.memberships (
         id, workspace_id, invited_email, membership_type, status
       ) values (
         ${invitationId},
-        ${STAFF_SEED_IDS.siteWorkspace},
+        ${STAFF_SEED_IDS.getCanadaSimWorkspace},
         'invited@example.test',
         'staff',
         'pending'

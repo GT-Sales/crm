@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 /** Human-visible prefix so a leaked grant token is greppable and obviously ours. */
-const GRANT_PREFIX = 'cpldg_';
+const GRANT_PREFIX = 'gtdg_';
 const GRANT_BYTES = 32;
 
 export interface GeneratedDraftGrantToken {

@@ -294,7 +294,6 @@ export class DatabaseEmailStore implements EmailStore {
             template: input.template,
             messageClass: input.messageClass,
             leadId: input.leadId,
-            orderId: input.orderId,
             contactHash: input.contactHash,
             status: 'queued',
           })
@@ -475,7 +474,6 @@ export class DatabaseEmailStore implements EmailStore {
         await tx.insert(marketingConsents).values({
           workspaceId: input.workspaceId,
           leadId: active ? input.leadId : undefined,
-          orderId: active ? input.orderId : undefined,
           contactHash: input.contactHash,
           marketingOptIn: false,
           version: active ? input.version : 'retained-opt-out',

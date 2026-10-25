@@ -20,7 +20,7 @@ const WORKSPACE = '10000000-0000-4000-8000-000000000301';
 const CREDENTIAL = '80000000-0000-4000-8000-000000000301';
 const LEAD_A = '90000000-0000-4000-8000-000000000301';
 const LEAD_B = '90000000-0000-4000-8000-000000000302';
-const VALID_GRANT_A = 'cpldg_valid-grant-for-lead-a';
+const VALID_GRANT_A = 'gtdg_valid-grant-for-lead-a';
 
 const { secret: SECRET, secretHash: SECRET_HASH } = generateServiceSecret();
 
@@ -158,10 +158,14 @@ afterEach(async () => {
 });
 
 describe('POST /api/v1/website/leads', () => {
-  it('requires a consent version', async () => {
-    const response = await request('POST', '/api/v1/website/leads', {}, {});
-    expect(response.status).toBe(400);
-    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('validation_error');
+  it('requires a lead type and a consent version', async () => {
+    for (const body of [{}, { leadType: 'sim_order' }, { consentVersion: 'terms-2026-09' }]) {
+      const response = await request('POST', '/api/v1/website/leads', {}, body);
+      expect(response.status).toBe(400);
+      expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+        'validation_error',
+      );
+    }
     expect(leadStore.createCalls).toHaveLength(0);
   });
 
@@ -170,7 +174,7 @@ describe('POST /api/v1/website/leads', () => {
       'POST',
       '/api/v1/website/leads',
       {},
-      { consentVersion: 'terms-2026-09' },
+      { leadType: 'sim_order', consentVersion: 'terms-2026-09' },
     );
     expect(response.status).toBe(201);
     const body = createLeadResponseSchema.parse(await response.json());
@@ -188,7 +192,7 @@ describe('POST /api/v1/website/leads', () => {
         'POST',
         '/api/v1/website/leads',
         {},
-        { consentVersion: 'terms-2026-09' },
+        { leadType: 'sim_order', consentVersion: 'terms-2026-09' },
       );
       expect(response.status).toBe(503);
       expect(response.headers.get('retry-after')).toBe('2');
@@ -218,7 +222,7 @@ describe('POST /api/v1/website/leads', () => {
         'POST',
         '/api/v1/website/leads',
         {},
-        { consentVersion: 'terms-2026-09' },
+        { leadType: 'sim_order', consentVersion: 'terms-2026-09' },
       );
       expect(response.status).toBe(500);
       const records = logged.mock.calls.map(([line]) => JSON.parse(String(line)));
@@ -231,15 +235,31 @@ describe('POST /api/v1/website/leads', () => {
     }
   });
 
-  it('rejects a malformed productId instead of forwarding it to the store', async () => {
+  it('rejects a malformed lead type instead of forwarding it to the store', async () => {
+    for (const leadType of ['Sim Order', 'sim-order', '', 'x'.repeat(65)]) {
+      const response = await request(
+        'POST',
+        '/api/v1/website/leads',
+        {},
+        { consentVersion: 'terms-2026-09', leadType },
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(leadStore.createCalls).toHaveLength(0);
+  });
+
+  it('forwards the lead type and external reference to the store', async () => {
     const response = await request(
       'POST',
       '/api/v1/website/leads',
       {},
-      { consentVersion: 'terms-2026-09', productId: 'not-a-uuid' },
+      { leadType: 'sim_order', externalRef: 'MS-1042', consentVersion: 'terms-2026-09' },
     );
-    expect(response.status).toBe(400);
-    expect(leadStore.createCalls).toHaveLength(0);
+    expect(response.status).toBe(201);
+    expect(leadStore.createCalls[0]).toMatchObject({
+      leadType: 'sim_order',
+      externalRef: 'MS-1042',
+    });
   });
 });
 
@@ -247,7 +267,7 @@ describe('GET /api/v1/website/leads/:leadId', () => {
   it('requires the exact draft grant and does not cache personal data', async () => {
     const draft = {
       leadId: LEAD_A,
-      productId: null,
+      leadType: 'sim_order',
       contact: { fullName: 'Saved customer' },
       form: null,
     };
@@ -263,7 +283,7 @@ describe('GET /api/v1/website/leads/:leadId', () => {
     expect(await response.json()).toMatchObject({ draft });
     const rejectedHeaders: Record<string, string>[] = [
       {},
-      { 'x-draft-grant': 'cpldg_forged-grant-000000000' },
+      { 'x-draft-grant': 'gtdg_forged-grant-000000000' },
       { 'x-draft-grant': VALID_GRANT_A, authorization: 'Bearer invalid' },
     ];
     for (const headers of rejectedHeaders) {
@@ -293,7 +313,7 @@ describe('PATCH /api/v1/website/leads/:leadId', () => {
     const response = await request(
       'PATCH',
       `/api/v1/website/leads/${LEAD_A}`,
-      { 'x-draft-grant': 'cpldg_totally-forged-1234567890' },
+      { 'x-draft-grant': 'gtdg_totally-forged-1234567890' },
       { contact: { fullName: 'Jane Doe' } },
     );
     expect(response.status).toBe(401);

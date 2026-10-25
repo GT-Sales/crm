@@ -34,11 +34,20 @@ function harness(status: number, body: unknown) {
   return { client, calls };
 }
 
-const leadCreateBody = { contact: { email: 'a@b.co' }, consentVersion: 'terms-2026-09' };
+const leadCreateBody = {
+  leadType: 'sim_order',
+  contact: { email: 'a@b.co' },
+  consentVersion: 'terms-2026-09',
+};
 
 describe('createBackendClient transport', () => {
   it('reads a personal draft using the grant header without a proof or body', async () => {
-    const draft = { leadId: UUID, productId: null, contact: { fullName: 'Saved' }, form: null };
+    const draft = {
+      leadId: UUID,
+      leadType: 'sim_order',
+      contact: { fullName: 'Saved' },
+      form: null,
+    };
     const { client, calls } = harness(200, { draft, requestId: UUID });
     expect(await client.leads.read(UUID, { draftGrant: 'private-grant' })).toEqual({
       draft,
@@ -177,8 +186,8 @@ describe('createBackendClient transport', () => {
  * single line so the `@ts-expect-error` covers the offending token.
  */
 function _typeContracts(c: BackendClient): void {
-  // @ts-expect-error productId must be a string, not a number
-  void c.leads.create({ productId: 1 });
+  // @ts-expect-error leadType must be a string, not a number
+  void c.leads.create({ leadType: 1, consentVersion: 'v1' });
   // @ts-expect-error `teleport` is not a review decision
   void c.staff.reviewFile('w', 'f', { decision: 'teleport' });
 }

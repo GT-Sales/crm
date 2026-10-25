@@ -105,6 +105,8 @@ databaseTest('Phase A tenant isolation gate', () => {
       await tx.unsafe(`ALTER ROLE app_runtime PASSWORD '${RUNTIME_PASSWORD}'`);
     });
     await admin`delete from app.workspaces where id in (${WORKSPACE_A}, ${WORKSPACE_B})`;
+    // Limiter windows outlive a run; a persistent local database must start empty.
+    await admin`delete from app.rate_limit_buckets where bucket_key like 'foundation-%'`;
     await admin`
       insert into app.workspaces (id, slug, name)
       values
@@ -300,6 +302,7 @@ databaseTest('Phase A tenant isolation gate', () => {
       body: JSON.stringify({
         workspace_id: WORKSPACE_B,
         workspaceId: WORKSPACE_B,
+        leadType: 'sim_order',
         consentVersion: 'terms-2026-09',
       }),
     });
@@ -328,7 +331,7 @@ databaseTest('Phase A tenant isolation gate', () => {
     const created = await fetch(`${baseUrl}/api/v1/website/leads`, {
       method: 'POST',
       headers: { ...bearer(WEBSITE_SECRET_A), 'content-type': 'application/json' },
-      body: JSON.stringify({ consentVersion: 'terms-2026-09' }),
+      body: JSON.stringify({ leadType: 'sim_order', consentVersion: 'terms-2026-09' }),
     });
     expect(created.status).toBe(201);
     const createdBody = createLeadResponseSchema.parse(await created.json());

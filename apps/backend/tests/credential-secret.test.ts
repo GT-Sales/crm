@@ -10,7 +10,7 @@ import {
 describe('service credential secrets', () => {
   it('generates a prefixed secret whose stored hash is deterministic and hides the secret', () => {
     const { secret, secretHash } = generateServiceSecret();
-    expect(secret.startsWith('cplsk_')).toBe(true);
+    expect(secret.startsWith('gtsk_')).toBe(true);
     expect(secretHash).toBe(hashServiceSecret(secret));
     expect(secretHash).not.toContain(secret);
     expect(/^[0-9a-f]{64}$/.test(secretHash)).toBe(true);
@@ -26,7 +26,7 @@ describe('service credential secrets', () => {
     expect(parseCredentialSecret(undefined)).toBeUndefined();
     expect(parseCredentialSecret('Bearer not-our-prefix')).toBeUndefined();
     expect(parseCredentialSecret(secret)).toBeUndefined();
-    expect(parseCredentialSecret('Bearer cplsk_short')).toBeUndefined();
+    expect(parseCredentialSecret('Bearer gtsk_short')).toBeUndefined();
   });
 
   it('compares secrets in constant time by value', () => {

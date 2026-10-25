@@ -27,11 +27,11 @@ for (const route of publicRoutes) {
 test('an unconfigured or unauthenticated deployment never renders a workspace shell', async ({
   page,
 }) => {
-  await page.goto('/w/site-1/orders');
+  await page.goto('/w/getcanadasim/leads');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
     /^(Staff authentication unavailable|Staff sign in)$/,
   );
-  await expect(page.getByRole('heading', { name: 'Orders' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Leads' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Switch workspace' })).toHaveCount(0);
 });
 

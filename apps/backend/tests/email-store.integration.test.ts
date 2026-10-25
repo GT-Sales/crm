@@ -36,8 +36,11 @@ describe.skipIf(!migrationUrl)('email persistence with restricted runtime RLS', 
       await tx`select pg_advisory_xact_lock(745284914)`;
       await tx.unsafe("ALTER ROLE app_runtime PASSWORD 'local_ci_runtime_password'");
     });
+    // Provider ids are unique per workspace/account and persist between local
+    // runs; removing the sites cascades every email row from the last run.
+    await admin`delete from app.workspaces where id in (${A}, ${B})`;
     await admin`insert into app.workspaces(id, slug, name) values (${A}, 'ci-email-a', 'Email A'), (${B}, 'ci-email-b', 'Email B') on conflict do nothing`;
-    await admin`insert into app.leads(id, workspace_id, status, consent_version) values (${LEAD}, ${A}, 'incomplete', 'privacy-v2') on conflict do nothing`;
+    await admin`insert into app.leads(id, workspace_id, lead_type, status, consent_version) values (${LEAD}, ${A}, 'sim_order', 'incomplete', 'privacy-v2') on conflict do nothing`;
     const runtime = new URL(migrationUrl!);
     runtime.username = 'app_runtime';
     runtime.password = 'local_ci_runtime_password';
@@ -134,7 +137,7 @@ describe.skipIf(!migrationUrl)('email persistence with restricted runtime RLS', 
       await store.checkTransactional({ workspaceId: A, actorId: ACTOR, contactHash: hash }),
     ).toEqual({ eligible: true });
   });
-  it('deduplicates hard bounces and atomically queues one durable suppression publication', async () => {
+  it('deduplicates hard bounces and records exactly one suppression for the contact', async () => {
     const messageId = await prepared();
     const input = event(messageId);
     expect(await store.applyProviderEvent(input)).toBe('applied');
@@ -143,7 +146,7 @@ describe.skipIf(!migrationUrl)('email persistence with restricted runtime RLS', 
       await admin`select * from app.email_provider_events where workspace_id = ${A} and provider_event_id = ${input.providerEventId}`;
     expect(events).toHaveLength(1);
     expect(
-      await admin`select * from app.outbox_jobs where workspace_id = ${A} and job_type = 'suppression_ledger_publish' and payload->>'contactHash' = ${CONTACT}`,
+      await admin`select * from app.email_suppressions where workspace_id = ${A} and contact_hash = ${CONTACT} and reason = 'hard_bounce'`,
     ).toHaveLength(1);
     expect(
       (await store.checkTransactional({ workspaceId: A, actorId: ACTOR, contactHash: CONTACT }))

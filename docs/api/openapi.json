@@ -16,7 +16,7 @@
       "websiteCredential": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Per-site service credential (`cplsk_…`); resolves to one workspace and its scopes."
+        "description": "Per-site service credential (`gtsk_…`); resolves to one workspace and its scopes."
       },
       "machineSignature": {
         "type": "apiKey",
@@ -209,6 +209,7 @@
                               "type": "string",
                               "enum": [
                                 "owner",
+                                "leads",
                                 "orders",
                                 "partners",
                                 "finance",
@@ -386,7 +387,15 @@
                           "type": "array",
                           "items": {
                             "type": "string",
-                            "enum": ["owner", "orders", "partners", "finance", "content", "viewer"]
+                            "enum": [
+                              "owner",
+                              "leads",
+                              "orders",
+                              "partners",
+                              "finance",
+                              "content",
+                              "viewer"
+                            ]
                           }
                         }
                       },
@@ -699,11 +708,19 @@
                   },
                   "roles": {
                     "minItems": 1,
-                    "maxItems": 6,
+                    "maxItems": 7,
                     "type": "array",
                     "items": {
                       "type": "string",
-                      "enum": ["owner", "orders", "partners", "finance", "content", "viewer"]
+                      "enum": [
+                        "owner",
+                        "leads",
+                        "orders",
+                        "partners",
+                        "finance",
+                        "content",
+                        "viewer"
+                      ]
                     }
                   }
                 },
@@ -899,6 +916,7 @@
                               "type": "string",
                               "enum": [
                                 "owner",
+                                "leads",
                                 "orders",
                                 "partners",
                                 "finance",
@@ -1072,13 +1090,7 @@
                             "type": "array",
                             "items": {
                               "type": "string",
-                              "enum": [
-                                "leads:write",
-                                "quotes:create",
-                                "orders:create",
-                                "uploads:customer",
-                                "tracking:otp"
-                              ]
+                              "enum": ["leads:write", "uploads:customer"]
                             }
                           },
                           "createdAt": {
@@ -1254,16 +1266,7 @@
                         },
                         "scopes": {
                           "type": "array",
-                          "items": {
-                            "type": "string",
-                            "enum": [
-                              "leads:write",
-                              "quotes:create",
-                              "orders:create",
-                              "uploads:customer",
-                              "tracking:otp"
-                            ]
-                          }
+                          "items": { "type": "string", "enum": ["leads:write", "uploads:customer"] }
                         },
                         "createdAt": {
                           "type": "string",
@@ -1420,18 +1423,9 @@
                 "properties": {
                   "scopes": {
                     "minItems": 1,
-                    "maxItems": 5,
+                    "maxItems": 2,
                     "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "leads:write",
-                        "quotes:create",
-                        "orders:create",
-                        "uploads:customer",
-                        "tracking:otp"
-                      ]
-                    }
+                    "items": { "type": "string", "enum": ["leads:write", "uploads:customer"] }
                   }
                 },
                 "required": ["scopes"]
@@ -1612,6 +1606,17 @@
             "schema": { "type": "string", "enum": ["incomplete", "submitted"] }
           },
           {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_]+$"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -1647,6 +1652,12 @@
                             "format": "uuid",
                             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                           },
+                          "leadType": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          },
                           "status": { "type": "string", "enum": ["incomplete", "submitted"] },
                           "contact": {
                             "type": "object",
@@ -1663,6 +1674,32 @@
                             },
                             "additionalProperties": false
                           },
+                          "contactId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "assignedActorId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "externalRef": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 128 },
+                              { "type": "null" }
+                            ]
+                          },
                           "source": { "type": "string", "minLength": 1, "maxLength": 160 },
                           "attribution": {
                             "type": "object",
@@ -1678,16 +1715,6 @@
                               "referrerHost": { "type": "string", "maxLength": 253 }
                             },
                             "additionalProperties": false
-                          },
-                          "selectedOfferVersionId": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              { "type": "null" }
-                            ]
                           },
                           "consentVersion": {
                             "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }]
@@ -1706,11 +1733,14 @@
                         "required": [
                           "id",
                           "workspaceId",
+                          "leadType",
                           "status",
                           "contact",
+                          "contactId",
+                          "assignedActorId",
+                          "externalRef",
                           "source",
                           "attribution",
-                          "selectedOfferVersionId",
                           "consentVersion",
                           "createdAt",
                           "updatedAt"
@@ -3213,6 +3243,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "leadType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9_]+$"
+                  },
+                  "externalRef": { "type": "string", "minLength": 1, "maxLength": 128 },
                   "attribution": {
                     "type": "object",
                     "propertyNames": { "type": "string" },
@@ -3248,14 +3285,9 @@
                     },
                     "required": ["schemaVersion", "payload"]
                   },
-                  "productId": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
                   "consentVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
                 },
-                "required": ["consentVersion"]
+                "required": ["leadType", "consentVersion"]
               }
             }
           }
@@ -3491,11 +3523,6 @@
                     "propertyNames": { "type": "string" },
                     "additionalProperties": {}
                   },
-                  "productId": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
                   "consentVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
                 }
               }
@@ -3541,15 +3568,11 @@
                           "format": "uuid",
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                         },
-                        "productId": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            { "type": "null" }
-                          ]
+                        "leadType": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9_]+$"
                         },
                         "contact": {
                           "type": "object",
@@ -3589,7 +3612,7 @@
                           ]
                         }
                       },
-                      "required": ["leadId", "productId", "contact", "form"],
+                      "required": ["leadId", "leadType", "contact", "form"],
                       "additionalProperties": false
                     },
                     "requestId": {

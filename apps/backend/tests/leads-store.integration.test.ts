@@ -27,22 +27,18 @@ const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 // A distinct id range from every other integration test file sharing this
-// disposable database (packages/db's rls/partners/catalogue/website-auth
-// suites, and apps/backend's isolation.spec.ts).
+// disposable database (packages/db's rls/website-auth suites, and
+// apps/backend's isolation.spec.ts).
 const WORKSPACE = '11000000-0000-4000-8000-000000000b01';
 const WORKSPACE_B = '11000000-0000-4000-8000-000000000b02';
 const ACTOR = '21000000-0000-4000-8000-000000000b01';
 const REQUEST_ID = '31000000-0000-4000-8000-000000000b01';
-const PARTNER_APPROVED = '81000000-0000-4000-8000-000000000b01';
-const PARTNER_SUSPENDED = '81000000-0000-4000-8000-000000000b02';
-const PARTNER_FOREIGN = '81000000-0000-4000-8000-000000000b03';
-const PRODUCT_AVAILABLE = '91000000-0000-4000-8000-000000000b01';
-const PRODUCT_WITHDRAWN = '91000000-0000-4000-8000-000000000b02';
-const OFFER_VERSION_AVAILABLE = '92000000-0000-4000-8000-000000000b01';
-const OFFER_VERSION_WITHDRAWN = '92000000-0000-4000-8000-000000000b02';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
-databaseTest('DatabaseLeadStore (T11)', () => {
+const scope = { workspaceId: WORKSPACE, actorId: ACTOR, requestId: REQUEST_ID };
+const base = { ...scope, leadType: 'sim_order', consentVersion: 'terms-2026-09' };
+
+databaseTest('DatabaseLeadStore', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
   let store: DatabaseLeadStore;
@@ -64,40 +60,6 @@ databaseTest('DatabaseLeadStore (T11)', () => {
         (${WORKSPACE_B}, 'ci-leads-workspace-b', 'CI Leads Workspace B')
       on conflict (id) do nothing
     `;
-    await admin`
-      insert into app.partners (id, workspace_id, name, referral_code, status)
-      values
-        (${PARTNER_APPROVED}, ${WORKSPACE}, 'Maple Leaf Referrals', 'MAPLE10', 'approved'),
-        (${PARTNER_SUSPENDED}, ${WORKSPACE}, 'Suspended Referrals', 'PAUSED10', 'suspended'),
-        (${PARTNER_FOREIGN}, ${WORKSPACE_B}, 'Foreign Referrals', 'FOREIGN10', 'approved')
-      on conflict (id) do nothing
-    `;
-    await admin`
-      insert into app.products (id, workspace_id, product_key)
-      values
-        (${PRODUCT_AVAILABLE}, ${WORKSPACE}, 'ci-available-plan'),
-        (${PRODUCT_WITHDRAWN}, ${WORKSPACE}, 'ci-withdrawn-plan')
-      on conflict (id) do nothing
-    `;
-    await admin`
-      insert into app.offer_versions (id, workspace_id, product_id, content, content_hash)
-      values
-        (${OFFER_VERSION_AVAILABLE}, ${WORKSPACE}, ${PRODUCT_AVAILABLE}, '{"name": "Available"}'::jsonb, 'sha256:ci-leads-available'),
-        (${OFFER_VERSION_WITHDRAWN}, ${WORKSPACE}, ${PRODUCT_WITHDRAWN}, '{"name": "Withdrawn"}'::jsonb, 'sha256:ci-leads-withdrawn')
-      on conflict (id) do nothing
-    `;
-    // `resolveOfferVersionId` reads the availability pointer, so the available
-    // product must point at its offer version; the withdrawn one resolves to
-    // null on `revoked_at` regardless.
-    await admin`
-      insert into app.product_availability (product_id, workspace_id, current_offer_version_id, revoked_at)
-      values
-        (${PRODUCT_AVAILABLE}, ${WORKSPACE}, ${OFFER_VERSION_AVAILABLE}, null),
-        (${PRODUCT_WITHDRAWN}, ${WORKSPACE}, null, now())
-      on conflict (product_id) do update set
-        current_offer_version_id = excluded.current_offer_version_id,
-        revoked_at = excluded.revoked_at
-    `;
 
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
@@ -115,120 +77,110 @@ databaseTest('DatabaseLeadStore (T11)', () => {
     await admin.end();
   });
 
-  test('an active partner code links and an unknown code is stored but flagged unmatched', async () => {
-    const linked = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-      attribution: { partnerCode: 'MAPLE10' },
-    });
-    const [linkedRow] = await admin<
-      {
-        partner_id: string | null;
-        attribution: { partnerCode: string; partnerCodeMatched: boolean };
-      }[]
-    >`
-      select partner_id, attribution from app.leads where id = ${linked.lead.id}
+  test('stores the lead type and external reference, once per site and type', async () => {
+    const ref = `MS-${Date.now()}`;
+    const created = await store.createLead({ ...base, externalRef: ref });
+    const [row] = await admin<{ lead_type: string; external_ref: string; status: string }[]>`
+      select lead_type, external_ref, status from app.leads where id = ${created.lead.id}
     `;
-    expect(linkedRow?.attribution).toMatchObject({
-      partnerCode: 'MAPLE10',
-      partnerCodeMatched: true,
-    });
-    expect(linkedRow?.partner_id).toBe(PARTNER_APPROVED);
+    expect(row).toEqual({ lead_type: 'sim_order', external_ref: ref, status: 'incomplete' });
 
-    const unknown = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-      attribution: { partnerCode: 'NOT-A-REAL-CODE' },
+    // The same order number on the same site is one record, however many times
+    // the website retries; another lead type or another site may reuse it.
+    await expect(store.createLead({ ...base, externalRef: ref })).rejects.toMatchObject({
+      cause: { code: '23505' },
     });
-    const [unknownRow] = await admin<
-      { attribution: { partnerCode: string; partnerCodeMatched: boolean } }[]
-    >`
-      select attribution from app.leads where id = ${unknown.lead.id}
-    `;
-    expect(unknownRow?.attribution).toMatchObject({
-      partnerCode: 'NOT-A-REAL-CODE',
-      partnerCodeMatched: false,
-    });
+    await expect(
+      store.createLead({ ...base, leadType: 'partner_application', externalRef: ref }),
+    ).resolves.toBeDefined();
+    await expect(
+      store.createLead({ ...base, workspaceId: WORKSPACE_B, externalRef: ref }),
+    ).resolves.toBeDefined();
   });
 
-  test.each(['PAUSED10', 'FOREIGN10'])(
-    'a suspended or foreign-workspace partner code is stored but not linked: %s',
-    async (partnerCode) => {
-      const created = await store.createLead({
-        workspaceId: WORKSPACE,
-        actorId: ACTOR,
-        requestId: REQUEST_ID,
-        consentVersion: 'terms-2026-09',
-        attribution: { partnerCode },
-      });
-      const [row] = await admin<
-        { partner_id: string | null; attribution: { partnerCodeMatched: boolean } }[]
-      >`
-        select partner_id, attribution from app.leads where id = ${created.lead.id}
-      `;
-      expect(row?.partner_id).toBeNull();
-      expect(row?.attribution.partnerCodeMatched).toBe(false);
-    },
-  );
-
-  test('selected offer version resolves for an available product and stays null for a withdrawn one', async () => {
-    const available = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-      productId: PRODUCT_AVAILABLE,
-    });
-    const [availableRow] = await admin<{ selected_offer_version_id: string | null }[]>`
-      select selected_offer_version_id from app.leads where id = ${available.lead.id}
+  test('a partner code is stored verbatim but never linked without a partner registry', async () => {
+    const created = await store.createLead({ ...base, attribution: { partnerCode: 'MAPLE10' } });
+    const [row] = await admin<{ attribution: Record<string, unknown> }[]>`
+      select attribution from app.leads where id = ${created.lead.id}
     `;
-    expect(availableRow?.selected_offer_version_id).toBe(OFFER_VERSION_AVAILABLE);
+    expect(row?.attribution).toEqual({ partnerCode: 'MAPLE10' });
+  });
 
-    const withdrawn = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-      productId: PRODUCT_WITHDRAWN,
+  test('merges people across sites by normalized email and refreshes known details', async () => {
+    const email = `merge-${Date.now()}@example.test`;
+    const first = await store.createLead({
+      ...base,
+      contact: { fullName: 'Jane Doe', email: `  ${email.toUpperCase()} ` },
     });
-    const [withdrawnRow] = await admin<{ selected_offer_version_id: string | null }[]>`
-      select selected_offer_version_id from app.leads where id = ${withdrawn.lead.id}
+    const second = await store.createLead({
+      ...base,
+      workspaceId: WORKSPACE_B,
+      leadType: 'internet',
+      contact: { email, phone: '+1 555 0100' },
+    });
+    const rows = await admin<{ id: string; contact_id: string }[]>`
+      select id, contact_id from app.leads where id in (${first.lead.id}, ${second.lead.id})
     `;
-    expect(withdrawnRow?.selected_offer_version_id).toBeNull();
+    const contactId = rows[0]?.contact_id;
+    if (!contactId) throw new Error('expected the first lead to carry a contact');
+    expect(rows.every((row) => row.contact_id === contactId)).toBe(true);
+    const [contact] = await admin<
+      { email: string; full_name: string | null; phone: string | null }[]
+    >`
+      select email, full_name, phone from app.contacts where id = ${contactId}
+    `;
+    // Lower-cased and trimmed; the second submission filled in the phone
+    // without erasing the name the first one supplied.
+    expect(contact).toEqual({ email, full_name: 'Jane Doe', phone: '+1 555 0100' });
+
+    // An anonymous draft has no contact until an email arrives on a later save.
+    const anonymous = await store.createLead({ ...base, contact: { fullName: 'No email yet' } });
+    const [before] = await admin<{ contact_id: string | null }[]>`
+      select contact_id from app.leads where id = ${anonymous.lead.id}
+    `;
+    expect(before?.contact_id).toBeNull();
+    const updated = await store.updateLead({
+      ...scope,
+      leadId: anonymous.lead.id,
+      grantToken: anonymous.grant.token,
+      contact: { email },
+    });
+    expect(updated).toMatchObject({ status: 'updated' });
+    const [after] = await admin<{ contact_id: string | null }[]>`
+      select contact_id from app.leads where id = ${anonymous.lead.id}
+    `;
+    expect(after?.contact_id).toBe(contactId);
+  });
+
+  test('the runtime role can only reach contacts through a verified actor context', async () => {
+    const runtimeUrl = new URL(migrationUrl ?? '');
+    runtimeUrl.username = 'app_runtime';
+    runtimeUrl.password = TEST_RUNTIME_PASSWORD;
+    const runtimeSql = postgres(runtimeUrl.toString(), { max: 1, prepare: false, ssl: false });
+    try {
+      expect(await runtimeSql`select id from app.contacts`).toHaveLength(0);
+      await expect(
+        runtimeSql`insert into app.contacts (email) values ('no-actor@example.test')`,
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await runtimeSql.end();
+    }
   });
 
   test('a forged grant fails, a grant for a different lead fails, and an expired grant fails', async () => {
-    const leadA = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-    });
-    const leadB = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-    });
+    const leadA = await store.createLead(base);
+    const leadB = await store.createLead(base);
 
     const forged = await store.updateLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
+      ...scope,
       leadId: leadA.lead.id,
-      grantToken: 'cpldg_this-was-never-issued-by-us',
+      grantToken: 'gtdg_this-was-never-issued-by-us',
       contact: { fullName: 'Forged' },
     });
     expect(forged).toEqual({ status: 'grant_invalid' });
 
     const wrongLead = await store.updateLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
+      ...scope,
       leadId: leadB.lead.id,
       grantToken: leadA.grant.token,
       contact: { fullName: 'Wrong lead' },
@@ -240,9 +192,7 @@ databaseTest('DatabaseLeadStore (T11)', () => {
       where lead_id = ${leadA.lead.id}
     `;
     const expired = await store.updateLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
+      ...scope,
       leadId: leadA.lead.id,
       grantToken: leadA.grant.token,
       contact: { fullName: 'Too late' },
@@ -251,18 +201,10 @@ databaseTest('DatabaseLeadStore (T11)', () => {
   });
 
   test('repeated saves with a valid grant update the same lead row', async () => {
-    const created = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-      contact: { fullName: 'Jane Doe' },
-    });
+    const created = await store.createLead({ ...base, contact: { fullName: 'Jane Doe' } });
 
     const first = await store.updateLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
+      ...scope,
       leadId: created.lead.id,
       grantToken: created.grant.token,
       contact: { email: 'jane@example.test' },
@@ -270,9 +212,7 @@ databaseTest('DatabaseLeadStore (T11)', () => {
     expect(first).toMatchObject({ status: 'updated', lead: { id: created.lead.id } });
 
     const second = await store.updateLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
+      ...scope,
       leadId: created.lead.id,
       grantToken: created.grant.token,
       contact: { phone: '+1 555 0100' },
@@ -305,26 +245,18 @@ databaseTest('DatabaseLeadStore (T11)', () => {
       'lead.updated',
     ]);
     expect(audits.every((event) => event.after.fullName === undefined)).toBe(true);
-    expect(audits[1]?.after.changedFields).toEqual(['contact']);
+    expect(audits[1]?.after.changedFields).toEqual(['contact', 'contactId']);
   });
 
   test('a save waiting behind submission rejects the committed draft', async () => {
-    const created = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-      contact: { fullName: 'Before submission' },
-    });
+    const created = await store.createLead({ ...base, contact: { fullName: 'Before submission' } });
     let pending: Promise<unknown> = Promise.resolve();
     await admin.begin(async (tx) => {
       const [connection] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
       if (!connection) throw new Error('missing lock-holder connection');
       await tx`select id from app.leads where id = ${created.lead.id} for update`;
       pending = store.updateLead({
-        workspaceId: WORKSPACE,
-        actorId: ACTOR,
-        requestId: REQUEST_ID,
+        ...scope,
         leadId: created.lead.id,
         grantToken: created.grant.token,
         contact: { fullName: 'Late edit' },
@@ -347,12 +279,7 @@ databaseTest('DatabaseLeadStore (T11)', () => {
   });
 
   test('emits exactly one analytics_lead_saved outbox job per lead', async () => {
-    const created = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'terms-2026-09',
-    });
+    const created = await store.createLead(base);
 
     const jobs = await admin<
       { job_type: string; dedupe_key: string; payload: { leadId: string } }[]
@@ -364,6 +291,38 @@ databaseTest('DatabaseLeadStore (T11)', () => {
     `;
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.payload.leadId).toBe(created.lead.id);
+  });
+
+  test('lists by type and hides restricted and deleted leads', async () => {
+    const workspaceId = '11000000-0000-4000-8000-000000000b03';
+    await admin`
+      insert into app.workspaces (id, slug, name)
+      values (${workspaceId}, 'ci-leads-workspace-c', 'CI Leads Workspace C')
+      on conflict (id) do nothing
+    `;
+    // The disposable database persists between runs; this list asserts exact
+    // membership, so it starts from an empty site.
+    await admin`delete from app.leads where workspace_id = ${workspaceId}`;
+    const scoped = { ...base, workspaceId };
+    const sim = await store.createLead(scoped);
+    const internet = await store.createLead({ ...scoped, leadType: 'internet' });
+    const restricted = await store.createLead(scoped);
+    const deleted = await store.createLead(scoped);
+    await admin`update app.leads set customer_data_restricted_at = now() where id = ${restricted.lead.id}`;
+    await admin`update app.leads set deleted_at = now() where id = ${deleted.lead.id}`;
+
+    const all = await store.listLeads({ workspaceId, actorId: ACTOR });
+    expect(all.leads.map((lead) => lead.id).sort()).toEqual([sim.lead.id, internet.lead.id].sort());
+    expect(all.page.total).toBe(2);
+
+    const onlyInternet = await store.listLeads({
+      workspaceId,
+      actorId: ACTOR,
+      leadType: 'internet',
+    });
+    expect(onlyInternet.leads).toMatchObject([
+      { id: internet.lead.id, leadType: 'internet', contactId: null, assignedActorId: null },
+    ]);
   });
 
   test('reads only the grant-bound unfinished draft under runtime RLS', async () => {
@@ -378,13 +337,10 @@ databaseTest('DatabaseLeadStore (T11)', () => {
       payload: { currentCountry: 'Bangladesh', destination: 'Toronto', arrivalDate: '2026-12-01' },
     };
     const created = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
+      ...base,
       consentVersion: 'privacy-2026-10-v2',
       contact,
       form,
-      productId: PRODUCT_AVAILABLE,
     });
     const input = {
       workspaceId: WORKSPACE,
@@ -394,20 +350,15 @@ databaseTest('DatabaseLeadStore (T11)', () => {
     };
     expect(await store.readLead(input)).toEqual({
       status: 'read',
-      draft: { leadId: created.lead.id, productId: PRODUCT_AVAILABLE, contact, form },
+      draft: { leadId: created.lead.id, leadType: 'sim_order', contact, form },
     });
-    expect(await store.readLead({ ...input, grantToken: 'cpldg_forged' })).toEqual({
+    expect(await store.readLead({ ...input, grantToken: 'gtdg_forged' })).toEqual({
       status: 'grant_invalid',
     });
     expect(await store.readLead({ ...input, workspaceId: WORKSPACE_B })).toEqual({
       status: 'grant_invalid',
     });
-    const other = await store.createLead({
-      workspaceId: WORKSPACE,
-      actorId: ACTOR,
-      requestId: REQUEST_ID,
-      consentVersion: 'privacy-2026-10-v2',
-    });
+    const other = await store.createLead({ ...base, consentVersion: 'privacy-2026-10-v2' });
     expect(await store.readLead({ ...input, leadId: other.lead.id })).toEqual({
       status: 'grant_invalid',
     });

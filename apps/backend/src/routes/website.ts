@@ -159,9 +159,10 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           workspaceId: ctx.workspaceId,
           actorId: ctx.credentialId,
           requestId: req.id,
+          leadType: body.data.leadType,
+          externalRef: body.data.externalRef,
           contact: body.data.contact,
           form: body.data.form,
-          productId: body.data.productId,
           attribution: body.data.attribution,
           consentVersion: body.data.consentVersion,
         });
@@ -241,7 +242,6 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           grantToken,
           contact: body.data.contact,
           form: body.data.form,
-          productId: body.data.productId,
           attribution: body.data.attribution,
           consentVersion: body.data.consentVersion,
         });

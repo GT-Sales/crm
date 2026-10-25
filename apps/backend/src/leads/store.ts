@@ -1,12 +1,10 @@
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   auditEvents,
+  contacts,
   draftGrants,
   leads,
-  offerVersions,
   outboxJobs,
-  partners,
-  productAvailability,
   withTenantTx,
   type TenantTransaction,
 } from '@gt-sales/db';
@@ -15,7 +13,7 @@ import {
   leadContactSchema,
   leadFormSchema,
   leadStatusSchema,
-  type Attribution,
+  leadTypeSchema,
   type LeadContact,
   type LeadForm,
   type LeadDraft,
@@ -29,16 +27,17 @@ import { sanitizeAttribution } from './attribution.js';
 import { deriveSource } from './source.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
 
-/** Proposed default: long enough for a customer to leave and resume the form later. */
+/** Long enough for a customer to leave and resume the form later. */
 const DEFAULT_DRAFT_GRANT_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export interface CreateLeadInput {
   workspaceId: string;
   actorId: string;
   requestId: string;
+  leadType: string;
+  externalRef?: string;
   contact?: LeadContact;
   form?: LeadForm;
-  productId?: string;
   attribution?: RawAttribution;
   consentVersion: string;
 }
@@ -62,7 +61,6 @@ export interface UpdateLeadInput {
   grantToken: string;
   contact?: LeadContact;
   form?: LeadForm;
-  productId?: string;
   attribution?: RawAttribution;
   consentVersion?: string;
 }
@@ -71,6 +69,7 @@ export interface ListLeadsInput {
   workspaceId: string;
   actorId: string;
   status?: LeadStatus;
+  leadType?: string;
   page?: number;
   pageSize?: number;
 }
@@ -111,60 +110,45 @@ function toSummary(row: {
   };
 }
 
-/** True only when the code matches a currently `approved` partner in this workspace. */
-async function findActivePartnerId(
-  tx: TenantTransaction,
-  workspaceId: string,
-  referralCode: string,
-): Promise<string | undefined> {
-  const [row] = await tx
-    .select({ id: partners.id })
-    .from(partners)
-    .where(
-      and(
-        eq(partners.workspaceId, workspaceId),
-        eq(partners.status, 'approved'),
-        sql`lower(${partners.referralCode}) = lower(${referralCode})`,
-      ),
-    )
-    .limit(1);
-  return row?.id ?? undefined;
+/**
+ * The merge key for contacts (owner decision 2026-10-25): email only, trimmed
+ * and lower-cased. Gmail dots and `+tags` are deliberately kept — stripping
+ * them would merge people who never shared an address.
+ */
+export function normalizeContactEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
-/** Sanitizes attribution and returns the durable link for an approved partner code. */
-async function prepareAttribution(
+/**
+ * Finds or creates the global contact for an email and refreshes the name,
+ * phone and country from the latest submission when they are present. Runs
+ * inside the tenant transaction; the `contacts` policy only requires a
+ * verified actor, which `withTenantTx` guarantees.
+ */
+export async function upsertContact(
   tx: TenantTransaction,
-  workspaceId: string,
-  raw: RawAttribution | undefined,
-): Promise<{ attribution: Attribution; partnerId?: string }> {
-  const attribution = sanitizeAttribution(raw);
-  if (!attribution.partnerCode) return { attribution };
-  const partnerId = await findActivePartnerId(tx, workspaceId, attribution.partnerCode);
-  return {
-    attribution: { ...attribution, partnerCodeMatched: partnerId !== undefined },
-    partnerId,
-  };
-}
-
-/** The latest offer version for a product that is not currently withdrawn, or undefined. */
-async function resolveOfferVersionId(
-  tx: TenantTransaction,
-  workspaceId: string,
-  productId: string,
-): Promise<string | undefined> {
+  contact: LeadContact & { email: string },
+): Promise<string> {
   const [row] = await tx
-    .select({ id: productAvailability.currentOfferVersionId })
-    .from(productAvailability)
-    .where(
-      and(
-        eq(productAvailability.workspaceId, workspaceId),
-        eq(productAvailability.productId, productId),
-        isNull(productAvailability.revokedAt),
-        isNotNull(productAvailability.currentOfferVersionId),
-      ),
-    )
-    .limit(1);
-  return row?.id ?? undefined;
+    .insert(contacts)
+    .values({
+      email: normalizeContactEmail(contact.email),
+      fullName: contact.fullName ?? null,
+      phone: contact.phone ?? null,
+      countryCode: contact.countryCode ?? null,
+    })
+    .onConflictDoUpdate({
+      target: contacts.email,
+      set: {
+        fullName: sql`coalesce(excluded.full_name, ${contacts.fullName})`,
+        phone: sql`coalesce(excluded.phone, ${contacts.phone})`,
+        countryCode: sql`coalesce(excluded.country_code, ${contacts.countryCode})`,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({ id: contacts.id });
+  if (!row) throw new Error('contact upsert did not return a row');
+  return row.id;
 }
 
 export class DatabaseLeadStore implements LeadStore {
@@ -179,7 +163,6 @@ export class DatabaseLeadStore implements LeadStore {
         const [row] = await tx
           .select({
             lead: leads,
-            productId: offerVersions.productId,
             expiresAt: draftGrants.expiresAt,
             revokedAt: draftGrants.revokedAt,
           })
@@ -188,17 +171,11 @@ export class DatabaseLeadStore implements LeadStore {
             leads,
             and(eq(leads.workspaceId, draftGrants.workspaceId), eq(leads.id, draftGrants.leadId)),
           )
-          .leftJoin(
-            offerVersions,
-            and(
-              eq(offerVersions.workspaceId, leads.workspaceId),
-              eq(offerVersions.id, leads.selectedOfferVersionId),
-            ),
-          )
           .where(
             and(
               eq(draftGrants.workspaceId, input.workspaceId),
               isNull(leads.customerDataRestrictedAt),
+              isNull(leads.deletedAt),
               eq(draftGrants.leadId, input.leadId),
               eq(draftGrants.tokenHash, hashDraftGrantToken(input.grantToken)),
             ),
@@ -212,7 +189,7 @@ export class DatabaseLeadStore implements LeadStore {
           status: 'read',
           draft: {
             leadId: row.lead.id,
-            productId: row.productId,
+            leadType: leadTypeSchema.parse(row.lead.leadType),
             contact: leadContactSchema.parse({
               fullName: row.lead.fullName ?? undefined,
               email: row.lead.email ?? undefined,
@@ -230,26 +207,23 @@ export class DatabaseLeadStore implements LeadStore {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
-        const { attribution, partnerId } = await prepareAttribution(
-          tx,
-          input.workspaceId,
-          input.attribution,
-        );
-        const selectedOfferVersionId = input.productId
-          ? await resolveOfferVersionId(tx, input.workspaceId, input.productId)
-          : undefined;
+        const attribution = sanitizeAttribution(input.attribution);
+        const contactId = input.contact?.email
+          ? await upsertContact(tx, { ...input.contact, email: input.contact.email })
+          : null;
 
         const [leadRow] = await tx
           .insert(leads)
           .values({
             workspaceId: input.workspaceId,
+            leadType: input.leadType,
             status: 'incomplete',
             fullName: input.contact?.fullName,
             email: input.contact?.email,
             phone: input.contact?.phone,
             countryCode: input.contact?.countryCode,
-            partnerId: partnerId ?? null,
-            selectedOfferVersionId: selectedOfferVersionId ?? null,
+            contactId,
+            externalRef: input.externalRef ?? null,
             payload: input.form ?? null,
             attribution,
             consentVersion: input.consentVersion,
@@ -272,8 +246,9 @@ export class DatabaseLeadStore implements LeadStore {
           requestId: input.requestId,
           after: {
             status: 'incomplete',
-            partnerId: partnerId ?? null,
-            selectedOfferVersionId: selectedOfferVersionId ?? null,
+            leadType: input.leadType,
+            externalRef: input.externalRef ?? null,
+            contactId,
             consentVersion: input.consentVersion,
           },
         });
@@ -317,6 +292,7 @@ export class DatabaseLeadStore implements LeadStore {
             expiresAt: draftGrants.expiresAt,
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
+            leadEmail: leads.email,
           })
           .from(draftGrants)
           .innerJoin(
@@ -327,6 +303,7 @@ export class DatabaseLeadStore implements LeadStore {
             and(
               eq(draftGrants.workspaceId, input.workspaceId),
               isNull(leads.customerDataRestrictedAt),
+              isNull(leads.deletedAt),
               eq(draftGrants.leadId, input.leadId),
               eq(draftGrants.tokenHash, tokenHash),
             ),
@@ -338,12 +315,12 @@ export class DatabaseLeadStore implements LeadStore {
         if (grant.revokedAt !== null || grant.expiresAt.getTime() <= Date.now()) {
           return { status: 'grant_expired' };
         }
-        // A submitted draft's grant survives only for the exact-retry order
-        // lookup (orders/store.ts). It must not authorise further edits to the
-        // lead's contact, form, attribution or partner link (T12).
+        // A submitted draft's grant must not authorise further edits to the
+        // lead's contact, form or attribution.
         if (grant.leadStatus !== 'incomplete') return { status: 'draft_submitted' };
 
         const updates: Partial<typeof leads.$inferInsert> = { updatedAt: new Date() };
+        const changedFields: string[] = [];
         if (input.contact) {
           if (input.contact.fullName !== undefined) updates.fullName = input.contact.fullName;
           if (input.contact.email !== undefined) updates.email = input.contact.email;
@@ -351,27 +328,26 @@ export class DatabaseLeadStore implements LeadStore {
           if (input.contact.countryCode !== undefined) {
             updates.countryCode = input.contact.countryCode;
           }
+          changedFields.push('contact');
+          // Re-resolve the person whenever an email is known: a draft that
+          // started anonymous joins its contact as soon as the address arrives.
+          const email = input.contact.email ?? grant.leadEmail ?? undefined;
+          if (email) {
+            updates.contactId = await upsertContact(tx, { ...input.contact, email });
+            changedFields.push('contactId');
+          }
         }
-        if (input.form !== undefined) updates.payload = input.form;
-        if (input.consentVersion !== undefined) updates.consentVersion = input.consentVersion;
-        const changedFields: string[] = [];
-        if (input.contact !== undefined) changedFields.push('contact');
-        if (input.form !== undefined) changedFields.push('form');
-        if (input.consentVersion !== undefined) changedFields.push('consentVersion');
+        if (input.form !== undefined) {
+          updates.payload = input.form;
+          changedFields.push('form');
+        }
+        if (input.consentVersion !== undefined) {
+          updates.consentVersion = input.consentVersion;
+          changedFields.push('consentVersion');
+        }
         if (input.attribution !== undefined) {
-          const prepared = await prepareAttribution(tx, input.workspaceId, input.attribution);
-          updates.attribution = prepared.attribution;
-          updates.partnerId = prepared.partnerId ?? null;
-          changedFields.push('attribution', 'partnerId');
-        }
-        if (input.productId !== undefined) {
-          const selectedOfferVersionId = await resolveOfferVersionId(
-            tx,
-            input.workspaceId,
-            input.productId,
-          );
-          updates.selectedOfferVersionId = selectedOfferVersionId ?? null;
-          changedFields.push('selectedOfferVersionId');
+          updates.attribution = sanitizeAttribution(input.attribution);
+          changedFields.push('attribution');
         }
 
         const [row] = await tx
@@ -415,20 +391,25 @@ export class DatabaseLeadStore implements LeadStore {
         const conditions = and(
           eq(leads.workspaceId, input.workspaceId),
           isNull(leads.customerDataRestrictedAt),
+          isNull(leads.deletedAt),
           input.status ? eq(leads.status, input.status) : undefined,
+          input.leadType ? eq(leads.leadType, input.leadType) : undefined,
         );
 
         const rows = await tx
           .select({
             id: leads.id,
             workspaceId: leads.workspaceId,
+            leadType: leads.leadType,
             status: leads.status,
             fullName: leads.fullName,
             email: leads.email,
             phone: leads.phone,
             countryCode: leads.countryCode,
+            contactId: leads.contactId,
+            assignedActorId: leads.assignedActorId,
+            externalRef: leads.externalRef,
             attribution: leads.attribution,
-            selectedOfferVersionId: leads.selectedOfferVersionId,
             consentVersion: leads.consentVersion,
             createdAt: leads.createdAt,
             updatedAt: leads.updatedAt,
@@ -449,6 +430,7 @@ export class DatabaseLeadStore implements LeadStore {
           return {
             id: row.id,
             workspaceId: row.workspaceId,
+            leadType: leadTypeSchema.parse(row.leadType),
             status: leadStatusSchema.parse(row.status),
             contact: leadContactSchema.parse({
               fullName: row.fullName ?? undefined,
@@ -456,9 +438,11 @@ export class DatabaseLeadStore implements LeadStore {
               phone: row.phone ?? undefined,
               countryCode: row.countryCode ?? undefined,
             }),
+            contactId: row.contactId,
+            assignedActorId: row.assignedActorId,
+            externalRef: row.externalRef,
             source: deriveSource(attribution),
             attribution,
-            selectedOfferVersionId: row.selectedOfferVersionId,
             consentVersion: row.consentVersion,
             createdAt: row.createdAt.toISOString(),
             updatedAt: row.updatedAt.toISOString(),
