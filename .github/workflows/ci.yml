@@ -92,6 +92,9 @@ jobs:
       - name: Create the disposable e2e database
         run: PGPASSWORD=postgres createdb -h localhost -U postgres gt_sales_crm_e2e_test
       - run: pnpm run test:e2e
+      # The lead journeys: the admin's e2e build against the real backend and
+      # the disposable e2e database (apps/admin/playwright.leads.config.ts).
+      - run: pnpm --filter admin test:e2e:leads
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

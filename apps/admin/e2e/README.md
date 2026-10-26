@@ -1,31 +1,33 @@
 # Admin browser checks
 
-`shell.spec.ts` verifies the public sign-in, invitation, denial and recovery routes at desktop and mobile widths. It also proves that a deployment without an authenticated/configured staff session cannot render the workspace shell. Backend and component tests cover the active-membership workspace list; live Supabase journeys require the staging Auth project and SMTP configuration.
+Two suites, both run in CI.
 
-Run `pnpm --filter admin build`, then `pnpm run test:e2e` from the repository root. Playwright starts the production server automatically. Set `CAPTURE_SCREENSHOTS=1` to write review images to `docs/EVIDENCE/T2-screenshots`. These are static shell checks; they do not prove authentication or tenant authorization.
+## Shell (`shell.spec.ts`)
 
-## Order journey (T14)
+The public sign-in, invitation, denial and recovery routes at desktop and
+mobile widths, and proof that a deployment without an authenticated,
+configured staff session never renders the workspace shell. Run
+`pnpm --filter admin build`, then `pnpm run test:e2e` from the repository root;
+Playwright starts the production server itself.
 
-The full order-processing journey — list filters, permission-aware search, archive
-toggle, bulk assign, and detail transitions through `in_progress` →
-`ready_for_delivery` → dispatch → activate, plus the stale-edit reload and the
-cancel-without-reason block — is covered by Vitest component tests in
-`src/components/orders/orders-list.test.tsx` and
-`src/components/orders/order-detail.test.tsx`. That suite drives the real
-components against a stubbed typed client and a stateful test double of the
-backend's transition map.
+## Lead journeys (`leads.spec.ts`)
 
-`orders.spec.ts` (CQ-01, 22 Oct 2026) runs the screens in a real browser against
-the real backend harness (`apps/backend/tests/e2e/harness.ts`). It places an
-order through the public API, opens the list and the detail, moves the order to
-`in_progress`, and proves a stale second tab gets the version-conflict reload
-prompt. CI has no Supabase, so the run uses a separate admin build
-(`.next-e2e`) with a browser-test session seam: the harness's stub verifier
-accepts one fixed token for its seeded owner. The seam is compiled out of every
-normal build (CI greps for it), and `next.config.ts` refuses to build it on
-Vercel.
+Staff working leads in a real browser against the real backend: the inbox's
+type tabs, counts and search; a board move that survives a reload; the lead
+page's assignment, note and task; completing that task from My tasks; and the
+trash and restore.
 
-Run it with a local Postgres and the disposable `gt_sales_crm_e2e_test`
-database: `pnpm --filter admin test:e2e:orders` (the root `pnpm run test:e2e`
-includes it). A live journey with real Supabase sign-in still belongs in the
-staging run once staff Auth and SMTP are configured.
+`pnpm --filter admin test:e2e:leads` builds the admin into `.next-e2e` with a
+browser-test session seam, then `playwright.leads.config.ts` starts two
+servers: the backend harness (`apps/backend/tests/e2e/harness.ts`) on 4100
+against the disposable `gt_sales_crm_e2e_test` database, and the e2e admin
+build on 3101. The harness runs the real app, routes, authorization store,
+stores and RLS; its one seam is a stub session verifier that admits one seeded
+owner for a fixed token, because CI has no Supabase Auth project. Each start
+resets and reseeds the e2e site.
+
+The seam is compiled out of every normal build (CI greps for it), and
+`next.config.ts` refuses to build it on Vercel. Locally the suite needs
+Postgres on `localhost:5432` with a `gt_sales_crm_e2e_test` database
+(`createdb gt_sales_crm_e2e_test`). A journey with real Supabase sign-in still
+belongs in a staging run.

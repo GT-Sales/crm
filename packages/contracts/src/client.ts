@@ -38,7 +38,37 @@ import {
   type CreateExportRequest,
   type CreateExportResponse,
 } from './exports';
-import { listAssignableMembersResponseSchema, type ListAssignableMembersResponse } from './members';
+import {
+  createLeadNoteRequestSchema,
+  createLeadNoteResponseSchema,
+  createLeadTaskRequestSchema,
+  getWorkspaceLeadResponseSchema,
+  leadTaskResponseSchema,
+  leadTrashResponseSchema,
+  listWorkspaceTasksResponseSchema,
+  updateLeadTaskRequestSchema,
+  updateWorkspaceLeadRequestSchema,
+  updateWorkspaceLeadResponseSchema,
+  type CreateLeadNoteRequest,
+  type CreateLeadNoteResponse,
+  type CreateLeadTaskRequest,
+  type GetWorkspaceLeadResponse,
+  type LeadTaskResponse,
+  type LeadTrashResponse,
+  type ListWorkspaceTasksQuery,
+  type ListWorkspaceTasksResponse,
+  type UpdateLeadTaskRequest,
+  type UpdateWorkspaceLeadRequest,
+  type UpdateWorkspaceLeadResponse,
+} from './lead-work';
+import {
+  listAssignableMembersResponseSchema,
+  updateStaffProfileRequestSchema,
+  updateStaffProfileResponseSchema,
+  type ListAssignableMembersResponse,
+  type UpdateStaffProfileRequest,
+  type UpdateStaffProfileResponse,
+} from './members';
 import {
   apiErrorResponseSchema,
   inviteStaffRequestSchema,
@@ -74,7 +104,12 @@ import {
   type RevokeServiceCredentialResponse,
 } from './website-auth';
 import {
+  leadBoardResponseSchema,
+  leadsSummaryResponseSchema,
   listWorkspaceLeadsResponseSchema,
+  type LeadBoardQuery,
+  type LeadBoardResponse,
+  type LeadsSummaryResponse,
   type ListWorkspaceLeadsQuery,
   type ListWorkspaceLeadsResponse,
 } from './workspace-leads';
@@ -173,6 +208,7 @@ export interface BackendClient {
   };
   staff: {
     listWorkspaces(): Promise<StaffWorkspacesResponse>;
+    updateProfile(body: UpdateStaffProfileRequest): Promise<UpdateStaffProfileResponse>;
     workspaceAccess(workspaceId: string): Promise<StaffWorkspaceAccessResponse>;
     invite(workspaceId: string, body: InviteStaffRequest): Promise<InviteStaffResponse>;
     revokeMembership(workspaceId: string, membershipId: string): Promise<RevokeStaffResponse>;
@@ -190,6 +226,35 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceLeadsQuery,
     ): Promise<ListWorkspaceLeadsResponse>;
+    leadsSummary(workspaceId: string): Promise<LeadsSummaryResponse>;
+    leadBoard(workspaceId: string, query: LeadBoardQuery): Promise<LeadBoardResponse>;
+    getLead(workspaceId: string, leadId: string): Promise<GetWorkspaceLeadResponse>;
+    updateLead(
+      workspaceId: string,
+      leadId: string,
+      body: UpdateWorkspaceLeadRequest,
+    ): Promise<UpdateWorkspaceLeadResponse>;
+    trashLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
+    restoreLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
+    createLeadNote(
+      workspaceId: string,
+      leadId: string,
+      body: CreateLeadNoteRequest,
+    ): Promise<CreateLeadNoteResponse>;
+    createLeadTask(
+      workspaceId: string,
+      leadId: string,
+      body: CreateLeadTaskRequest,
+    ): Promise<LeadTaskResponse>;
+    updateTask(
+      workspaceId: string,
+      taskId: string,
+      body: UpdateLeadTaskRequest,
+    ): Promise<LeadTaskResponse>;
+    listTasks(
+      workspaceId: string,
+      query?: ListWorkspaceTasksQuery,
+    ): Promise<ListWorkspaceTasksResponse>;
     listJobs(workspaceId: string): Promise<ListWorkspaceJobsResponse>;
     retryJob(workspaceId: string, jobId: string): Promise<RetryWorkspaceJobResponse>;
     resolveUncertainJob(
@@ -354,6 +419,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: '/api/v1/staff/workspaces',
           responseSchema: staffWorkspacesResponseSchema,
         }),
+      updateProfile: (body) =>
+        call({
+          method: 'PATCH',
+          path: '/api/v1/staff/profile',
+          body: updateStaffProfileRequestSchema.parse(body),
+          responseSchema: updateStaffProfileResponseSchema,
+        }),
       workspaceAccess: (workspaceId) =>
         call({
           method: 'GET',
@@ -402,8 +474,93 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads`,
-          query: { status: query?.status, page: query?.page, pageSize: query?.pageSize },
+          query: {
+            status: query?.status,
+            type: query?.type,
+            stage: query?.stage,
+            assignee: query?.assignee,
+            q: query?.q,
+            view: query?.view,
+            page: query?.page,
+            pageSize: query?.pageSize,
+          },
           responseSchema: listWorkspaceLeadsResponseSchema,
+        }),
+      leadsSummary: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/summary`,
+          responseSchema: leadsSummaryResponseSchema,
+        }),
+      leadBoard: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/board`,
+          query: {
+            type: query.type,
+            assignee: query.assignee,
+            q: query.q,
+            perStage: query.perStage,
+          },
+          responseSchema: leadBoardResponseSchema,
+        }),
+      getLead: (workspaceId, leadId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}`,
+          responseSchema: getWorkspaceLeadResponseSchema,
+        }),
+      updateLead: (workspaceId, leadId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}`,
+          body: updateWorkspaceLeadRequestSchema.parse(body),
+          responseSchema: updateWorkspaceLeadResponseSchema,
+        }),
+      trashLead: (workspaceId, leadId) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/trash`,
+          responseSchema: leadTrashResponseSchema,
+        }),
+      restoreLead: (workspaceId, leadId) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/restore`,
+          responseSchema: leadTrashResponseSchema,
+        }),
+      createLeadNote: (workspaceId, leadId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/notes`,
+          body: createLeadNoteRequestSchema.parse(body),
+          responseSchema: createLeadNoteResponseSchema,
+        }),
+      createLeadTask: (workspaceId, leadId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/tasks`,
+          body: createLeadTaskRequestSchema.parse(body),
+          responseSchema: leadTaskResponseSchema,
+        }),
+      updateTask: (workspaceId, taskId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/tasks/${encode(taskId)}`,
+          body: updateLeadTaskRequestSchema.parse(body),
+          responseSchema: leadTaskResponseSchema,
+        }),
+      listTasks: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/tasks`,
+          query: {
+            assignee: query?.assignee,
+            status: query?.status,
+            page: query?.page,
+            pageSize: query?.pageSize,
+          },
+          responseSchema: listWorkspaceTasksResponseSchema,
         }),
       listJobs: (workspaceId) =>
         call({

@@ -104,6 +104,7 @@ const staffOnly: {
     },
     revokeStaff: async () => 'not_found',
     listAssignableMembers: async () => [],
+    setDisplayName: async () => 0,
   },
   credentialStore: {
     createCredential: async () => {

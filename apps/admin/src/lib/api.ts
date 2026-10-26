@@ -2,6 +2,20 @@ import {
   BackendError,
   createBackendClient,
   type CreateDownloadLinkResponse,
+  type CreateLeadNoteResponse,
+  type CreateLeadTaskRequest,
+  type GetWorkspaceLeadResponse,
+  type LeadBoardQuery,
+  type LeadBoardResponse,
+  type LeadsSummaryResponse,
+  type LeadTaskResponse,
+  type LeadTrashResponse,
+  type ListWorkspaceTasksQuery,
+  type ListWorkspaceTasksResponse,
+  type UpdateLeadTaskRequest,
+  type UpdateStaffProfileResponse,
+  type UpdateWorkspaceLeadRequest,
+  type UpdateWorkspaceLeadResponse,
   type CreateServiceCredentialRequest,
   type CreateServiceCredentialResponse,
   type HealthResponse,
@@ -105,6 +119,90 @@ export async function getStaffLeads(
   query?: ListWorkspaceLeadsQuery,
 ): Promise<ListWorkspaceLeadsResponse> {
   return client(accessToken).staff.listLeads(workspaceId, query);
+}
+
+export async function getLeadsSummary(
+  accessToken: string,
+  workspaceId: string,
+): Promise<LeadsSummaryResponse> {
+  return client(accessToken).staff.leadsSummary(workspaceId);
+}
+
+export async function getLeadBoard(
+  accessToken: string,
+  workspaceId: string,
+  query: LeadBoardQuery,
+): Promise<LeadBoardResponse> {
+  return client(accessToken).staff.leadBoard(workspaceId, query);
+}
+
+export async function getStaffLead(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+): Promise<GetWorkspaceLeadResponse> {
+  return client(accessToken).staff.getLead(workspaceId, leadId);
+}
+
+export async function updateStaffLead(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  body: UpdateWorkspaceLeadRequest,
+): Promise<UpdateWorkspaceLeadResponse> {
+  return client(accessToken).staff.updateLead(workspaceId, leadId, body);
+}
+
+export async function setLeadTrashed(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  trashed: boolean,
+): Promise<LeadTrashResponse> {
+  const staff = client(accessToken).staff;
+  return trashed ? staff.trashLead(workspaceId, leadId) : staff.restoreLead(workspaceId, leadId);
+}
+
+export async function addLeadNote(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  body: string,
+): Promise<CreateLeadNoteResponse> {
+  return client(accessToken).staff.createLeadNote(workspaceId, leadId, { body });
+}
+
+export async function createLeadTask(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  body: CreateLeadTaskRequest,
+): Promise<LeadTaskResponse> {
+  return client(accessToken).staff.createLeadTask(workspaceId, leadId, body);
+}
+
+export async function updateLeadTask(
+  accessToken: string,
+  workspaceId: string,
+  taskId: string,
+  body: UpdateLeadTaskRequest,
+): Promise<LeadTaskResponse> {
+  return client(accessToken).staff.updateTask(workspaceId, taskId, body);
+}
+
+export async function listStaffTasks(
+  accessToken: string,
+  workspaceId: string,
+  query?: ListWorkspaceTasksQuery,
+): Promise<ListWorkspaceTasksResponse> {
+  return client(accessToken).staff.listTasks(workspaceId, query);
+}
+
+export async function updateStaffProfile(
+  accessToken: string,
+  displayName: string,
+): Promise<UpdateStaffProfileResponse> {
+  return client(accessToken).staff.updateProfile({ displayName });
 }
 
 export async function listWorkspaceJobs(

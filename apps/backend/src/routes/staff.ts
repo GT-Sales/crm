@@ -1,11 +1,21 @@
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 import {
+  createLeadNoteRequestSchema,
+  createLeadTaskRequestSchema,
   createServiceCredentialRequestSchema,
   inviteStaffRequestSchema,
+  leadBoardQuerySchema,
   listWorkspaceLeadsQuerySchema,
+  listWorkspaceTasksQuerySchema,
   resolveUncertainJobRequestSchema,
   reviewFileRequestSchema,
+  updateLeadTaskRequestSchema,
+  updateStaffProfileRequestSchema,
+  updateWorkspaceLeadRequestSchema,
+  type LeadAccess,
+  type LeadDetail,
+  type LeadListItem,
 } from '@gt-sales/contracts';
 import { rateLimitHit } from '@gt-sales/db';
 import { z } from 'zod';
@@ -25,6 +35,11 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
+import {
+  DatabaseLeadWorkStore,
+  type LeadWorkStore,
+  type TaskOutcome,
+} from '../leads/work-store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
 import {
   createAuthorize,
@@ -48,6 +63,8 @@ export interface StaffRouteDependencies {
   store: StaffStore;
   credentialStore: WebsiteCredentialStore;
   leadStore: LeadStore;
+  /** The lead page, board, notes and tasks; omitted in route tests that do not reach them. */
+  leadWorkStore?: LeadWorkStore;
   jobStore?: JobAdminStore;
   documentService?: Pick<DocumentService, 'review' | 'issueDownload'>;
   /** Receives every unexpected handler failure; optional so tests can omit it. */
@@ -61,6 +78,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     store: new DatabaseStaffStore(),
     credentialStore: new DatabaseWebsiteCredentialStore(),
     leadStore: new DatabaseLeadStore(),
+    leadWorkStore: new DatabaseLeadWorkStore(),
     jobStore: new DatabaseOutboxStore(),
     documentService: createDocumentServiceFromEnv(),
     errorTracker: createErrorTrackerFromEnv(),
@@ -143,6 +161,61 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     );
   }
 
+  function leadAccessOf(access: StaffAccessSnapshot): LeadAccess {
+    return {
+      contacts: canSeeContacts(access),
+      manage: decideAccess(access, 'lead.manage').allowed,
+    };
+  }
+
+  function withoutContact(lead: LeadListItem): LeadListItem {
+    return { ...lead, contact: {} };
+  }
+
+  function withoutPersonalDetails(lead: LeadDetail): LeadDetail {
+    return { ...lead, contact: {}, form: null };
+  }
+
+  /** The lead work store, or a logged 500 when this deployment was built without it. */
+  function leadWork(req: Request, res: Response): LeadWorkStore | undefined {
+    if (dependencies.leadWorkStore) return dependencies.leadWorkStore;
+    reportFailure(req, new Error('lead work store is not configured'));
+    sendStaffAuthError(res, req.id, 'internal_error', 500);
+    return undefined;
+  }
+
+  /** Two route parameters as uuids, or a 400 already sent. */
+  function uuidParams(
+    req: Request,
+    res: Response,
+    second: 'leadId' | 'taskId',
+  ): { workspaceId: string; id: string } | undefined {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const id = z.uuid().safeParse(req.params[second]);
+    if (!workspaceId.success || !id.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return undefined;
+    }
+    return { workspaceId: workspaceId.data, id: id.data };
+  }
+
+  function sendTaskOutcome(req: Request, res: Response, outcome: TaskOutcome, created: boolean) {
+    switch (outcome.status) {
+      case 'saved':
+        res.status(created ? 201 : 200).json({ task: outcome.task, requestId: req.id });
+        return;
+      case 'not_found':
+        sendDomainError(res, req.id, created ? 'lead_not_found' : 'task_not_found', 404);
+        return;
+      case 'trashed':
+        sendDomainError(res, req.id, 'lead_trashed', 409);
+        return;
+      case 'assignee_not_found':
+        sendDomainError(res, req.id, 'assignee_not_found', 422);
+        return;
+    }
+  }
+
   router.get('/workspaces', async (req, res) => {
     try {
       const actor = session(req);
@@ -195,6 +268,27 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
+  /** The caller's own display name, on every site they actively belong to. */
+  router.patch('/profile', async (req, res) => {
+    const body = updateStaffProfileRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const actor = session(req);
+      const memberships = await dependencies.store.setDisplayName({
+        actorId: actor.actorId,
+        displayName: body.data.displayName,
+        requestId: req.id,
+      });
+      res.json({ displayName: body.data.displayName, memberships, requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
   router.get('/workspaces/:workspaceId/leads', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const query = listWorkspaceLeadsQuerySchema.safeParse(req.query);
@@ -209,19 +303,361 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
+      const access = leadAccessOf(decision.access);
+      // A search by name or email would reveal who is a lead.
+      if (query.data.q !== undefined && !access.contacts) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
 
       const result = await dependencies.leadStore.listLeads({
         workspaceId: workspaceId.data,
         actorId: actor.actorId,
         status: query.data.status,
         leadType: query.data.type,
+        stage: query.data.stage,
+        assignee: query.data.assignee,
+        search: query.data.q,
+        view: query.data.view,
         page: query.data.page,
         pageSize: query.data.pageSize,
       });
-      const leads = canSeeContacts(decision.access)
-        ? result.leads
-        : result.leads.map((lead) => ({ ...lead, contact: {} }));
-      res.json({ leads, page: result.page, requestId: req.id });
+      const leads = access.contacts ? result.leads : result.leads.map(withoutContact);
+      res.json({ leads, page: result.page, access, requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  // Registered before `/leads/:leadId` so the literal segments win.
+  router.get('/workspaces/:workspaceId/leads/summary', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    if (!workspaceId.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const summary = await store.summary({
+        workspaceId: workspaceId.data,
+        actorId: actor.actorId,
+      });
+      res.json({ ...summary, access: leadAccessOf(decision.access), requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.get('/workspaces/:workspaceId/leads/board', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = leadBoardQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const access = leadAccessOf(decision.access);
+      if (query.data.q !== undefined && !access.contacts) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const columns = await store.board(
+        {
+          workspaceId: workspaceId.data,
+          actorId: actor.actorId,
+          leadType: query.data.type,
+          assignee: query.data.assignee,
+          search: query.data.q,
+        },
+        query.data.perStage ?? 50,
+      );
+      res.json({
+        leadType: query.data.type,
+        columns: access.contacts
+          ? columns
+          : columns.map((column) => ({ ...column, leads: column.leads.map(withoutContact) })),
+        access,
+        requestId: req.id,
+      });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.get('/workspaces/:workspaceId/leads/:leadId', async (req, res) => {
+    const params = uuidParams(req, res, 'leadId');
+    if (!params) return;
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const access = leadAccessOf(decision.access);
+      // Form details, notes and tasks carry personal details as freely as
+      // the contact fields do, so they travel only with contact visibility.
+      const result = await store.getLead({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        leadId: params.id,
+        includeWork: access.contacts,
+      });
+      if (!result) {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      res.json({
+        lead: access.contacts ? result.lead : withoutPersonalDetails(result.lead),
+        activities: result.activities,
+        tasks: result.tasks,
+        access,
+        requestId: req.id,
+      });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.patch('/workspaces/:workspaceId/leads/:leadId', async (req, res) => {
+    const params = uuidParams(req, res, 'leadId');
+    if (!params) return;
+    const body = updateWorkspaceLeadRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = await store.updateLead({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        requestId: req.id,
+        leadId: params.id,
+        stage: body.data.stage,
+        assignedActorId: body.data.assignedActorId,
+        contact: body.data.contact,
+      });
+      switch (outcome.status) {
+        case 'updated':
+          res.json({ lead: outcome.lead, activities: outcome.activities, requestId: req.id });
+          return;
+        case 'not_found':
+          sendDomainError(res, req.id, 'lead_not_found', 404);
+          return;
+        case 'trashed':
+          sendDomainError(res, req.id, 'lead_trashed', 409);
+          return;
+        case 'invalid_stage':
+          sendDomainError(res, req.id, 'validation_error', 400, { field: 'stage' });
+          return;
+        case 'assignee_not_found':
+          sendDomainError(res, req.id, 'assignee_not_found', 422);
+          return;
+      }
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  for (const [path, trashed] of [
+    ['trash', true],
+    ['restore', false],
+  ] as const) {
+    router.post(`/workspaces/:workspaceId/leads/:leadId/${path}`, async (req, res) => {
+      const params = uuidParams(req, res, 'leadId');
+      if (!params) return;
+      try {
+        const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+        if (!decision.allowed) {
+          sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+          return;
+        }
+        const store = leadWork(req, res);
+        if (!store) return;
+        const outcome = await store.setTrashed({
+          workspaceId: params.workspaceId,
+          actorId: actor.actorId,
+          requestId: req.id,
+          leadId: params.id,
+          trashed,
+        });
+        if (outcome.status === 'not_found') {
+          sendDomainError(res, req.id, 'lead_not_found', 404);
+          return;
+        }
+        res.json({ lead: outcome.lead, activity: outcome.activity, requestId: req.id });
+      } catch (error) {
+        reportFailure(req, error);
+        sendStaffAuthError(res, req.id, 'internal_error', 500);
+      }
+    });
+  }
+
+  router.post('/workspaces/:workspaceId/leads/:leadId/notes', async (req, res) => {
+    const params = uuidParams(req, res, 'leadId');
+    if (!params) return;
+    const body = createLeadNoteRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = await store.addNote({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        requestId: req.id,
+        leadId: params.id,
+        body: body.data.body,
+      });
+      if (outcome.status === 'not_found') {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      if (outcome.status === 'trashed') {
+        sendDomainError(res, req.id, 'lead_trashed', 409);
+        return;
+      }
+      res.status(201).json({ activity: outcome.activity, requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.post('/workspaces/:workspaceId/leads/:leadId/tasks', async (req, res) => {
+    const params = uuidParams(req, res, 'leadId');
+    if (!params) return;
+    const body = createLeadTaskRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = await store.createTask({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        requestId: req.id,
+        leadId: params.id,
+        title: body.data.title,
+        dueAt: body.data.dueAt,
+        assignedActorId: body.data.assignedActorId,
+      });
+      sendTaskOutcome(req, res, outcome, true);
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.patch('/workspaces/:workspaceId/tasks/:taskId', async (req, res) => {
+    const params = uuidParams(req, res, 'taskId');
+    if (!params) return;
+    const body = updateLeadTaskRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = await store.updateTask({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        requestId: req.id,
+        taskId: params.id,
+        ...body.data,
+      });
+      sendTaskOutcome(req, res, outcome, false);
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.get('/workspaces/:workspaceId/tasks', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = listWorkspaceTasksQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      // Task titles name people and what was agreed with them.
+      const access = leadAccessOf(decision.access);
+      if (!access.contacts) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const page = query.data.page ?? 1;
+      const pageSize = query.data.pageSize ?? 50;
+      const result = await store.listTasks(
+        {
+          workspaceId: workspaceId.data,
+          actorId: actor.actorId,
+          assignee: query.data.assignee ?? 'me',
+          status: query.data.status ?? 'open',
+        },
+        page,
+        pageSize,
+      );
+      res.json({
+        tasks: result.tasks,
+        page: { page, pageSize, total: result.total },
+        access,
+        requestId: req.id,
+      });
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);

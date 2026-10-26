@@ -1,5 +1,6 @@
 import {
   internetLeadPayloadSchema,
+  leadTypeCatalog,
   mobilityLeadPayloadSchema,
   type LeadContact,
   type LeadForm,
@@ -8,9 +9,10 @@ import type { z } from 'zod';
 
 /**
  * The lead-type registry (docs/PLAN.md §5.3): what each website form is, which
- * fields it must carry, and the working statuses staff move it through. A new
- * form is a new entry here plus a scope on the site's credential; intake
- * refuses any type that is not listed.
+ * fields it must carry, and how intake treats it. A new form is a new entry
+ * here and in the contracts catalogue (`leadTypeCatalog`: label and working
+ * stages, shared with the admin) plus a scope on the site's credential;
+ * intake refuses any type that is not listed.
  *
  * A type with a `payload` schema is modelled: its `form.payload` is validated
  * strictly and nothing unmodelled is stored. A type without one is planned
@@ -18,7 +20,6 @@ import type { z } from 'zod';
  * the old behaviour of accepting any object.
  */
 export interface LeadTypeDefinition {
-  label: string;
   payload?: z.ZodType;
   /**
    * Created complete in a single request (`submit: true`). Such a lead has no
@@ -27,54 +28,23 @@ export interface LeadTypeDefinition {
   oneShot: boolean;
   /** Contact fields the type cannot be stored without. */
   requiredContact: readonly (keyof Pick<LeadContact, 'fullName' | 'email' | 'phone'>)[];
-  /** Working statuses for the phase 2 screens; `new` first. */
-  statuses: readonly string[];
 }
 
 export const leadTypes = {
   internet: {
-    label: 'Internet order',
     payload: internetLeadPayloadSchema,
     oneShot: true,
     requiredContact: ['fullName', 'email', 'phone'],
-    statuses: [
-      'new',
-      'contacted',
-      'qualified',
-      'existing_shaw',
-      'non_serviceable_address',
-      'old_due',
-      'installed',
-      'won',
-      'lost',
-    ],
   },
   mobility: {
-    label: 'Mobile plan order',
     payload: mobilityLeadPayloadSchema,
     oneShot: true,
     requiredContact: ['fullName', 'email', 'phone'],
-    statuses: ['new', 'contacted', 'qualified', 'activated', 'won', 'lost'],
   },
-  sim_order: {
-    label: 'SIM order',
-    oneShot: false,
-    requiredContact: [],
-    statuses: ['incomplete', 'submitted'],
-  },
-  partner_application: {
-    label: 'Partner application',
-    oneShot: false,
-    requiredContact: [],
-    statuses: ['new', 'contacted', 'approved', 'declined'],
-  },
-  contact_message: {
-    label: 'Contact message',
-    oneShot: false,
-    requiredContact: [],
-    statuses: ['new', 'replied', 'closed'],
-  },
-} as const satisfies Record<string, LeadTypeDefinition>;
+  sim_order: { oneShot: false, requiredContact: [] },
+  partner_application: { oneShot: false, requiredContact: [] },
+  contact_message: { oneShot: false, requiredContact: [] },
+} as const satisfies Record<keyof typeof leadTypeCatalog, LeadTypeDefinition>;
 
 export type RegisteredLeadType = keyof typeof leadTypes;
 

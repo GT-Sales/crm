@@ -94,6 +94,7 @@ const sampleLead: LeadListItem = {
   workspaceId: WORKSPACE,
   leadType: 'sim_order',
   status: 'incomplete',
+  stage: 'new',
   contact: { email: 'jane@example.test' },
   contactId: null,
   assignedActorId: null,
@@ -101,13 +102,28 @@ const sampleLead: LeadListItem = {
   source: 'utm:google/cpc',
   attribution: { utmSource: 'google', utmMedium: 'cpc' },
   consentVersion: 'terms-2026-09',
+  openTaskCount: 0,
+  nextTaskDueAt: null,
+  deletedAt: null,
   createdAt: '2026-09-14T00:00:00.000Z',
   updatedAt: '2026-09-14T00:00:00.000Z',
 };
 
 const sampleMembers: AssignableMember[] = [
-  { membershipId: MEMBERSHIP, roles: ['owner'], isSelf: true },
-  { membershipId: INVITATION, roles: ['orders'], isSelf: false },
+  {
+    membershipId: MEMBERSHIP,
+    actorId: ACTOR,
+    displayName: 'Owner',
+    roles: ['owner'],
+    isSelf: true,
+  },
+  {
+    membershipId: INVITATION,
+    actorId: '20000000-0000-4000-8000-000000000002',
+    displayName: null,
+    roles: ['orders'],
+    isSelf: false,
+  },
 ];
 
 class MemoryLeadStore implements LeadStore {
@@ -154,6 +170,7 @@ class MemoryStaffStore implements StaffStore {
   inviteStaff = vi.fn(async (_input: InviteStaffInput) => INVITATION);
   revokeStaff = vi.fn(async (): Promise<RevokeResult> => 'revoked');
   listAssignableMembers = vi.fn(async () => sampleMembers);
+  setDisplayName = vi.fn(async () => 1);
 
   async bootstrapStaff(_input: BootstrapStaffInput) {
     return this.access.status === 'active' ? [workspace] : [];

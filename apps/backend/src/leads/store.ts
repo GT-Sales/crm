@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   auditEvents,
   contacts,
@@ -8,22 +8,24 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
-  attributionSchema,
+  initialLeadStage,
   leadContactSchema,
   leadFormSchema,
   leadStatusSchema,
   leadTypeSchema,
+  type LeadAssigneeFilter,
   type LeadContact,
   type LeadForm,
   type LeadDraft,
   type LeadListItem,
   type LeadStatus,
   type LeadSummary,
+  type LeadView,
   type RawAttribution,
 } from '@gt-sales/contracts';
 
 import { sanitizeAttribution } from './attribution.js';
-import { deriveSource } from './source.js';
+import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
 
 /** Long enough for a customer to leave and resume the form later. */
@@ -72,6 +74,11 @@ export interface ListLeadsInput {
   actorId: string;
   status?: LeadStatus;
   leadType?: string;
+  stage?: string;
+  assignee?: LeadAssigneeFilter;
+  /** Name, email, phone or external reference; only for callers who may see contacts. */
+  search?: string;
+  view?: LeadView;
   page?: number;
   pageSize?: number;
 }
@@ -221,6 +228,7 @@ export class DatabaseLeadStore implements LeadStore {
             workspaceId: input.workspaceId,
             leadType: input.leadType,
             status,
+            stage: initialLeadStage(input.leadType),
             fullName: input.contact?.fullName,
             email: input.contact?.email,
             phone: input.contact?.phone,
@@ -385,81 +393,22 @@ export class DatabaseLeadStore implements LeadStore {
       async (tx) => {
         const page = input.page ?? 1;
         const pageSize = input.pageSize ?? 25;
-        const offset = (page - 1) * pageSize;
-
-        const conditions = and(
-          eq(leads.workspaceId, input.workspaceId),
-          isNull(leads.customerDataRestrictedAt),
-          isNull(leads.deletedAt),
-          input.status ? eq(leads.status, input.status) : undefined,
-          input.leadType ? eq(leads.leadType, input.leadType) : undefined,
+        const result = await selectLeadPage(
+          tx,
+          {
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            status: input.status,
+            leadType: input.leadType,
+            stage: input.stage,
+            assignee: input.assignee,
+            search: input.search,
+            view: input.view,
+          },
+          page,
+          pageSize,
         );
-
-        const rows = await tx
-          .select({
-            id: leads.id,
-            workspaceId: leads.workspaceId,
-            leadType: leads.leadType,
-            status: leads.status,
-            fullName: leads.fullName,
-            email: leads.email,
-            phone: leads.phone,
-            countryCode: leads.countryCode,
-            contactId: leads.contactId,
-            assignedActorId: leads.assignedActorId,
-            externalRef: leads.externalRef,
-            attribution: leads.attribution,
-            consentVersion: leads.consentVersion,
-            createdAt: leads.createdAt,
-            updatedAt: leads.updatedAt,
-            // The page's total rides on each row instead of a second query;
-            // the window runs over the filtered set before limit/offset.
-            total: sql<number>`count(*) over()::int`,
-          })
-          .from(leads)
-          .where(conditions)
-          .orderBy(desc(leads.updatedAt))
-          .limit(pageSize)
-          .offset(offset);
-
-        // An empty page past the end still needs the real total, which no
-        // row carried; the first page being empty means zero.
-        const total =
-          rows[0]?.total ??
-          (offset === 0
-            ? 0
-            : ((
-                await tx
-                  .select({ count: sql<number>`count(*)::int` })
-                  .from(leads)
-                  .where(conditions)
-              )[0]?.count ?? 0));
-
-        const items: LeadListItem[] = rows.map((row) => {
-          const attribution = attributionSchema.parse(row.attribution ?? {});
-          return {
-            id: row.id,
-            workspaceId: row.workspaceId,
-            leadType: leadTypeSchema.parse(row.leadType),
-            status: leadStatusSchema.parse(row.status),
-            contact: leadContactSchema.parse({
-              fullName: row.fullName ?? undefined,
-              email: row.email ?? undefined,
-              phone: row.phone ?? undefined,
-              countryCode: row.countryCode ?? undefined,
-            }),
-            contactId: row.contactId,
-            assignedActorId: row.assignedActorId,
-            externalRef: row.externalRef,
-            source: deriveSource(attribution),
-            attribution,
-            consentVersion: row.consentVersion,
-            createdAt: row.createdAt.toISOString(),
-            updatedAt: row.updatedAt.toISOString(),
-          };
-        });
-
-        return { leads: items, page: { page, pageSize, total } };
+        return { leads: result.leads, page: { page, pageSize, total: result.total } };
       },
     );
   }

@@ -42,6 +42,87 @@ export const internetLeadPayloadSchema = z
   .strict();
 export type InternetLeadPayload = z.infer<typeof internetLeadPayloadSchema>;
 
+/**
+ * The working stages staff move a lead through, per type, in board order.
+ * The one source for the backend (which refuses a stage a type does not list)
+ * and the admin (column order and labels). `internet` and `mobility` keep the
+ * exact keys and labels of CanadaWide's old admin, so its history imports
+ * one to one.
+ */
+export interface LeadStageDefinition {
+  readonly key: string;
+  readonly label: string;
+}
+
+export interface LeadTypeCatalogEntry {
+  readonly label: string;
+  readonly stages: readonly LeadStageDefinition[];
+}
+
+const stage = (key: string, label: string): LeadStageDefinition => ({ key, label });
+
+const NEW = stage('new', 'New');
+const CONTACTED = stage('contacted', 'Contacted');
+const QUALIFIED = stage('qualified', 'Qualified');
+const WON = stage('won', 'Won');
+const LOST = stage('lost', 'Lost');
+
+export const leadTypeCatalog = {
+  internet: {
+    label: 'Internet',
+    stages: [
+      NEW,
+      CONTACTED,
+      QUALIFIED,
+      stage('existing_shaw', 'Existing Shaw'),
+      stage('non_serviceable_address', 'Non-serviceable address'),
+      stage('old_due', 'Old due'),
+      stage('installed', 'Installed'),
+      WON,
+      LOST,
+    ],
+  },
+  mobility: {
+    label: 'Mobility',
+    stages: [NEW, CONTACTED, QUALIFIED, stage('activated', 'Activated'), WON, LOST],
+  },
+  // Orders keep their own statuses on the order itself from phase 3.
+  sim_order: { label: 'SIM order', stages: [NEW] },
+  partner_application: {
+    label: 'Partner application',
+    stages: [NEW, CONTACTED, stage('approved', 'Approved'), stage('declined', 'Declined')],
+  },
+  contact_message: {
+    label: 'Contact message',
+    stages: [NEW, stage('replied', 'Replied'), stage('closed', 'Closed')],
+  },
+} as const satisfies Record<string, LeadTypeCatalogEntry>;
+
+const catalog: ReadonlyMap<string, LeadTypeCatalogEntry> = new Map(Object.entries(leadTypeCatalog));
+
+export function leadTypeEntry(leadType: string): LeadTypeCatalogEntry | undefined {
+  return catalog.get(leadType);
+}
+
+/** The type's label, or the slug itself for a type the catalogue does not know. */
+export function leadTypeLabel(leadType: string): string {
+  return catalog.get(leadType)?.label ?? leadType;
+}
+
+/** The stage's label, or the slug itself for a stage the type does not list. */
+export function leadStageLabel(leadType: string, stageKey: string): string {
+  return catalog.get(leadType)?.stages.find((entry) => entry.key === stageKey)?.label ?? stageKey;
+}
+
+export function isLeadStage(leadType: string, stageKey: string): boolean {
+  return catalog.get(leadType)?.stages.some((entry) => entry.key === stageKey) ?? false;
+}
+
+/** Where a new lead of this type starts: its first stage. */
+export function initialLeadStage(leadType: string): string {
+  return catalog.get(leadType)?.stages[0]?.key ?? NEW.key;
+}
+
 /** CanadaWide mobile-plan order, step 1 (`mobility`). Mirrors `lib/mobility-application.ts` there. */
 export const mobilityLeadPayloadSchema = z
   .object({

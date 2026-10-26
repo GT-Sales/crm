@@ -20,7 +20,9 @@ describe('AppSidebar', () => {
     usePathname.mockReturnValue('/w/getcanadasim/leads');
     renderSidebar('getcanadasim');
 
-    expect(screen.getByRole('link', { name: /leads/i }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: /^leads$/i }).getAttribute('aria-current')).toBe(
+      'page',
+    );
   });
 
   it('does not mark a different section as active', () => {
@@ -47,6 +49,7 @@ describe('AppSidebar', () => {
 
     expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
       'Leads',
+      'My tasks',
       'Documents',
       'Settings',
     ]);

@@ -1,0 +1,4162 @@
+{
+  "id": "b1e07642-9597-4f19-99c1-683096592619",
+  "prevId": "bacee22b-b930-4305-8790-f0e17c6bb626",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "app.audit_events": {
+      "name": "audit_events",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_label": {
+          "name": "actor_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity": {
+          "name": "entity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before": {
+          "name": "before",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after": {
+          "name": "after",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "audit_events_workspace_id_created_at_idx": {
+          "name": "audit_events_workspace_id_created_at_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_events_workspace_id_entity_idx": {
+          "name": "audit_events_workspace_id_entity_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_events_workspace_id_request_id_idx": {
+          "name": "audit_events_workspace_id_request_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "audit_events_workspace_id_workspaces_id_fk": {
+          "name": "audit_events_workspace_id_workspaces_id_fk",
+          "tableFrom": "audit_events",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "audit_events_workspace_id_id_unique": {
+          "name": "audit_events_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "audit_events_tenant_policy": {
+          "name": "audit_events_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"audit_events\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"audit_events\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.contacts": {
+      "name": "contacts",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "country_code": {
+          "name": "country_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "contacts_email_unique": {
+          "name": "contacts_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {
+        "contacts_actor_policy": {
+          "name": "contacts_actor_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "contacts_email_normalized_check": {
+          "name": "contacts_email_normalized_check",
+          "value": "\"app\".\"contacts\".\"email\" = lower(btrim(\"app\".\"contacts\".\"email\")) and position('@' in \"app\".\"contacts\".\"email\") > 1"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.deleted_email_messages": {
+      "name": "deleted_email_messages",
+      "schema": "app",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_account": {
+          "name": "provider_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "deleted_email_messages_provider_idx": {
+          "name": "deleted_email_messages_provider_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_account",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "deleted_email_messages_workspace_id_workspaces_id_fk": {
+          "name": "deleted_email_messages_workspace_id_workspaces_id_fk",
+          "tableFrom": "deleted_email_messages",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "deleted_email_messages_workspace_message_unique": {
+          "name": "deleted_email_messages_workspace_message_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "message_id"
+          ]
+        }
+      },
+      "policies": {
+        "deleted_email_messages_tenant_policy": {
+          "name": "deleted_email_messages_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"deleted_email_messages\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"deleted_email_messages\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.draft_grants": {
+      "name": "draft_grants",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "draft_grants_workspace_id_lead_id_idx": {
+          "name": "draft_grants_workspace_id_lead_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "draft_grants_workspace_id_workspaces_id_fk": {
+          "name": "draft_grants_workspace_id_workspaces_id_fk",
+          "tableFrom": "draft_grants",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "draft_grants_workspace_lead_fk": {
+          "name": "draft_grants_workspace_lead_fk",
+          "tableFrom": "draft_grants",
+          "tableTo": "leads",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "lead_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "draft_grants_token_hash_unique": {
+          "name": "draft_grants_token_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token_hash"
+          ]
+        }
+      },
+      "policies": {
+        "draft_grants_tenant_policy": {
+          "name": "draft_grants_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"draft_grants\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"draft_grants\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.email_messages": {
+      "name": "email_messages",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template": {
+          "name": "template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_class": {
+          "name": "message_class",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_hash": {
+          "name": "contact_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_account": {
+          "name": "provider_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_event_at": {
+          "name": "last_event_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "email_messages_workspace_status_idx": {
+          "name": "email_messages_workspace_status_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "email_messages_workspace_contact_hash_idx": {
+          "name": "email_messages_workspace_contact_hash_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "email_messages_workspace_lead_idx": {
+          "name": "email_messages_workspace_lead_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "email_messages_workspace_id_workspaces_id_fk": {
+          "name": "email_messages_workspace_id_workspaces_id_fk",
+          "tableFrom": "email_messages",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "email_messages_workspace_lead_fk": {
+          "name": "email_messages_workspace_lead_fk",
+          "tableFrom": "email_messages",
+          "tableTo": "leads",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "lead_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "email_messages_workspace_id_id_unique": {
+          "name": "email_messages_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "email_messages_workspace_message_id_unique": {
+          "name": "email_messages_workspace_message_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "message_id"
+          ]
+        },
+        "email_messages_provider_id_unique": {
+          "name": "email_messages_provider_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "provider",
+            "provider_account",
+            "provider_id"
+          ]
+        }
+      },
+      "policies": {
+        "email_messages_tenant_policy": {
+          "name": "email_messages_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"email_messages\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"email_messages\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "email_messages_class_check": {
+          "name": "email_messages_class_check",
+          "value": "\"app\".\"email_messages\".\"message_class\" in ('transactional', 'marketing')"
+        },
+        "email_messages_status_check": {
+          "name": "email_messages_status_check",
+          "value": "\"app\".\"email_messages\".\"status\" in ('queued', 'sent', 'delivered', 'bounced', 'complained', 'failed', 'uncertain')"
+        },
+        "email_messages_provider_pair_check": {
+          "name": "email_messages_provider_pair_check",
+          "value": "(\"app\".\"email_messages\".\"provider\" is null) = (\"app\".\"email_messages\".\"provider_account\" is null)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.email_provider_events": {
+      "name": "email_provider_events",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_event_id": {
+          "name": "provider_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_account": {
+          "name": "provider_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_hash": {
+          "name": "contact_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "email_provider_events_workspace_message_idx": {
+          "name": "email_provider_events_workspace_message_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "email_provider_events_workspace_id_workspaces_id_fk": {
+          "name": "email_provider_events_workspace_id_workspaces_id_fk",
+          "tableFrom": "email_provider_events",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "email_provider_events_workspace_id_id_unique": {
+          "name": "email_provider_events_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "email_provider_events_workspace_provider_event_unique": {
+          "name": "email_provider_events_workspace_provider_event_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "provider",
+            "provider_account",
+            "provider_event_id"
+          ]
+        }
+      },
+      "policies": {
+        "email_provider_events_tenant_policy": {
+          "name": "email_provider_events_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"email_provider_events\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"email_provider_events\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "email_provider_events_type_check": {
+          "name": "email_provider_events_type_check",
+          "value": "\"app\".\"email_provider_events\".\"event_type\" in ('delivered', 'bounce', 'complaint', 'reject')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.email_suppressions": {
+      "name": "email_suppressions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_hash": {
+          "name": "contact_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_event_id": {
+          "name": "source_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "email_suppressions_workspace_contact_hash_idx": {
+          "name": "email_suppressions_workspace_contact_hash_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "email_suppressions_workspace_id_workspaces_id_fk": {
+          "name": "email_suppressions_workspace_id_workspaces_id_fk",
+          "tableFrom": "email_suppressions",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "email_suppressions_workspace_id_id_unique": {
+          "name": "email_suppressions_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "email_suppressions_workspace_contact_reason_unique": {
+          "name": "email_suppressions_workspace_contact_reason_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "contact_hash",
+            "reason"
+          ]
+        }
+      },
+      "policies": {
+        "email_suppressions_tenant_policy": {
+          "name": "email_suppressions_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"email_suppressions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"email_suppressions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "email_suppressions_reason_check": {
+          "name": "email_suppressions_reason_check",
+          "value": "\"app\".\"email_suppressions\".\"reason\" in ('hard_bounce', 'complaint', 'manual')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.file_review_events": {
+      "name": "file_review_events",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "file_id": {
+          "name": "file_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decision": {
+          "name": "decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "file_review_events_workspace_file_created_idx": {
+          "name": "file_review_events_workspace_file_created_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "file_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "file_review_events_workspace_id_workspaces_id_fk": {
+          "name": "file_review_events_workspace_id_workspaces_id_fk",
+          "tableFrom": "file_review_events",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "file_review_events_workspace_file_fk": {
+          "name": "file_review_events_workspace_file_fk",
+          "tableFrom": "file_review_events",
+          "tableTo": "files",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "file_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "file_review_events_workspace_id_id_unique": {
+          "name": "file_review_events_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "file_review_events_tenant_policy": {
+          "name": "file_review_events_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"file_review_events\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"file_review_events\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "file_review_events_decision_check": {
+          "name": "file_review_events_decision_check",
+          "value": "\"app\".\"file_review_events\".\"decision\" in ('approved', 'rejected')"
+        },
+        "file_review_events_note_check": {
+          "name": "file_review_events_note_check",
+          "value": "\"app\".\"file_review_events\".\"note\" is null or char_length(\"app\".\"file_review_events\".\"note\") between 1 and 2000"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.file_revisions": {
+      "name": "file_revisions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "file_id": {
+          "name": "file_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detected_mime": {
+          "name": "detected_mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum_sha256": {
+          "name": "checksum_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "file_revisions_workspace_file_idx": {
+          "name": "file_revisions_workspace_file_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "file_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "revision",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "file_revisions_workspace_id_workspaces_id_fk": {
+          "name": "file_revisions_workspace_id_workspaces_id_fk",
+          "tableFrom": "file_revisions",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "file_revisions_workspace_file_fk": {
+          "name": "file_revisions_workspace_file_fk",
+          "tableFrom": "file_revisions",
+          "tableTo": "files",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "file_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "file_revisions_workspace_id_id_unique": {
+          "name": "file_revisions_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "file_revisions_workspace_file_revision_unique": {
+          "name": "file_revisions_workspace_file_revision_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "file_id",
+            "revision"
+          ]
+        }
+      },
+      "policies": {
+        "file_revisions_tenant_policy": {
+          "name": "file_revisions_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"file_revisions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"file_revisions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "file_revisions_revision_positive_check": {
+          "name": "file_revisions_revision_positive_check",
+          "value": "\"app\".\"file_revisions\".\"revision\" > 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.files": {
+      "name": "files",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "record_type": {
+          "name": "record_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "record_id": {
+          "name": "record_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "document_type": {
+          "name": "document_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket": {
+          "name": "bucket",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "staging_key": {
+          "name": "staging_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "candidate_key": {
+          "name": "candidate_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_content_type": {
+          "name": "declared_content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detected_mime": {
+          "name": "detected_mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_size_bytes": {
+          "name": "declared_size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checksum_sha256": {
+          "name": "checksum_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'uploading'"
+        },
+        "reject_reason": {
+          "name": "reject_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "superseded_by_file_id": {
+          "name": "superseded_by_file_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uploaded_by": {
+          "name": "uploaded_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finalized_at": {
+          "name": "finalized_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "files_staging_key_unique": {
+          "name": "files_staging_key_unique",
+          "columns": [
+            {
+              "expression": "staging_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "files_object_key_unique": {
+          "name": "files_object_key_unique",
+          "columns": [
+            {
+              "expression": "object_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"files\".\"object_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "files_workspace_record_idx": {
+          "name": "files_workspace_record_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "record_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "record_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "files_workspace_status_expires_idx": {
+          "name": "files_workspace_status_expires_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "files_workspace_id_workspaces_id_fk": {
+          "name": "files_workspace_id_workspaces_id_fk",
+          "tableFrom": "files",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "files_workspace_id_id_unique": {
+          "name": "files_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "files_tenant_policy": {
+          "name": "files_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"files\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"files\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "files_status_check": {
+          "name": "files_status_check",
+          "value": "\"app\".\"files\".\"status\" in ('uploading', 'verifying', 'available', 'rejected', 'deleted')"
+        },
+        "files_record_type_check": {
+          "name": "files_record_type_check",
+          "value": "\"app\".\"files\".\"record_type\" in ('lead', 'order')"
+        },
+        "files_content_type_check": {
+          "name": "files_content_type_check",
+          "value": "\"app\".\"files\".\"declared_content_type\" in ('application/pdf', 'image/jpeg', 'image/png')"
+        },
+        "files_declared_size_check": {
+          "name": "files_declared_size_check",
+          "value": "\"app\".\"files\".\"declared_size_bytes\" > 0"
+        },
+        "files_size_check": {
+          "name": "files_size_check",
+          "value": "\"app\".\"files\".\"size_bytes\" is null or \"app\".\"files\".\"size_bytes\" >= 0"
+        },
+        "files_revision_positive_check": {
+          "name": "files_revision_positive_check",
+          "value": "\"app\".\"files\".\"revision\" > 0"
+        },
+        "files_available_provenance_check": {
+          "name": "files_available_provenance_check",
+          "value": "(\n          \"app\".\"files\".\"status\" = 'available'\n          and \"app\".\"files\".\"object_key\" is not null\n          and \"app\".\"files\".\"detected_mime\" is not null\n          and \"app\".\"files\".\"checksum_sha256\" is not null\n          and \"app\".\"files\".\"size_bytes\" is not null\n        ) or (\n          \"app\".\"files\".\"status\" <> 'available'\n        )"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.follow_up_schedules": {
+      "name": "follow_up_schedules",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template": {
+          "name": "template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'scheduled'"
+        },
+        "cancelled_reason": {
+          "name": "cancelled_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_by_actor_id": {
+          "name": "cancelled_by_actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sent_message_id": {
+          "name": "sent_message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "follow_up_schedules_workspace_due_idx": {
+          "name": "follow_up_schedules_workspace_due_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "follow_up_schedules_workspace_lead_idx": {
+          "name": "follow_up_schedules_workspace_lead_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "follow_up_schedules_workspace_id_workspaces_id_fk": {
+          "name": "follow_up_schedules_workspace_id_workspaces_id_fk",
+          "tableFrom": "follow_up_schedules",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "follow_up_schedules_workspace_lead_fk": {
+          "name": "follow_up_schedules_workspace_lead_fk",
+          "tableFrom": "follow_up_schedules",
+          "tableTo": "leads",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "lead_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "follow_up_schedules_workspace_id_id_unique": {
+          "name": "follow_up_schedules_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "follow_up_schedules_tenant_policy": {
+          "name": "follow_up_schedules_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"follow_up_schedules\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"follow_up_schedules\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "follow_up_schedules_status_check": {
+          "name": "follow_up_schedules_status_check",
+          "value": "\"app\".\"follow_up_schedules\".\"status\" in ('scheduled', 'sent', 'cancelled', 'skipped')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.lead_activities": {
+      "name": "lead_activities",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "data": {
+          "name": "data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "lead_activities_workspace_lead_created_idx": {
+          "name": "lead_activities_workspace_lead_created_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "lead_activities_workspace_id_workspaces_id_fk": {
+          "name": "lead_activities_workspace_id_workspaces_id_fk",
+          "tableFrom": "lead_activities",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "lead_activities_workspace_lead_fk": {
+          "name": "lead_activities_workspace_lead_fk",
+          "tableFrom": "lead_activities",
+          "tableTo": "leads",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "lead_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "lead_activities_workspace_id_id_unique": {
+          "name": "lead_activities_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "lead_activities_tenant_policy": {
+          "name": "lead_activities_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"lead_activities\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"lead_activities\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "lead_activities_kind_check": {
+          "name": "lead_activities_kind_check",
+          "value": "\"app\".\"lead_activities\".\"kind\" in ('note', 'status_change', 'assignment', 'email', 'call', 'edit', 'document', 'merge', 'system')"
+        },
+        "lead_activities_body_check": {
+          "name": "lead_activities_body_check",
+          "value": "\"app\".\"lead_activities\".\"body\" is null or char_length(\"app\".\"lead_activities\".\"body\") between 1 and 4000"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.lead_tasks": {
+      "name": "lead_tasks",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assigned_actor_id": {
+          "name": "assigned_actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "lead_tasks_workspace_status_due_idx": {
+          "name": "lead_tasks_workspace_status_due_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lead_tasks_workspace_lead_idx": {
+          "name": "lead_tasks_workspace_lead_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lead_tasks_workspace_assignee_status_due_idx": {
+          "name": "lead_tasks_workspace_assignee_status_due_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "assigned_actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "lead_tasks_workspace_id_workspaces_id_fk": {
+          "name": "lead_tasks_workspace_id_workspaces_id_fk",
+          "tableFrom": "lead_tasks",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "lead_tasks_workspace_lead_fk": {
+          "name": "lead_tasks_workspace_lead_fk",
+          "tableFrom": "lead_tasks",
+          "tableTo": "leads",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "lead_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "lead_tasks_workspace_id_id_unique": {
+          "name": "lead_tasks_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "lead_tasks_tenant_policy": {
+          "name": "lead_tasks_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"lead_tasks\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"lead_tasks\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "lead_tasks_title_check": {
+          "name": "lead_tasks_title_check",
+          "value": "char_length(\"app\".\"lead_tasks\".\"title\") between 1 and 200"
+        },
+        "lead_tasks_status_check": {
+          "name": "lead_tasks_status_check",
+          "value": "\"app\".\"lead_tasks\".\"status\" in ('open', 'done', 'cancelled')"
+        },
+        "lead_tasks_completion_check": {
+          "name": "lead_tasks_completion_check",
+          "value": "(\"app\".\"lead_tasks\".\"status\" = 'done') = (\"app\".\"lead_tasks\".\"completed_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.leads": {
+      "name": "leads",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_type": {
+          "name": "lead_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'new'"
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "country_code": {
+          "name": "country_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assigned_actor_id": {
+          "name": "assigned_actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_ref": {
+          "name": "external_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attribution": {
+          "name": "attribution",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "consent_version": {
+          "name": "consent_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "customer_data_restricted_at": {
+          "name": "customer_data_restricted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "leads_workspace_type_external_ref_unique": {
+          "name": "leads_workspace_type_external_ref_unique",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"leads\".\"external_ref\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_id_status_idx": {
+          "name": "leads_workspace_id_status_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_id_updated_at_idx": {
+          "name": "leads_workspace_id_updated_at_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_id_lead_type_idx": {
+          "name": "leads_workspace_id_lead_type_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_type_stage_idx": {
+          "name": "leads_workspace_type_stage_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "stage",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_id_contact_id_idx": {
+          "name": "leads_workspace_id_contact_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_contact_id_idx": {
+          "name": "leads_contact_id_idx",
+          "columns": [
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_id_assigned_actor_idx": {
+          "name": "leads_workspace_id_assigned_actor_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "assigned_actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "leads_workspace_id_workspaces_id_fk": {
+          "name": "leads_workspace_id_workspaces_id_fk",
+          "tableFrom": "leads",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "leads_contact_id_contacts_id_fk": {
+          "name": "leads_contact_id_contacts_id_fk",
+          "tableFrom": "leads",
+          "tableTo": "contacts",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "leads_workspace_id_id_unique": {
+          "name": "leads_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "leads_tenant_policy": {
+          "name": "leads_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"leads\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"leads\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "leads_status_check": {
+          "name": "leads_status_check",
+          "value": "\"app\".\"leads\".\"status\" in ('incomplete', 'submitted')"
+        },
+        "leads_stage_check": {
+          "name": "leads_stage_check",
+          "value": "\"app\".\"leads\".\"stage\" ~ '^[a-z0-9_]{1,64}$'"
+        },
+        "leads_lead_type_check": {
+          "name": "leads_lead_type_check",
+          "value": "\"app\".\"leads\".\"lead_type\" ~ '^[a-z0-9_]{1,64}$'"
+        },
+        "leads_external_ref_check": {
+          "name": "leads_external_ref_check",
+          "value": "\"app\".\"leads\".\"external_ref\" is null or char_length(\"app\".\"leads\".\"external_ref\") between 1 and 128"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.marketing_consents": {
+      "name": "marketing_consents",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_hash": {
+          "name": "contact_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "marketing_opt_in": {
+          "name": "marketing_opt_in",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "marketing_consents_workspace_contact_hash_idx": {
+          "name": "marketing_consents_workspace_contact_hash_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "captured_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "marketing_consents_workspace_lead_idx": {
+          "name": "marketing_consents_workspace_lead_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lead_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "marketing_consents_workspace_id_workspaces_id_fk": {
+          "name": "marketing_consents_workspace_id_workspaces_id_fk",
+          "tableFrom": "marketing_consents",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "marketing_consents_workspace_lead_fk": {
+          "name": "marketing_consents_workspace_lead_fk",
+          "tableFrom": "marketing_consents",
+          "tableTo": "leads",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "lead_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "marketing_consents_workspace_id_id_unique": {
+          "name": "marketing_consents_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "marketing_consents_tenant_policy": {
+          "name": "marketing_consents_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"marketing_consents\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"marketing_consents\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "marketing_consents_reference_check": {
+          "name": "marketing_consents_reference_check",
+          "value": "\"app\".\"marketing_consents\".\"lead_id\" is not null or (\"app\".\"marketing_consents\".\"marketing_opt_in\" = false and \"app\".\"marketing_consents\".\"version\" = 'retained-opt-out')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.membership_permissions": {
+      "name": "membership_permissions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "membership_id": {
+          "name": "membership_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission_id": {
+          "name": "permission_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effect": {
+          "name": "effect",
+          "type": "permission_effect",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'allow'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "membership_permissions_workspace_id_permission_id_idx": {
+          "name": "membership_permissions_workspace_id_permission_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "permission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "membership_permissions_workspace_id_workspaces_id_fk": {
+          "name": "membership_permissions_workspace_id_workspaces_id_fk",
+          "tableFrom": "membership_permissions",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "membership_permissions_workspace_membership_fk": {
+          "name": "membership_permissions_workspace_membership_fk",
+          "tableFrom": "membership_permissions",
+          "tableTo": "memberships",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "membership_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "membership_permissions_workspace_permission_fk": {
+          "name": "membership_permissions_workspace_permission_fk",
+          "tableFrom": "membership_permissions",
+          "tableTo": "permissions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "permission_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "membership_permissions_workspace_id_id_unique": {
+          "name": "membership_permissions_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "membership_permissions_workspace_membership_permission_unique": {
+          "name": "membership_permissions_workspace_membership_permission_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "membership_id",
+            "permission_id"
+          ]
+        }
+      },
+      "policies": {
+        "membership_permissions_tenant_policy": {
+          "name": "membership_permissions_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"membership_permissions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"membership_permissions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.membership_roles": {
+      "name": "membership_roles",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "membership_id": {
+          "name": "membership_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "membership_roles_workspace_id_role_id_idx": {
+          "name": "membership_roles_workspace_id_role_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "membership_roles_workspace_id_workspaces_id_fk": {
+          "name": "membership_roles_workspace_id_workspaces_id_fk",
+          "tableFrom": "membership_roles",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "membership_roles_workspace_membership_fk": {
+          "name": "membership_roles_workspace_membership_fk",
+          "tableFrom": "membership_roles",
+          "tableTo": "memberships",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "membership_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "membership_roles_workspace_role_fk": {
+          "name": "membership_roles_workspace_role_fk",
+          "tableFrom": "membership_roles",
+          "tableTo": "roles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "role_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "membership_roles_workspace_id_id_unique": {
+          "name": "membership_roles_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "membership_roles_workspace_membership_role_unique": {
+          "name": "membership_roles_workspace_membership_role_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "membership_id",
+            "role_id"
+          ]
+        }
+      },
+      "policies": {
+        "membership_roles_tenant_policy": {
+          "name": "membership_roles_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"membership_roles\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"membership_roles\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.memberships": {
+      "name": "memberships",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invited_email": {
+          "name": "invited_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "membership_type": {
+          "name": "membership_type",
+          "type": "membership_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "memberships_workspace_pending_email_unique": {
+          "name": "memberships_workspace_pending_email_unique",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"invited_email\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"memberships\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "memberships_workspace_id_status_idx": {
+          "name": "memberships_workspace_id_status_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "memberships_user_id_status_workspace_id_idx": {
+          "name": "memberships_user_id_status_workspace_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "memberships_workspace_id_workspaces_id_fk": {
+          "name": "memberships_workspace_id_workspaces_id_fk",
+          "tableFrom": "memberships",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "memberships_workspace_id_id_unique": {
+          "name": "memberships_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "memberships_workspace_id_user_id_unique": {
+          "name": "memberships_workspace_id_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {
+        "memberships_tenant_policy": {
+          "name": "memberships_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"memberships\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"memberships\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "memberships_status_check": {
+          "name": "memberships_status_check",
+          "value": "\"app\".\"memberships\".\"status\" in ('pending', 'active', 'revoked')"
+        },
+        "memberships_display_name_check": {
+          "name": "memberships_display_name_check",
+          "value": "\"app\".\"memberships\".\"display_name\" is null or (char_length(\"app\".\"memberships\".\"display_name\") between 1 and 80 and \"app\".\"memberships\".\"display_name\" = btrim(\"app\".\"memberships\".\"display_name\"))"
+        },
+        "memberships_identity_state_check": {
+          "name": "memberships_identity_state_check",
+          "value": "(\n          \"app\".\"memberships\".\"status\" = 'pending'\n          and \"app\".\"memberships\".\"user_id\" is null\n          and \"app\".\"memberships\".\"invited_email\" is not null\n        ) or (\n          \"app\".\"memberships\".\"status\" = 'active'\n          and \"app\".\"memberships\".\"user_id\" is not null\n          and \"app\".\"memberships\".\"invited_email\" is null\n        ) or \"app\".\"memberships\".\"status\" = 'revoked'"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.outbox_job_alerts": {
+      "name": "outbox_job_alerts",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alert_code": {
+          "name": "alert_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "outbox_job_alerts_workspace_unresolved_idx": {
+          "name": "outbox_job_alerts_workspace_unresolved_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resolved_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outbox_job_alerts_workspace_job_idx": {
+          "name": "outbox_job_alerts_workspace_job_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "job_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "outbox_job_alerts_workspace_id_workspaces_id_fk": {
+          "name": "outbox_job_alerts_workspace_id_workspaces_id_fk",
+          "tableFrom": "outbox_job_alerts",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "outbox_job_alerts_workspace_job_fk": {
+          "name": "outbox_job_alerts_workspace_job_fk",
+          "tableFrom": "outbox_job_alerts",
+          "tableTo": "outbox_jobs",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id",
+            "job_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "outbox_job_alerts_workspace_id_id_unique": {
+          "name": "outbox_job_alerts_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "outbox_job_alerts_tenant_policy": {
+          "name": "outbox_job_alerts_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"outbox_job_alerts\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"outbox_job_alerts\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.outbox_jobs": {
+      "name": "outbox_jobs",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "job_type": {
+          "name": "job_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "payload_version": {
+          "name": "payload_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "available_at": {
+          "name": "available_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "locked_at": {
+          "name": "locked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_owner_id": {
+          "name": "lease_owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uncertain_at": {
+          "name": "uncertain_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "outbox_jobs_workspace_status_available_idx": {
+          "name": "outbox_jobs_workspace_status_available_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "available_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "outbox_jobs_workspace_id_workspaces_id_fk": {
+          "name": "outbox_jobs_workspace_id_workspaces_id_fk",
+          "tableFrom": "outbox_jobs",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "outbox_jobs_workspace_id_id_unique": {
+          "name": "outbox_jobs_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "outbox_jobs_workspace_type_dedupe_unique": {
+          "name": "outbox_jobs_workspace_type_dedupe_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "job_type",
+            "dedupe_key"
+          ]
+        }
+      },
+      "policies": {
+        "outbox_jobs_tenant_policy": {
+          "name": "outbox_jobs_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"outbox_jobs\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"outbox_jobs\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {
+        "outbox_jobs_status_check": {
+          "name": "outbox_jobs_status_check",
+          "value": "\"app\".\"outbox_jobs\".\"status\" in ('pending', 'processing', 'completed', 'failed', 'uncertain')"
+        },
+        "outbox_jobs_attempts_check": {
+          "name": "outbox_jobs_attempts_check",
+          "value": "\"app\".\"outbox_jobs\".\"attempts\" >= 0"
+        },
+        "outbox_jobs_payload_version_check": {
+          "name": "outbox_jobs_payload_version_check",
+          "value": "\"app\".\"outbox_jobs\".\"payload_version\" > 0"
+        },
+        "outbox_jobs_lease_check": {
+          "name": "outbox_jobs_lease_check",
+          "value": "(\"app\".\"outbox_jobs\".\"status\" = 'processing' and \"app\".\"outbox_jobs\".\"lease_owner_id\" is not null and \"app\".\"outbox_jobs\".\"lease_expires_at\" is not null and \"app\".\"outbox_jobs\".\"locked_at\" is not null) or (\"app\".\"outbox_jobs\".\"status\" <> 'processing' and \"app\".\"outbox_jobs\".\"lease_owner_id\" is null and \"app\".\"outbox_jobs\".\"lease_expires_at\" is null)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "app.permissions": {
+      "name": "permissions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "permission_name",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "permissions_workspace_id_workspaces_id_fk": {
+          "name": "permissions_workspace_id_workspaces_id_fk",
+          "tableFrom": "permissions",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "permissions_workspace_id_id_unique": {
+          "name": "permissions_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "permissions_workspace_id_name_unique": {
+          "name": "permissions_workspace_id_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {
+        "permissions_tenant_policy": {
+          "name": "permissions_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"permissions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"permissions\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.rate_limit_buckets": {
+      "name": "rate_limit_buckets",
+      "schema": "app",
+      "columns": {
+        "bucket_key": {
+          "name": "bucket_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_count": {
+          "name": "request_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "rate_limit_buckets_expires_at_idx": {
+          "name": "rate_limit_buckets_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "rate_limit_buckets_bucket_key_window_start_pk": {
+          "name": "rate_limit_buckets_bucket_key_window_start_pk",
+          "columns": [
+            "bucket_key",
+            "window_start"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.roles": {
+      "name": "roles",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "role_name",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "roles_workspace_id_workspaces_id_fk": {
+          "name": "roles_workspace_id_workspaces_id_fk",
+          "tableFrom": "roles",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "roles_workspace_id_id_unique": {
+          "name": "roles_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "roles_workspace_id_name_unique": {
+          "name": "roles_workspace_id_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {
+        "roles_tenant_policy": {
+          "name": "roles_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"roles\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"roles\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.service_credentials": {
+      "name": "service_credentials",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secret_hash": {
+          "name": "secret_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scopes": {
+          "name": "scopes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "array[]::text[]"
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "service_credentials_workspace_id_revoked_at_idx": {
+          "name": "service_credentials_workspace_id_revoked_at_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "revoked_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "service_credentials_workspace_id_workspaces_id_fk": {
+          "name": "service_credentials_workspace_id_workspaces_id_fk",
+          "tableFrom": "service_credentials",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "service_credentials_workspace_id_id_unique": {
+          "name": "service_credentials_workspace_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        },
+        "service_credentials_secret_hash_unique": {
+          "name": "service_credentials_secret_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "secret_hash"
+          ]
+        }
+      },
+      "policies": {
+        "service_credentials_tenant_policy": {
+          "name": "service_credentials_tenant_policy",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_runtime"
+          ],
+          "using": "\"app\".\"service_credentials\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null",
+          "withCheck": "\"app\".\"service_credentials\".\"workspace_id\" = nullif(\n      (select current_setting('app.workspace_id', true)),\n      ''\n    )::uuid and nullif(\n      (select current_setting('app.actor_id', true)),\n      ''\n    )::uuid is not null"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "app.workspaces": {
+      "name": "workspaces",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "domain": {
+          "name": "domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspaces_slug_unique": {
+          "name": "workspaces_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "workspaces_slug_check": {
+          "name": "workspaces_slug_check",
+          "value": "\"app\".\"workspaces\".\"slug\" ~ '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'"
+        },
+        "workspaces_status_check": {
+          "name": "workspaces_status_check",
+          "value": "\"app\".\"workspaces\".\"status\" in ('active', 'paused')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "app.membership_type": {
+      "name": "membership_type",
+      "schema": "app",
+      "values": [
+        "staff"
+      ]
+    },
+    "app.permission_effect": {
+      "name": "permission_effect",
+      "schema": "app",
+      "values": [
+        "allow",
+        "deny"
+      ]
+    },
+    "app.permission_name": {
+      "name": "permission_name",
+      "schema": "app",
+      "values": [
+        "document_download",
+        "financial_data",
+        "bulk_export",
+        "deletion",
+        "invoice_approval",
+        "integration_management"
+      ]
+    },
+    "app.role_name": {
+      "name": "role_name",
+      "schema": "app",
+      "values": [
+        "owner",
+        "leads",
+        "orders",
+        "partners",
+        "finance",
+        "content",
+        "viewer"
+      ]
+    }
+  },
+  "schemas": {
+    "app": "app"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

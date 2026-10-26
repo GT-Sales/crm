@@ -1,22 +1,19 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gt-sales/ui';
+import { Suspense } from 'react';
 
-import { LeadsList } from '../../../../components/leads-list';
+import { LeadsInbox } from '../../../../components/leads/leads-inbox';
 
 export default async function LeadsPage({ params }: { params: Promise<{ workspace: string }> }) {
   const { workspace } = await params;
+  // The inbox reads its filters from the URL, so it renders on the client.
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle asChild>
-          <h1>Leads</h1>
-        </CardTitle>
-        <CardDescription>
-          Draft plan applications captured from the website, with their attribution.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <LeadsList workspaceSlug={workspace} />
-      </CardContent>
-    </Card>
+    <Suspense
+      fallback={
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          Loading leads…
+        </p>
+      }
+    >
+      <LeadsInbox workspaceSlug={workspace} />
+    </Suspense>
   );
 }

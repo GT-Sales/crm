@@ -127,6 +127,12 @@ export const memberships = appSchema
       invitedEmail: text('invited_email'),
       membershipType: membershipType('membership_type').notNull(),
       status: text('status').notNull(),
+      /**
+       * The name colleagues see on assignments, tasks and the timeline, set by
+       * the member themselves. Deliberately not the email: the members list is
+       * readable by every role, and it must not become a staff directory.
+       */
+      displayName: text('display_name'),
       acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'date' }),
       revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
       createdAt: createdAt(),
@@ -148,6 +154,10 @@ export const memberships = appSchema
         table.workspaceId,
       ),
       check('memberships_status_check', sql`${table.status} in (${membershipStatusList})`),
+      check(
+        'memberships_display_name_check',
+        sql`${table.displayName} is null or (char_length(${table.displayName}) between 1 and 80 and ${table.displayName} = btrim(${table.displayName}))`,
+      ),
       check(
         'memberships_identity_state_check',
         sql`(
@@ -318,10 +328,16 @@ export const contacts = appSchema
 /**
  * Every submission a website sends: a SIM order, an internet or mobility
  * enquiry, a partner application, a contact message. `lead_type` names the
- * entry in the backend's lead-type registry, which owns the `payload` schema
- * and the per-type working statuses; `external_ref` is the source system's own
+ * entry in the lead-type registry, which owns the `payload` schema and the
+ * per-type working stages; `external_ref` is the source system's own
  * identifier (an order number such as `MS-123`) so a migrated or mirrored
  * record is created once per site and type.
+ *
+ * `status` is the form's lifecycle (`incomplete` while the customer is still
+ * filling it in, then `submitted`); `stage` is where staff are working it
+ * (`new`, `contacted`, `won`…), one of the type's registry stages. The column
+ * only checks the slug shape: which stages a type has is the registry's call,
+ * enforced by the backend.
  */
 export const leads = appSchema
   .table(
@@ -333,6 +349,7 @@ export const leads = appSchema
         .references(() => workspaces.id, { onDelete: 'cascade' }),
       leadType: text('lead_type').notNull(),
       status: text('status').notNull(),
+      stage: text('stage').default('new').notNull(),
       fullName: text('full_name'),
       email: text('email'),
       phone: text('phone'),
@@ -354,6 +371,7 @@ export const leads = appSchema
     (table) => [
       unique('leads_workspace_id_id_unique').on(table.workspaceId, table.id),
       check('leads_status_check', sql`${table.status} in (${leadStatusList})`),
+      check('leads_stage_check', sql`${table.stage} ~ '^[a-z0-9_]{1,64}$'`),
       check('leads_lead_type_check', sql`${table.leadType} ~ '^[a-z0-9_]{1,64}$'`),
       check(
         'leads_external_ref_check',
@@ -369,7 +387,16 @@ export const leads = appSchema
         table.leadType,
         table.updatedAt,
       ),
+      // The board: one type's leads grouped by stage, newest first.
+      index('leads_workspace_type_stage_idx').on(
+        table.workspaceId,
+        table.leadType,
+        table.stage,
+        table.updatedAt,
+      ),
       index('leads_workspace_id_contact_id_idx').on(table.workspaceId, table.contactId),
+      // Covers the single-column contacts FK, so removing a contact does not scan leads.
+      index('leads_contact_id_idx').on(table.contactId),
       index('leads_workspace_id_assigned_actor_idx').on(table.workspaceId, table.assignedActorId),
       tenantPolicy('leads_tenant_policy', table.workspaceId),
     ],
@@ -455,6 +482,13 @@ export const leadTasks = appSchema
       ),
       index('lead_tasks_workspace_status_due_idx').on(table.workspaceId, table.status, table.dueAt),
       index('lead_tasks_workspace_lead_idx').on(table.workspaceId, table.leadId),
+      // "My tasks": one assignee's open tasks by due time.
+      index('lead_tasks_workspace_assignee_status_due_idx').on(
+        table.workspaceId,
+        table.assignedActorId,
+        table.status,
+        table.dueAt,
+      ),
       tenantPolicy('lead_tasks_tenant_policy', table.workspaceId),
     ],
   )
@@ -578,6 +612,7 @@ export const outboxJobAlerts = appSchema
         table.resolvedAt,
         table.createdAt,
       ),
+      index('outbox_job_alerts_workspace_job_idx').on(table.workspaceId, table.jobId),
       tenantPolicy('outbox_job_alerts_tenant_policy', table.workspaceId),
     ],
   )
@@ -925,6 +960,7 @@ export const emailMessages = appSchema
       ),
       index('email_messages_workspace_status_idx').on(table.workspaceId, table.status),
       index('email_messages_workspace_contact_hash_idx').on(table.workspaceId, table.contactHash),
+      index('email_messages_workspace_lead_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('email_messages_tenant_policy', table.workspaceId),
     ],
   )
@@ -1037,6 +1073,7 @@ export const marketingConsents = appSchema
         table.contactHash,
         table.capturedAt,
       ),
+      index('marketing_consents_workspace_lead_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('marketing_consents_tenant_policy', table.workspaceId),
     ],
   )
@@ -1081,6 +1118,7 @@ export const followUpSchedules = appSchema
         table.status,
         table.dueAt,
       ),
+      index('follow_up_schedules_workspace_lead_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('follow_up_schedules_tenant_policy', table.workspaceId),
     ],
   )

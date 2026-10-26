@@ -52,6 +52,9 @@ class MemoryStaffStore implements StaffStore {
   async listAssignableMembers() {
     return [];
   }
+  async setDisplayName() {
+    return 0;
+  }
 }
 
 class MemoryCredentialStore implements WebsiteCredentialStore {

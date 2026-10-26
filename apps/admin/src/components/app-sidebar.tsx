@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileTextIcon, SettingsIcon, UsersIcon } from 'lucide-react';
+import { FileTextIcon, ListTodoIcon, SettingsIcon, UsersIcon } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -23,6 +23,7 @@ import {
  */
 const NAV_ITEMS = [
   { section: 'leads', label: 'Leads', icon: UsersIcon },
+  { section: 'tasks', label: 'My tasks', icon: ListTodoIcon },
   { section: 'documents', label: 'Documents', icon: FileTextIcon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ] as const;

@@ -56,8 +56,17 @@ export interface StaffStore extends StaffAccessStore {
     membershipId: string;
     requestId: string;
   }): Promise<RevokeResult>;
-  /** Active staff members as assignee options: membership ids and roles only, never names or emails. */
+  /**
+   * Active staff members as assignee options: actor and membership ids, roles
+   * and the name each chose for themselves; never an email.
+   */
   listAssignableMembers(workspaceId: string, actorId: string): Promise<AssignableMember[]>;
+  /** Sets the actor's own display name on each of their active memberships; returns how many. */
+  setDisplayName(input: {
+    actorId: string;
+    displayName: string;
+    requestId: string;
+  }): Promise<number>;
 }
 
 interface StaffAccessRow {
@@ -247,12 +256,64 @@ export class DatabaseStaffStore implements StaffStore {
     );
   }
 
+  async setDisplayName(input: {
+    actorId: string;
+    displayName: string;
+    requestId: string;
+  }): Promise<number> {
+    // The runtime role reaches one site per transaction, so each membership
+    // is renamed in its own; the sites come from the same bootstrap function
+    // sign-in uses, which lists only active memberships.
+    const workspaceIds = await this.database.withActorTx(input.actorId, async (tx) => {
+      const rows = await tx.execute<{ [key: string]: unknown; workspaceId: string }>(sql`
+        select workspace_id as "workspaceId" from app.list_staff_workspaces()
+      `);
+      return rows.map((row) => row.workspaceId);
+    });
+
+    let renamed = 0;
+    for (const workspaceId of workspaceIds) {
+      renamed += await this.database.withTenantTx(
+        { actorId: input.actorId, workspaceId },
+        async (tx) => {
+          const updated = await tx
+            .update(memberships)
+            .set({ displayName: input.displayName })
+            .where(
+              and(
+                eq(memberships.workspaceId, workspaceId),
+                eq(memberships.userId, input.actorId),
+                eq(memberships.membershipType, 'staff'),
+                eq(memberships.status, 'active'),
+              ),
+            )
+            .returning({ id: memberships.id });
+          const membership = updated[0];
+          if (!membership) return 0;
+          await tx.insert(auditEvents).values({
+            workspaceId,
+            actorId: input.actorId,
+            actorLabel: 'staff actor',
+            action: 'membership.display_name_set',
+            entity: 'membership',
+            entityId: membership.id,
+            requestId: input.requestId,
+            after: { displayName: input.displayName },
+          });
+          return 1;
+        },
+      );
+    }
+    return renamed;
+  }
+
   listAssignableMembers(workspaceId: string, actorId: string): Promise<AssignableMember[]> {
     return this.database.withTenantTx({ workspaceId, actorId }, async (tx) => {
       const rows = await tx
         .select({
           membershipId: memberships.id,
           userId: memberships.userId,
+          displayName: memberships.displayName,
           roleName: roles.name,
         })
         .from(memberships)
@@ -281,8 +342,12 @@ export class DatabaseStaffStore implements StaffStore {
 
       const byMembership = new Map<string, AssignableMember>();
       for (const row of rows) {
+        // An active membership always has its user (memberships_identity_state_check).
+        if (!row.userId) continue;
         const entry = byMembership.get(row.membershipId) ?? {
           membershipId: row.membershipId,
+          actorId: row.userId,
+          displayName: row.displayName,
           roles: [],
           isSelf: row.userId === actorId,
         };

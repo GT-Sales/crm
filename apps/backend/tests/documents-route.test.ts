@@ -44,6 +44,7 @@ class ConfigurableStaffStore implements StaffStore {
   };
   revokeStaff = async () => 'revoked' as const;
   listAssignableMembers = async () => [];
+  setDisplayName = async () => 0;
   async loadStaffAccess(actorId: string, workspaceId: string) {
     return actorId === ACTOR && workspaceId === WORKSPACE ? this.access : undefined;
   }

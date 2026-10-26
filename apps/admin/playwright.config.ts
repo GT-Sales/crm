@@ -4,9 +4,9 @@ import { basePlaywrightConfig } from '@gt-sales/config/playwright.base';
 export default defineConfig({
   ...basePlaywrightConfig,
   testDir: './e2e',
-  // The order journeys need the backend harness and the e2e build; they run
-  // from playwright.orders.config.ts (pnpm --filter admin test:e2e:orders).
-  testIgnore: ['orders.spec.ts'],
+  // The lead journeys need the backend harness and the e2e build; they run
+  // from playwright.leads.config.ts (pnpm --filter admin test:e2e:leads).
+  testIgnore: ['leads.spec.ts'],
   workers: 1,
   use: {
     ...basePlaywrightConfig.use,
