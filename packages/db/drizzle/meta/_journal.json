@@ -15,6 +15,13 @@
       "when": 1792904896632,
       "tag": "0001_runtime_functions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793042297882,
+      "tag": "0002_canadawide_legacy_mirror",
+      "breakpoints": true
     }
   ]
 }

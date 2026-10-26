@@ -146,6 +146,13 @@ export {
 } from './leads';
 
 export {
+  internetLeadPayloadSchema,
+  mobilityLeadPayloadSchema,
+  type InternetLeadPayload,
+  type MobilityLeadPayload,
+} from './lead-types';
+
+export {
   leadListItemSchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceLeadsResponseSchema,

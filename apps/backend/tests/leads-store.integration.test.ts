@@ -38,6 +38,12 @@ const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const scope = { workspaceId: WORKSPACE, actorId: ACTOR, requestId: REQUEST_ID };
 const base = { ...scope, leadType: 'sim_order', consentVersion: 'terms-2026-09' };
 
+/** A draft's grant token; every lead created here without `submit` has one. */
+function draftToken(created: { grant: { token: string } | null }): string {
+  if (!created.grant) throw new Error('expected a draft grant');
+  return created.grant.token;
+}
+
 databaseTest('DatabaseLeadStore', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
@@ -142,7 +148,7 @@ databaseTest('DatabaseLeadStore', () => {
     const updated = await store.updateLead({
       ...scope,
       leadId: anonymous.lead.id,
-      grantToken: anonymous.grant.token,
+      grantToken: draftToken(anonymous),
       contact: { email },
     });
     expect(updated).toMatchObject({ status: 'updated' });
@@ -182,7 +188,7 @@ databaseTest('DatabaseLeadStore', () => {
     const wrongLead = await store.updateLead({
       ...scope,
       leadId: leadB.lead.id,
-      grantToken: leadA.grant.token,
+      grantToken: draftToken(leadA),
       contact: { fullName: 'Wrong lead' },
     });
     expect(wrongLead).toEqual({ status: 'grant_invalid' });
@@ -194,7 +200,7 @@ databaseTest('DatabaseLeadStore', () => {
     const expired = await store.updateLead({
       ...scope,
       leadId: leadA.lead.id,
-      grantToken: leadA.grant.token,
+      grantToken: draftToken(leadA),
       contact: { fullName: 'Too late' },
     });
     expect(expired).toEqual({ status: 'grant_expired' });
@@ -206,7 +212,7 @@ databaseTest('DatabaseLeadStore', () => {
     const first = await store.updateLead({
       ...scope,
       leadId: created.lead.id,
-      grantToken: created.grant.token,
+      grantToken: draftToken(created),
       contact: { email: 'jane@example.test' },
     });
     expect(first).toMatchObject({ status: 'updated', lead: { id: created.lead.id } });
@@ -214,7 +220,7 @@ databaseTest('DatabaseLeadStore', () => {
     const second = await store.updateLead({
       ...scope,
       leadId: created.lead.id,
-      grantToken: created.grant.token,
+      grantToken: draftToken(created),
       contact: { phone: '+1 555 0100' },
     });
     expect(second).toMatchObject({ status: 'updated', lead: { id: created.lead.id } });
@@ -258,7 +264,7 @@ databaseTest('DatabaseLeadStore', () => {
       pending = store.updateLead({
         ...scope,
         leadId: created.lead.id,
-        grantToken: created.grant.token,
+        grantToken: draftToken(created),
         contact: { fullName: 'Late edit' },
       });
       await vi.waitFor(
@@ -278,19 +284,32 @@ databaseTest('DatabaseLeadStore', () => {
     expect(row?.full_name).toBe('Before submission');
   });
 
-  test('emits exactly one analytics_lead_saved outbox job per lead', async () => {
+  test('queues no analytics job: websites keep their own conversion events', async () => {
     const created = await store.createLead(base);
 
-    const jobs = await admin<
-      { job_type: string; dedupe_key: string; payload: { leadId: string } }[]
-    >`
-      select job_type, dedupe_key, payload from app.outbox_jobs
-      where workspace_id = ${WORKSPACE}
-        and job_type = 'analytics_lead_saved'
-        and dedupe_key = ${created.lead.id}
+    const jobs = await admin<{ job_type: string }[]>`
+      select job_type from app.outbox_jobs
+      where workspace_id = ${WORKSPACE} and dedupe_key = ${created.lead.id}
     `;
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.payload.leadId).toBe(created.lead.id);
+    expect(jobs).toEqual([]);
+  });
+
+  test('creates a submitted lead with no draft grant when asked to submit', async () => {
+    const created = await store.createLead({ ...base, submit: true });
+
+    expect(created.lead.status).toBe('submitted');
+    expect(created.grant).toBeNull();
+    const [lead] = await admin<{ status: string }[]>`
+      select status from app.leads where id = ${created.lead.id}
+    `;
+    expect(lead?.status).toBe('submitted');
+    const grants = await admin`select id from app.draft_grants where lead_id = ${created.lead.id}`;
+    expect(grants).toHaveLength(0);
+    const [audit] = await admin<{ after: { status: string } }[]>`
+      select after from app.audit_events
+      where entity = 'lead' and entity_id = ${created.lead.id} and action = 'lead.created'
+    `;
+    expect(audit?.after.status).toBe('submitted');
   });
 
   test('lists by type and hides restricted and deleted leads', async () => {
@@ -346,7 +365,7 @@ databaseTest('DatabaseLeadStore', () => {
       workspaceId: WORKSPACE,
       actorId: ACTOR,
       leadId: created.lead.id,
-      grantToken: created.grant.token,
+      grantToken: draftToken(created),
     };
     expect(await store.readLead(input)).toEqual({
       status: 'read',

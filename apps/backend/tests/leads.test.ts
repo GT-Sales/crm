@@ -53,6 +53,12 @@ class FakeLeadStore implements LeadStore {
 
   async createLead(input: CreateLeadInput): Promise<CreateLeadResult> {
     this.createCalls.push(input);
+    if (input.submit) {
+      return {
+        lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'submitted', updatedAt: NOW },
+        grant: null,
+      };
+    }
     return {
       lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'incomplete', updatedAt: NOW },
       grant: { token: VALID_GRANT_A, expiresAt: new Date(Date.now() + 60_000).toISOString() },
@@ -157,6 +163,151 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
+const CANADAWIDE_CONTACT = {
+  fullName: 'Avery Example',
+  email: 'avery@example.test',
+  phone: '403 555 0101',
+  countryCode: 'CA',
+};
+
+const INTERNET_PAYLOAD = {
+  planId: 'ab-1gbps',
+  planLabel: '1Gbps',
+  landingCity: 'calgary',
+  dateOfBirth: '1990-04-12',
+  streetAddress: '12 Example Street',
+  city: 'Calgary',
+  postalCode: 'T2P 1J9',
+  consent: true,
+  consentedAt: '2026-10-26T10:00:00.000Z',
+};
+
+const MOBILITY_PAYLOAD = {
+  planId: 'cw-100gb',
+  planLabel: '100 GB $40',
+  lineCount: 2,
+  firstName: 'Avery',
+  lastName: 'Example',
+  keepNumber: true,
+  simType: 'esim',
+  currentProvider: 'Rogers',
+  streetAddress: '12 Example Street',
+  city: 'Calgary',
+  postalCode: 'T2P 1J9',
+};
+
+function oneShot(leadType: string, payload: unknown, extra: Record<string, unknown> = {}) {
+  return {
+    leadType,
+    submit: true,
+    contact: CANADAWIDE_CONTACT,
+    form: { schemaVersion: 1, payload },
+    consentVersion: 'cw-internet-v1',
+    ...extra,
+  };
+}
+
+describe('lead-type registry at intake', () => {
+  async function refusal(body: unknown) {
+    const response = await request('POST', '/api/v1/website/leads', {}, body);
+    expect(response.status).toBe(400);
+    const error = apiErrorResponseSchema.parse(await response.json()).error;
+    expect(error.code).toBe('validation_error');
+    return error.details;
+  }
+
+  it('creates a one-shot internet lead submitted, with no draft grant', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      oneShot('internet', INTERNET_PAYLOAD),
+    );
+    expect(response.status).toBe(201);
+    const body = createLeadResponseSchema.parse(await response.json());
+    expect(body.lead.status).toBe('submitted');
+    expect(body.draftGrant).toBeNull();
+    expect(leadStore.createCalls[0]).toMatchObject({ leadType: 'internet', submit: true });
+  });
+
+  it('accepts a complete mobility lead', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      oneShot('mobility', MOBILITY_PAYLOAD),
+    );
+    expect(response.status).toBe(201);
+  });
+
+  it('accepts any contact the website itself accepts', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      oneShot('internet', INTERNET_PAYLOAD, {
+        contact: {
+          ...CANADAWIDE_CONTACT,
+          email: "o'brien+promo!@mail.example.ca",
+          phone: '+1 (403) 555-0101 ext. 12345, cell',
+        },
+      }),
+    );
+    expect(response.status).toBe(201);
+  });
+
+  it('refuses a type the registry does not list', async () => {
+    expect(await refusal(oneShot('pizza_order', INTERNET_PAYLOAD))).toEqual({
+      field: 'leadType',
+    });
+  });
+
+  it('refuses a one-shot type sent as a resumable draft', async () => {
+    expect(await refusal(oneShot('internet', INTERNET_PAYLOAD, { submit: undefined }))).toEqual({
+      field: 'submit',
+    });
+  });
+
+  it('refuses a payload with a missing, wrong or unmodelled field', async () => {
+    const { city: _city, ...withoutCity } = INTERNET_PAYLOAD;
+    for (const payload of [
+      withoutCity,
+      { ...INTERNET_PAYLOAD, consent: false },
+      { ...INTERNET_PAYLOAD, dateOfBirth: '12/04/1990' },
+      { ...INTERNET_PAYLOAD, postalCode: '90210' },
+      { ...INTERNET_PAYLOAD, sin: '046454286' },
+    ]) {
+      expect(await refusal(oneShot('internet', payload))).toEqual({ field: 'form' });
+    }
+    expect(
+      await refusal({
+        ...oneShot('internet', INTERNET_PAYLOAD),
+        form: { schemaVersion: 2, payload: INTERNET_PAYLOAD },
+      }),
+    ).toEqual({ field: 'form' });
+  });
+
+  it('refuses a modelled lead without the contact it is stored by', async () => {
+    expect(
+      await refusal({
+        ...oneShot('mobility', MOBILITY_PAYLOAD),
+        contact: { email: 'a@example.test' },
+      }),
+    ).toEqual({ field: 'contact' });
+  });
+
+  it('never echoes a submitted value in the refusal', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      oneShot('internet', { ...INTERNET_PAYLOAD, dateOfBirth: 'secret-1990' }),
+    );
+    expect(await response.text()).not.toContain('secret-1990');
+    expect(leadStore.createCalls).toHaveLength(0);
+  });
+});
+
 describe('POST /api/v1/website/leads', () => {
   it('requires a lead type and a consent version', async () => {
     for (const body of [{}, { leadType: 'sim_order' }, { consentVersion: 'terms-2026-09' }]) {
@@ -179,7 +330,7 @@ describe('POST /api/v1/website/leads', () => {
     expect(response.status).toBe(201);
     const body = createLeadResponseSchema.parse(await response.json());
     expect(body.lead.id).toBe(LEAD_A);
-    expect(body.draftGrant.token).toBe(VALID_GRANT_A);
+    expect(body.draftGrant?.token).toBe(VALID_GRANT_A);
   });
 
   it('answers a dropped database connection with a logged, retryable 503', async () => {

@@ -18,6 +18,7 @@ import { sendDomainError } from '../http/domain-errors.js';
 import { isConnectionLevelError, logRequestError } from '../http/logger.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import { parseDraftGrantToken } from '../leads/token.js';
+import { checkLeadIntake } from '../leads/types.js';
 import { createTurnstileVerifier } from '../website/turnstile.js';
 import {
   loadEndpointRateLimits,
@@ -40,7 +41,27 @@ export interface WebsiteRouteDependencies {
   };
 }
 
+/**
+ * How website writes prove a human is behind them.
+ *
+ * - `turnstile` (the default, and what any unrecognised value means): the
+ *   website forwards a Cloudflare Turnstile token and the backend verifies it;
+ *   without Turnstile configured every protected write is refused.
+ * - `delegated`: the calling website's server is trusted to have screened the
+ *   submission itself (honeypot, origin check, its own per-IP and per-email
+ *   limits), as CanadaWide's routes do. The site key, the per-credential,
+ *   per-visitor and per-endpoint limits still apply to every write. Turnstile
+ *   is optional in the plan (docs/PLAN.md §5.10); this is the explicit way to
+ *   run without it, never a silent fallback.
+ */
+export type WebsiteBotCheckMode = 'turnstile' | 'delegated';
+
+export function websiteBotCheckMode(env: NodeJS.ProcessEnv = process.env): WebsiteBotCheckMode {
+  return env.WEBSITE_BOT_CHECK === 'delegated' ? 'delegated' : 'turnstile';
+}
+
 export function createDefaultWebsiteRouteDependencies(): WebsiteRouteDependencies {
+  const mode = websiteBotCheckMode();
   const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
   const turnstileHosts = (process.env.TURNSTILE_HOSTNAMES ?? process.env.TURNSTILE_HOSTNAME ?? '')
     .split(',')
@@ -48,7 +69,7 @@ export function createDefaultWebsiteRouteDependencies(): WebsiteRouteDependencie
     .filter(Boolean);
   // Every protected write fails closed without these, so say so once at boot
   // instead of leaving the owner to discover it from website 403s.
-  if (!turnstileSecret || turnstileHosts.length === 0) {
+  if (mode === 'turnstile' && (!turnstileSecret || turnstileHosts.length === 0)) {
     logRequestError({
       requestId: 'startup',
       route: 'website:turnstile',
@@ -77,7 +98,10 @@ export function createDefaultWebsiteRouteDependencies(): WebsiteRouteDependencie
     auth: {
       resolveCredential: resolveWebsiteCredential,
       rateLimit: rateLimitHit,
-      botCheck: (req, action) => verifiers.get(action)?.(req.get('x-turnstile-token')) ?? false,
+      botCheck:
+        mode === 'delegated'
+          ? () => true
+          : (req, action) => verifiers.get(action)?.(req.get('x-turnstile-token')) ?? false,
     },
     leads: { store: new DatabaseLeadStore() },
     ...documentsDependencies(),
@@ -152,6 +176,13 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         sendDomainError(res, req.id, 'validation_error', 400);
         return;
       }
+      // The registry decides what a lead of this type must carry. The detail
+      // names the refused part only, never a submitted value.
+      const intake = checkLeadIntake(body.data);
+      if (!intake.ok) {
+        sendDomainError(res, req.id, 'validation_error', 400, { field: intake.problem });
+        return;
+      }
 
       try {
         const ctx = websiteContext(req);
@@ -165,6 +196,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           form: body.data.form,
           attribution: body.data.attribution,
           consentVersion: body.data.consentVersion,
+          submit: body.data.submit,
         });
         res.status(201).json({
           lead: result.lead,

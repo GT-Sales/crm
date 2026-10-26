@@ -45,6 +45,19 @@ pg_proc / pg_policies where schemaname = 'app'`.
   `packages/db/src/seed.ts`, each with the seven roles and six permissions, and
   a pending `owner` invitation for the developer's email in both.
 
+## 0002_canadawide_legacy_mirror (2026-10-26)
+
+- Applied with `apply_migration` (Supabase tracker row written by the tool) and
+  the Drizzle row added by hand: hash
+  `1f725d6481de5750f030e7a03eb11f8e7cc2f8f9c003889b37732e70823a31bc`,
+  `created_at` `1793042297882`.
+- Verified against the catalog: trigger `leads_mirror_canadawide_legacy` on
+  `app.leads`; function `app.mirror_canadawide_legacy_lead()` SECURITY DEFINER,
+  owner `postgres` (which has BYPASSRLS, so it can read the site and write the
+  legacy tables), `search_path` empty.
+- Temporary: drop the trigger and the function in a new migration once phase 2
+  retires the old Internet/Mobility Leads pages (docs/HANDOFF.md §2.4).
+
 ## Set or rotate the runtime password
 
 ```sql

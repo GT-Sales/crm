@@ -39,11 +39,21 @@ export type Attribution = z.infer<typeof attributionSchema>;
 export const rawAttributionSchema = z.record(z.string(), z.unknown());
 export type RawAttribution = z.infer<typeof rawAttributionSchema>;
 
-/** Customer contact fields. International — any country and phone format is accepted. */
+/**
+ * Customer contact fields. International — any country and phone format is
+ * accepted. Intake is no stricter than the websites' own forms (an address
+ * shaped `a@b.c`, a phone of up to 40 characters, as CanadaWide allows), so a
+ * submission a site has accepted is never lost here; the contact merge
+ * normalizes the email.
+ */
 export const leadContactSchema = z.object({
   fullName: z.string().min(1).max(160).optional(),
-  email: z.email().max(254).optional(),
-  phone: z.string().max(32).optional(),
+  email: z
+    .string()
+    .max(254)
+    .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'email address')
+    .optional(),
+  phone: z.string().max(40).optional(),
   countryCode: z
     .string()
     .regex(/^[A-Z]{2}$/)
@@ -116,12 +126,19 @@ export const createLeadRequestSchema = z.object({
   contact: leadContactSchema.optional(),
   form: leadFormSchema.optional(),
   consentVersion: consentVersionSchema,
+  /**
+   * Create the lead already complete (`submitted`), for a one-shot form with
+   * nothing to resume. No draft grant is issued. Lead types the registry
+   * marks one-shot (`internet`, `mobility`) require it.
+   */
+  submit: z.boolean().optional(),
 });
 export type CreateLeadRequest = z.infer<typeof createLeadRequestSchema>;
 
 export const createLeadResponseSchema = z.object({
   lead: leadSummarySchema,
-  draftGrant: draftGrantSchema,
+  /** `null` when the lead was created with `submit: true`: there is no draft to resume. */
+  draftGrant: draftGrantSchema.nullable(),
   requestId: requestIdSchema,
 });
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;

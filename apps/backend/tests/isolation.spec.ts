@@ -328,13 +328,16 @@ databaseTest('Phase A tenant isolation gate', () => {
     });
     expect(created.status).toBe(201);
     const createdBody = createLeadResponseSchema.parse(await created.json());
+    // A real grant, so the foreign 401 below is about the workspace, not a missing token.
+    const grantToken = createdBody.draftGrant?.token;
+    if (!grantToken) throw new Error('expected a draft grant for an incomplete lead');
 
     const foreignUpdate = await fetch(`${baseUrl}/api/v1/website/leads/${createdBody.lead.id}`, {
       method: 'PATCH',
       headers: {
         ...bearer(FOREIGN_WEBSITE_SECRET),
         'content-type': 'application/json',
-        'x-draft-grant': createdBody.draftGrant.token,
+        'x-draft-grant': grantToken,
       },
       body: JSON.stringify({ contact: { fullName: 'Cross Workspace' } }),
     });

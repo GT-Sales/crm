@@ -4,7 +4,6 @@ import {
   contacts,
   draftGrants,
   leads,
-  outboxJobs,
   withTenantTx,
   type TenantTransaction,
 } from '@gt-sales/db';
@@ -40,11 +39,14 @@ export interface CreateLeadInput {
   form?: LeadForm;
   attribution?: RawAttribution;
   consentVersion: string;
+  /** Create the lead already `submitted`, with no draft grant (a one-shot form). */
+  submit?: boolean;
 }
 
 export interface CreateLeadResult {
   lead: LeadSummary;
-  grant: { token: string; expiresAt: string };
+  /** `null` for a lead created submitted: there is no draft to resume. */
+  grant: { token: string; expiresAt: string } | null;
 }
 
 export type UpdateLeadOutcome =
@@ -208,6 +210,7 @@ export class DatabaseLeadStore implements LeadStore {
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
         const attribution = sanitizeAttribution(input.attribution);
+        const status = input.submit ? 'submitted' : 'incomplete';
         const contactId = input.contact?.email
           ? await upsertContact(tx, { ...input.contact, email: input.contact.email })
           : null;
@@ -217,7 +220,7 @@ export class DatabaseLeadStore implements LeadStore {
           .values({
             workspaceId: input.workspaceId,
             leadType: input.leadType,
-            status: 'incomplete',
+            status,
             fullName: input.contact?.fullName,
             email: input.contact?.email,
             phone: input.contact?.phone,
@@ -245,13 +248,18 @@ export class DatabaseLeadStore implements LeadStore {
           entityId: leadRow.id,
           requestId: input.requestId,
           after: {
-            status: 'incomplete',
+            status,
             leadType: input.leadType,
             externalRef: input.externalRef ?? null,
             contactId,
             consentVersion: input.consentVersion,
           },
         });
+
+        // Websites keep their own conversion events until phase 3 (docs/PLAN.md
+        // §5.8, §5.10: the server-side analytics sink was dropped), so intake
+        // queues no analytics job; one with no provider would only fail.
+        if (input.submit) return { lead: toSummary(leadRow), grant: null };
 
         const { token, tokenHash } = generateDraftGrantToken();
         const expiresAt = new Date(Date.now() + DEFAULT_DRAFT_GRANT_TTL_SECONDS * 1000);
@@ -260,15 +268,6 @@ export class DatabaseLeadStore implements LeadStore {
           leadId: leadRow.id,
           tokenHash,
           expiresAt,
-        });
-
-        // The lead conversion event is emitted once from the outbox (never from
-        // the browser), deduped per lead by (workspace, job type, dedupe key).
-        await tx.insert(outboxJobs).values({
-          workspaceId: input.workspaceId,
-          jobType: 'analytics_lead_saved',
-          dedupeKey: leadRow.id,
-          payload: { leadId: leadRow.id },
         });
 
         return { lead: toSummary(leadRow), grant: { token, expiresAt: expiresAt.toISOString() } };

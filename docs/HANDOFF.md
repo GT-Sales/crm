@@ -1,6 +1,6 @@
 # GT Sales CRM — handoff
 
-State as of 2026-10-25, written for whoever (person or AI session) picks this
+State as of 2026-10-26, written for whoever (person or AI session) picks this
 up next. Everything here was read from the live systems or the code on that
 day, not from memory. When something below stops being true, change it here.
 
@@ -11,16 +11,16 @@ why) → [ENV.md](ENV.md) (every variable) → [RUNBOOKS/database.md](RUNBOOKS/d
 
 ## 1. Where everything is
 
-| System       | Facts                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **GitHub**   | `GT-Sales/crm`. `main` deploys both apps. Development branch for this work: `claude/phase-0-scaffold`, fast-forwarded into `main` (identical histories). CI (`.github/workflows/ci.yml`, job `verify`) runs on every push to `main` and on PRs: lint, format, typecheck, migrations on a disposable Postgres, the full test suite with integration suites forced on, OpenAPI drift check, affected builds, browser tests.                                               |
-| **Backend**  | Railway project `GT Sales CRM` (`ea4ffa36-d587-45b8-a64d-9f8f84fbd42f`), service `crm` (`01c9dcfa-644d-4c52-ade1-b08d65114443`), environment `production` (`112461fd-4e06-44bc-a5ae-13f40438f69e`). Region **Singapore `asia-southeast1`** (one replica). Follows `main`; build per `railway.json` at the repo root. Public URL `https://crm-production-cf2e.up.railway.app`, `PORT` pinned to 4000. Lives in the developer's personal Railway workspace for now.       |
-| **Admin**    | Vercel team `gt-sales` (`team_PDmnYZIjHmPgGmDSYFB0Ru3K`), project `gt-sales-crm-admin` (`prj_cjhH8QnFnO5RdOHHRZVhOrxsStnp`). Root `apps/admin`, framework Next.js, **Node 22.x** (the repo's `engines` field rejects Vercel's default of 24), production branch `main`, functions in `iad1` (`apps/admin/vercel.json`). Live at **`https://gt-sales-crm-admin.vercel.app`**. The `…-gt-sales.vercel.app` alias and per-deployment URLs sit behind Vercel's login wall.  |
-| **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (25 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued. |
-| **Auth**     | Supabase Auth on the same project: email + password, confirmation required, sign-ups allowed (the invitation flow needs them). Site URL and redirect URL are the admin domain above. No multi-factor step (owner decision, see §4).                                                                                                                                                                                                                                     |
-| **Email**    | Resend account exists; no verified sending domain yet, so the backend's email provider and Supabase custom SMTP are unset. Supabase's built-in mailer sends the confirmation emails for now (low rate limit).                                                                                                                                                                                                                                                           |
-| **Owner**    | Md Takibuddin, gamertakib@gmail.com — GitHub org owner, Railway workspace, Vercel team, Supabase org. First `owner` of both sites in the CRM (Auth user `b8fbfaea-a3a8-4cfd-b609-d9d422fa7b7e`).                                                                                                                                                                                                                                                                        |
-| **Websites** | Get Canada Sim (`Md-Takibuddin/Get-Canada-Sim`, Next.js on Vercel, its own admin and tables in `public`) and CanadaWide (`canadawideinternet.com`, writes leads to legacy tables). Neither sends anything to this backend yet (phase 1 and 3).                                                                                                                                                                                                                          |
+| System       | Facts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub**   | `GT-Sales/crm`. `main` deploys both apps. Development branch for this work: `claude/phase-0-scaffold`, fast-forwarded into `main` (identical histories). CI (`.github/workflows/ci.yml`, job `verify`) runs on every push to `main` and on PRs: lint, format, typecheck, migrations on a disposable Postgres, the full test suite with integration suites forced on, OpenAPI drift check, affected builds, browser tests.                                                                                                                                                                   |
+| **Backend**  | Railway project `GT Sales CRM` (`ea4ffa36-d587-45b8-a64d-9f8f84fbd42f`), service `crm` (`01c9dcfa-644d-4c52-ade1-b08d65114443`), environment `production` (`112461fd-4e06-44bc-a5ae-13f40438f69e`). Region **Singapore `asia-southeast1`** (one replica). Follows `main`; build per `railway.json` at the repo root. Public URL `https://crm-production-cf2e.up.railway.app`, `PORT` pinned to 4000. Lives in the developer's personal Railway workspace for now.                                                                                                                           |
+| **Admin**    | Vercel team `gt-sales` (`team_PDmnYZIjHmPgGmDSYFB0Ru3K`), project `gt-sales-crm-admin` (`prj_cjhH8QnFnO5RdOHHRZVhOrxsStnp`). Root `apps/admin`, framework Next.js, **Node 22.x** (the repo's `engines` field rejects Vercel's default of 24), production branch `main`, functions in `iad1` (`apps/admin/vercel.json`). Live at **`https://gt-sales-crm-admin.vercel.app`**. The `…-gt-sales.vercel.app` alias and per-deployment URLs sit behind Vercel's login wall.                                                                                                                      |
+| **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (25 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued.                                                                                                                     |
+| **Auth**     | Supabase Auth on the same project: email + password, confirmation required, sign-ups allowed (the invitation flow needs them). Site URL and redirect URL are the admin domain above. No multi-factor step (owner decision, see §4).                                                                                                                                                                                                                                                                                                                                                         |
+| **Email**    | The Resend account this session can reach has no domains; CanadaWide and Get Canada Sim send their own mail with their own Resend keys. The backend's email provider and Supabase custom SMTP are unset. Supabase's built-in mailer **delivers only to members of the Supabase organization's team**, at about two messages an hour: the owner's own sign-up worked because the owner is on the team, but any other admin's confirmation email is refused until custom SMTP is set (§5.1).                                                                                                  |
+| **Owner**    | Md Takibuddin, gamertakib@gmail.com — GitHub org owner, Railway workspace, Vercel team, Supabase org. First `owner` of both sites in the CRM (Auth user `b8fbfaea-a3a8-4cfd-b609-d9d422fa7b7e`).                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Websites** | Get Canada Sim (`Md-Takibuddin/Get-Canada-Sim`, Next.js on Vercel, its own admin and tables in `public`; sends nothing here until phase 3). CanadaWide (`Md-Takibuddin/Canadawide-Sales-website`, Next.js on Vercel in the owner's personal team, which this session's Vercel token cannot see): its internet and mobility forms send to the CRM once `CRM_API_URL` and `CRM_SITE_KEY` are set in its Vercel project (code on `main` since 2026-10-26, inert until then); its ID-upload step still writes Supabase directly. Staff still work CanadaWide leads in the Get Canada Sim admin. |
 
 Secrets never live in this repository. The `app_runtime` password exists only
 in Railway's `DATABASE_URL`; every other secret is listed by name in ENV.md and
@@ -147,10 +147,25 @@ boundary goes through SECURITY DEFINER functions: `list_staff_workspaces`,
 `accept_staff_invitations`, `resolve_website_credential`, `rate_limit_hit`,
 `prune_operational_rows`. Triggers: `audit_events_redaction_only`,
 `leads/files/jobs_customer_restriction` (a restricted lead's data cannot be
-touched by ordinary writes).
+touched by ordinary writes), and the transitional
+`leads_mirror_canadawide_legacy` (below).
 
-Migrations: `packages/db/drizzle/0000_app_foundation.sql` (generated) and
-`0001_runtime_functions.sql` (hand-written). Both are recorded in two trackers,
+**CanadaWide legacy mirror (migration 0002, temporary).** An AFTER INSERT
+trigger on `app.leads` copies every new `internet` / `mobility` lead of the
+`canadawide` site into `public.internet_leads` / `public.mobility_leads` under
+the same id, in the same transaction, through the SECURITY DEFINER function
+`app.mirror_canadawide_legacy_lead()`. It exists so the old Get Canada Sim admin
+pages keep working, and so the mobility ID-upload step, which still writes
+`public.mobility_id_uploads` keyed by that id, keeps linking, while staff have
+no CRM screens yet. It is insert-only and idempotent (`on conflict (id) do
+nothing`), so importing historical legacy rows into `app.leads` under their own
+ids passes through, and it is a no-op where the legacy tables do not exist
+(CI). Drop it, in a new migration, when phase 2 retires the old Internet and
+Mobility Leads pages.
+
+Migrations: `packages/db/drizzle/0000_app_foundation.sql` (generated),
+`0001_runtime_functions.sql` (hand-written) and `0002_canadawide_legacy_mirror.sql`
+(hand-written, `drizzle-kit generate --custom`). All are recorded in two trackers,
 `drizzle.__drizzle_migrations` (hash = sha256 of the file, created_at = journal
 `when`) and `supabase_migrations.schema_migrations`. Verify by querying the
 objects, never the trackers (the Get Canada Sim project learned that the hard
@@ -191,20 +206,39 @@ the token's own claims; the email must be confirmed.
    `leads:write` and/or `uploads:customer`. The secret is shown once.
 2. The website stores it server-side only and calls
    `POST https://crm-production-cf2e.up.railway.app/api/v1/website/leads` with
-   `Authorization: Bearer <key>`, `leadType`, contact fields, `payload`,
-   `attribution`, `consentVersion`, optional `externalRef` (e.g. the website's
-   order number, unique per site and type).
-3. Multi-step forms keep the returned draft grant and `PATCH` the lead.
-4. Documents: `uploads/intents` → browser uploads to the signed target →
+   `Authorization: Bearer <key>`, `leadType`, `contact`, `form`
+   (`{ schemaVersion, payload }`), `consentVersion`, optional `attribution`,
+   `externalRef` (the website's own id, unique per site and type) and `submit`.
+3. **The lead-type registry decides what a lead must carry**
+   (`apps/backend/src/leads/types.ts`; payload schemas in
+   `packages/contracts/src/lead-types.ts`). An unlisted type is a 400.
+   `internet` and `mobility` (CanadaWide) are modelled: strict payloads, name,
+   email and phone required, and **one-shot**: they must be sent with
+   `submit: true`, are stored `submitted`, and get no draft grant.
+   `sim_order`, `partner_application`, `contact_message` are listed but not yet
+   modelled (any payload, resumable drafts). A refusal is
+   `validation_error` with `details.field` naming the refused part, never a
+   value. Contact rules are deliberately no stricter than the sites' own.
+4. Multi-step forms keep the returned draft grant and `PATCH` the lead.
+5. Documents: `uploads/intents` → browser uploads to the signed target →
    `uploads/:id/finalize` re-reads the bytes and checks the file signature.
-5. Rate limits are per credential and per IP; a bot check (Turnstile) runs when
-   configured and is skipped with a startup warning (`bot_check_unconfigured`)
-   when not.
+6. Rate limits are per credential, per visitor and per endpoint. A website
+   server can send `x-website-visitor-id` (64 hex; CanadaWide sends an HMAC of
+   the customer's IP keyed with its site key) so the visitor limit applies per
+   customer, not per hosting egress address.
+7. **Human proof** is `WEBSITE_BOT_CHECK` (ENV.md). `turnstile`, the default,
+   verifies a forwarded Turnstile token and refuses every write when Turnstile
+   is not configured. `delegated` trusts the calling website's own screening
+   (CanadaWide's honeypot, origin check, per-IP and per-email limits); the
+   site key and the limits above still apply. Production runs `delegated`.
 
-Full schemas: `packages/contracts/src/leads.ts`, `workspace-leads.ts`,
-`website-auth.ts`; rendered in `docs/api/openapi.json`.
+Full schemas: `packages/contracts/src/leads.ts`, `lead-types.ts`,
+`workspace-leads.ts`, `website-auth.ts`; rendered in `docs/api/openapi.json`.
+Reference client: `lib/crm.ts` in the CanadaWide repository.
 
-## 3. What was done (2026-10-25)
+## 3. What was done
+
+### 3.1 2026-10-25: phase 0
 
 1. **Scaffold.** Copied the Canadian Plans platform (code only), pruned to the
    surfaces above, renamed the scope to `@gt-sales/*`, fresh `0000`/`0001`
@@ -241,6 +275,32 @@ Full schemas: `packages/contracts/src/leads.ts`, `workspace-leads.ts`,
    page total as a window function; and by moving the service to Singapore.
    First request after the move: 1.8 s (cold connections included).
 
+### 3.2 2026-10-26: CanadaWide intake
+
+The live database showed CanadaWide writing every lead with the project's
+publishable key, through four anon policies with `with check (true)`:
+`internet_leads` (663 rows, ~20 a day), `mobility_leads` (38),
+`mobility_id_uploads` (14, SINs in plain text) and `storage.objects` for the
+private `mobility-ids` bucket. That key also ships in this admin's and Get
+Canada Sim's browser code, so anyone could insert rows or upload files past
+CanadaWide's validation. Nothing was readable; volumes looked organic.
+
+1. **Intake:** the lead-type registry, `submit: true` for one-shot types,
+   contact rules relaxed to the sites' own (phone ≤ 40, any `a@b.c` address),
+   and `WEBSITE_BOT_CHECK=delegated`. Before this, no website could write at
+   all: the Turnstile check refused everything without Turnstile keys. Intake
+   no longer queues `analytics_lead_saved` (no provider; the plan dropped the
+   server-side analytics sink).
+2. **Migration 0002**, the legacy mirror above, with an integration test
+   against replica legacy tables.
+3. **CanadaWide** (`lib/crm.ts`): `/api/leads` and `/api/mobility-leads` send to
+   the CRM when `CRM_API_URL` and `CRM_SITE_KEY` are set, and write Supabase
+   as before otherwise. Emails, the Meta event and the ID step are unchanged.
+4. **Verified end to end locally:** both forms through CanadaWide's built
+   server into a local backend and Postgres with replica legacy tables; rows
+   and ids matched on both sides; a stopped backend gave the customer the same
+   "please call us" answer as a failed insert.
+
 ## 4. What is verified, and how
 
 | Claim                                       | Evidence                                                                                                      |
@@ -255,17 +315,28 @@ Full schemas: `packages/contracts/src/leads.ts`, `workspace-leads.ts`,
 
 ### 5.1 Owner, before anything else
 
-1. Create one site key per website in `/w/<site>/settings` (closes phase 0).
-2. Supabase → Storage → S3 access keys for the `documents` bucket; put them in
+1. **Switch CanadaWide to the CRM** (closes phase 0 and starts closing the anon
+   write paths). In the CRM admin, open CanadaWide → Settings → site keys,
+   create one with scope `leads:write` and copy it (shown once). In Vercel,
+   open the CanadaWide project → Settings → Environment Variables, add
+   `CRM_API_URL=https://crm-production-cf2e.up.railway.app` and
+   `CRM_SITE_KEY=<the key>` for Production, then redeploy. The next CanadaWide
+   lead should appear in both the CRM inbox and the old admin. Then the next
+   session (or a scheduled check) verifies and drops the two lead policies
+   (§5.4).
+2. **Custom SMTP for Supabase Auth**, before inviting anyone else: the
+   built-in mailer refuses addresses outside the Supabase team. Simplest: in
+   the Resend account Get Canada Sim already uses (domain `getcanadasim.com`
+   verified there), create an API key, then Supabase → Authentication → Emails
+   → SMTP: host `smtp.resend.com`, port 465, user `resend`, password the API
+   key, sender e.g. `GT Sales CRM <crm@getcanadasim.com>`. The same account
+   can later back the backend's `EMAIL_PROVIDER=resend`.
+3. Supabase → Storage → S3 access keys for the `documents` bucket; put them in
    Railway as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, then set
    `R2_ENDPOINT=https://xykrphbgpwisqacpyeiv.storage.supabase.co/storage/v1/s3`,
    `R2_REGION=ap-south-1`, `R2_BUCKET=documents`, `R2_ACCOUNT_ID` (ENV.md). Until
-   then document uploads fail.
-3. Resend: verify a sending domain, then set `EMAIL_PROVIDER=resend`, the
-   `RESEND_*` variables and a webhook (`MACHINE_REGISTRY_JSON.webhooks`), and
-   point Supabase Auth's custom SMTP at Resend so confirmation emails are not
-   rate-limited.
-4. Names and roles of the other admins; invite them from the admin.
+   then document uploads fail, and CanadaWide's ID step cannot move here.
+4. Names and roles of the other admins; invite them from the admin (after 2).
 5. Move the Railway project into a GT Sales workspace; rotate the secrets
    generated during the build (`app_runtime` password, `CRON_SECRET`,
    `EMAIL_CONTACT_HASH_SECRET`, registry secrets) once stored properly.
@@ -273,22 +344,26 @@ Full schemas: `packages/contracts/src/leads.ts`, `workspace-leads.ts`,
 
 ### 5.2 Engineering: phase 1 (data + intake), per PLAN.md §6
 
-- **Lead-type registry** (`packages/contracts`): one schema per type
-  (`sim_order`, `internet_lead`, `mobility_lead`, `partner_application`,
-  `contact_message`…) with its payload shape and allowed statuses; the backend
-  validates `payload` by type on intake and the admin renders type-specific
-  columns. Today `leadType` is a free-form slug and `payload` is opaque JSON.
-- **Intake per type** on `POST /website/leads`; keep the contact-merge rule
-  (email only, normalized) and the `externalRef` uniqueness.
+- **Done 2026-10-26:** the lead-type registry with `internet` and `mobility`
+  modelled, one-shot intake, the legacy mirror, CanadaWide's two lead routes
+  behind its env switch (§3.2). Still to do in phase 1:
+- **CanadaWide's ID step** (`/api/mobility-applications`): needs Storage S3
+  keys (§5.1) and `SENSITIVE_FIELDS_KEY` for SIN sealing. Route a licence
+  photo through `uploads/intents` → `finalize` onto the mobility lead, and a
+  SIN as a sealed field; mirror the `mobility_id_uploads` row (SIN in plain
+  text there, as the old admin shows it) until phase 2. Then drop the last two
+  anon policies.
 - **Documents on Supabase Storage** through the existing S3 adapter (verify the
   endpoint quirks first thing; a thin Storage-API adapter is the fallback).
 - **SIN sealing** with `crypto/cipher.ts` (AES-256-GCM, label
   `gt-sales-crm:sealed-value:v1`) before any identity field is stored.
-- **CanadaWide**: move its three lead routes to the backend one at a time, old
-  route kept deployable until the new one is verified. Drop the anon policies
-  on its legacy tables afterwards.
-- **Data migration**: import existing website leads/orders into `leads` with
-  the right `lead_type` and `external_ref`, contacts merged by email.
+- **Historical import**: copy the 701 legacy CanadaWide leads into `app.leads`
+  **under their legacy ids** (the mirror skips them), contacts merged by email,
+  `notes` → activity, `reminder_*` → task, `deleted_at` kept, legacy working
+  status kept for phase 2. Rehearse locally; run right before the phase 2
+  cutover so statuses and notes are current.
+- **Model the planned types** (`sim_order`, `partner_application`,
+  `contact_message`) when Get Canada Sim's forms move (phase 3).
 
 Then phase 2 (CRM screens: inbox across sites, kanban per type, lead page with
 timeline/notes/tasks/documents/assignment, contact page, my tasks,
@@ -306,8 +381,10 @@ portal and database code from the website repositories; drop legacy tables).
   per-token cache of `getUser` results (changes revocation latency slightly,
   decide with the owner); a read-through cache of the membership snapshot
   keyed by actor+site invalidated by the staff mutation routes.
-- **Bot check unset.** `bot_check_unconfigured` is logged at startup; set the
-  Turnstile keys (ENV.md) before the first website goes live on the intake API.
+- **Turnstile is off by design** (`WEBSITE_BOT_CHECK=delegated`). If a site
+  ever shows abuse that its own screening misses, add Turnstile to that site's
+  forms, forward the token as `x-turnstile-token`, set the `TURNSTILE_*`
+  variables and switch the mode back to `turnstile`.
 - **Error tracking unset.** `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` empty; the
   adapters are inert until set.
 - **Vercel deployment protection** gates everything except the production
@@ -321,6 +398,31 @@ portal and database code from the website repositories; drop legacy tables).
   `DB_TEST_ALLOW_DESTRUCTIVE=1`, `DATABASE_URL` as `app_runtime`, …).
 - **Plan drift.** PLAN.md §5.7 and §10 are current; §4's copy table still names
   the `aal2` check in one row as historical context.
+
+### 5.4 Closing the anonymous write paths
+
+| Policy (production)                                                      | Status                                                                                                     |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `public.internet_leads` "anon can submit leads"                          | Drop once every new `internet_leads` row has a matching `app.leads` id (CanadaWide switched, §5.1 step 1). |
+| `public.mobility_leads` "anon can insert mobility leads"                 | Same check against `mobility_leads`.                                                                       |
+| `public.mobility_id_uploads` "anon can insert mobility id uploads"       | Stays until the ID step moves (§5.2).                                                                      |
+| `storage.objects` "anon can upload mobility ids" (bucket `mobility-ids`) | Stays until the ID step moves (§5.2).                                                                      |
+
+Verification query for the first two (zero rows = safe to drop):
+
+```sql
+select 'internet' as t, i.id from public.internet_leads i
+where i.created_at > '<switch time>' and not exists (select 1 from app.leads l where l.id = i.id)
+union all
+select 'mobility', m.id from public.mobility_leads m
+where m.created_at > '<switch time>' and not exists (select 1 from app.leads l where l.id = m.id);
+```
+
+Then `drop policy "anon can submit leads" on public.internet_leads;` and
+`drop policy "anon can insert mobility leads" on public.mobility_leads;`, and
+confirm in `pg_policies`. CanadaWide's direct-write fallback then stops working,
+which is the point: unset CRM variables would fail loudly instead of reopening
+the path.
 
 ## 6. How to work in this repository
 
