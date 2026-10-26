@@ -175,8 +175,9 @@ go into `docs/RUNBOOKS/manual/` for the owner to paste into the SQL editor.
 
 Seeded: sites `getcanadasim` (`10000000-0000-4000-8000-000000000101`) and
 `canadawide` (`…102`, domain `canadawideinternet.com`), each with the seven
-roles and six permissions, and the owner's membership (active since 13:44 UTC).
-Zero leads, zero service credentials.
+roles and six permissions, and the owner's membership (active since
+2026-10-25 13:44 UTC). As of 2026-10-26: no live leads (two soft-deleted smoke
+tests), no live site keys (one revoked smoke-test key).
 
 ### 2.5 Identity, roles, permissions
 
@@ -300,16 +301,26 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    server into a local backend and Postgres with replica legacy tables; rows
    and ids matched on both sides; a stopped backend gave the customer the same
    "please call us" answer as a failed insert.
+5. **Deployed and smoke-tested in production** (CRM `f05e9e4`, CanadaWide
+   `f8f4885`): migration 0002 applied and recorded in both trackers;
+   `WEBSITE_BOT_CHECK=delegated` on Railway. With a temporary CanadaWide key,
+   one internet and one mobility lead (named `CRM SMOKE TEST - ignore`) were
+   stored `submitted` with a contact and mirrored into the legacy tables under
+   the same ids, about 2 s per request; no key → 401, a bad payload → 400
+   naming only the field. Afterwards the key was revoked and all four test
+   rows soft-deleted (the old admin hides them unless "show deleted" is on).
+   CanadaWide's switch itself waits on §5.1 step 1.
 
 ## 4. What is verified, and how
 
-| Claim                                       | Evidence                                                                                                      |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Backend serves and the scheduler runs clean | `GET /api/v1/health` 200; deployment logs show no `scheduler_task_failed` since the pooler fix                |
-| Admin is reachable and wired                | `/login` 200 on `gt-sales-crm-admin.vercel.app`; the JS bundle contains the backend URL, Supabase URL and key |
-| CORS                                        | `OPTIONS /api/v1/staff/me` from the admin origin → 204 with `access-control-allow-origin` set                 |
-| Owner access                                | `app.memberships`: two `active` rows for the owner's user id; log shows `/staff/workspaces` 200 and leads 200 |
-| Code gates                                  | typecheck, lint, Prettier, 491/491 tests with integration suites, both builds, 14 browser checks, CI run 4    |
+| Claim                                       | Evidence                                                                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Backend serves and the scheduler runs clean | `GET /api/v1/health` 200; deployment logs show no `scheduler_task_failed` since the pooler fix                           |
+| Admin is reachable and wired                | `/login` 200 on `gt-sales-crm-admin.vercel.app`; the JS bundle contains the backend URL, Supabase URL and key            |
+| CORS                                        | `OPTIONS /api/v1/staff/me` from the admin origin → 204 with `access-control-allow-origin` set                            |
+| Owner access                                | `app.memberships`: two `active` rows for the owner's user id; log shows `/staff/workspaces` 200 and leads 200            |
+| Code gates                                  | typecheck, lint, Prettier, 508/508 tests with integration suites, both builds, 14 browser checks (2026-10-26)            |
+| Website intake in production                | Smoke test 2026-10-26: two labelled leads stored and mirrored with matching ids; 401 without a key; 400 on a bad payload |
 
 ## 5. What comes next, in order
 
