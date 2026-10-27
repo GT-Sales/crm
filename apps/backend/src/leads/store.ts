@@ -18,6 +18,7 @@ import {
   type LeadForm,
   type LeadDraft,
   type LeadListItem,
+  type LeadPropertyFilter,
   type LeadStatus,
   type LeadSummary,
   type LeadView,
@@ -81,6 +82,12 @@ export interface ListLeadsInput {
   view?: LeadView;
   /** Only leads with a follow-up due by this calendar day, the most overdue first. */
   dueBy?: string;
+  /** Validated property filters; only for callers who may see contacts. */
+  where?: readonly LeadPropertyFilter[];
+  /** Validated sort string (`<field>:<asc|desc>`); property sorts require contact access. */
+  sort?: string;
+  /** Validated property keys to include in each row's `properties` map (at most 6). */
+  columns?: readonly string[];
   page?: number;
   pageSize?: number;
 }
@@ -407,6 +414,9 @@ export class DatabaseLeadStore implements LeadStore {
             search: input.search,
             view: input.view,
             dueBy: input.dueBy,
+            where: input.where,
+            sort: input.sort,
+            columns: input.columns,
           },
           page,
           pageSize,

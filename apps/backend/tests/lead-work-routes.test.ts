@@ -119,7 +119,8 @@ const leadDocument: LeadDocument = {
   createdAt: NOW,
 };
 
-const { form: _form, ...listItem } = lead;
+const { form: _form, ...baseListItem } = lead;
+const listItem = { ...baseListItem, properties: { city: 'Calgary' } };
 
 class TokenVerifier implements StaffSessionVerifier {
   readonly sessions = new Map<string, VerifiedStaffSession>([
@@ -341,6 +342,97 @@ describe('staff lead work routes', () => {
 
     const board = await call(`${leadsUrl()}/board?type=internet&q=avery`);
     expect(board.status).toBe(403);
+  });
+
+  it('passes parsed property filters, sort and columns to the stores', async () => {
+    const filters = [
+      { key: 'permitType', op: 'eq', value: 'student' },
+      { key: 'arrivalDate', op: 'gte', value: '2026-11-01' },
+    ];
+    const whereParam = encodeURIComponent(JSON.stringify(filters));
+    const response = await call(
+      `${leadsUrl()}?type=sim_order&where=${whereParam}&sort=prop.arrivalDate:asc&columns=arrivalDate,permitType`,
+    );
+    expect(response.status).toBe(200);
+    const body = listWorkspaceLeadsResponseSchema.parse(await response.json());
+    expect(body.leads[0]?.properties).toEqual({ city: 'Calgary' });
+    expect(leadStore.listCalls[0]).toMatchObject({
+      leadType: 'sim_order',
+      where: filters,
+      sort: 'prop.arrivalDate:asc',
+      columns: ['arrivalDate', 'permitType'],
+    });
+
+    const board = await call(`${leadsUrl()}/board?type=sim_order&where=${whereParam}`);
+    expect(board.status).toBe(200);
+    expect(work.board).toHaveBeenCalledWith(
+      expect.objectContaining({
+        leadType: 'sim_order',
+        where: filters,
+      }),
+      50,
+    );
+  });
+
+  it('rejects invalid property filters, sorts and columns with 400 invalid_request', async () => {
+    const invalidWhereCases = [
+      [{ key: 'unknownKey', op: 'eq', value: 'x' }],
+      [{ key: 'dateOfBirth', op: 'eq', value: '1990-04-12' }],
+      [{ key: 'city', op: 'lte', value: 'Calgary' }],
+      [{ key: 'arrivalDate', op: 'eq', value: '2026-02-30' }],
+      [{ key: 'permitType', op: 'eq', value: 'not-an-option' }],
+      [{ key: 'company', op: 'eq', value: 'Maple' }],
+    ];
+    for (const filters of invalidWhereCases) {
+      const whereParam = encodeURIComponent(JSON.stringify(filters));
+      const res = await call(`${leadsUrl()}?type=sim_order&where=${whereParam}`);
+      expect(res.status).toBe(400);
+      expect((await errorCode(res)).code).toBe('invalid_request');
+
+      const boardRes = await call(`${leadsUrl()}/board?type=sim_order&where=${whereParam}`);
+      expect(boardRes.status).toBe(400);
+      expect((await errorCode(boardRes)).code).toBe('invalid_request');
+    }
+
+    for (const badQuery of [
+      'sort=prop.unknownKey:asc',
+      'sort=prop.dateOfBirth:asc',
+      'type=internet&sort=prop.permitType:asc',
+      'columns=unknownKey',
+      'columns=dateOfBirth',
+      'type=internet&columns=permitType',
+    ]) {
+      const res = await call(`${leadsUrl()}?${badQuery}`);
+      expect(res.status).toBe(400);
+      expect((await errorCode(res)).code).toBe('invalid_request');
+    }
+    expect(leadStore.listCalls).toHaveLength(0);
+  });
+
+  it('enforces contact access on where, property sort and columns while allowing built-in sort and stripping properties', async () => {
+    store.access = { ...store.access, roles: ['viewer'] };
+    const whereParam = encodeURIComponent(
+      JSON.stringify([{ key: 'city', op: 'eq', value: 'Calgary' }]),
+    );
+
+    for (const deniedQuery of [`where=${whereParam}`, 'sort=prop.city:asc', 'columns=city']) {
+      const res = await call(`${leadsUrl()}?${deniedQuery}`);
+      expect(res.status).toBe(403);
+      expect((await errorCode(res)).code).toBe('permission_denied');
+    }
+
+    const deniedBoard = await call(`${leadsUrl()}/board?type=internet&where=${whereParam}`);
+    expect(deniedBoard.status).toBe(403);
+    expect((await errorCode(deniedBoard)).code).toBe('permission_denied');
+    expect(leadStore.listCalls).toHaveLength(0);
+
+    const allowed = await call(`${leadsUrl()}?sort=createdAt:asc`);
+    expect(allowed.status).toBe(200);
+    const body = listWorkspaceLeadsResponseSchema.parse(await allowed.json());
+    expect(body.leads[0]?.properties).toBeUndefined();
+    expect(body.leads[0]?.contact).toEqual({});
+    expect(body.leads[0]?.countdownDate).toBeNull();
+    expect(leadStore.listCalls[0]).toMatchObject({ sort: 'createdAt:asc' });
   });
 
   it('routes /summary and /board before the lead id', async () => {

@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyLeadFormEdit,
+  areValidLeadColumns,
+  areValidLeadPropertyFilters,
   filterableLeadProperties,
   internetLeadPayloadSchema,
+  isValidLeadSort,
+  leadBoardQuerySchema,
+  leadColumnsSchema,
   leadCountdownField,
   leadFieldCatalog,
   leadFields,
@@ -11,9 +16,12 @@ import {
   leadProperty,
   leadPropertyCatalog,
   leadPropertyOperators,
+  leadSortSchema,
   leadTypeCatalog,
   leadTypeProperties,
   leadTypePropertyKeys,
+  leadWhereSchema,
+  listWorkspaceLeadsQuerySchema,
   mobilityLeadPayloadSchema,
   resolveLeadTypeProperty,
   type LeadFieldDefinition,
@@ -281,6 +289,106 @@ describe('lead field definitions and shared property catalogue', () => {
     expect(leadFormEditSchema.safeParse({}).success).toBe(false);
     expect(leadFormEditSchema.safeParse({ 'not a key': 'x' }).success).toBe(false);
     expect(leadFormEditSchema.safeParse({ nested: { a: 1 } }).success).toBe(false);
+  });
+});
+
+describe('where, sort and columns query schemas', () => {
+  it('parses valid where, sort and columns parameters on list and board queries', () => {
+    const whereJson = JSON.stringify([
+      { key: 'city', op: 'eq', value: 'Calgary' },
+      { key: 'permitType', op: 'in', value: ['student', 'worker'] },
+      { key: 'arrivalDate', op: 'gte', value: '2026-11-01' },
+      { key: 'lineCount', op: 'lte', value: 4 },
+      { key: 'gotVisa', op: 'eq', value: true },
+      { key: 'reference', op: 'empty' },
+    ]);
+
+    const parsedList = listWorkspaceLeadsQuerySchema.parse({
+      type: 'sim_order',
+      where: whereJson,
+      sort: 'prop.arrivalDate:asc',
+      columns: 'arrivalDate,permitType,city',
+    });
+
+    expect(parsedList.where).toHaveLength(6);
+    expect(parsedList.sort).toBe('prop.arrivalDate:asc');
+    expect(parsedList.columns).toEqual(['arrivalDate', 'permitType', 'city']);
+
+    const parsedBoard = leadBoardQuerySchema.parse({
+      type: 'sim_order',
+      where: JSON.stringify([{ key: 'permitType', op: 'eq', value: 'student' }]),
+    });
+    expect(parsedBoard.where).toEqual([{ key: 'permitType', op: 'eq', value: 'student' }]);
+  });
+
+  it('rejects invalid JSON, more than 10 filters, unknown op, value on empty, more than 6 columns and bad sort field', () => {
+    expect(leadWhereSchema.safeParse('not-json').success).toBe(false);
+
+    const elevenFilters = JSON.stringify(
+      Array.from({ length: 11 }, (_, idx) => ({
+        key: 'city',
+        op: 'eq',
+        value: `City ${idx}`,
+      })),
+    );
+    expect(leadWhereSchema.safeParse(elevenFilters).success).toBe(false);
+
+    expect(
+      leadWhereSchema.safeParse(JSON.stringify([{ key: 'city', op: 'regex', value: 'x' }])).success,
+    ).toBe(false);
+
+    expect(
+      leadWhereSchema.safeParse(JSON.stringify([{ key: 'city', op: 'empty', value: 'x' }])).success,
+    ).toBe(false);
+
+    expect(
+      leadWhereSchema.safeParse(JSON.stringify([{ key: 'city', op: 'notEmpty', value: 'x' }]))
+        .success,
+    ).toBe(false);
+
+    expect(leadWhereSchema.safeParse(JSON.stringify([{ key: 'city', op: 'eq' }])).success).toBe(
+      false,
+    );
+
+    expect(leadColumnsSchema.safeParse('a,b,c,d,e,f,g').success).toBe(false);
+    expect(leadColumnsSchema.safeParse('').success).toBe(false);
+    expect(leadColumnsSchema.safeParse('city,not a key').success).toBe(false);
+
+    expect(leadSortSchema.safeParse('createdAt:asc').success).toBe(true);
+    expect(leadSortSchema.safeParse('updatedAt:desc').success).toBe(true);
+    expect(leadSortSchema.safeParse('fullName:asc').success).toBe(true);
+    expect(leadSortSchema.safeParse('externalRef:desc').success).toBe(true);
+    expect(leadSortSchema.safeParse('prop.city:asc').success).toBe(true);
+    expect(leadSortSchema.safeParse('stage:asc').success).toBe(false);
+    expect(leadSortSchema.safeParse('createdAt:sideways').success).toBe(false);
+    expect(leadSortSchema.safeParse('prop.123bad:asc').success).toBe(false);
+  });
+
+  it('validates parsed filters, sorts and columns against the property catalogue and lead type', () => {
+    expect(
+      areValidLeadPropertyFilters([{ key: 'permitType', op: 'eq', value: 'student' }], 'sim_order'),
+    ).toBe(true);
+    expect(
+      areValidLeadPropertyFilters([{ key: 'permitType', op: 'eq', value: 'unknown' }], 'sim_order'),
+    ).toBe(false);
+    expect(
+      areValidLeadPropertyFilters([{ key: 'dateOfBirth', op: 'eq', value: '1990-01-01' }]),
+    ).toBe(false);
+    expect(
+      areValidLeadPropertyFilters([{ key: 'arrivalDate', op: 'eq', value: '2026-02-30' }]),
+    ).toBe(false);
+    expect(
+      areValidLeadPropertyFilters([{ key: 'permitType', op: 'eq', value: 'student' }], 'internet'),
+    ).toBe(false);
+
+    expect(isValidLeadSort('createdAt:asc')).toBe(true);
+    expect(isValidLeadSort('prop.city:asc', 'internet')).toBe(true);
+    expect(isValidLeadSort('prop.dateOfBirth:asc')).toBe(false);
+    expect(isValidLeadSort('prop.permitType:asc', 'internet')).toBe(false);
+
+    expect(areValidLeadColumns(['city', 'planId'], 'internet')).toBe(true);
+    expect(areValidLeadColumns(['dateOfBirth'])).toBe(false);
+    expect(areValidLeadColumns(['permitType'], 'internet')).toBe(false);
   });
 });
 
