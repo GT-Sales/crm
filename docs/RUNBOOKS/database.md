@@ -117,9 +117,12 @@ pg_proc / pg_policies where schemaname = 'app'`.
   `mobility-ids`. Both SECURITY DEFINER, empty `search_path`, EXECUTE for
   `app_runtime` only, and both read the site from the tenant transaction.
 - **Not yet applied to production.** The Supabase tool holds the
-  `DROP FUNCTION` for the owner's confirmation, and the first attempt timed
-  out unanswered. Re-run it with `apply_migration` while the owner is at the
-  screen to accept, then add the Drizzle row: hash
+  `DROP FUNCTION` for the owner's confirmation, and two attempts timed out
+  unanswered. Either re-run it with `apply_migration` while the owner is at
+  the screen to accept, or have the owner paste
+  [`manual/0006-legacy-identity-mirror.sql`](manual/0006-legacy-identity-mirror.sql)
+  into the SQL editor once (one transaction, both tracker rows included;
+  tested against a database at the 0005 state). By hand the Drizzle row is: hash
   `063cfe0eff5e3a986f093c1cca8b1c1c3255e5e90763beb1b206ddae3d1877ac`, `created_at`
   `1793082645098`, and verify both functions return `boolean`. Nothing calls
   the functions until CanadaWide's ID step moves, so the code can deploy first.
