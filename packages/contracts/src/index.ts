@@ -258,6 +258,7 @@ export {
 
 export {
   applyLeadFormEdit,
+  isCalendarDate,
   leadCountdownField,
   leadFieldCatalog,
   leadFields,
@@ -268,6 +269,21 @@ export {
   type LeadFormEdit,
   type LeadFormEditResult,
 } from './lead-fields';
+
+export {
+  LEAD_PROPERTY_OPERATORS,
+  filterableLeadProperties,
+  leadProperty,
+  leadPropertyCatalog,
+  leadPropertyOperators,
+  leadTypeProperties,
+  leadTypePropertyKeys,
+  resolveLeadTypeProperty,
+  type FilterableLeadProperty,
+  type LeadPropertyDefinition,
+  type LeadPropertyOperator,
+  type LeadTypePropertyUse,
+} from './lead-properties';
 
 export {
   MAX_IDENTITIES_PER_LEAD,
