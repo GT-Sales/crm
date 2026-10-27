@@ -179,3 +179,44 @@ export const leadsSummaryResponseSchema = z.object({
   requestId: requestIdSchema,
 });
 export type LeadsSummaryResponse = z.infer<typeof leadsSummaryResponseSchema>;
+
+/** The dashboard's windows, in days back from now (Get Canada Sim's 7 days, 30 days, 3 months). */
+export const LEAD_STATS_WINDOWS = [7, 30, 90] as const;
+
+/** `GET /workspaces/:id/leads/stats`: one type's leads in a window; no window is all time. */
+export const leadStatsQuerySchema = z
+  .object({
+    leadType: leadTypeSchema,
+    days: z.coerce
+      .number()
+      .pipe(z.literal([...LEAD_STATS_WINDOWS]))
+      .optional(),
+  })
+  .strict();
+export type LeadStatsQuery = z.infer<typeof leadStatsQuerySchema>;
+
+/**
+ * Counts only, so every role may read them (as the summary): the type's
+ * active leads received in the window by stage, per day (UTC) and by partner
+ * code, the type's lost stages left out of those two as Get Canada Sim's
+ * dashboard leaves out cancellations. A partner is named by its partner
+ * application's company when the site has one under that code.
+ */
+export const leadStatsResponseSchema = z.object({
+  leadType: leadTypeSchema,
+  days: z.int().positive().nullable(),
+  total: z.int().nonnegative(),
+  stages: z.array(z.object({ stage: leadStageSchema, total: z.int().nonnegative() })),
+  daily: z.array(z.object({ day: z.iso.date(), total: z.int().nonnegative() })),
+  partners: z
+    .array(
+      z.object({
+        code: z.string().min(1).max(64),
+        name: z.string().min(1).max(200).nullable(),
+        total: z.int().nonnegative(),
+      }),
+    )
+    .max(10),
+  requestId: requestIdSchema,
+});
+export type LeadStatsResponse = z.infer<typeof leadStatsResponseSchema>;

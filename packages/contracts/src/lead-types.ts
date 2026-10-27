@@ -65,6 +65,22 @@ export interface LeadTypeCatalogEntry {
    * site's own admin opens it.
    */
   readonly deliveryLetterUrl?: string;
+  /**
+   * How the dashboard reads the stages, as the site's old admin did: finished,
+   * waiting on staff, and lost (left out of the volume chart and partners).
+   */
+  readonly outcomes?: {
+    readonly done: LeadOutcome;
+    readonly waiting: LeadOutcome;
+    readonly lost: LeadOutcome;
+  };
+}
+
+/** One of the dashboard's stage groups: its tile's title and hint, and its stages. */
+export interface LeadOutcome {
+  readonly label: string;
+  readonly hint: string;
+  readonly stages: readonly string[];
 }
 
 const stage = (key: string, label: string): LeadStageDefinition => ({ key, label });
@@ -112,6 +128,16 @@ export const leadTypeCatalog = {
       stage('cancelled', 'Cancelled'),
     ],
     deliveryLetterUrl: 'https://getcanadasim.com/delivery-letter.html',
+    // Get Canada Sim's dashboard tiles, in its words.
+    outcomes: {
+      done: { label: 'Completed', hint: 'Successfully completed orders', stages: ['completed'] },
+      waiting: {
+        label: 'Pending action',
+        hint: 'Awaiting review or activation',
+        stages: ['pending', 'verified'],
+      },
+      lost: { label: 'Cancellations', hint: 'cancellation rate', stages: ['cancelled'] },
+    },
   },
   partner_application: {
     label: 'Partner application',

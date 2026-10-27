@@ -7,6 +7,7 @@ import {
   createServiceCredentialRequestSchema,
   inviteStaffRequestSchema,
   leadBoardQuerySchema,
+  leadStatsQuerySchema,
   leadsSummaryQuerySchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceTasksQuerySchema,
@@ -372,6 +373,40 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         dueBy: query.data.dueBy,
       });
       res.json({ ...summary, access: leadAccessOf(decision.access), requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  // Counts only (no lead, no contact), so every role that reads the site may see them.
+  router.get('/workspaces/:workspaceId/leads/stats', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = leadStatsQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const stats = await store.stats({
+        workspaceId: workspaceId.data,
+        actorId: actor.actorId,
+        leadType: query.data.leadType,
+        days: query.data.days,
+      });
+      res.json({
+        leadType: query.data.leadType,
+        days: query.data.days ?? null,
+        ...stats,
+        requestId: req.id,
+      });
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);

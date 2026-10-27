@@ -4,6 +4,7 @@ import {
   apiErrorResponseSchema,
   createLeadNoteResponseSchema,
   getWorkspaceLeadResponseSchema,
+  leadStatsResponseSchema,
   leadBoardResponseSchema,
   leadsSummaryResponseSchema,
   leadTaskResponseSchema,
@@ -174,6 +175,12 @@ function memoryWorkStore() {
     summary: vi.fn<LeadWorkStore['summary']>(async () => ({
       types: [{ leadType: 'internet', total: 1 }],
       trash: 0,
+    })),
+    stats: vi.fn<LeadWorkStore['stats']>(async () => ({
+      total: 3,
+      stages: [{ stage: 'new', total: 3 }],
+      daily: [{ day: '2026-10-26', total: 3 }],
+      partners: [{ code: 'PT-7', name: 'Maple Study Abroad', total: 2 }],
     })),
     board: vi.fn<LeadWorkStore['board']>(async () => [
       { stage: 'new', total: 1, leads: [listItem] },
@@ -352,6 +359,27 @@ describe('staff lead work routes', () => {
     );
 
     expect((await call(`${leadsUrl()}/board`)).status).toBe(400);
+  });
+
+  it('gives the dashboard its counts, to any reader, for a known window only', async () => {
+    store.access = { ...store.access, roles: ['viewer'] };
+    const response = await call(`${leadsUrl()}/stats?leadType=sim_order&days=30`);
+    expect(response.status).toBe(200);
+    expect(leadStatsResponseSchema.parse(await response.json())).toMatchObject({
+      leadType: 'sim_order',
+      days: 30,
+      total: 3,
+      partners: [{ code: 'PT-7', name: 'Maple Study Abroad', total: 2 }],
+    });
+    expect(work.stats).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspaceId: WORKSPACE, leadType: 'sim_order', days: 30 }),
+    );
+    const allTime = await call(`${leadsUrl()}/stats?leadType=sim_order`);
+    expect(leadStatsResponseSchema.parse(await allTime.json()).days).toBeNull();
+    for (const query of ['leadType=sim_order&days=14', 'days=30', 'leadType=Sim Order']) {
+      expect((await call(`${leadsUrl()}/stats?${query}`)).status).toBe(400);
+    }
+    expect(work.stats).toHaveBeenCalledTimes(2);
   });
 
   it('counts follow-ups due in the summary only for a calendar day', async () => {

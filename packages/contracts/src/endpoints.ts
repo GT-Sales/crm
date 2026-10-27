@@ -72,6 +72,8 @@ import {
   leadBoardResponseSchema,
   leadsSummaryQuerySchema,
   leadsSummaryResponseSchema,
+  leadStatsQuerySchema,
+  leadStatsResponseSchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceLeadsResponseSchema,
 } from './workspace-leads';
@@ -234,6 +236,17 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: leadsSummaryQuerySchema,
     response: leadsSummaryResponseSchema,
+  },
+  {
+    operationId: 'getWorkspaceLeadStats',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/stats',
+    summary:
+      "The dashboard's counts for one lead type: by stage, per day and by partner, over 7, 30 or 90 days or all time.",
+    auth: 'staff',
+    successStatus: 200,
+    query: leadStatsQuerySchema,
+    response: leadStatsResponseSchema,
   },
   {
     operationId: 'getWorkspaceLeadBoard',

@@ -13,6 +13,7 @@ import {
   applyLeadFormEdit,
   isLeadStage,
   leadFormSchema,
+  leadTypeEntry,
   type CustomerEmailTemplate,
   type LeadActivity,
   type LeadAssigneeFilter,
@@ -32,6 +33,7 @@ import {
   iso,
   selectLeadBoard,
   selectLeadDetail,
+  selectLeadStats,
   selectLeadSummary,
   selectLeadWithWork,
   selectTask,
@@ -39,6 +41,7 @@ import {
   toLeadActivity,
   type ActivityRow,
   type LeadFilters,
+  type LeadStats,
   type LeadWithWork,
 } from './staff-queries.js';
 import { upsertContact } from './store.js';
@@ -122,6 +125,8 @@ export interface UpdateTaskInput extends WriteScope {
 export interface LeadWorkStore {
   /** With `dueBy`, each type also counts its leads with a follow-up due by that day. */
   summary(input: Scope & { dueBy?: string }): Promise<{ types: LeadTypeCount[]; trash: number }>;
+  /** The dashboard's counts for one type, received in the last `days` days or ever. */
+  stats(input: Scope & { leadType: string; days?: number }): Promise<LeadStats>;
   board(
     input: Scope & { leadType: string; assignee?: LeadAssigneeFilter; search?: string },
     perStage: number,
@@ -276,6 +281,13 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
 
   summary(input: Scope & { dueBy?: string }) {
     return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx, input.dueBy));
+  }
+
+  stats(input: Scope & { leadType: string; days?: number }) {
+    const lost = leadTypeEntry(input.leadType)?.outcomes?.lost.stages ?? [];
+    return this.database.withTenantTx(input, (tx) =>
+      selectLeadStats(tx, { leadType: input.leadType, days: input.days, lost }),
+    );
   }
 
   board(

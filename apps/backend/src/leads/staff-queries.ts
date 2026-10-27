@@ -419,6 +419,110 @@ export async function selectLeadSummary(
   };
 }
 
+export interface LeadStats {
+  total: number;
+  stages: { stage: string; total: number }[];
+  daily: { day: string; total: number }[];
+  partners: { code: string; name: string | null; total: number }[];
+}
+
+const statsRowSchema = z.object({
+  total: z.int().nonnegative(),
+  stages: z.array(z.object({ stage: leadStageSchema, total: z.int().nonnegative() })),
+  daily: z.array(z.object({ day: z.iso.date(), total: z.int().nonnegative() })),
+  partners: z.array(
+    z.object({
+      code: z.string().min(1).max(64),
+      name: z.string().min(1).max(200).nullable(),
+      total: z.int().nonnegative(),
+    }),
+  ),
+});
+
+/**
+ * The dashboard's counts for one type's active leads received in the window
+ * (all time without one), in one statement: by stage, per UTC day and by
+ * partner code (the ten largest), the last two without the type's lost
+ * stages, as Get Canada Sim's dashboard leaves out cancellations. A partner
+ * is named by the company on its partner application, when the site has one
+ * under that code. Counts only, never a lead.
+ */
+export async function selectLeadStats(
+  tx: TenantTransaction,
+  input: { leadType: string; days?: number; lost: readonly string[] },
+): Promise<LeadStats> {
+  const since =
+    input.days === undefined
+      ? sql`true`
+      : sql`l.created_at >= now() - make_interval(days => ${input.days})`;
+  const lost =
+    input.lost.length === 0
+      ? sql`false`
+      : sql`l.stage in (${sql.join(
+          input.lost.map((stage) => sql`${stage}`),
+          sql`, `,
+        )})`;
+  const [row] = await tx.execute<{
+    [key: string]: unknown;
+    total: number;
+    stages: unknown[];
+    daily: unknown[];
+    partners: unknown[];
+  }>(sql`
+    with scoped as (
+      select l.stage, l.created_at, l.attribution ->> 'partnerCode' as partner_code,
+             (${lost}) as lost
+      from app.leads l
+      where l.workspace_id = ${contextWorkspaceId}
+        and l.lead_type = ${input.leadType}
+        and l.deleted_at is null
+        and l.customer_data_restricted_at is null
+        and ${since}
+    )
+    select
+      (select count(*)::int from scoped) as total,
+      (
+        select coalesce(json_agg(json_build_object('stage', s.stage, 'total', s.total)
+          order by s.stage), '[]'::json)
+        from (select stage, count(*)::int as total from scoped group by stage) s
+      ) as stages,
+      (
+        select coalesce(json_agg(json_build_object('day', d.day, 'total', d.total)
+          order by d.day), '[]'::json)
+        from (
+          select to_char((c.created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day,
+                 count(*)::int as total
+          from scoped c
+          where not c.lost
+          group by 1
+        ) d
+      ) as daily,
+      (
+        select coalesce(json_agg(json_build_object('code', p.code, 'name', p.name, 'total', p.total)
+          order by p.total desc, p.code), '[]'::json)
+        from (
+          select c.partner_code as code, count(*)::int as total,
+            (
+              select left(nullif(btrim(a.payload -> 'payload' ->> 'company'), ''), 200)
+              from app.leads a
+              where a.workspace_id = ${contextWorkspaceId}
+                and a.lead_type = 'partner_application'
+                and a.external_ref = c.partner_code
+                and a.customer_data_restricted_at is null
+              order by a.created_at desc
+              limit 1
+            ) as name
+          from scoped c
+          where not c.lost and nullif(btrim(c.partner_code), '') is not null
+          group by c.partner_code
+          order by total desc, c.partner_code
+          limit 10
+        ) p
+      ) as partners
+  `);
+  return statsRowSchema.parse(row);
+}
+
 /** One lead with its form, for the lead page. Trashed leads are readable; restricted ones are not. */
 export async function selectLeadDetail(
   tx: TenantTransaction,

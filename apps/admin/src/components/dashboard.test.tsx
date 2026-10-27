@@ -1,13 +1,18 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { todayDay } from '../lib/dates';
 import { Dashboard } from './dashboard';
+import { fillDays, niceCeiling } from './dashboard-charts';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
 const DAY = 86_400_000;
 
-const mocks = vi.hoisted(() => ({ listStaffTasks: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  listStaffTasks: vi.fn(),
+  getLeadsSummary: vi.fn(),
+  getLeadStats: vi.fn(),
+}));
 
 vi.mock('../lib/api', () => ({
   ...mocks,
@@ -115,5 +120,115 @@ describe('Dashboard follow-ups due', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(
       'Your role does not include lead tasks.',
     );
+  });
+});
+
+describe('Dashboard totals', () => {
+  const stats = {
+    leadType: 'sim_order',
+    days: 7,
+    total: 5,
+    stages: [
+      { stage: 'cancelled', total: 1 },
+      { stage: 'completed', total: 1 },
+      { stage: 'pending', total: 2 },
+      { stage: 'verified', total: 1 },
+    ],
+    daily: [
+      { day: '2026-10-25', total: 1 },
+      { day: '2026-10-27', total: 3 },
+    ],
+    partners: [
+      { code: 'PT-7', name: 'Maple Study Abroad', total: 2 },
+      { code: 'MAPLE10', name: null, total: 1 },
+    ],
+    requestId: '00000000-0000-4000-8000-000000000001',
+  };
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listStaffTasks.mockResolvedValue({
+      tasks: [],
+      page: { page: 1, pageSize: 6, total: 0 },
+      access: { contacts: true, manage: true },
+    });
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [
+        { leadType: 'partner_application', total: 5, unopened: 0, followUpsDue: 0 },
+        { leadType: 'sim_order', total: 138, unopened: 0, followUpsDue: 2 },
+      ],
+      trash: 44,
+      access: { contacts: true, manage: true },
+      requestId: '00000000-0000-4000-8000-000000000001',
+    });
+    mocks.getLeadStats.mockResolvedValue(stats);
+  });
+
+  it('opens on the site’s orders over the last 7 days, in Get Canada Sim’s tiles', async () => {
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    const pending = (await screen.findByRole('heading', { name: 'Pending action' })).parentElement;
+    expect(mocks.getLeadStats).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+      leadType: 'sim_order',
+      days: 7,
+    });
+    expect(pending?.textContent).toContain('3');
+    expect(pending?.textContent).toContain('2 follow-ups due');
+    const cancelled = screen.getByRole('heading', { name: 'Cancellations' }).parentElement;
+    expect(cancelled?.textContent).toContain('20.0% cancellation rate');
+    const completed = screen.getByRole('heading', { name: 'Completed' }).parentElement;
+    expect(completed?.textContent).toContain('1');
+    const partners = screen.getByRole('list', { name: 'Top partners' });
+    expect(
+      within(partners)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Maple Study AbroadPT-72', 'MAPLE101']);
+  });
+
+  it('reloads for another window and another type', async () => {
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'Pending action' });
+    fireEvent.click(screen.getByRole('button', { name: 'All time' }));
+    await waitFor(() =>
+      expect(mocks.getLeadStats).toHaveBeenLastCalledWith('staff-token', WORKSPACE, {
+        leadType: 'sim_order',
+      }),
+    );
+    expect(screen.getByRole('button', { name: 'All time' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    mocks.getLeadStats.mockResolvedValue({
+      ...stats,
+      leadType: 'partner_application',
+      days: null,
+      total: 5,
+      stages: [{ stage: 'approved', total: 5 }],
+      daily: [],
+      partners: [],
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Lead type' }), {
+      target: { value: 'partner_application' },
+    });
+    // A type without outcome groups lists its stages.
+    expect(await screen.findByRole('heading', { name: 'By stage' })).toBeTruthy();
+    expect(screen.getByText('Approved')).toBeTruthy();
+    expect(screen.getByText('No partner sales in this period.')).toBeTruthy();
+  });
+});
+
+describe('Dashboard volume', () => {
+  it('fills every day of the window, the empty ones as zero', () => {
+    expect(
+      fillDays([{ day: '2026-10-25', total: 2 }], 3, '2026-10-27').map((entry) => entry.total),
+    ).toEqual([2, 0, 0]);
+    expect(fillDays([{ day: '2026-10-26', total: 1 }], null, '2026-10-27')).toEqual([
+      { day: '2026-10-26', total: 1 },
+      { day: '2026-10-27', total: 0 },
+    ]);
+  });
+
+  it('tops the axis at a clean number', () => {
+    expect([1, 5, 6, 12, 37, 101].map(niceCeiling)).toEqual([5, 5, 10, 20, 50, 200]);
   });
 });

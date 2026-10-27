@@ -97,6 +97,7 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | GET             | `/workspaces/:id/access`                                    | workspace.read               | Roles and permission names for the site switcher.                                                                                                                                                                                                         |
 | PATCH           | `/profile`                                                  | —                            | The caller's own display name, on every site they belong to.                                                                                                                                                                                              |
 | GET             | `/workspaces/:id/leads`                                     | workspace.read               | Paged; filters type, stage, assignee (`me`/`none`/id), `q`, `view=trash`, `dueBy` (a follow-up due by that day, most overdue first). Contact fields and the countdown date hidden unless lead.manage, order.manage or financial.read; `q` needs that too. |
+| GET             | `/workspaces/:id/leads/stats`                               | workspace.read               | The dashboard's counts for one type (`leadType`, `days` 7/30/90 or none for all time): by stage, per UTC day and the top 10 partner codes (named by their partner application's company), lost stages left out of the last two. Counts only.              |
 | GET             | `/workspaces/:id/leads/summary` · `/leads/board`            | workspace.read               | Active leads per type (with how many nobody has opened) and the trash; one type's leads by stage (a column per catalogue stage, counts, newest 50 each).                                                                                                  |
 | GET             | `/workspaces/:id/leads/:leadId`                             | workspace.read               | Lead with form, timeline, tasks, identities and current documents; readers without contact access get stage and source only; `access.downloadDocuments` says whether the caller may open the documents.                                                   |
 | PATCH           | `/workspaces/:id/leads/:leadId`                             | lead.manage                  | Stage (checked against the type), assignee (active member), contact and form corrections (`form`, checked against the type's field definitions); timeline + audit.                                                                                        |
@@ -457,6 +458,16 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    Commission received, Clawback; unset means not tracked), edited in Staff
    details and imported from Get Canada Sim's `commission_status` (unused
    there so far). It voids nothing, as there.
+10. **The full dashboard**, as Get Canada Sim's: the period (All time, Last
+    3 months, Last 30 days, Last 7 days, opening on 7 days, as there) and the
+    lead type (the site's busiest first) scope everything below. For SIM
+    orders the tiles are its own: Received, Completed, Pending action
+    (pending and verified, with the follow-ups due) and Cancellations with
+    their rate, from the type's `outcomes` in the catalogue; a type without
+    them lists its stages. Then the follow-ups due, the volume per day
+    (cancellations aside; hover or the arrow keys read a day; a table for
+    screen readers) and the top 10 partners. The stats query runs in about
+    11 ms on Get Canada Sim's orders.
 
 **Until staff move**, Get Canada Sim orders are worked in its own admin: the
 CRM's copy is refreshed by re-running the import, and nothing the CRM changes

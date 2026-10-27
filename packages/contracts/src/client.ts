@@ -124,11 +124,14 @@ import {
 import {
   leadBoardResponseSchema,
   leadsSummaryResponseSchema,
+  leadStatsResponseSchema,
   listWorkspaceLeadsResponseSchema,
   type LeadBoardQuery,
   type LeadBoardResponse,
   type LeadsSummaryQuery,
   type LeadsSummaryResponse,
+  type LeadStatsQuery,
+  type LeadStatsResponse,
   type ListWorkspaceLeadsQuery,
   type ListWorkspaceLeadsResponse,
 } from './workspace-leads';
@@ -258,6 +261,7 @@ export interface BackendClient {
       query?: ListWorkspaceLeadsQuery,
     ): Promise<ListWorkspaceLeadsResponse>;
     leadsSummary(workspaceId: string, query?: LeadsSummaryQuery): Promise<LeadsSummaryResponse>;
+    leadStats(workspaceId: string, query: LeadStatsQuery): Promise<LeadStatsResponse>;
     leadBoard(workspaceId: string, query: LeadBoardQuery): Promise<LeadBoardResponse>;
     getLead(workspaceId: string, leadId: string): Promise<GetWorkspaceLeadResponse>;
     updateLead(
@@ -557,6 +561,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/summary`,
           query: { dueBy: query?.dueBy },
           responseSchema: leadsSummaryResponseSchema,
+        }),
+      leadStats: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/stats`,
+          query: { leadType: query.leadType, days: query.days },
+          responseSchema: leadStatsResponseSchema,
         }),
       leadBoard: (workspaceId, query) =>
         call({

@@ -43,6 +43,15 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/dashboard');
   await expect(page.getByRole('heading', { level: 2, name: 'Follow-ups due' })).toBeVisible();
+  // The site's busiest type over the last 7 days: CanadaWide's internet leads, by stage.
+  await expect(page.getByRole('heading', { name: 'Received' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'By stage' })).toBeVisible();
+  await page.getByRole('button', { name: 'All time' }).click();
+  await expect(page.getByRole('button', { name: 'All time' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('img', { name: /received per day/ })).toBeVisible();
   const followUp = page.getByRole('link', { name: /Casey Demo/ });
   await expect(followUp).toContainText('Confirm the install window');
   await expect(followUp).toContainText(/Overdue by \d+ days/);

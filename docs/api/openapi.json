@@ -2409,6 +2409,240 @@
         }
       }
     },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/stats": {
+      "get": {
+        "operationId": "getWorkspaceLeadStats",
+        "summary": "The dashboard's counts for one lead type: by stage, per day and by partner, over 7, 30 or 90 days or all time.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "leadType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_]+$"
+            }
+          },
+          { "name": "days", "in": "query", "required": false, "schema": { "type": "number" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "leadType": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    },
+                    "days": {
+                      "anyOf": [
+                        { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+                        { "type": "null" }
+                      ]
+                    },
+                    "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "stages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "stage": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          },
+                          "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["stage", "total"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "daily": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "day": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["day", "total"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "partners": {
+                      "maxItems": 10,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+                          "name": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 200 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["code", "name", "total"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "leadType",
+                    "days",
+                    "total",
+                    "stages",
+                    "daily",
+                    "partners",
+                    "requestId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/workspaces/{workspaceId}/leads/board": {
       "get": {
         "operationId": "getWorkspaceLeadBoard",
