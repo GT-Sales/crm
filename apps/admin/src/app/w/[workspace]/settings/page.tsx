@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { DisplayNameForm } from '../../../../components/display-name-form';
 import { ServiceCredentialsManager } from '../../../../components/service-credentials-manager';
 import { StaffInviteForm } from '../../../../components/staff-invite-form';
+import { TeamList } from '../../../../components/team-list';
 
 export default async function SettingsPage({ params }: { params: Promise<{ workspace: string }> }) {
   const { workspace } = await params;
@@ -19,10 +20,11 @@ export default async function SettingsPage({ params }: { params: Promise<{ works
       </CardHeader>
       <CardContent className="flex flex-col gap-10">
         <DisplayNameForm workspaceSlug={workspace} />
+        <TeamList workspaceSlug={workspace} />
+        <StaffInviteForm workspaceSlug={workspace} />
         <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/jobs`}>
           View background jobs
         </Link>
-        <StaffInviteForm workspaceSlug={workspace} />
         <ServiceCredentialsManager workspaceSlug={workspace} />
       </CardContent>
     </Card>

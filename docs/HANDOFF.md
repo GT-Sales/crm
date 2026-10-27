@@ -370,7 +370,14 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    713 → 359 ms, summary 718 → 298, board 715 → 358, lead page 951 → 358, My
    tasks 711 → 357, stage change 1308 → 831, note 1185 → 714. Production adds
    the limiter (now one round trip) and Auth, so a warm list or lead page
-   should answer in about half a second, from about 0.9–1.2 s.
+   should answer in about half a second, from about 0.9–1.2 s. Verified after
+   the deploy: the limiter statement logs 57–58 ms, from 115–138 ms.
+7. **The same person's other requests** on the lead page (same contact, same
+   site, newest first, trashed ones marked; part of the lead page's one
+   statement, and only for roles that see contacts), and **Settings → Team**:
+   every active member under the name they set, with roles; the owner can
+   remove someone's access behind a confirmation (the existing revoke route,
+   audited; their past work stays on the leads).
 
 ## 4. What is verified, and how
 
@@ -412,7 +419,7 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    then document uploads fail, and CanadaWide's ID step cannot move here.
 4. Names and roles of the other admins; invite them from the admin (after 2).
    Each sets their own name under Settings → Your name (the owner too: until
-   then colleagues see "Unnamed owner").
+   then colleagues see "Unnamed owner"); Settings → Team shows who has not.
 5. **Decide when staff move from the old admin to the CRM** for CanadaWide.
    On the day: re-run the import (RUNBOOKS/legacy-import.md) so the last
    statuses and notes come over, then staff work only in the CRM. After that a
@@ -430,7 +437,8 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
 - **Done:** the lead-type registry with `internet` and `mobility` modelled,
   one-shot intake, the legacy mirror, CanadaWide's two lead routes behind its
   env switch (§3.2); the historical import, stages, lead page, timeline, notes,
-  tasks, assignment, board, My tasks, trash (§3.3). Still to do in phase 1:
+  tasks, assignment, board, My tasks, trash, related requests, the team list (§3.3).
+  Still to do in phase 1:
 - **CanadaWide's ID step** (`/api/mobility-applications`): needs Storage S3
   keys (§5.1) and `SENSITIVE_FIELDS_KEY` for SIN sealing. Route a licence
   photo through `uploads/intents` → `finalize` onto the mobility lead, and a
