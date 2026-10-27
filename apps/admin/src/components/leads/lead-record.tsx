@@ -19,6 +19,7 @@ import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
 import { leadDisplayName, StageBadge } from './lead-display';
+import { IdentityCheck } from './identity-check';
 import { formFields } from './lead-fields';
 import { LeadTasks } from './lead-tasks';
 import { LeadTimeline } from './lead-timeline';
@@ -149,7 +150,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
     );
   }
 
-  const { lead, activities, tasks, related, access } = record.data;
+  const { lead, activities, tasks, related, identities, access } = record.data;
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -398,6 +399,14 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
               </CardContent>
             </Card>
           ) : null}
+
+          <IdentityCheck
+            accessToken={accessToken}
+            workspaceId={workspaceId}
+            leadId={lead.id}
+            identities={identities}
+            canReveal={access.revealSensitive === true}
+          />
 
           <RelatedRequests workspaceSlug={workspaceSlug} related={related} />
 

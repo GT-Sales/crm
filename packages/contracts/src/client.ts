@@ -11,6 +11,16 @@ import {
 } from './files';
 import { healthResponseSchema, type HealthResponse } from './health';
 import {
+  createIdentityUploadRequestSchema,
+  revealLeadIdentityResponseSchema,
+  submitLeadIdentityRequestSchema,
+  submitLeadIdentityResponseSchema,
+  type CreateIdentityUploadRequest,
+  type RevealLeadIdentityResponse,
+  type SubmitLeadIdentityRequest,
+  type SubmitLeadIdentityResponse,
+} from './lead-identity';
+import {
   listWorkspaceJobsResponseSchema,
   resolveUncertainJobRequestSchema,
   resolveUncertainJobResponseSchema,
@@ -188,6 +198,18 @@ export interface BackendClient {
       body: UpdateLeadRequest,
       options: { draftGrant: string } & WebsiteBotProof,
     ): Promise<UpdateLeadResponse>;
+    /** The ID step: a signed PUT for the customer's licence photo. */
+    createIdentityUpload(
+      leadId: string,
+      body: CreateIdentityUploadRequest,
+      proof?: WebsiteBotProof,
+    ): Promise<CreateUploadIntentResponse>;
+    /** The ID step: the finished licence upload, or a SIN with the date of birth. */
+    submitIdentity(
+      leadId: string,
+      body: SubmitLeadIdentityRequest,
+      proof?: WebsiteBotProof,
+    ): Promise<SubmitLeadIdentityResponse>;
   };
   uploads: {
     createIntent(
@@ -269,6 +291,12 @@ export interface BackendClient {
       body: ReviewFileRequest,
     ): Promise<ReviewFileResponse>;
     fileDownloadLink(workspaceId: string, fileId: string): Promise<CreateDownloadLinkResponse>;
+    /** An owner opening a lead's sealed SIN; audited, never cached. */
+    revealLeadIdentity(
+      workspaceId: string,
+      leadId: string,
+      identityId: string,
+    ): Promise<RevealLeadIdentityResponse>;
   };
 }
 
@@ -380,6 +408,22 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: updateLeadRequestSchema.parse(body),
           headers: { 'x-draft-grant': opts.draftGrant, ...proofHeader(opts) },
           responseSchema: updateLeadResponseSchema,
+        }),
+      createIdentityUpload: (leadId, body, proof) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/website/leads/${encode(leadId)}/identity/uploads`,
+          body: createIdentityUploadRequestSchema.parse(body),
+          headers: proofHeader(proof),
+          responseSchema: createUploadIntentResponseSchema,
+        }),
+      submitIdentity: (leadId, body, proof) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/website/leads/${encode(leadId)}/identity`,
+          body: submitLeadIdentityRequestSchema.parse(body),
+          headers: proofHeader(proof),
+          responseSchema: submitLeadIdentityResponseSchema,
         }),
     },
 
@@ -600,6 +644,14 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           method: 'POST',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/files/${encode(fileId)}/download-link`,
           responseSchema: createDownloadLinkResponseSchema,
+        }),
+      revealLeadIdentity: (workspaceId, leadId, identityId) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(
+            leadId,
+          )}/identities/${encode(identityId)}/reveal`,
+          responseSchema: revealLeadIdentityResponseSchema,
         }),
     },
   };

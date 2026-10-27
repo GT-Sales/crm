@@ -468,9 +468,11 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
     (`POST /staff/workspaces/:id/leads/:leadId/identities/:identityId/reveal`,
     action `sensitive.reveal`, no individual permission grants it), audited as
     `lead.identity_revealed` before the number is returned.
-  - Next: the admin's ID card (masked SIN, Reveal for owners, licence
-    download), then CanadaWide's route calling the CRM behind its env switch,
-    a production smoke test with a test lead, and dropping the last two anon
+  - The lead page's **ID check** card lists them: a SIN masked, with Reveal
+    for owners (shown for a minute, then masked again), a licence photo with
+    Download (the usual `document.download` check).
+  - Next: CanadaWide's route calling the CRM behind its env switch, a
+    production smoke test with a test lead, and dropping the last two anon
     policies.
 - **Documents on Supabase Storage** through the existing S3 adapter. Its first
   quirk is fixed: Supabase serves S3 under `/storage/v1/s3`, and SigV4 must

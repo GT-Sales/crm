@@ -236,3 +236,54 @@ describe('website proof transport', () => {
     expect(requests).toHaveLength(1);
   });
 });
+
+describe('createBackendClient ID step', () => {
+  // A made-up number that passes the Luhn check, never a real person's.
+  const sin = {
+    idType: 'sin',
+    sin: '046454286',
+    dateOfBirth: '1990-01-31',
+    creditCheckConsent: true,
+  } as const;
+
+  it('sends a SIN to the lead it belongs to and never sends one that fails its check', async () => {
+    const { client, calls } = harness(201, {
+      identity: { id: UUID, idType: 'sin', createdAt: '2026-10-27T12:00:00.000Z' },
+      requestId: UUID,
+    });
+    await client.leads.submitIdentity(UUID, sin);
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toBe(`https://api.example.test/api/v1/website/leads/${UUID}/identity`);
+
+    expect(() => client.leads.submitIdentity(UUID, { ...sin, sin: '046454287' })).toThrow();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('asks for a licence upload and reveals a SIN at their own paths', async () => {
+    const upload = harness(201, {
+      uploadId: UUID,
+      url: 'https://storage.example.test/put',
+      method: 'PUT',
+      headers: { 'content-type': 'image/jpeg' },
+      expiresAt: '2026-10-27T12:10:00.000Z',
+      requestId: UUID,
+    });
+    await upload.client.leads.createIdentityUpload(UUID, {
+      contentType: 'image/jpeg',
+      sizeBytes: 10,
+    });
+    expect(upload.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/website/leads/${UUID}/identity/uploads`,
+    );
+
+    const reveal = harness(200, { sin: '046454286', requestId: UUID });
+    expect(await reveal.client.staff.revealLeadIdentity(UUID, UUID, UUID)).toEqual({
+      sin: '046454286',
+      requestId: UUID,
+    });
+    expect(reveal.calls[0]?.method).toBe('POST');
+    expect(reveal.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/leads/${UUID}/identities/${UUID}/reveal`,
+    );
+  });
+});

@@ -28,6 +28,7 @@ import {
   type ListWorkspaceLeadsResponse,
   type ResolveUncertainJobResponse,
   type RetryWorkspaceJobResponse,
+  type RevealLeadIdentityResponse,
   type ReviewFileRequest,
   type ReviewFileResponse,
   type RevokeServiceCredentialResponse,
@@ -247,4 +248,14 @@ export async function createFileDownloadLink(
   fileId: string,
 ): Promise<CreateDownloadLinkResponse> {
   return client(accessToken).staff.fileDownloadLink(workspaceId, fileId);
+}
+
+/** An owner opening a lead's sealed SIN. The backend audits it; nothing here keeps it. */
+export async function revealLeadIdentity(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  identityId: string,
+): Promise<RevealLeadIdentityResponse> {
+  return client(accessToken).staff.revealLeadIdentity(workspaceId, leadId, identityId);
 }

@@ -1,12 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AssignableMember,
   GetWorkspaceLeadResponse,
+  LeadIdentity,
   LeadActivity,
   LeadDetail,
 } from '@gt-sales/contracts';
 
+import { downloadNavigation, REVEAL_SECONDS } from './identity-check';
 import { LeadRecord } from './lead-record';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -23,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   createLeadTask: vi.fn(),
   updateLeadTask: vi.fn(),
   listWorkspaceMembers: vi.fn(),
+  revealLeadIdentity: vi.fn(),
+  createFileDownloadLink: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -262,5 +266,107 @@ describe('LeadRecord', () => {
     mocks.getStaffLead.mockRejectedValue(new BackendError('lead_not_found', 404, NOW));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     expect(await screen.findByRole('heading', { name: 'Lead not found' })).toBeTruthy();
+  });
+});
+
+describe('LeadRecord ID check', () => {
+  const IDENTITY = '60000000-0000-4000-8000-000000000001';
+  const FILE = '50000000-0000-4000-8000-000000000001';
+  // A made-up number that passes the Luhn check, never a real person's.
+  const sin: LeadIdentity = {
+    id: IDENTITY,
+    idType: 'sin',
+    sinMasked: '*** *** 286',
+    dateOfBirth: '1990-01-31',
+    fileId: null,
+    createdAt: NOW,
+  };
+  const licence: LeadIdentity = {
+    id: '60000000-0000-4000-8000-000000000002',
+    idType: 'drivers_licence',
+    sinMasked: null,
+    dateOfBirth: null,
+    fileId: FILE,
+    createdAt: NOW,
+  };
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+  });
+
+  it('shows nothing when the customer gave no ID', async () => {
+    mocks.getStaffLead.mockResolvedValue(response());
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    expect(screen.queryByRole('heading', { name: 'ID check' })).toBeNull();
+  });
+
+  it('shows a SIN masked, and only an owner may reveal it, for a minute', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        identities: [sin],
+        access: { contacts: true, manage: true, revealSensitive: true },
+      }),
+    );
+    mocks.revealLeadIdentity.mockResolvedValue({ sin: '046454286', requestId: NOW });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    expect(await screen.findByText('*** *** 286')).toBeTruthy();
+    expect(screen.getByText('Born 1990-01-31')).toBeTruthy();
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Reveal' }));
+      expect(await screen.findByText('046 454 286')).toBeTruthy();
+      expect(mocks.revealLeadIdentity).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        LEAD,
+        IDENTITY,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+      expect(screen.getByText('*** *** 286')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reveal' }));
+      await screen.findByText('046 454 286');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REVEAL_SECONDS * 1000);
+      });
+      expect(screen.queryByText('046 454 286')).toBeNull();
+      expect(screen.getByText('*** *** 286')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('offers no reveal to anyone else', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ identities: [sin] }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    expect(await screen.findByText('*** *** 286')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reveal' })).toBeNull();
+  });
+
+  it('downloads a licence photo through a signed link, and says why it cannot', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ identities: [licence] }));
+    mocks.createFileDownloadLink.mockResolvedValueOnce({
+      url: 'https://storage.example.test/signed',
+      expiresAt: NOW,
+      requestId: NOW,
+    });
+    const open = vi.spyOn(downloadNavigation, 'open').mockImplementation(() => undefined);
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download photo' }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://storage.example.test/signed'));
+    expect(mocks.createFileDownloadLink).toHaveBeenCalledWith('staff-token', WORKSPACE, FILE);
+
+    const { BackendError } = await import('../../lib/api');
+    mocks.createFileDownloadLink.mockRejectedValueOnce(
+      new BackendError('permission_denied', 403, NOW),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Download photo' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'You need the document download permission for this.',
+    );
+    open.mockRestore();
   });
 });
