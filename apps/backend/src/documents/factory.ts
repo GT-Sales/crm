@@ -1,5 +1,6 @@
 import { createR2DocumentStoreFromEnv } from '@gt-sales/adapters';
 
+import { documentBucket } from './config.js';
 import { DatabaseDocumentContextResolver } from './resolver.js';
 import { DatabaseDocumentStore } from './store.js';
 import { DocumentService } from './service.js';
@@ -10,10 +11,12 @@ import { DocumentService } from './service.js';
  * endpoint) is not yet configured, so the backend still boots and document
  * endpoints report `feature_not_ready` instead of crashing at startup.
  */
-export function createDocumentServiceFromEnv(): DocumentService | undefined {
+export function createDocumentServiceFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): DocumentService | undefined {
   let r2;
   try {
-    r2 = createR2DocumentStoreFromEnv();
+    r2 = createR2DocumentStoreFromEnv(env);
   } catch {
     return undefined;
   }
@@ -21,5 +24,6 @@ export function createDocumentServiceFromEnv(): DocumentService | undefined {
     new DatabaseDocumentStore(),
     r2,
     new DatabaseDocumentContextResolver(),
+    { bucket: documentBucket(env) },
   );
 }

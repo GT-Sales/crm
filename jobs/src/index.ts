@@ -11,6 +11,8 @@ export const outboxJobTypes = [
   'lead_sim_number_email',
   'analytics_order_submitted',
   'analytics_lead_saved',
+  // Composed in the backend, which holds the document store.
+  'legacy_document_import',
 ] as const;
 export type OutboxJobType = (typeof outboxJobTypes)[number];
 

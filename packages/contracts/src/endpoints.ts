@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 
 import {
+  createDownloadLinkRequestSchema,
   createDownloadLinkResponseSchema,
   reviewFileRequestSchema,
   reviewFileResponseSchema,
@@ -411,9 +412,11 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'createWorkspaceFileDownloadLink',
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/files/{fileId}/download-link',
-    summary: 'Issue a short-lived signed download URL after a document-download permission check.',
+    summary:
+      'Issue a short-lived signed URL to download or view a file after a document-download permission check.',
     auth: 'staff',
     successStatus: 200,
+    request: createDownloadLinkRequestSchema,
     response: createDownloadLinkResponseSchema,
   },
 

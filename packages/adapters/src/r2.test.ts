@@ -186,6 +186,139 @@ describe('S3R2DocumentStore upload bounds', () => {
   });
 });
 
+describe('S3R2DocumentStore imports a website object', () => {
+  const input = {
+    workspaceId: 'w1',
+    sourceKey: 'orders/o1/passport.pdf',
+    candidateKey: 'candidate/w1/legacy-f1',
+    maxBytes: 1024,
+  };
+
+  it('copies the source into the workspace candidate and verifies only the copy', async () => {
+    const calls: { method?: string; url: string; copySource: string | null }[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      calls.push({
+        method: init?.method,
+        url: String(url),
+        copySource: new Headers(init?.headers).get('x-amz-copy-source'),
+      });
+      if (init?.method === 'PUT') return new Response(null);
+      if (init?.method === 'HEAD')
+        return new Response(null, { headers: { 'content-length': String(PDF.byteLength) } });
+      return new Response(PDF);
+    };
+    expect(await new S3R2DocumentStore(config, fetchImpl).importObject(input)).toEqual({
+      status: 'verified',
+      candidateKey: input.candidateKey,
+      detectedMediaType: 'application/pdf',
+      sizeBytes: PDF.byteLength,
+      checksumSha256: sha256Hex(PDF),
+    });
+    expect(calls.map((call) => call.method)).toEqual(['PUT', 'HEAD', 'GET']);
+    // The source is only named as the copy source; every request goes to the copy.
+    expect(calls[0]?.copySource).toBe('/docs/orders/o1/passport.pdf');
+    expect(
+      calls.every((call) => call.url.endsWith('/docs/workspaces/w1/candidate/w1/legacy-f1')),
+    ).toBe(true);
+  });
+
+  it('reports a missing source, an oversized copy and a foreign signature', async () => {
+    const missing: typeof fetch = async () => new Response(null, { status: 404 });
+    expect(await new S3R2DocumentStore(config, missing).importObject(input)).toEqual({
+      status: 'rejected',
+      reason: 'source_missing',
+    });
+    const serving =
+      (bytes: Uint8Array): typeof fetch =>
+      async (_url, init) => {
+        if (init?.method === 'PUT') return new Response(null);
+        if (init?.method === 'HEAD')
+          return new Response(null, { headers: { 'content-length': String(bytes.byteLength) } });
+        return new Response(bytes);
+      };
+    expect(
+      await new S3R2DocumentStore(config, serving(PDF)).importObject({ ...input, maxBytes: 4 }),
+    ).toEqual({ status: 'rejected', reason: 'too_large' });
+    expect(await new S3R2DocumentStore(config, serving(HTML)).importObject(input)).toEqual({
+      status: 'rejected',
+      reason: 'unsupported_signature',
+    });
+  });
+
+  it.each([
+    'workspaces/w2/candidate/x',
+    '../orders/o1/a.pdf',
+    'orders//a.pdf',
+    'orders\\a.pdf',
+    '',
+  ])('never reads %s', async (sourceKey) => {
+    const request = vi.fn<typeof fetch>();
+    await expect(
+      new S3R2DocumentStore(config, request).importObject({ ...input, sourceKey }),
+    ).rejects.toThrow('r2_import_key_invalid');
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('S3R2DocumentStore download links', () => {
+  const link = {
+    workspaceId: 'w1',
+    objectKey: 'candidate/c1',
+    fileName: 'passport-abc.pdf',
+    contentType: 'application/pdf' as const,
+    expiresInSeconds: 120,
+  };
+
+  it('downloads as an opaque attachment by default', async () => {
+    const { url } = await new S3R2DocumentStore(config).issueDownload(link);
+    const query = new URL(url).searchParams;
+    expect(query.get('response-content-disposition')).toBe(
+      'attachment; filename="passport-abc.pdf"',
+    );
+    expect(query.get('response-content-type')).toBe('application/octet-stream');
+  });
+
+  it('views inline as the verified type', async () => {
+    const { url } = await new S3R2DocumentStore(config).issueDownload({
+      ...link,
+      disposition: 'inline',
+    });
+    const query = new URL(url).searchParams;
+    expect(query.get('response-content-disposition')).toBe('inline; filename="passport-abc.pdf"');
+    expect(query.get('response-content-type')).toBe('application/pdf');
+  });
+});
+
+describe('InMemoryR2DocumentStore.importObject', () => {
+  it('copies and verifies, leaving the source untouched', async () => {
+    const store = new InMemoryR2DocumentStore();
+    store.putObject('orders/o1/sim-photo.jpg', JPEG);
+    const result = await store.importObject({
+      workspaceId: 'w1',
+      sourceKey: 'orders/o1/sim-photo.jpg',
+      candidateKey: 'candidate/w1/legacy-f1',
+      maxBytes: 1024,
+    });
+    expect(result).toEqual({
+      status: 'verified',
+      candidateKey: 'candidate/w1/legacy-f1',
+      detectedMediaType: 'image/jpeg',
+      sizeBytes: JPEG.byteLength,
+      checksumSha256: sha256Hex(JPEG),
+    });
+    expect(store.getObject('candidate/w1/legacy-f1')).toEqual(JPEG);
+    expect(store.getObject('orders/o1/sim-photo.jpg')).toEqual(JPEG);
+    await expect(
+      store.importObject({
+        workspaceId: 'w1',
+        sourceKey: 'workspaces/w2/candidate/x',
+        candidateKey: 'candidate/w1/legacy-f2',
+        maxBytes: 1024,
+      }),
+    ).rejects.toThrow('r2_import_key_invalid');
+  });
+});
+
 describe('detectDocumentType', () => {
   it('recognises PDF/JPEG/PNG by signature, ignoring declared type', () => {
     expect(detectDocumentType(PDF)).toBe('application/pdf');

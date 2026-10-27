@@ -298,7 +298,7 @@ describe('DocumentService — download and permission scoping', () => {
     if (link.status !== 'issued') throw new Error('expected issued');
     // Every issued link is audited without customer data (invariant 11).
     expect(ctx.store.audits).toEqual([
-      { action: 'file.download_issued', fileId, audience: 'staff' },
+      { action: 'file.download_issued', fileId, audience: 'staff', disposition: 'attachment' },
     ]);
     const ttlMs = link.expiresAt.getTime() - before;
     // ~120s (link expiry is ultimately enforced by R2 on the presigned URL).
@@ -378,7 +378,7 @@ describe('DocumentService — download and permission scoping', () => {
     });
     expect(link.status).toBe('issued');
     expect(ctx.store.audits).toEqual([
-      { action: 'file.download_issued', fileId, audience: 'website' },
+      { action: 'file.download_issued', fileId, audience: 'website', disposition: 'attachment' },
     ]);
   });
 

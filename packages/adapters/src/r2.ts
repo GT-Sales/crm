@@ -57,6 +57,22 @@ export function detectDocumentType(bytes: Uint8Array): DocumentMediaType | undef
   return undefined;
 }
 
+/** A key of plain segments: no empty, `.` or `..` segment and no backslash. */
+export function isPlainKey(key: string): boolean {
+  return (
+    !key.includes('\\') && key.split('/').every((part) => part && part !== '.' && part !== '..')
+  );
+}
+
+/**
+ * An object a website wrote to the shared bucket itself (Get Canada Sim's
+ * `orders/<id>/passport.pdf`): plain segments, outside every workspace's
+ * prefix, so an import can never read another workspace's private copy.
+ */
+export function isWebsiteObjectKey(key: string): boolean {
+  return isPlainKey(key) && key.split('/')[0] !== 'workspaces';
+}
+
 function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
   return matchesAt(bytes, 0, prefix);
 }
@@ -118,13 +134,40 @@ export type VerifyUploadResult =
     }
   | { status: 'rejected'; reason: VerifyUploadRejection };
 
+export interface ImportObjectInput {
+  workspaceId: string;
+  /** A website's own object in the bucket (`isWebsiteObjectKey`); only ever read. */
+  sourceKey: string;
+  /** Backend-generated key for the workspace's private copy. */
+  candidateKey: string;
+  maxBytes: number;
+}
+
+export type ImportObjectRejection = 'source_missing' | 'too_large' | 'unsupported_signature';
+
+export type ImportObjectResult =
+  | {
+      status: 'verified';
+      candidateKey: string;
+      detectedMediaType: DocumentMediaType;
+      sizeBytes: number;
+      checksumSha256: string;
+    }
+  | { status: 'rejected'; reason: ImportObjectRejection };
+
 export interface IssueDownloadInput {
   workspaceId: string;
   objectKey: string;
-  /** Sanitized filename for the attachment disposition. */
+  /** Sanitized filename for the disposition. */
   fileName: string;
   contentType: DocumentMediaType;
   expiresInSeconds: number;
+  /**
+   * `inline` is staff viewing a verified file in a tab of its own: served as
+   * its verified type, from the storage origin (never the admin's). The
+   * default, `attachment`, is an opaque octet-stream download.
+   */
+  disposition?: 'attachment' | 'inline';
 }
 
 export interface PresignedDownload {
@@ -168,7 +211,14 @@ export interface R2DocumentStore {
    * exact object the caller must attach and later serve.
    */
   verifyUpload(input: VerifyUploadInput): Promise<VerifyUploadResult>;
-  /** Presigned GET for an attached object, attachment disposition + nosniff. */
+  /**
+   * Copies a website's own object into the workspace's private candidate,
+   * then verifies the candidate as `verifyUpload` does: size and signature,
+   * with the copy's own SHA-256 recorded (no client claims one). The source
+   * is only read.
+   */
+  importObject(input: ImportObjectInput): Promise<ImportObjectResult>;
+  /** Presigned GET for an attached object: an attachment unless `disposition` says inline. */
   issueDownload(input: IssueDownloadInput): Promise<PresignedDownload>;
   /** Server-side copy of an attached object into an export location (Phase B boundary). */
   copyForExport(input: CopyForExportInput): Promise<void>;
@@ -203,6 +253,11 @@ export class InMemoryR2DocumentStore implements R2DocumentStore {
   /** Test seam: simulate the client's direct PUT to the staging object. */
   putStagingObject(stagingKey: string, bytes: Uint8Array): void {
     this.objects.set(stagingKey, Uint8Array.from(bytes));
+  }
+
+  /** Test seam: an object a website wrote to the bucket itself, outside the workspaces. */
+  putObject(key: string, bytes: Uint8Array): void {
+    this.objects.set(key, Uint8Array.from(bytes));
   }
 
   /** Test seam: simulate an attacker swapping the staging bytes after the check. */
@@ -257,12 +312,32 @@ export class InMemoryR2DocumentStore implements R2DocumentStore {
     };
   }
 
+  async importObject(input: ImportObjectInput): Promise<ImportObjectResult> {
+    if (!isWebsiteObjectKey(input.sourceKey)) throw new Error('r2_import_key_invalid');
+    const source = this.objects.get(input.sourceKey);
+    if (!source) return { status: 'rejected', reason: 'source_missing' };
+
+    // Copy first, as `verifyUpload` does; only the candidate is inspected.
+    const candidate = Uint8Array.from(source);
+    this.objects.set(input.candidateKey, candidate);
+    if (candidate.byteLength > input.maxBytes) return { status: 'rejected', reason: 'too_large' };
+    const detectedMediaType = detectDocumentType(candidate);
+    if (!detectedMediaType) return { status: 'rejected', reason: 'unsupported_signature' };
+    return {
+      status: 'verified',
+      candidateKey: input.candidateKey,
+      detectedMediaType,
+      sizeBytes: candidate.byteLength,
+      checksumSha256: sha256Hex(candidate),
+    };
+  }
+
   async issueDownload(input: IssueDownloadInput): Promise<PresignedDownload> {
     if (!this.objects.has(input.objectKey)) {
       throw new Error(`object not found: ${input.objectKey}`);
     }
     return {
-      url: `memory://${input.workspaceId}/${input.objectKey}?disposition=attachment`,
+      url: `memory://${input.workspaceId}/${input.objectKey}?disposition=${input.disposition ?? 'attachment'}`,
       expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000),
     };
   }

@@ -6,6 +6,7 @@ import {
   leadActivitySchema,
   leadContactSchema,
   leadCountdownField,
+  leadDocumentSchema,
   leadFieldCatalog,
   leadFormSchema,
   leadIdentitySchema,
@@ -19,6 +20,7 @@ import {
   type LeadAssigneeFilter,
   type LeadBoardColumn,
   type LeadDetail,
+  type LeadDocument,
   type LeadIdentity,
   type LeadListItem,
   type LeadStatus,
@@ -521,6 +523,7 @@ export interface LeadWithWork {
   tasks: LeadTask[];
   related: RelatedLead[];
   identities: LeadIdentity[];
+  documents: LeadDocument[];
 }
 
 /**
@@ -528,9 +531,10 @@ export interface LeadWithWork {
  * first, capped so one very long history cannot stall the page), its tasks
  * (open first, soonest due, undated last; then closed ones, most recently
  * changed first), the same person's other requests on this site (newest
- * first, trashed ones included and marked) and the identities given for a
- * credit check (newest first, a SIN masked to its last three digits), the last
- * four as JSON arrays.
+ * first, trashed ones included and marked), the identities given for a
+ * credit check (newest first, a SIN masked to its last three digits) and its
+ * current documents (one per type, oldest first), the last five as JSON
+ * arrays.
  * Each statement is a round trip to the remote pooler, so the page's reads
  * travel as one.
  */
@@ -546,6 +550,7 @@ export async function selectLeadWithWork(
       tasks: TaskRow[];
       related: unknown[];
       identities: unknown[];
+      documents: unknown[];
     }
   >(sql`
     select
@@ -621,7 +626,28 @@ export async function selectLeadWithWork(
         ) order by i.created_at desc, i.id desc), '[]'::json)
         from app.lead_identities i
         where i.workspace_id = l.workspace_id and i.lead_id = l.id
-      ) as identities
+      ) as identities,
+      (
+        -- A licence photo given for the credit check is the ID check's, not here.
+        select coalesce(json_agg(json_build_object(
+          'id', f.id,
+          'documentType', f.document_type,
+          'contentType', f.detected_mime,
+          'sizeBytes', f.size_bytes,
+          'revision', f.revision,
+          'createdAt', ${iso('f.created_at')}
+        ) order by f.created_at, f.id), '[]'::json)
+        from app.files f
+        where f.workspace_id = l.workspace_id
+          and f.record_type = 'lead'
+          and f.record_id = l.id
+          and f.status = 'available'
+          and f.superseded_by_file_id is null
+          and not exists (
+            select 1 from app.lead_identities i
+            where i.workspace_id = f.workspace_id and i.file_id = f.id
+          )
+      ) as documents
     from app.leads l
     ${OPEN_TASK_SUMMARY}
     where l.workspace_id = ${workspaceId}
@@ -643,6 +669,10 @@ export async function selectLeadWithWork(
     // Masked as stored: the sealed SIN never leaves the database on this path.
     identities: row.identities.flatMap((item) => {
       const parsed = leadIdentitySchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
+    }),
+    documents: row.documents.flatMap((item) => {
+      const parsed = leadDocumentSchema.safeParse(item);
       return parsed.success ? [parsed.data] : [];
     }),
   };

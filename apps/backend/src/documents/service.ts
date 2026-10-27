@@ -1,5 +1,9 @@
 import type { DocumentMediaType, R2DocumentStore, VerifyUploadRejection } from '@gt-sales/adapters';
-import type { DocumentParentType, FileReviewDecision } from '@gt-sales/contracts';
+import {
+  LEGACY_IMPORT_ACTOR_ID,
+  type DocumentParentType,
+  type FileReviewDecision,
+} from '@gt-sales/contracts';
 
 import {
   CLEANUP_GRACE_SECONDS,
@@ -8,7 +12,7 @@ import {
   UPLOAD_INTENT_TTL_SECONDS,
   documentBucket,
 } from './config.js';
-import { candidateKey, sanitizedDownloadFilename, stagingKey } from './keys.js';
+import { candidateKey, importedObjectKey, sanitizedDownloadFilename, stagingKey } from './keys.js';
 import type { DocumentRecordStore, FileRow, StaffFileRow } from './store.js';
 
 /**
@@ -76,6 +80,26 @@ export type DownloadOutcome =
   | { status: 'issued'; url: string; expiresAt: Date }
   | { status: 'not_found' }
   | { status: 'not_available' };
+
+export interface ImportWebsiteDocumentInput {
+  workspaceId: string;
+  actorId: string;
+  requestId: string;
+  /** The import job's message id: one job, one file, however often it runs. */
+  fileId: string;
+  leadId: string;
+  documentType: string;
+  /** The website's own object (`orders/<lead id>/passport.pdf`), only ever read. */
+  sourceKey: string;
+  /** When the customer gave it, as the website's storage recorded it. */
+  uploadedAt?: Date;
+}
+
+export type ImportWebsiteDocumentOutcome =
+  | { status: 'imported' | 'already_imported'; file: FileRow }
+  | { status: 'lead_not_found' }
+  | { status: 'source_missing' }
+  | { status: 'rejected'; reason: 'too_large' | 'unsupported_signature' };
 
 /**
  * Consulted by `runCleanup` so expired-upload sweeps cannot physically delete
@@ -258,6 +282,78 @@ export class DocumentService {
   }
 
   /**
+   * Copies a document a website kept in its own storage (Get Canada Sim's
+   * passports, approval letters, SIM photos…) onto the lead it belongs to:
+   * verified like an upload (size, signature, its own checksum), then current
+   * for its type, shown as from the old admin. Storage work runs outside any
+   * transaction (invariant 7); a copy nothing records is removed again.
+   */
+  async importWebsiteDocument(
+    input: ImportWebsiteDocumentInput,
+  ): Promise<ImportWebsiteDocumentOutcome> {
+    const scope = { workspaceId: input.workspaceId, actorId: input.actorId };
+    const existing = await this.store.getFile({ ...scope, fileId: input.fileId });
+    if (existing) return { status: 'already_imported', file: existing };
+    // A lead that is gone or restricted takes no documents.
+    const lead = await this.resolver.resolveChecklist({
+      ...scope,
+      recordType: 'lead',
+      recordId: input.leadId,
+    });
+    if (!lead.found) return { status: 'lead_not_found' };
+
+    const objectKey = importedObjectKey(input.workspaceId, input.fileId);
+    const copied = await this.r2.importObject({
+      workspaceId: input.workspaceId,
+      sourceKey: input.sourceKey,
+      candidateKey: objectKey,
+      maxBytes: this.maxBytes,
+    });
+    if (copied.status === 'rejected') {
+      if (copied.reason === 'source_missing') return { status: 'source_missing' };
+      await this.discardCopy(input.workspaceId, objectKey);
+      return { status: 'rejected', reason: copied.reason };
+    }
+    // Files hold PDF, JPEG and PNG only (the recorded decision), never WebP.
+    if (copied.detectedMediaType === 'image/webp') {
+      await this.discardCopy(input.workspaceId, objectKey);
+      return { status: 'rejected', reason: 'unsupported_signature' };
+    }
+
+    const stored = await this.store.insertImportedFile({
+      ...scope,
+      requestId: input.requestId,
+      fileId: input.fileId,
+      leadId: input.leadId,
+      documentType: input.documentType,
+      bucket: this.bucket,
+      objectKey: copied.candidateKey,
+      detectedMime: copied.detectedMediaType,
+      sizeBytes: copied.sizeBytes,
+      checksumSha256: copied.checksumSha256,
+      uploadedBy: LEGACY_IMPORT_ACTOR_ID,
+      uploadedAt: input.uploadedAt ?? this.now(),
+    });
+    if (stored.status === 'lead_not_found') {
+      await this.discardCopy(input.workspaceId, objectKey);
+      return { status: 'lead_not_found' };
+    }
+    return {
+      status: stored.status === 'exists' ? 'already_imported' : 'imported',
+      file: stored.file,
+    };
+  }
+
+  /** Best-effort: an orphaned private copy is the smaller problem next to a failed import. */
+  private async discardCopy(workspaceId: string, objectKey: string): Promise<void> {
+    try {
+      await this.r2.deleteObject({ workspaceId, bucket: this.bucket, objectKey });
+    } catch {
+      // Left for an operator; it is never served, as no file row points at it.
+    }
+  }
+
+  /**
    * Copies an available file's verified object into another bucket at an exact
    * key: the transitional copy of an ID photo into the old admin's bucket
    * (migrations 0005–0006). Storage work, so never inside a transaction
@@ -292,6 +388,8 @@ export class DocumentService {
     requestId: string;
     /** When set (website caller), the file must be a lead document owned by this lead. */
     ownedLeadId?: string;
+    /** `inline` is staff viewing the file in a tab of its own; a website always downloads. */
+    disposition?: 'attachment' | 'inline';
   }): Promise<DownloadOutcome> {
     const file = await this.store.getFile(input);
     if (!file) return { status: 'not_found' };
@@ -303,12 +401,15 @@ export class DocumentService {
     if (file.status !== 'available' || !file.objectKey || !file.detectedMime) {
       return { status: 'not_available' };
     }
+    const audience = input.ownedLeadId === undefined ? 'staff' : 'website';
+    const disposition = audience === 'staff' ? (input.disposition ?? 'attachment') : 'attachment';
     const link = await this.r2.issueDownload({
       workspaceId: input.workspaceId,
       objectKey: file.objectKey,
       fileName: sanitizedDownloadFilename(file.documentType, file.id, file.detectedMime),
       contentType: file.detectedMime,
       expiresInSeconds: this.downloadTtlSeconds,
+      disposition,
     });
     // Audited after the presign, in its own short transaction: no external
     // call ever runs inside a tenant transaction (invariant 7).
@@ -317,7 +418,8 @@ export class DocumentService {
       actorId: input.actorId,
       requestId: input.requestId,
       fileId: file.id,
-      audience: input.ownedLeadId === undefined ? 'staff' : 'website',
+      audience,
+      disposition,
     });
     return { status: 'issued', url: link.url, expiresAt: link.expiresAt };
   }

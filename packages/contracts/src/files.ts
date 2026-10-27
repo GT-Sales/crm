@@ -103,8 +103,32 @@ export const reviewFileResponseSchema = z.object({
 export type ReviewFileResponse = z.infer<typeof reviewFileResponseSchema>;
 
 /**
+ * A document on the lead page: the current verified file of each type (one
+ * it replaced is not listed). Its storage key never leaves the backend.
+ */
+export const leadDocumentSchema = z.object({
+  id: z.uuid(),
+  documentType: documentChecklistKeySchema,
+  contentType: documentMediaTypeSchema,
+  sizeBytes: z.int().nonnegative(),
+  revision: z.int().positive(),
+  createdAt: isoDateTimeSchema,
+});
+export type LeadDocument = z.infer<typeof leadDocumentSchema>;
+
+/**
+ * Staff may ask for a link that opens the file in a tab of its own (`inline`,
+ * served as its verified type) instead of downloading it, the default.
+ */
+export const createDownloadLinkRequestSchema = z
+  .object({ disposition: z.enum(['attachment', 'inline']).optional() })
+  .strict();
+export type CreateDownloadLinkRequest = z.infer<typeof createDownloadLinkRequestSchema>;
+
+/**
  * A short-lived signed GET URL, treated as a bearer capability with a short
- * expiry (invariant 8). Served with attachment disposition and nosniff.
+ * expiry (invariant 8). Served with attachment disposition and nosniff, unless
+ * staff asked to view it inline.
  */
 export const createDownloadLinkResponseSchema = z.object({
   url: z.url(),

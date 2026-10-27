@@ -1,9 +1,10 @@
-import { and, eq, gt, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import {
   auditEvents,
   fileRevisions,
   fileReviewEvents,
   files,
+  leads,
   withTenantTx,
   type TenantTransaction,
 } from '@gt-sales/db';
@@ -117,8 +118,39 @@ export interface RejectInput {
   reason: string;
 }
 
+/** A document copied from a website's own storage, verified, onto one of its leads. */
+export interface ImportFileInput {
+  workspaceId: string;
+  /** Who runs the import (the scheduler), as audited. */
+  actorId: string;
+  requestId: string;
+  fileId: string;
+  leadId: string;
+  documentType: string;
+  bucket: string;
+  objectKey: string;
+  detectedMime: DocumentMediaType;
+  sizeBytes: number;
+  checksumSha256: string;
+  /** Who the file is shown as from: the old admin. */
+  uploadedBy: string;
+  /** When the customer gave it, as the website's storage recorded it. */
+  uploadedAt: Date;
+}
+
+export type ImportFileResult =
+  | { status: 'imported'; file: FileRow }
+  | { status: 'exists'; file: FileRow }
+  | { status: 'lead_not_found' };
+
 export interface DocumentRecordStore {
   createIntent(input: CreateIntentInput): Promise<FileRow>;
+  /**
+   * Records an imported document as available on a live, unrestricted lead,
+   * as the current file of its type (superseding the one before it). Once per
+   * file id: a second call returns the file already there.
+   */
+  insertImportedFile(input: ImportFileInput): Promise<ImportFileResult>;
   claimForVerification(input: ClaimInput): Promise<ClaimResult>;
   attachVerified(input: AttachInput): Promise<AttachResult>;
   markRejected(input: RejectInput): Promise<void>;
@@ -160,6 +192,7 @@ export interface DocumentRecordStore {
     requestId: string;
     fileId: string;
     audience: 'staff' | 'website';
+    disposition: 'attachment' | 'inline';
   }): Promise<void>;
 }
 
@@ -298,6 +331,97 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
     );
   }
 
+  async insertImportedFile(input: ImportFileInput): Promise<ImportFileResult> {
+    return this.database.withTenantTx(
+      { workspaceId: input.workspaceId, actorId: input.actorId },
+      async (tx) => {
+        const existing = await selectFile(tx, input.workspaceId, input.fileId);
+        if (existing) return { status: 'exists', file: existing };
+        const [lead] = await tx
+          .select({ id: leads.id })
+          .from(leads)
+          .where(
+            and(
+              eq(leads.workspaceId, input.workspaceId),
+              eq(leads.id, input.leadId),
+              isNull(leads.customerDataRestrictedAt),
+            ),
+          )
+          .limit(1);
+        if (!lead) return { status: 'lead_not_found' };
+
+        const revision = await nextRevision(
+          tx,
+          input.workspaceId,
+          'lead',
+          input.leadId,
+          input.documentType,
+        );
+        const now = new Date();
+        // Never uploaded here, so no staging object: its keys are all the
+        // verified copy, which the import alone wrote.
+        const [row] = await tx
+          .insert(files)
+          .values({
+            id: input.fileId,
+            workspaceId: input.workspaceId,
+            recordType: 'lead',
+            recordId: input.leadId,
+            documentType: input.documentType,
+            bucket: input.bucket,
+            stagingKey: input.objectKey,
+            candidateKey: input.objectKey,
+            objectKey: input.objectKey,
+            declaredContentType: input.detectedMime,
+            detectedMime: input.detectedMime,
+            declaredSizeBytes: input.sizeBytes,
+            sizeBytes: input.sizeBytes,
+            checksumSha256: input.checksumSha256,
+            status: 'available',
+            revision,
+            uploadedBy: input.uploadedBy,
+            expiresAt: now,
+            finalizedAt: now,
+            createdAt: input.uploadedAt,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: files.id })
+          .returning(fileColumns);
+        if (!row) {
+          const raced = await selectFile(tx, input.workspaceId, input.fileId);
+          if (!raced) throw new Error('imported file conflicted but cannot be read');
+          return { status: 'exists', file: raced };
+        }
+        const file = toFileRow(row);
+
+        await tx.insert(fileRevisions).values({
+          workspaceId: input.workspaceId,
+          fileId: file.id,
+          revision,
+          objectKey: input.objectKey,
+          detectedMime: input.detectedMime,
+          sizeBytes: input.sizeBytes,
+          checksumSha256: input.checksumSha256,
+          createdBy: input.uploadedBy,
+        });
+        await supersedeEarlier(tx, file);
+        await writeAudit(tx, {
+          workspaceId: input.workspaceId,
+          actorId: input.actorId,
+          requestId: input.requestId,
+          action: 'file.imported',
+          fileId: file.id,
+          after: {
+            documentType: input.documentType,
+            revision,
+            checksumSha256: input.checksumSha256,
+          },
+        });
+        return { status: 'imported', file };
+      },
+    );
+  }
+
   async claimForVerification(input: ClaimInput): Promise<ClaimResult> {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
@@ -370,22 +494,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           createdBy: input.actorId,
         });
 
-        // Mark any earlier available object for the same logical slot superseded,
-        // so exactly one current object exists per (record, documentType).
-        await tx
-          .update(files)
-          .set({ supersededByFileId: row.id, updatedAt: new Date() })
-          .where(
-            and(
-              eq(files.workspaceId, input.workspaceId),
-              eq(files.recordType, row.recordType),
-              eq(files.recordId, row.recordId),
-              eq(files.documentType, row.documentType),
-              eq(files.status, 'available'),
-              sql`${files.id} <> ${row.id}`,
-              sql`${files.supersededByFileId} is null`,
-            ),
-          );
+        await supersedeEarlier(tx, row);
 
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
@@ -437,14 +546,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
   }): Promise<FileRow | undefined> {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
-      async (tx) => {
-        const [row] = await tx
-          .select(fileColumns)
-          .from(files)
-          .where(and(eq(files.workspaceId, input.workspaceId), eq(files.id, input.fileId)))
-          .limit(1);
-        return row ? toFileRow(row) : undefined;
-      },
+      (tx) => selectFile(tx, input.workspaceId, input.fileId),
     );
   }
 
@@ -571,6 +673,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
     requestId: string;
     fileId: string;
     audience: 'staff' | 'website';
+    disposition: 'attachment' | 'inline';
   }): Promise<void> {
     await this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
@@ -581,7 +684,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           requestId: input.requestId,
           action: 'file.download_issued',
           fileId: input.fileId,
-          after: { audience: input.audience },
+          after: { audience: input.audience, disposition: input.disposition },
         });
       },
     );
@@ -652,6 +755,40 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
       },
     );
   }
+}
+
+async function selectFile(
+  tx: TenantTransaction,
+  workspaceId: string,
+  fileId: string,
+): Promise<FileRow | undefined> {
+  const [row] = await tx
+    .select(fileColumns)
+    .from(files)
+    .where(and(eq(files.workspaceId, workspaceId), eq(files.id, fileId)))
+    .limit(1);
+  return row ? toFileRow(row) : undefined;
+}
+
+/**
+ * Marks any earlier available object for the same logical slot superseded by
+ * `file`, so exactly one current object exists per (record, documentType).
+ */
+async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<void> {
+  await tx
+    .update(files)
+    .set({ supersededByFileId: file.id, updatedAt: new Date() })
+    .where(
+      and(
+        eq(files.workspaceId, file.workspaceId),
+        eq(files.recordType, file.recordType),
+        eq(files.recordId, file.recordId),
+        eq(files.documentType, file.documentType),
+        eq(files.status, 'available'),
+        sql`${files.id} <> ${file.id}`,
+        sql`${files.supersededByFileId} is null`,
+      ),
+    );
 }
 
 async function nextRevision(

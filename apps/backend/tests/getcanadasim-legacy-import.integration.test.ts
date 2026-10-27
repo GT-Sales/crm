@@ -3,9 +3,16 @@ import { fileURLToPath } from 'node:url';
 
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { InMemoryR2DocumentStore, sha256Hex } from '@gt-sales/adapters';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { LEGACY_IMPORT_ACTOR_ID, leadDetailSchema, leadTaskSchema } from '@gt-sales/contracts';
+import { OutboxRunner } from '@gt-sales/jobs';
 
+import { createLegacyDocumentImportHandler } from '../src/documents/import-job.js';
+import { DatabaseDocumentContextResolver } from '../src/documents/resolver.js';
+import { DocumentService } from '../src/documents/service.js';
+import { DatabaseDocumentStore } from '../src/documents/store.js';
+import { DatabaseOutboxStore } from '../src/jobs/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
@@ -109,6 +116,22 @@ const GCS_TABLES_DDL = `
 // Next to the legacy CanadaWide tables' key (745284915).
 const GCS_TABLES_LOCK_KEY = 745284916;
 
+/**
+ * Supabase Storage's object index, the columns the import reads, for a
+ * database that has none (CI, local); a real project already has it.
+ */
+const STORAGE_DDL = `
+  create schema if not exists storage;
+  create table if not exists storage.objects (
+    id uuid primary key default gen_random_uuid(),
+    bucket_id text,
+    name text,
+    version text,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+  );
+`;
+
 // A distinct id range from every other integration test file sharing this database.
 const GCS_CANDIDATE = '15000000-0000-4000-8000-000000000a01';
 const PARTNER = '15000000-0000-4000-8000-000000000a11';
@@ -172,6 +195,8 @@ databaseTest('Get Canada Sim historical import', () => {
     await admin`select pg_advisory_lock(${GCS_TABLES_LOCK_KEY})`;
     await admin`drop table if exists public.orders, public.partners`;
     await admin.unsafe(GCS_TABLES_DDL);
+    await admin.unsafe(STORAGE_DDL);
+    await admin`delete from storage.objects where name like ${'%/15000000-0000-4000-8000-000000000a%'}`;
     // `getcanadasim` may already exist in a reused database; the import keys on the slug.
     await admin`
       insert into app.workspaces (id, slug, name)
@@ -183,6 +208,12 @@ databaseTest('Get Canada Sim historical import', () => {
     `;
     if (!row) throw new Error('expected the getcanadasim workspace');
     site = row.id;
+    // A reused database keeps an earlier run's copies; their keys would repeat.
+    await admin`
+      delete from app.outbox_jobs
+      where workspace_id = ${site} and job_type = 'legacy_document_import'
+    `;
+    await admin`delete from app.files where record_id in ${admin(LEADS)}`;
     await admin`delete from app.leads where id in ${admin(LEADS)}`;
     // Someone the CRM already knows, under another name: the import must not rename them.
     await admin`
@@ -239,6 +270,7 @@ databaseTest('Get Canada Sim historical import', () => {
 
   afterAll(async () => {
     await database?.close();
+    await admin`delete from storage.objects where name like ${'%/15000000-0000-4000-8000-000000000a%'}`;
     await admin`delete from app.leads where id in ${admin(LEADS)}`;
     await admin`drop table if exists public.orders, public.partners`;
     await admin`select pg_advisory_unlock(${GCS_TABLES_LOCK_KEY})`;
@@ -456,5 +488,126 @@ databaseTest('Get Canada Sim historical import', () => {
     expect(opened).toEqual([{ actor_id: STAFF }]);
     // Worked in the CRM: the CRM's view wins.
     expect(await lead(WORKED)).toMatchObject({ stage: 'verified' });
+  });
+
+  test('copies each document the old admin keeps onto its lead, verified, once', async () => {
+    const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
+    const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+    const passport = `orders/${PENDING}/passport.pdf`;
+    const files: [string, Uint8Array, string][] = [
+      [passport, PDF, 'v1'],
+      [`orders/${PENDING}/permit-1.jpg`, JPEG, 'v1'],
+      [`orders/${PAID}/sim-photo.jpg`, JPEG, 'v1'],
+      [`partners/${PARTNER}/license.pdf`, PDF, 'v1'],
+      // A restricted lead's file is never copied.
+      [`orders/${OLD_CHECKOUT}/passport.pdf`, PDF, 'v1'],
+    ];
+    const r2 = new InMemoryR2DocumentStore();
+    for (const [name, bytes, version] of files) {
+      r2.putObject(name, bytes);
+      await admin`
+        insert into storage.objects (bucket_id, name, version, created_at, updated_at)
+        values ('documents', ${name}, ${version}, '2026-10-20T09:30:00Z', '2026-10-20T09:30:00Z')
+      `;
+    }
+    await admin`
+      update public.orders set passport_path = ${passport},
+        permit_path = ${`orders/${PENDING}/permit-1.jpg`}
+      where id = ${PENDING}
+    `;
+    await admin`update public.orders set sim_photo_path = ${`orders/${PAID}/sim-photo.jpg`} where id = ${PAID}`;
+    // Named, but not in storage: nothing to copy.
+    await admin`update public.orders set billing_contract_path = ${`orders/${PAID}/billing-contract.pdf`} where id = ${PAID}`;
+    await admin`update public.partners set license_path = ${`partners/${PARTNER}/license.pdf`} where id = ${PARTNER}`;
+    await admin`update public.orders set passport_path = ${`orders/${OLD_CHECKOUT}/passport.pdf`} where id = ${OLD_CHECKOUT}`;
+    await admin`update app.leads set customer_data_restricted_at = now() where id = ${OLD_CHECKOUT}`;
+
+    const queued = () => admin<{ payload: Record<string, string> }[]>`
+      select payload from app.outbox_jobs
+      where workspace_id = ${site} and job_type = 'legacy_document_import'
+      order by payload ->> 'sourceKey', created_at
+    `;
+    const reconciliation = await runImport();
+    expect(Number(reconciliation['documents_queued'])).toBe(4);
+    expect(
+      (await queued()).map((job) => [job.payload['documentType'], job.payload['sourceKey']]),
+    ).toEqual([
+      ['passport', passport],
+      ['visa', `orders/${PENDING}/permit-1.jpg`],
+      ['sim_photo', `orders/${PAID}/sim-photo.jpg`],
+      ['business_licence', `partners/${PARTNER}/license.pdf`],
+    ]);
+    expect((await queued())[0]?.payload).toEqual({
+      leadId: PENDING,
+      documentType: 'passport',
+      sourceKey: passport,
+      uploadedAt: '2026-10-20T09:30:00.000Z',
+    });
+    // Unchanged files are never queued twice.
+    await runImport();
+    expect(await queued()).toHaveLength(4);
+
+    const documents = new DocumentService(
+      new DatabaseDocumentStore(database),
+      r2,
+      new DatabaseDocumentContextResolver(database),
+      { bucket: 'documents' },
+    );
+    const runner = new OutboxRunner({
+      store: new DatabaseOutboxStore(database),
+      handlers: new Map([['legacy_document_import', createLegacyDocumentImportHandler(documents)]]),
+    });
+    const run = await runner.run({ authorizedWorkspaceIds: [site], actorId: STAFF });
+    expect(run).toMatchObject({ claimed: 4, completed: 4, failed: 0 });
+    expect(Number((await runImport())['crm_documents'])).toBe(4);
+
+    const page = await work.getLead({
+      workspaceId: site,
+      actorId: STAFF,
+      leadId: PENDING,
+      includeWork: true,
+    });
+    expect(
+      [...(page?.documents ?? [])]
+        .map((document) => [document.documentType, document.contentType, document.createdAt])
+        .sort(),
+    ).toEqual([
+      ['passport', 'application/pdf', '2026-10-20T09:30:00.000Z'],
+      ['visa', 'image/jpeg', '2026-10-20T09:30:00.000Z'],
+    ]);
+    const [file] = await admin<{ uploaded_by: string; checksum_sha256: string }[]>`
+      select uploaded_by, checksum_sha256 from app.files
+      where record_id = ${PENDING} and document_type = 'passport'
+    `;
+    expect(file).toEqual({ uploaded_by: LEGACY_IMPORT_ACTOR_ID, checksum_sha256: sha256Hex(PDF) });
+    // The old admin's own object is where it was.
+    expect(r2.getObject(passport)).toEqual(PDF);
+
+    // Replaced in the old admin (same name, new bytes): copied again, as the current one.
+    const REPLACED = new Uint8Array([...PDF, 0x0a]);
+    r2.putObject(passport, REPLACED);
+    await admin`
+      update storage.objects set version = 'v2', updated_at = '2026-10-26T08:00:00Z'
+      where bucket_id = 'documents' and name = ${passport}
+    `;
+    await runImport();
+    expect(await runner.run({ authorizedWorkspaceIds: [site], actorId: STAFF })).toMatchObject({
+      claimed: 1,
+      completed: 1,
+    });
+    const replaced = await work.getLead({
+      workspaceId: site,
+      actorId: STAFF,
+      leadId: PENDING,
+      includeWork: true,
+    });
+    expect(
+      replaced?.documents.find((document) => document.documentType === 'passport'),
+    ).toMatchObject({
+      revision: 2,
+      sizeBytes: REPLACED.byteLength,
+      createdAt: '2026-10-26T08:00:00.000Z',
+    });
+    expect(Number((await runImport())['crm_documents'])).toBe(4);
   });
 });

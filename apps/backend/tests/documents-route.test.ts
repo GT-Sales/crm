@@ -1,5 +1,5 @@
 import type { Server } from 'node:http';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
@@ -51,14 +51,15 @@ class ConfigurableStaffStore implements StaffStore {
 }
 
 /** Fake document service: a known file yields a signed link; everything else 404s. */
-const documentService: Pick<DocumentService, 'listForOrder' | 'review' | 'issueDownload'> = {
-  listForOrder: async () => ({ status: 'not_found' }),
-  review: async () => ({ status: 'not_found' }),
-  issueDownload: async (input) =>
+const documentService = {
+  listForOrder: async () => ({ status: 'not_found' }) as const,
+  review: async () => ({ status: 'not_found' }) as const,
+  issueDownload: vi.fn<DocumentService['issueDownload']>(async (input) =>
     input.fileId === FILE_ID
       ? { status: 'issued', url: 'memory://signed', expiresAt: new Date(Date.now() + 120_000) }
       : { status: 'not_found' },
-};
+  ),
+} satisfies Pick<DocumentService, 'listForOrder' | 'review' | 'issueDownload'>;
 
 let server: Server;
 let baseUrl: string;
@@ -99,11 +100,11 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-async function requestDownloadLink(token = 'token'): Promise<Response> {
+async function requestDownloadLink(token = 'token', body = '{}'): Promise<Response> {
   return fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/files/${FILE_ID}/download-link`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: '{}',
+    body,
   });
 }
 
@@ -142,5 +143,34 @@ describe('staff document download permission (REQ 23; gate 5)', () => {
     };
     const response = await requestDownloadLink();
     expect(response.status).toBe(403);
+  });
+});
+
+describe('staff viewing a document inline', () => {
+  beforeEach(() => {
+    store.access = {
+      membershipId: MEMBERSHIP,
+      status: 'active',
+      roles: ['owner'],
+      permissions: [],
+    };
+    documentService.issueDownload.mockClear();
+  });
+
+  it('asks the service for an inline link only when staff ask to view', async () => {
+    expect((await requestDownloadLink('token', '{"disposition":"inline"}')).status).toBe(200);
+    expect(documentService.issueDownload).toHaveBeenLastCalledWith(
+      expect.objectContaining({ fileId: FILE_ID, disposition: 'inline' }),
+    );
+    expect((await requestDownloadLink()).status).toBe(200);
+    expect(documentService.issueDownload).toHaveBeenLastCalledWith(
+      expect.objectContaining({ disposition: 'attachment' }),
+    );
+  });
+
+  it('refuses an unknown disposition before issuing anything', async () => {
+    const response = await requestDownloadLink('token', '{"disposition":"render"}');
+    expect(response.status).toBe(400);
+    expect(documentService.issueDownload).not.toHaveBeenCalled();
   });
 });

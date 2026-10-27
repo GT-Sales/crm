@@ -6,17 +6,11 @@ import { Button, Card, CardContent } from '@gt-sales/ui';
 
 import { createFileDownloadLink, revealLeadIdentity } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
+import { downloadNavigation } from '../../lib/file-links';
 import { errorReason } from '../../lib/use-resource';
 
 /** How long a revealed SIN stays on screen before it is masked again. */
 export const REVEAL_SECONDS = 60;
-
-/** Where a signed download link is opened; its attachment disposition keeps this page. */
-export const downloadNavigation = {
-  open(url: string): void {
-    window.location.assign(url);
-  },
-};
 
 const ID_LABELS: Record<LeadIdentity['idType'], string> = {
   drivers_licence: "Driver's licence",

@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AssignableMember,
   GetWorkspaceLeadResponse,
+  LeadDocument,
   LeadIdentity,
   LeadActivity,
   LeadDetail,
 } from '@gt-sales/contracts';
 
-import { downloadNavigation, REVEAL_SECONDS } from './identity-check';
+import { downloadNavigation } from '../../lib/file-links';
+import { REVEAL_SECONDS } from './identity-check';
 import { LeadRecord } from './lead-record';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -95,6 +97,7 @@ function response(overrides: Partial<GetWorkspaceLeadResponse> = {}): GetWorkspa
     tasks: [],
     related: [],
     identities: [],
+    documents: [],
     access: { contacts: true, manage: true },
     requestId: '00000000-0000-4000-8000-000000000001',
     ...overrides,
@@ -370,6 +373,116 @@ describe('LeadRecord ID check', () => {
       'You need the document download permission for this.',
     );
     open.mockRestore();
+  });
+});
+
+describe('LeadRecord documents', () => {
+  const PASSPORT = '50000000-0000-4000-8000-000000000011';
+  const passport: LeadDocument = {
+    id: PASSPORT,
+    documentType: 'passport',
+    contentType: 'application/pdf',
+    sizeBytes: 1_258_291,
+    revision: 1,
+    createdAt: NOW,
+  };
+  const simPhoto: LeadDocument = {
+    id: '50000000-0000-4000-8000-000000000012',
+    documentType: 'sim_photo',
+    contentType: 'image/jpeg',
+    sizeBytes: 84_000,
+    revision: 2,
+    createdAt: NOW,
+  };
+  const owner = { contacts: true, manage: true, downloadDocuments: true };
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+  });
+
+  it('lists each document by name, format and size, and nothing when there are none', async () => {
+    mocks.getStaffLead.mockResolvedValue(response());
+    const { unmount } = render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    expect(screen.queryByRole('heading', { name: 'Documents' })).toBeNull();
+    unmount();
+
+    mocks.getStaffLead.mockResolvedValue(
+      response({ documents: [simPhoto, passport], access: owner }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const list = await screen.findByRole('list', { name: 'Documents' });
+    const rows = within(list).getAllByRole('listitem');
+    // Passport first, whatever order they arrive in.
+    expect(rows[0]?.textContent).toContain('Passport');
+    expect(rows[0]?.textContent).toContain('PDF · 1.2 MB');
+    expect(rows[1]?.textContent).toContain('SIM card photo');
+    expect(rows[1]?.textContent).toContain('JPEG · 82 KB');
+  });
+
+  it('views a document in a tab of its own, through an inline link', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ documents: [passport], access: owner }));
+    mocks.createFileDownloadLink.mockResolvedValueOnce({
+      url: 'https://storage.example.test/view',
+      expiresAt: NOW,
+      requestId: NOW,
+    });
+    const tab = { show: vi.fn(), close: vi.fn() };
+    const openTab = vi.spyOn(downloadNavigation, 'openTab').mockReturnValue(tab);
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View Passport' }));
+    await waitFor(() => expect(tab.show).toHaveBeenCalledWith('https://storage.example.test/view'));
+    expect(openTab).toHaveBeenCalledTimes(1);
+    expect(mocks.createFileDownloadLink).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      PASSPORT,
+      'inline',
+    );
+
+    // A refused link closes the tab again and says why.
+    const { BackendError } = await import('../../lib/api');
+    mocks.createFileDownloadLink.mockRejectedValueOnce(
+      new BackendError('file_not_available', 409, NOW),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'View Passport' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'This document is not available yet.',
+    );
+    expect(tab.close).toHaveBeenCalledTimes(1);
+
+    // A blocked tab asks for nothing from the backend.
+    openTab.mockReturnValueOnce(undefined);
+    const calls = mocks.createFileDownloadLink.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'View Passport' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('blocked the new tab');
+    expect(mocks.createFileDownloadLink.mock.calls.length).toBe(calls);
+    openTab.mockRestore();
+  });
+
+  it('downloads a document through a signed link', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ documents: [passport], access: owner }));
+    mocks.createFileDownloadLink.mockResolvedValueOnce({
+      url: 'https://storage.example.test/download',
+      expiresAt: NOW,
+      requestId: NOW,
+    });
+    const open = vi.spyOn(downloadNavigation, 'open').mockImplementation(() => undefined);
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download Passport' }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://storage.example.test/download'));
+    expect(mocks.createFileDownloadLink).toHaveBeenCalledWith('staff-token', WORKSPACE, PASSPORT);
+    open.mockRestore();
+  });
+
+  it('offers no View or Download without the permission, and says who can grant it', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ documents: [passport] }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('list', { name: 'Documents' });
+    expect(screen.queryByRole('button', { name: 'View Passport' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Download Passport' })).toBeNull();
+    expect(screen.getByText(/an owner can grant/)).toBeTruthy();
   });
 });
 

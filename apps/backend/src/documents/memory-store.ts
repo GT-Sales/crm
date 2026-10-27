@@ -11,6 +11,8 @@ import type {
   CreateIntentInput,
   DocumentRecordStore,
   FileRow,
+  ImportFileInput,
+  ImportFileResult,
   RejectInput,
   ReviewEventRow,
   StaffFileRow,
@@ -27,16 +29,18 @@ import type {
 export class InMemoryDocumentRecordStore implements DocumentRecordStore {
   private readonly rows = new Map<string, FileRow>();
   private readonly reviews = new Map<string, ReviewEventRow[]>();
-  readonly audits: { action: string; fileId: string; audience: string }[] = [];
+  readonly audits: { action: string; fileId: string; audience: string; disposition: string }[] = [];
 
   async recordDownloadIssued(input: {
     fileId: string;
     audience: 'staff' | 'website';
+    disposition: 'attachment' | 'inline';
   }): Promise<void> {
     this.audits.push({
       action: 'file.download_issued',
       fileId: input.fileId,
       audience: input.audience,
+      disposition: input.disposition,
     });
   }
 
@@ -84,6 +88,45 @@ export class InMemoryDocumentRecordStore implements DocumentRecordStore {
     };
     this.rows.set(row.id, row);
     return { ...row };
+  }
+
+  /** Has no leads of its own: the service's resolver check stands in for the lead's. */
+  async insertImportedFile(input: ImportFileInput): Promise<ImportFileResult> {
+    const existing = this.rows.get(input.fileId);
+    if (existing) return { status: 'exists', file: { ...existing } };
+    const slot = [...this.rows.values()].filter(
+      (row) =>
+        row.workspaceId === input.workspaceId &&
+        row.recordType === 'lead' &&
+        row.recordId === input.leadId &&
+        row.documentType === input.documentType,
+    );
+    const row: FileRow = {
+      id: input.fileId,
+      workspaceId: input.workspaceId,
+      recordType: 'lead',
+      recordId: input.leadId,
+      documentType: input.documentType,
+      bucket: input.bucket,
+      stagingKey: input.objectKey,
+      candidateKey: input.objectKey,
+      objectKey: input.objectKey,
+      declaredContentType: input.detectedMime,
+      detectedMime: input.detectedMime,
+      declaredSizeBytes: input.sizeBytes,
+      sizeBytes: input.sizeBytes,
+      checksumSha256: input.checksumSha256,
+      status: 'available',
+      rejectReason: null,
+      revision: Math.max(0, ...slot.map((earlier) => earlier.revision)) + 1,
+      uploadedBy: input.uploadedBy,
+      expiresAt: new Date(),
+      finalizedAt: new Date(),
+      deletedAt: null,
+      createdAt: input.uploadedAt,
+    };
+    this.rows.set(row.id, row);
+    return { status: 'imported', file: { ...row } };
   }
 
   async claimForVerification(input: ClaimInput): Promise<ClaimResult> {

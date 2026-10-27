@@ -3,11 +3,16 @@ import { createHash, createHmac } from 'node:crypto';
 import {
   detectDocumentType,
   documentObjectKey,
+  isPlainKey,
+  isWebsiteObjectKey,
   sha256Hex,
   type CopyForExportInput,
   type CopyToBucketInput,
   type CreateUploadInput,
   type DeleteFromBucketInput,
+  type DocumentMediaType,
+  type ImportObjectInput,
+  type ImportObjectResult,
   type IssueDownloadInput,
   type PresignedDownload,
   type PresignedUpload,
@@ -25,7 +30,9 @@ import {
  * Store objects are written with `Content-Type: application/octet-stream` and
  * `Content-Disposition: attachment`, and downloads additionally override the
  * response disposition with a sanitized filename, so an original is never
- * inline-rendered (invariant 8 / IMPLEMENTATION_PLAN.md §8). See the README for
+ * inline-rendered on its own (invariant 8 / IMPLEMENTATION_PLAN.md §8). The one
+ * inline link is staff viewing a verified PDF/JPEG/PNG in a tab of its own,
+ * served as that verified type from the storage origin. See the README for
  * the `X-Content-Type-Options: nosniff` limitation of presigned GETs.
  */
 
@@ -81,13 +88,6 @@ function encodeRfc3986(value: string): string {
   return encodeURIComponent(value).replace(
     /[!*'()]/g,
     (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-}
-
-/** A key of plain segments: no empty, `.` or `..` segment and no backslash. */
-function isPlainKey(key: string): boolean {
-  return (
-    !key.includes('\\') && key.split('/').every((part) => part && part !== '.' && part !== '..')
   );
 }
 
@@ -271,65 +271,54 @@ export class S3R2DocumentStore implements R2DocumentStore {
   }
 
   async verifyUpload(input: VerifyUploadInput): Promise<VerifyUploadResult> {
-    const stagingKey = this.scopedKey(input.workspaceId, input.stagingKey);
-    const candidateKey = this.scopedKey(input.workspaceId, input.candidateKey);
-
-    // Copy FIRST to the private candidate the uploader cannot write to. The
-    // candidate is stored as an attachment octet-stream so a later GET never
-    // inline-renders it.
-    const copy = signRequest(this.config, {
-      method: 'PUT',
-      key: candidateKey,
-      headers: {
-        'x-amz-copy-source': `/${this.config.bucket}/${encodeKey(stagingKey)}`,
-        'content-type': 'application/octet-stream',
-        'content-disposition': 'attachment',
-        'x-amz-metadata-directive': 'REPLACE',
-      },
-    });
-    const copyResponse = await this.send(copy.url, { method: 'PUT', headers: copy.headers });
-    if (copyResponse.status === 404) return { status: 'rejected', reason: 'staging_missing' };
-    if (!copyResponse.ok) throw new Error(`r2 copy failed: ${copyResponse.status}`);
-
-    // Only inspect the private candidate: staging can change during finalization.
-    const head = signRequest(this.config, { method: 'HEAD', key: candidateKey, headers: {} });
-    const metadata = await this.send(head.url, { method: 'HEAD', headers: head.headers });
-    if (metadata.status === 404) return { status: 'rejected', reason: 'staging_missing' };
-    if (!metadata.ok) throw new Error(`r2 head failed: ${metadata.status}`);
-    if (Number(metadata.headers.get('content-length')) > input.maxBytes) {
-      return { status: 'rejected', reason: 'too_large' };
-    }
-
-    // Bound the actual stream too: metadata is not a substitute for a byte limit.
-    const get = signRequest(this.config, { method: 'GET', key: candidateKey, headers: {} });
-    const candidateResponse = await this.send(get.url, { method: 'GET', headers: get.headers });
-    if (candidateResponse.status === 404) return { status: 'rejected', reason: 'staging_missing' };
-    if (!candidateResponse.ok) throw new Error(`r2 get failed: ${candidateResponse.status}`);
-    const candidate = await readBoundedBody(candidateResponse, input.maxBytes);
-    if (candidate === undefined) return { status: 'rejected', reason: 'too_large' };
-    const detectedMediaType = detectDocumentType(candidate);
-    if (!detectedMediaType) return { status: 'rejected', reason: 'unsupported_signature' };
-    const checksumSha256 = sha256Hex(candidate);
+    // The uploader can write to staging, never to the candidate.
+    const inspected = await this.copyAndInspect(
+      this.scopedKey(input.workspaceId, input.stagingKey),
+      this.scopedKey(input.workspaceId, input.candidateKey),
+      input.maxBytes,
+    );
+    if (inspected.status === 'missing') return { status: 'rejected', reason: 'staging_missing' };
+    if (inspected.status !== 'read') return { status: 'rejected', reason: inspected.status };
+    const checksumSha256 = sha256Hex(inspected.bytes);
     if (checksumSha256 !== input.expectedChecksumSha256) {
       return { status: 'rejected', reason: 'checksum_mismatch' };
     }
     return {
       status: 'verified',
       candidateKey: input.candidateKey,
-      detectedMediaType,
-      sizeBytes: candidate.byteLength,
+      detectedMediaType: inspected.detectedMediaType,
+      sizeBytes: inspected.bytes.byteLength,
       checksumSha256,
     };
   }
 
+  async importObject(input: ImportObjectInput): Promise<ImportObjectResult> {
+    if (!isWebsiteObjectKey(input.sourceKey)) throw new Error('r2_import_key_invalid');
+    const inspected = await this.copyAndInspect(
+      input.sourceKey,
+      this.scopedKey(input.workspaceId, input.candidateKey),
+      input.maxBytes,
+    );
+    if (inspected.status === 'missing') return { status: 'rejected', reason: 'source_missing' };
+    if (inspected.status !== 'read') return { status: 'rejected', reason: inspected.status };
+    return {
+      status: 'verified',
+      candidateKey: input.candidateKey,
+      detectedMediaType: inspected.detectedMediaType,
+      sizeBytes: inspected.bytes.byteLength,
+      checksumSha256: sha256Hex(inspected.bytes),
+    };
+  }
+
   async issueDownload(input: IssueDownloadInput): Promise<PresignedDownload> {
+    const inline = input.disposition === 'inline';
     const url = presignUrl(this.config, {
       method: 'GET',
       key: this.scopedKey(input.workspaceId, input.objectKey),
       expiresInSeconds: input.expiresInSeconds,
       query: {
-        'response-content-disposition': `attachment; filename="${input.fileName}"`,
-        'response-content-type': 'application/octet-stream',
+        'response-content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${input.fileName}"`,
+        'response-content-type': inline ? input.contentType : 'application/octet-stream',
       },
     });
     return { url, expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000) };
@@ -403,6 +392,52 @@ export class S3R2DocumentStore implements R2DocumentStore {
   /** Per-workspace key prefix so a bug cannot address another tenant's object. */
   private scopedKey(workspaceId: string, key: string): string {
     return documentObjectKey(workspaceId, key);
+  }
+
+  /**
+   * Copies `sourceKey` to the private candidate FIRST, then inspects only the
+   * candidate (the source may change meanwhile): its size, bounded on the
+   * stream too, and its signature. The candidate is stored as an attachment
+   * octet-stream so a plain GET never renders it.
+   */
+  private async copyAndInspect(
+    sourceKey: string,
+    candidateKey: string,
+    maxBytes: number,
+  ): Promise<
+    | { status: 'missing' | 'too_large' | 'unsupported_signature' }
+    | { status: 'read'; bytes: Uint8Array; detectedMediaType: DocumentMediaType }
+  > {
+    const copy = signRequest(this.config, {
+      method: 'PUT',
+      key: candidateKey,
+      headers: {
+        'x-amz-copy-source': `/${this.config.bucket}/${encodeKey(sourceKey)}`,
+        'content-type': 'application/octet-stream',
+        'content-disposition': 'attachment',
+        'x-amz-metadata-directive': 'REPLACE',
+      },
+    });
+    const copyResponse = await this.send(copy.url, { method: 'PUT', headers: copy.headers });
+    if (copyResponse.status === 404) return { status: 'missing' };
+    if (!copyResponse.ok) throw new Error(`r2 copy failed: ${copyResponse.status}`);
+
+    const head = signRequest(this.config, { method: 'HEAD', key: candidateKey, headers: {} });
+    const metadata = await this.send(head.url, { method: 'HEAD', headers: head.headers });
+    if (metadata.status === 404) return { status: 'missing' };
+    if (!metadata.ok) throw new Error(`r2 head failed: ${metadata.status}`);
+    if (Number(metadata.headers.get('content-length')) > maxBytes) return { status: 'too_large' };
+
+    // Bound the actual stream too: metadata is not a substitute for a byte limit.
+    const get = signRequest(this.config, { method: 'GET', key: candidateKey, headers: {} });
+    const candidateResponse = await this.send(get.url, { method: 'GET', headers: get.headers });
+    if (candidateResponse.status === 404) return { status: 'missing' };
+    if (!candidateResponse.ok) throw new Error(`r2 get failed: ${candidateResponse.status}`);
+    const bytes = await readBoundedBody(candidateResponse, maxBytes);
+    if (bytes === undefined) return { status: 'too_large' };
+    const detectedMediaType = detectDocumentType(bytes);
+    if (!detectedMediaType) return { status: 'unsupported_signature' };
+    return { status: 'read', bytes, detectedMediaType };
   }
 
   private send(url: string, init: RequestInit): Promise<Response> {

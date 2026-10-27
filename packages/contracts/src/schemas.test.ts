@@ -201,7 +201,17 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
           createdAt: NOW,
         },
       ],
-      access: { contacts: true, manage: true, revealSensitive: true },
+      documents: [
+        {
+          id: UUID_A,
+          documentType: 'passport',
+          contentType: 'application/pdf',
+          sizeBytes: 1200,
+          revision: 1,
+          createdAt: NOW,
+        },
+      ],
+      access: { contacts: true, manage: true, revealSensitive: true, downloadDocuments: true },
       requestId: UUID_C,
     },
   ],
@@ -338,11 +348,13 @@ describe('contract schemas reject invalid input', () => {
     const {
       related: _related,
       identities: _identities,
+      documents: _documents,
       ...older
     } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
     const parsed = getWorkspaceLeadResponseSchema.parse(older);
     expect(parsed.related).toEqual([]);
     expect(parsed.identities).toEqual([]);
+    expect(parsed.documents).toEqual([]);
   });
 });
 

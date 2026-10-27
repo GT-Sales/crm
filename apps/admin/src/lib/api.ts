@@ -266,12 +266,14 @@ export async function reviewFile(
   return client(accessToken).staff.reviewFile(workspaceId, fileId, body);
 }
 
+/** A download link, or with `inline` one that opens the file in a tab of its own. */
 export async function createFileDownloadLink(
   accessToken: string,
   workspaceId: string,
   fileId: string,
+  disposition: 'attachment' | 'inline' = 'attachment',
 ): Promise<CreateDownloadLinkResponse> {
-  return client(accessToken).staff.fileDownloadLink(workspaceId, fileId);
+  return client(accessToken).staff.fileDownloadLink(workspaceId, fileId, { disposition });
 }
 
 /** An owner opening a lead's sealed SIN. The backend audits it; nothing here keeps it. */

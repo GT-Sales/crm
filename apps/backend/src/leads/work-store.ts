@@ -126,7 +126,7 @@ export interface LeadWorkStore {
     input: Scope & { leadType: string; assignee?: LeadAssigneeFilter; search?: string },
     perStage: number,
   ): Promise<LeadBoardColumn[]>;
-  /** `includeWork: false` skips the timeline, tasks, related requests and identities for a caller who may not see them. */
+  /** `includeWork: false` skips the timeline, tasks, related requests, identities and documents for a caller who may not see them. */
   getLead(
     input: Scope & { leadId: string; includeWork: boolean },
   ): Promise<LeadWorkResult | undefined>;
@@ -296,7 +296,9 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     return this.database.withTenantTx(input, async (tx) => {
       if (input.includeWork) return selectLeadWithWork(tx, input.workspaceId, input.leadId);
       const lead = await selectLeadDetail(tx, input.workspaceId, input.leadId);
-      return lead ? { lead, activities: [], tasks: [], related: [], identities: [] } : undefined;
+      return lead
+        ? { lead, activities: [], tasks: [], related: [], identities: [], documents: [] }
+        : undefined;
     });
   }
 

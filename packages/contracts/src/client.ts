@@ -2,9 +2,11 @@ import { websiteBotTokenSchema, type WebsiteBotProof } from './website-bot';
 import type { z } from 'zod';
 
 import {
+  createDownloadLinkRequestSchema,
   createDownloadLinkResponseSchema,
   reviewFileRequestSchema,
   reviewFileResponseSchema,
+  type CreateDownloadLinkRequest,
   type CreateDownloadLinkResponse,
   type ReviewFileRequest,
   type ReviewFileResponse,
@@ -303,7 +305,12 @@ export interface BackendClient {
       fileId: string,
       body: ReviewFileRequest,
     ): Promise<ReviewFileResponse>;
-    fileDownloadLink(workspaceId: string, fileId: string): Promise<CreateDownloadLinkResponse>;
+    /** A download, or with `disposition: 'inline'` a link to view the file in a tab of its own. */
+    fileDownloadLink(
+      workspaceId: string,
+      fileId: string,
+      body?: CreateDownloadLinkRequest,
+    ): Promise<CreateDownloadLinkResponse>;
     /** An owner opening a lead's sealed SIN; audited, never cached. */
     revealLeadIdentity(
       workspaceId: string,
@@ -668,10 +675,11 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: reviewFileRequestSchema.parse(body),
           responseSchema: reviewFileResponseSchema,
         }),
-      fileDownloadLink: (workspaceId, fileId) =>
+      fileDownloadLink: (workspaceId, fileId, body) =>
         call({
           method: 'POST',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/files/${encode(fileId)}/download-link`,
+          body: createDownloadLinkRequestSchema.parse(body ?? {}),
           responseSchema: createDownloadLinkResponseSchema,
         }),
       revealLeadIdentity: (workspaceId, leadId, identityId) =>

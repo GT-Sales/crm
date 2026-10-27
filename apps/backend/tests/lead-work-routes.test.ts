@@ -16,6 +16,7 @@ import {
   updateWorkspaceLeadResponseSchema,
   type LeadActivity,
   type LeadDetail,
+  type LeadDocument,
   type LeadIdentity,
   type LeadTask,
   type RelatedLead,
@@ -108,6 +109,15 @@ const identity: LeadIdentity = {
   createdAt: NOW,
 };
 
+const leadDocument: LeadDocument = {
+  id: '90000000-0000-4000-8000-000000000e04',
+  documentType: 'passport',
+  contentType: 'application/pdf',
+  sizeBytes: 1200,
+  revision: 1,
+  createdAt: NOW,
+};
+
 const { form: _form, ...listItem } = lead;
 
 class TokenVerifier implements StaffSessionVerifier {
@@ -178,6 +188,7 @@ function memoryWorkStore() {
             // viewer test sees.
             related: [relatedLead],
             identities: [identity],
+            documents: [leadDocument],
           }
         : undefined,
     ),
@@ -364,11 +375,13 @@ describe('staff lead work routes', () => {
     expect(body.tasks).toEqual([]);
     expect(body.related).toEqual([]);
     expect(body.identities).toEqual([]);
+    expect(body.documents).toEqual([]);
     expect(body.access).toEqual({
       contacts: false,
       manage: false,
       revealSensitive: false,
       emailCustomer: false,
+      downloadDocuments: false,
     });
     expect(work.getLead).toHaveBeenCalledWith(expect.objectContaining({ includeWork: false }));
   });
@@ -437,7 +450,10 @@ describe('staff lead work routes', () => {
     expect(body.tasks).toEqual([task]);
     expect(body.related).toEqual([relatedLead]);
     expect(body.identities).toEqual([identity]);
+    expect(body.documents).toEqual([leadDocument]);
     expect(body.access.revealSensitive).toBe(false);
+    // Opening an original is its own permission, not part of working leads.
+    expect(body.access.downloadDocuments).toBe(false);
 
     const missing = await call(`${leadsUrl()}/90000000-0000-4000-8000-0000000000ff`);
     expect(missing.status).toBe(404);

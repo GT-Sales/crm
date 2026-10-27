@@ -1,6 +1,7 @@
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
 import {
+  createDownloadLinkRequestSchema,
   createLeadNoteRequestSchema,
   createLeadTaskRequestSchema,
   createServiceCredentialRequestSchema,
@@ -437,6 +438,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         emailCustomer:
           decideAccess(decision.access, 'lead.manage').allowed &&
           (dependencies.customerEmail?.available(params.workspaceId) ?? false),
+        downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
       };
       // Form details, notes and tasks carry personal details as freely as
       // the contact fields do, so they travel only with contact visibility.
@@ -457,6 +459,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         // Which requests belong to one person is personal data as well.
         related: access.contacts ? result.related : [],
         identities: access.contacts ? result.identities : [],
+        documents: access.contacts ? result.documents : [],
         access,
         requestId: req.id,
       });
@@ -1183,7 +1186,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.post('/workspaces/:workspaceId/files/:fileId/download-link', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const fileId = z.uuid().safeParse(req.params['fileId']);
-    if (!workspaceId.success || !fileId.success) {
+    // A body is optional: without one the link downloads, as it always did.
+    const body = createDownloadLinkRequestSchema.safeParse(req.body ?? {});
+    if (!workspaceId.success || !fileId.success || !body.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -1204,6 +1209,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         actorId: actor.actorId,
         fileId: fileId.data,
         requestId: req.id,
+        disposition: body.data.disposition ?? 'attachment',
       });
       if (outcome.status === 'issued') {
         res.json({

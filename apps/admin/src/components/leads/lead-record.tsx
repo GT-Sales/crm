@@ -28,6 +28,7 @@ import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
 import { CountdownLabel, leadDisplayName, StageBadge } from './lead-display';
 import { IdentityCheck } from './identity-check';
+import { LeadDocuments } from './lead-documents';
 import { formFields, staffFields } from './lead-fields';
 import { LeadFormEditor } from './lead-form-editor';
 import { LeadTasks } from './lead-tasks';
@@ -185,7 +186,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
     );
   }
 
-  const { lead, activities, tasks, related, identities, access } = record.data;
+  const { lead, activities, tasks, related, identities, documents, access } = record.data;
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -478,6 +479,13 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
             leadId={lead.id}
             identities={identities}
             canReveal={access.revealSensitive === true}
+          />
+
+          <LeadDocuments
+            accessToken={accessToken}
+            workspaceId={workspaceId}
+            documents={documents}
+            canDownload={access.downloadDocuments === true}
           />
 
           <RelatedRequests workspaceSlug={workspaceSlug} related={related} />

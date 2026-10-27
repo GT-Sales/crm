@@ -15,6 +15,16 @@ export function candidateKey(workspaceId: string): string {
   return `candidate/${workspaceId}/${randomToken()}`;
 }
 
+/**
+ * The private copy of a document imported from a website's own storage: one
+ * fixed key per imported file (its id is the import job's message id, already
+ * random), so a retried import overwrites its own copy instead of leaving
+ * another behind.
+ */
+export function importedObjectKey(workspaceId: string, fileId: string): string {
+  return `candidate/${workspaceId}/legacy-${fileId}`;
+}
+
 function randomToken(): string {
   return `${randomUUID()}-${randomBytes(8).toString('hex')}`;
 }

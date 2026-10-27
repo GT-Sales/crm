@@ -15,6 +15,9 @@ import {
 } from '@gt-sales/jobs';
 import { z } from 'zod';
 
+import { createDocumentServiceFromEnv } from '../documents/factory.js';
+import { createLegacyDocumentImportHandler } from '../documents/import-job.js';
+import type { DocumentService } from '../documents/service.js';
 import { loadEmailSenders, type EmailSenders } from '../email/senders.js';
 import { DatabaseEmailStore } from '../email/store.js';
 import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
@@ -127,13 +130,16 @@ function requireEnv(env: NodeJS.ProcessEnv, name: string, provider: string): str
  * in production. Email eligibility (suppression + marketing consent) is always
  * re-checked against the real database regardless of which email provider is
  * selected — a fake email provider in a preview still respects real
- * suppression data.
+ * suppression data. Document imports use the configured object store, and wait
+ * for one without spending attempts.
  */
 export function createOutboxJobHandlers(
   env: NodeJS.ProcessEnv = process.env,
   eligibility: EmailEligibilityChecker = new DatabaseEmailStore(),
   deliveryOverride?: EmailDeliveryRecorder,
   senders: EmailSenders = loadEmailSenders(env),
+  documents:
+    Pick<DocumentService, 'importWebsiteDocument'> | undefined = createDocumentServiceFromEnv(env),
 ): JobHandlerRegistry {
   const explicitFake = env.OUTBOX_ADAPTERS === FAKE_OUTBOX_ADAPTERS_VALUE;
   const allowFakes = explicitFake && env.NODE_ENV !== 'production';
@@ -181,14 +187,18 @@ export function createOutboxJobHandlers(
           recordResult: (input) => eligibility.recordDeliveryResult(input),
         }
       : undefined);
-  return createJobHandlerRegistry({
-    email,
-    analytics: analytics ?? {
-      capture: async () => {
-        throw new JobHandlerError('provider_not_configured', false);
+  const handlers = new Map(
+    createJobHandlerRegistry({
+      email,
+      analytics: analytics ?? {
+        capture: async () => {
+          throw new JobHandlerError('provider_not_configured', false);
+        },
       },
-    },
-    eligibility,
-    delivery,
-  });
+      eligibility,
+      delivery,
+    }),
+  );
+  handlers.set('legacy_document_import', createLegacyDocumentImportHandler(documents));
+  return handlers;
 }

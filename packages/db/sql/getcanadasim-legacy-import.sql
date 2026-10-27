@@ -37,8 +37,11 @@
 -- The SIM number staff gave the order travels in the form too, as the
 -- staff-only `simNumber` field (contracts `leadFields`).
 --
--- Not imported yet: documents (passport, visa, SIM photo, billing contract,
--- partner licence), commission and invoice data, customer edit requests and
+-- Documents (passport, approval letter, SIM photo, billing contract, partner
+-- licence) are queued here and copied by the backend's outbox, verified, onto
+-- the lead's Documents card; the originals stay where they are.
+--
+-- Not imported yet: commission and invoice data, customer edit requests and
 -- the IP address. They stay in Get Canada Sim's admin.
 
 create or replace function pg_temp.gcs_legacy_uuid(seed text) returns uuid
@@ -278,6 +281,44 @@ begin
     and r.reminder_at is null and r.reminder_note is null
     and k.status <> 'cancelled'
     and k.updated_at = k.created_at;
+
+  -- Documents: one copy job per file the old admin keeps in the `documents`
+  -- bucket (an order's passport, approval letter, SIM photo and billing
+  -- contract; a partner's licence), for a lead that is not restricted. The
+  -- backend's outbox copies each into the CRM's own part of the bucket,
+  -- verified, and never touches the original. The object's storage version is
+  -- part of the key: a file replaced in the old admin (same name, new bytes)
+  -- is copied again as a newer revision, an unchanged one never twice. Only
+  -- Supabase has the storage schema; elsewhere there are no files to copy.
+  if to_regclass('storage.objects') is not null then
+    insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload)
+    select
+      v_workspace, 'legacy_document_import',
+      'gcs-document:' || d.lead_id || ':' || d.document_type || ':'
+        || md5(d.path || ':' || coalesce(o.version, o.id::text)),
+      jsonb_build_object(
+        'leadId', d.lead_id,
+        'documentType', d.document_type,
+        'sourceKey', d.path,
+        'uploadedAt', to_char(
+          coalesce(o.updated_at, o.created_at) at time zone 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        )
+      )
+    from (
+      select id as lead_id, 'passport' as document_type, passport_path as path from public.orders
+      union all select id, 'visa', permit_path from public.orders
+      union all select id, 'sim_photo', sim_photo_path from public.orders
+      union all select id, 'billing_contract', billing_contract_path from public.orders
+      union all select id, 'business_licence', license_path from public.partners
+    ) as d
+    join app.leads as l
+      on l.workspace_id = v_workspace and l.id = d.lead_id
+     and l.customer_data_restricted_at is null
+    join storage.objects as o on o.bucket_id = 'documents' and o.name = d.path
+    where d.path is not null
+    on conflict (workspace_id, job_type, dedupe_key) do nothing;
+  end if;
 end
 $import$;
 
@@ -308,4 +349,15 @@ select
          select 1 from app.lead_activities a
          where a.workspace_id = l.workspace_id and a.lead_id = l.id
            and a.kind = 'system' and a.data ->> 'event' = 'opened'
-       )) as crm_new;
+       )) as crm_new,
+  -- Copies still to run (pending or retrying) and those that failed; the
+  -- documents now on the CRM's leads from the old admin, current ones only.
+  (select count(*) from app.outbox_jobs j join app.workspaces w on w.id = j.workspace_id
+     where w.slug = 'getcanadasim' and j.job_type = 'legacy_document_import'
+       and j.status in ('pending', 'processing')) as documents_queued,
+  (select count(*) from app.outbox_jobs j join app.workspaces w on w.id = j.workspace_id
+     where w.slug = 'getcanadasim' and j.job_type = 'legacy_document_import'
+       and j.status in ('failed', 'uncertain')) as documents_failed,
+  (select count(*) from app.files f join app.workspaces w on w.id = f.workspace_id
+     where w.slug = 'getcanadasim' and f.uploaded_by = '00000000-0000-4000-8000-00000000a001'
+       and f.status = 'available' and f.superseded_by_file_id is null) as crm_documents;

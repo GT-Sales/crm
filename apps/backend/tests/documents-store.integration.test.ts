@@ -6,6 +6,7 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { DatabaseDocumentStore } from '../src/documents/store.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
   const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -39,6 +40,7 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
   let store: DatabaseDocumentStore;
+  let work: DatabaseLeadWorkStore;
 
   const intent = (recordId = leadId, stagingKey = `staging/${WORKSPACE}/${randomUUID()}`) => ({
     workspaceId: WORKSPACE,
@@ -77,6 +79,7 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
     runtimeUrl.password = TEST_RUNTIME_PASSWORD;
     database = createDatabaseClient({ connectionString: runtimeUrl.toString(), ssl: false });
     store = new DatabaseDocumentStore({ withTenantTx: database.withTenantTx.bind(database) });
+    work = new DatabaseLeadWorkStore(database);
   });
 
   afterAll(async () => {
@@ -202,5 +205,116 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
       recordId: leadId,
     });
     expect(listed[0]?.latestReview?.decision).toBe('rejected');
+  });
+
+  /** A submitted order on the site, as the Get Canada Sim import leaves one. */
+  const order = async (restricted = false) => {
+    const [row] = await admin<{ id: string }[]>`
+      insert into app.leads (workspace_id, lead_type, status, consent_version, customer_data_restricted_at)
+      values (${WORKSPACE}, 'sim_order', 'submitted', 'ci', ${restricted ? new Date() : null})
+      returning id
+    `;
+    if (!row) throw new Error('lead insert returned nothing');
+    return row.id;
+  };
+
+  const imported = (lead: string, overrides: { fileId?: string; checksum?: string } = {}) => {
+    const fileId = overrides.fileId ?? randomUUID();
+    return {
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      requestId: REQUEST,
+      fileId,
+      leadId: lead,
+      documentType: 'passport',
+      bucket: 'documents',
+      objectKey: `candidate/${WORKSPACE}/legacy-${fileId}`,
+      detectedMime: 'application/pdf' as const,
+      sizeBytes: 2048,
+      checksumSha256: overrides.checksum ?? 'b'.repeat(64),
+      uploadedBy: '00000000-0000-4000-8000-00000000a001',
+      uploadedAt: new Date('2026-09-01T10:00:00.000Z'),
+    };
+  };
+
+  test('an imported document is available on its lead, once, and audited', async () => {
+    const lead = await order();
+    const input = imported(lead);
+    const first = await store.insertImportedFile(input);
+    expect(first).toMatchObject({
+      status: 'imported',
+      file: {
+        id: input.fileId,
+        status: 'available',
+        objectKey: input.objectKey,
+        detectedMime: 'application/pdf',
+        revision: 1,
+        createdAt: input.uploadedAt,
+      },
+    });
+    expect(await store.insertImportedFile(input)).toMatchObject({
+      status: 'exists',
+      file: { id: input.fileId },
+    });
+    const [revision] = await admin`
+      select revision, created_by from app.file_revisions where file_id = ${input.fileId}
+    `;
+    expect(revision).toMatchObject({ revision: 1, created_by: input.uploadedBy });
+    const audits = await admin`
+      select action, actor_id, after from app.audit_events where entity_id = ${input.fileId}
+    `;
+    expect(audits).toEqual([
+      {
+        action: 'file.imported',
+        actor_id: ACTOR,
+        after: { documentType: 'passport', revision: 1, checksumSha256: input.checksumSha256 },
+      },
+    ]);
+  });
+
+  test('a restricted or unknown lead takes no imported document', async () => {
+    expect(await store.insertImportedFile(imported(await order(true)))).toEqual({
+      status: 'lead_not_found',
+    });
+    expect(await store.insertImportedFile(imported(randomUUID()))).toEqual({
+      status: 'lead_not_found',
+    });
+  });
+
+  test('the lead page lists the current document of each type, not the ID check photo', async () => {
+    const lead = await order();
+    const older = imported(lead, { checksum: 'c'.repeat(64) });
+    await store.insertImportedFile(older);
+    const newer = imported(lead);
+    await store.insertImportedFile(newer);
+    await store.insertImportedFile({ ...imported(lead), documentType: 'sim_photo' });
+    // A licence photo the customer gave for the credit check belongs to the ID check card.
+    const licence = { ...imported(lead), documentType: 'drivers_licence' };
+    await store.insertImportedFile(licence);
+    await admin`
+      insert into app.lead_identities (
+        workspace_id, lead_id, id_type, file_id, credit_check_consent_at, created_by
+      ) values (${WORKSPACE}, ${lead}, 'drivers_licence', ${licence.fileId}, now(), ${ACTOR})
+    `;
+
+    const page = await work.getLead({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      leadId: lead,
+      includeWork: true,
+    });
+    const documents = [...(page?.documents ?? [])].sort((a, b) =>
+      a.documentType.localeCompare(b.documentType),
+    );
+    expect(documents.map((document) => [document.documentType, document.revision])).toEqual([
+      ['passport', 2],
+      ['sim_photo', 1],
+    ]);
+    expect(documents[0]).toMatchObject({
+      id: newer.fileId,
+      contentType: 'application/pdf',
+      sizeBytes: 2048,
+      createdAt: '2026-09-01T10:00:00.000Z',
+    });
   });
 });
