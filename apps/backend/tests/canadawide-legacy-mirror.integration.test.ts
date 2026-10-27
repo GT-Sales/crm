@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 
 import { DatabaseLeadStore } from '../src/leads/store.js';
+import { claimLegacyTables, releaseLegacyTables } from './support/legacy-canadawide.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
   const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -68,54 +69,6 @@ const mobilityPayload = {
   postalCode: 'T2P 1J9',
 };
 
-/**
- * The legacy tables as production has them (the columns the mirror writes,
- * their NOT NULL rules, defaults and checks). The runtime role gets no grant on
- * them: only the trigger's SECURITY DEFINER owner may write there.
- */
-const LEGACY_TABLES = `
-  create table if not exists public.internet_leads (
-    id uuid primary key default gen_random_uuid(),
-    created_at timestamptz not null default now(),
-    plan text not null,
-    landing_city text,
-    date_of_birth date not null,
-    email text not null,
-    phone text not null,
-    street_address text not null,
-    apt_unit text,
-    city text not null,
-    postal_code text,
-    current_provider text,
-    consent boolean not null default false,
-    consented_at timestamptz,
-    status text not null default 'new',
-    full_name text not null,
-    preferred_installation_time text,
-    deleted_at timestamptz,
-    plan_id text
-  );
-  create table if not exists public.mobility_leads (
-    id uuid primary key,
-    full_name text not null,
-    email text not null,
-    phone text not null,
-    keep_number boolean not null,
-    sim_type text not null check (sim_type in ('esim', 'physical')),
-    street_address text not null,
-    city text not null,
-    postal_code text not null,
-    created_at timestamptz not null default now(),
-    plan_id text,
-    line_count smallint check (line_count between 1 and 10),
-    status text not null default 'new',
-    current_provider text check (char_length(current_provider) <= 60),
-    apt_unit text check (char_length(apt_unit) <= 40),
-    first_name text check (char_length(first_name) <= 80),
-    last_name text check (char_length(last_name) <= 80)
-  );
-`;
-
 databaseTest('CanadaWide legacy mirror (migration 0002)', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
@@ -141,7 +94,7 @@ databaseTest('CanadaWide legacy mirror (migration 0002)', () => {
       await tx`select pg_advisory_xact_lock(745284914)`;
       await tx.unsafe(`ALTER ROLE app_runtime PASSWORD '${TEST_RUNTIME_PASSWORD}'`);
     });
-    await admin.unsafe(LEGACY_TABLES);
+    await claimLegacyTables(admin);
     // `canadawide` may already exist in a reused database; the mirror keys on the slug.
     await admin`
       insert into app.workspaces (id, slug, name)
@@ -164,11 +117,11 @@ databaseTest('CanadaWide legacy mirror (migration 0002)', () => {
       ssl: false,
     });
     store = new DatabaseLeadStore(database);
-  });
+  }, 120_000); // long enough to wait for the import suite to release the legacy tables
 
   afterAll(async () => {
     await database.close();
-    await admin`drop table if exists public.internet_leads, public.mobility_leads`;
+    await releaseLegacyTables(admin);
     await admin.end();
   });
 

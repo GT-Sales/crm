@@ -58,6 +58,26 @@ pg_proc / pg_policies where schemaname = 'app'`.
 - Temporary: drop the trigger and the function in a new migration once phase 2
   retires the old Internet/Mobility Leads pages (docs/HANDOFF.md §2.4).
 
+## 0003_lead_stages_and_staff_names (2026-10-26)
+
+- Additive only, so it went in before the code that reads it: `leads.stage`
+  (`text not null default 'new'`, slug check), `memberships.display_name`
+  (1–80 characters, trimmed), the board index
+  `(workspace_id, lead_type, stage, updated_at)`, the "my tasks" index on
+  `lead_tasks`, and covering indexes for the five foreign keys the performance
+  advisor flagged (`email_messages`, `follow_up_schedules`,
+  `marketing_consents` and `outbox_job_alerts` on their workspace + parent,
+  `leads.contact_id`).
+- Applied with `apply_migration`; Drizzle row added by hand: hash
+  `510072fd8b2d52bb2bc4f39922bf7e5cc89214955184230ddb71a0b179b0e5f1`,
+  `created_at` `1793049061874`. Verified against the catalog: both columns,
+  all seven indexes, both checks.
+
+## Historical CanadaWide import (2026-10-27)
+
+Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,
+run as `postgres`. Procedure, mapping and the run log: [legacy-import.md](legacy-import.md).
+
 ## Set or rotate the runtime password
 
 ```sql

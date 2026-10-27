@@ -1,26 +1,27 @@
 # GT Sales CRM — handoff
 
-State as of 2026-10-26, written for whoever (person or AI session) picks this
+State as of 2026-10-27, written for whoever (person or AI session) picks this
 up next. Everything here was read from the live systems or the code on that
 day, not from memory. When something below stops being true, change it here.
 
 Reading order for a new session: [AGENTS.md](../AGENTS.md) (rules, commands,
 where things live) → this file → [PLAN.md](PLAN.md) (decisions, phases,
 why) → [ENV.md](ENV.md) (every variable) → [RUNBOOKS/database.md](RUNBOOKS/database.md)
-(migrations, trackers, passwords, adding a site).
+(migrations, trackers, passwords, adding a site) → [RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md)
+(the CanadaWide history import).
 
 ## 1. Where everything is
 
-| System       | Facts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **GitHub**   | `GT-Sales/crm`. `main` deploys both apps. Development branch for this work: `claude/phase-0-scaffold`, fast-forwarded into `main` (identical histories). CI (`.github/workflows/ci.yml`, job `verify`) runs on every push to `main` and on PRs: lint, format, typecheck, migrations on a disposable Postgres, the full test suite with integration suites forced on, OpenAPI drift check, affected builds, browser tests.                                                                                                                                                                   |
-| **Backend**  | Railway project `GT Sales CRM` (`ea4ffa36-d587-45b8-a64d-9f8f84fbd42f`), service `crm` (`01c9dcfa-644d-4c52-ade1-b08d65114443`), environment `production` (`112461fd-4e06-44bc-a5ae-13f40438f69e`). Region **Singapore `asia-southeast1`** (one replica). Follows `main`; build per `railway.json` at the repo root. Public URL `https://crm-production-cf2e.up.railway.app`, `PORT` pinned to 4000. Lives in the developer's personal Railway workspace for now.                                                                                                                           |
-| **Admin**    | Vercel team `gt-sales` (`team_PDmnYZIjHmPgGmDSYFB0Ru3K`), project `gt-sales-crm-admin` (`prj_cjhH8QnFnO5RdOHHRZVhOrxsStnp`). Root `apps/admin`, framework Next.js, **Node 22.x** (the repo's `engines` field rejects Vercel's default of 24), production branch `main`, functions in `iad1` (`apps/admin/vercel.json`). Live at **`https://gt-sales-crm-admin.vercel.app`**. The `…-gt-sales.vercel.app` alias and per-deployment URLs sit behind Vercel's login wall.                                                                                                                      |
-| **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (25 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued.                                                                                                                     |
-| **Auth**     | Supabase Auth on the same project: email + password, confirmation required, sign-ups allowed (the invitation flow needs them). Site URL and redirect URL are the admin domain above. No multi-factor step (owner decision, see §4).                                                                                                                                                                                                                                                                                                                                                         |
-| **Email**    | The Resend account this session can reach has no domains; CanadaWide and Get Canada Sim send their own mail with their own Resend keys. The backend's email provider and Supabase custom SMTP are unset. Supabase's built-in mailer **delivers only to members of the Supabase organization's team**, at about two messages an hour: the owner's own sign-up worked because the owner is on the team, but any other admin's confirmation email is refused until custom SMTP is set (§5.1).                                                                                                  |
-| **Owner**    | Md Takibuddin, gamertakib@gmail.com — GitHub org owner, Railway workspace, Vercel team, Supabase org. First `owner` of both sites in the CRM (Auth user `b8fbfaea-a3a8-4cfd-b609-d9d422fa7b7e`).                                                                                                                                                                                                                                                                                                                                                                                            |
-| **Websites** | Get Canada Sim (`Md-Takibuddin/Get-Canada-Sim`, Next.js on Vercel, its own admin and tables in `public`; sends nothing here until phase 3). CanadaWide (`Md-Takibuddin/Canadawide-Sales-website`, Next.js on Vercel in the owner's personal team, which this session's Vercel token cannot see): its internet and mobility forms send to the CRM once `CRM_API_URL` and `CRM_SITE_KEY` are set in its Vercel project (code on `main` since 2026-10-26, inert until then); its ID-upload step still writes Supabase directly. Staff still work CanadaWide leads in the Get Canada Sim admin. |
+| System       | Facts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub**   | `GT-Sales/crm`. `main` deploys both apps. Development branch for this work: `claude/phase-0-scaffold`, fast-forwarded into `main` (identical histories). CI (`.github/workflows/ci.yml`, job `verify`) runs on every push to `main` and on PRs: lint, format, typecheck, migrations on a disposable Postgres, the full test suite with integration suites forced on, OpenAPI drift check, affected builds, the shell browser checks and the lead journeys against the real backend.                                                                                                                                                                                                                             |
+| **Backend**  | Railway project `GT Sales CRM` (`ea4ffa36-d587-45b8-a64d-9f8f84fbd42f`), service `crm` (`01c9dcfa-644d-4c52-ade1-b08d65114443`), environment `production` (`112461fd-4e06-44bc-a5ae-13f40438f69e`). Region **Singapore `asia-southeast1`** (one replica). Follows `main`; build per `railway.json` at the repo root. Public URL `https://crm-production-cf2e.up.railway.app`, `PORT` pinned to 4000. Lives in the developer's personal Railway workspace for now.                                                                                                                                                                                                                                               |
+| **Admin**    | Vercel team `gt-sales` (`team_PDmnYZIjHmPgGmDSYFB0Ru3K`), project `gt-sales-crm-admin` (`prj_cjhH8QnFnO5RdOHHRZVhOrxsStnp`). Root `apps/admin`, framework Next.js, **Node 22.x** (the repo's `engines` field rejects Vercel's default of 24), production branch `main`, functions in `iad1` (`apps/admin/vercel.json`). Live at **`https://gt-sales-crm-admin.vercel.app`**. The `…-gt-sales.vercel.app` alias and per-deployment URLs sit behind Vercel's login wall.                                                                                                                                                                                                                                          |
+| **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (25 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued.                                                                                                                                                                                                                                         |
+| **Auth**     | Supabase Auth on the same project: email + password, confirmation required, sign-ups allowed (the invitation flow needs them). Site URL and redirect URL are the admin domain above. No multi-factor step (owner decision, see §4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Email**    | The Resend account this session can reach has no domains; CanadaWide and Get Canada Sim send their own mail with their own Resend keys. The backend's email provider and Supabase custom SMTP are unset. Supabase's built-in mailer **delivers only to members of the Supabase organization's team**, at about two messages an hour: the owner's own sign-up worked because the owner is on the team, but any other admin's confirmation email is refused until custom SMTP is set (§5.1).                                                                                                                                                                                                                      |
+| **Owner**    | Md Takibuddin, gamertakib@gmail.com — GitHub org owner, Railway workspace, Vercel team, Supabase org. First `owner` of both sites in the CRM (Auth user `b8fbfaea-a3a8-4cfd-b609-d9d422fa7b7e`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Websites** | Get Canada Sim (`Md-Takibuddin/Get-Canada-Sim`, Next.js on Vercel, its own admin and tables in `public`; sends nothing here until phase 3). CanadaWide (`Md-Takibuddin/Canadawide-Sales-website`, Next.js on Vercel in the owner's personal team, which this session's Vercel token cannot see): its internet and mobility forms send to the CRM once `CRM_API_URL` and `CRM_SITE_KEY` are set in its Vercel project (code on `main` since 2026-10-26, inert until then); its ID-upload step still writes Supabase directly. All 708 of its historical leads are in the CRM (imported 2026-10-27, re-run before the staff cutover); staff still use the Get Canada Sim admin until the owner moves them (§5.1). |
 
 Secrets never live in this repository. The `app_runtime` password exists only
 in Railway's `DATABASE_URL`; every other secret is listed by name in ENV.md and
@@ -52,8 +53,8 @@ should be rotated once the owner has a password manager for them (§6).
                  ▲
                  │ NEXT_PUBLIC_SUPABASE_* (browser signs in directly with Supabase Auth, nothing else)
  ┌───────────────┴────────── admin: apps/admin (Next.js 16, Vercel iad1) ───────────────┐
- │ /login (+ invitation sign-up) · /recovery · /denied · /w/[site]/{leads,documents,     │
- │ settings,settings/jobs}; every API call = fetch(NEXT_PUBLIC_API_BASE_URL, bearer)     │
+ │ /login (+ invitation sign-up) · /recovery · /denied · /w/[site]/{leads, leads/[id],    │
+ │ tasks, documents, settings, settings/jobs}; every API call = fetch(API base, bearer)   │
  └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,41 +69,47 @@ the database row that identity resolves to, enforced again by RLS.
 pnpm 9 workspace, Node 22, strict TypeScript, ESLint 9, Prettier, Vitest,
 Playwright. `pnpm-workspace.yaml` pins every tool version in its `catalog`.
 
-| Path                     | What it holds                                                                                                                                                                                                                                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/backend/src`       | `app.ts` (middleware + mounts), `server.ts`, `scheduler.ts`, `shutdown.ts`; `auth/` (Supabase session verifier), `staff/` (authorization, staff store), `website/` (credential auth, rate limits, bot check), `leads/`, `documents/`, `email/`, `jobs/` (outbox), `retention/`, `machines/`, `crypto/`, `http/`, `routes/`. |
-| `apps/backend/tests`     | Vitest unit tests, `*.integration.test.ts` against a disposable Postgres, `isolation.spec.ts` (the tenant-isolation gate), `e2e/harness.ts` for browser tests.                                                                                                                                                              |
-| `apps/admin/src`         | `app/` routes, `components/` (shell, sidebar, switcher, leads list, credentials manager, jobs status, invite form, session provider), `lib/` (`api.ts` typed client, `supabase-auth.ts`, `auth-navigation.ts`). `next.config.ts` builds the CSP from the public env.                                                        |
-| `apps/admin/e2e`         | `shell.spec.ts` (public routes, desktop + mobile) and `orders.spec.ts` (full journey against the backend harness). README explains the compiled-out test session seam.                                                                                                                                                      |
-| `packages/db`            | `src/schema.ts` (Drizzle schema incl. RLS policies), `drizzle/` (SQL migrations + journal), `src/index.ts` (pooled client, `withTenantTx`, `withActorTx`, `rateLimitHit`, `resolveWebsiteCredential`), `src/seed.ts` (sites, roles, permissions, owner invitation), `src/migrate.ts`. Backend-only import.                  |
-| `packages/contracts`     | Zod schemas for every request/response, the endpoint registry (`src/endpoints.ts`), the one typed client, and `scripts/generate-openapi.ts` → `docs/api/openapi.json` (CI fails if stale).                                                                                                                                  |
-| `packages/types`         | Role, permission, scope and status name tuples shared by db, backend, contracts and admin.                                                                                                                                                                                                                                  |
-| `packages/ui`            | shadcn-style components (Tailwind 4) for the admin.                                                                                                                                                                                                                                                                         |
-| `packages/adapters`      | Error tracking (Sentry-shaped, inert when unset) and other thin provider adapters.                                                                                                                                                                                                                                          |
-| `packages/config`        | Shared ESLint/TS/Prettier config.                                                                                                                                                                                                                                                                                           |
-| `packages/observability` | Logger and request-log shape.                                                                                                                                                                                                                                                                                               |
-| `jobs`                   | Standalone job runner entry (same code as the scheduler tasks) for one-off runs.                                                                                                                                                                                                                                            |
-| `scripts`                | `affected-builds.mjs` (Vercel ignore step and `build:affected`), tooling tests.                                                                                                                                                                                                                                             |
-| `docs`                   | This file, PLAN.md, ENV.md, RUNBOOKS/, `api/openapi.json`, `RUNBOOKS/manual/0001-remaining.sql` (the statements the Supabase tool refuses to run).                                                                                                                                                                          |
+| Path                     | What it holds                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/backend/src`       | `app.ts` (middleware + mounts), `server.ts`, `scheduler.ts`, `shutdown.ts`; `auth/` (Supabase session verifier), `staff/` (authorization, staff store), `website/` (credential auth, rate limits, bot check), `leads/`, `documents/`, `email/`, `jobs/` (outbox), `retention/`, `machines/`, `crypto/`, `http/`, `routes/`.                                               |
+| `apps/backend/tests`     | Vitest unit tests, `*.integration.test.ts` against a disposable Postgres, `isolation.spec.ts` (the tenant-isolation gate), `e2e/harness.ts` (the real backend for the lead journeys, one stub session verifier), `support/` (replica legacy tables).                                                                                                                      |
+| `apps/admin/src`         | `app/` routes, `components/` (shell, sidebar, switcher, `leads/` — inbox, table, board, lead page, timeline, tasks, my tasks — credentials manager, jobs status, invite form, display name, session provider), `lib/` (`api.ts`, `use-resource.ts`, `dates.ts`, `people.ts`, `supabase-auth.ts`). `next.config.ts` builds the CSP from the public env.                    |
+| `apps/admin/e2e`         | `shell.spec.ts` (public routes, desktop + mobile) and `leads.spec.ts` (four lead journeys against the backend harness, `playwright.leads.config.ts`). README explains the compiled-out test session seam.                                                                                                                                                                 |
+| `packages/db`            | `src/schema.ts` (Drizzle schema incl. RLS policies), `drizzle/` (SQL migrations + journal), `src/index.ts` (pooled client, `withTenantTx`, `withActorTx`, `rateLimitHit`, `resolveWebsiteCredential`), `src/seed.ts` (sites, roles, permissions, owner invitation), `src/migrate.ts`, `sql/` (data scripts run by hand, e.g. the CanadaWide import). Backend-only import. |
+| `packages/contracts`     | Zod schemas for every request/response, the endpoint registry (`src/endpoints.ts`), the one typed client, and `scripts/generate-openapi.ts` → `docs/api/openapi.json` (CI fails if stale).                                                                                                                                                                                |
+| `packages/types`         | Role, permission, scope and status name tuples shared by db, backend, contracts and admin.                                                                                                                                                                                                                                                                                |
+| `packages/ui`            | shadcn-style components (Tailwind 4) for the admin.                                                                                                                                                                                                                                                                                                                       |
+| `packages/adapters`      | Error tracking (Sentry-shaped, inert when unset) and other thin provider adapters.                                                                                                                                                                                                                                                                                        |
+| `packages/config`        | Shared ESLint/TS/Prettier config.                                                                                                                                                                                                                                                                                                                                         |
+| `packages/observability` | Logger and request-log shape.                                                                                                                                                                                                                                                                                                                                             |
+| `jobs`                   | Standalone job runner entry (same code as the scheduler tasks) for one-off runs.                                                                                                                                                                                                                                                                                          |
+| `scripts`                | `affected-builds.mjs` (Vercel ignore step and `build:affected`), tooling tests.                                                                                                                                                                                                                                                                                           |
+| `docs`                   | This file, PLAN.md, ENV.md, RUNBOOKS/ (database, legacy import), `api/openapi.json`, `RUNBOOKS/manual/0001-remaining.sql` (the statements the Supabase tool refuses to run).                                                                                                                                                                                              |
 
 ### 2.3 Backend surfaces
 
 Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 `decideAccess` checks against the actor's roles and permission overrides):
 
-| Method          | Path                                             | Action             | Notes                                                                            |
-| --------------- | ------------------------------------------------ | ------------------ | -------------------------------------------------------------------------------- |
-| GET             | `/workspaces`                                    | —                  | Accepts pending invitations for the verified email, then lists active sites.     |
-| GET             | `/workspaces/:id/access`                         | workspace.read     | Roles and permission names for the site switcher.                                |
-| GET             | `/workspaces/:id/leads`                          | workspace.read     | Paged; contact fields hidden unless lead.manage, order.manage or financial.read. |
-| GET             | `/workspaces/:id/members`                        | workspace.read     | Assignee options: membership ids and roles only.                                 |
-| GET             | `/workspaces/:id/jobs`                           | workspace.read     | Outbox jobs and alerts.                                                          |
-| POST            | `/workspaces/:id/jobs/:jobId/retry` · `/resolve` | integration.manage | Retry a failed job; resolve an uncertain delivery.                               |
-| POST            | `/workspaces/:id/invitations`                    | staff.invite       | Invite by email with roles; `memberships.status = pending`.                      |
-| DELETE          | `/workspaces/:id/memberships/:membershipId`      | staff.remove       | Revoke; takes effect on the member's next request.                               |
-| GET/POST/DELETE | `/workspaces/:id/service-credentials[/:credId]`  | integration.manage | Site keys `gtsk_…`, shown once, stored hashed, scoped.                           |
-| POST            | `/workspaces/:id/files/:fileId/review`           | order.manage       | Approve/reject an uploaded document.                                             |
-| POST            | `/workspaces/:id/files/:fileId/download-link`    | document.download  | Short-lived signed URL.                                                          |
+| Method          | Path                                                        | Action                       | Notes                                                                                                                                                                   |
+| --------------- | ----------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET             | `/workspaces`                                               | —                            | Accepts pending invitations for the verified email, then lists active sites.                                                                                            |
+| GET             | `/workspaces/:id/access`                                    | workspace.read               | Roles and permission names for the site switcher.                                                                                                                       |
+| PATCH           | `/profile`                                                  | —                            | The caller's own display name, on every site they belong to.                                                                                                            |
+| GET             | `/workspaces/:id/leads`                                     | workspace.read               | Paged; filters type, stage, assignee (`me`/`none`/id), `q`, `view=trash`. Contact fields hidden unless lead.manage, order.manage or financial.read; `q` needs that too. |
+| GET             | `/workspaces/:id/leads/summary` · `/leads/board`            | workspace.read               | Active leads per type and the trash; one type's leads by stage (a column per catalogue stage, counts, newest 50 each).                                                  |
+| GET             | `/workspaces/:id/leads/:leadId`                             | workspace.read               | Lead with form, timeline and tasks; readers without contact access get stage and source only.                                                                           |
+| PATCH           | `/workspaces/:id/leads/:leadId`                             | lead.manage                  | Stage (checked against the type), assignee (active member), contact corrections; writes timeline + audit.                                                               |
+| POST            | `/workspaces/:id/leads/:leadId/{notes,tasks,trash,restore}` | lead.manage                  | Note, follow-up task, soft delete and back. A trashed lead refuses changes (`lead_trashed`).                                                                            |
+| PATCH · GET     | `/workspaces/:id/tasks/:taskId` · `/tasks`                  | lead.manage · workspace.read | Complete, reopen, cancel, edit; "my tasks" (needs contact access).                                                                                                      |
+| GET             | `/workspaces/:id/members`                                   | workspace.read               | Assignee options: membership and actor ids, roles and display names, never emails.                                                                                      |
+| GET             | `/workspaces/:id/jobs`                                      | workspace.read               | Outbox jobs and alerts.                                                                                                                                                 |
+| POST            | `/workspaces/:id/jobs/:jobId/retry` · `/resolve`            | integration.manage           | Retry a failed job; resolve an uncertain delivery.                                                                                                                      |
+| POST            | `/workspaces/:id/invitations`                               | staff.invite                 | Invite by email with roles; `memberships.status = pending`.                                                                                                             |
+| DELETE          | `/workspaces/:id/memberships/:membershipId`                 | staff.remove                 | Revoke; takes effect on the member's next request.                                                                                                                      |
+| GET/POST/DELETE | `/workspaces/:id/service-credentials[/:credId]`             | integration.manage           | Site keys `gtsk_…`, shown once, stored hashed, scoped.                                                                                                                  |
+| POST            | `/workspaces/:id/files/:fileId/review`                      | order.manage                 | Approve/reject an uploaded document.                                                                                                                                    |
+| POST            | `/workspaces/:id/files/:fileId/download-link`               | document.download            | Short-lived signed URL.                                                                                                                                                 |
 
 Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 
@@ -130,13 +137,13 @@ Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 Schema `app`, all tables carry `workspace_id` except `contacts` and
 `rate_limit_buckets`. A workspace **is a site**.
 
-| Group        | Tables                                                                                                                                                                                                                                                  |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sites, staff | `workspaces`, `memberships` (user_id or invited_email; pending/active/revoked), `roles`, `membership_roles`, `permissions`, `membership_permissions`, `service_credentials`                                                                             |
-| CRM          | `contacts` (global, unique by `lower(btrim(email))`), `leads` (lead_type, status, payload, attribution, contact_id, assigned_actor_id, external_ref, restriction and soft-delete stamps), `lead_activities` (append-only), `lead_tasks`, `draft_grants` |
-| Documents    | `files`, `file_revisions`, `file_review_events`                                                                                                                                                                                                         |
-| Email        | `email_messages`, `email_provider_events`, `email_suppressions`, `marketing_consents`, `follow_up_schedules`, `deleted_email_messages`                                                                                                                  |
-| Operations   | `outbox_jobs`, `outbox_job_alerts`, `audit_events` (redaction-only updates), `rate_limit_buckets`                                                                                                                                                       |
+| Group        | Tables                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sites, staff | `workspaces`, `memberships` (user_id or invited_email; pending/active/revoked; `display_name`), `roles`, `membership_roles`, `permissions`, `membership_permissions`, `service_credentials`                                                                                                                                                                             |
+| CRM          | `contacts` (global, unique by `lower(btrim(email))`), `leads` (lead_type, status = the form's lifecycle, **stage** = where staff work it, payload, attribution, contact_id, assigned_actor_id, external_ref, restriction and soft-delete stamps), `lead_activities` (append-only timeline: note, status_change, assignment, edit, system), `lead_tasks`, `draft_grants` |
+| Documents    | `files`, `file_revisions`, `file_review_events`                                                                                                                                                                                                                                                                                                                         |
+| Email        | `email_messages`, `email_provider_events`, `email_suppressions`, `marketing_consents`, `follow_up_schedules`, `deleted_email_messages`                                                                                                                                                                                                                                  |
+| Operations   | `outbox_jobs`, `outbox_job_alerts`, `audit_events` (redaction-only updates), `rate_limit_buckets`                                                                                                                                                                                                                                                                       |
 
 Tenancy: `withTenantTx` opens a transaction and sets `app.workspace_id` and
 `app.actor_id` with `set_config(…, true)`; every policy (`tenantPolicy`) requires
@@ -163,9 +170,18 @@ ids passes through, and it is a no-op where the legacy tables do not exist
 (CI). Drop it, in a new migration, when phase 2 retires the old Internet and
 Mobility Leads pages.
 
+**Historical import (2026-10-27).** Every legacy row is also in `app.leads`
+under its own id, with its note and reminder (RUNBOOKS/legacy-import.md). The
+mirror and the import meet without loops: an imported lead's mirror insert
+finds its legacy row and does nothing. Until the cutover, staff may still
+change a lead in the old admin; re-running the import carries that over except
+onto leads already worked in the CRM.
+
 Migrations: `packages/db/drizzle/0000_app_foundation.sql` (generated),
-`0001_runtime_functions.sql` (hand-written) and `0002_canadawide_legacy_mirror.sql`
-(hand-written, `drizzle-kit generate --custom`). All are recorded in two trackers,
+`0001_runtime_functions.sql` (hand-written), `0002_canadawide_legacy_mirror.sql`
+(hand-written, `drizzle-kit generate --custom`) and
+`0003_lead_stages_and_staff_names.sql` (generated: `stage`, `display_name`,
+board and task indexes, five foreign-key indexes). All are recorded in two trackers,
 `drizzle.__drizzle_migrations` (hash = sha256 of the file, created_at = journal
 `when`) and `supabase_migrations.schema_migrations`. Verify by querying the
 objects, never the trackers (the Get Canada Sim project learned that the hard
@@ -176,8 +192,9 @@ go into `docs/RUNBOOKS/manual/` for the owner to paste into the SQL editor.
 Seeded: sites `getcanadasim` (`10000000-0000-4000-8000-000000000101`) and
 `canadawide` (`…102`, domain `canadawideinternet.com`), each with the seven
 roles and six permissions, and the owner's membership (active since
-2026-10-25 13:44 UTC). As of 2026-10-26: no live leads (two soft-deleted smoke
-tests), no live site keys (one revoked smoke-test key).
+2026-10-25 13:44 UTC). As of 2026-10-27: `canadawide` holds the 708 imported
+leads (129 of them in the trash, including the two smoke tests); `getcanadasim`
+has none; no live site keys (one revoked smoke-test key).
 
 ### 2.5 Identity, roles, permissions
 
@@ -311,16 +328,46 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    rows soft-deleted (the old admin hides them unless "show deleted" is on).
    CanadaWide's switch itself waits on §5.1 step 1.
 
+### 3.3 2026-10-26/27: phase 2 core and the CanadaWide history
+
+1. **Migration 0003** (additive, applied before the code): `leads.stage`,
+   `memberships.display_name`, the board and "my tasks" indexes, and the five
+   foreign-key indexes the performance advisor flagged.
+2. **Lead work in the backend** (`leads/work-store.ts`, `leads/staff-queries.ts`,
+   routes in §2.3): lead detail with form, timeline and tasks; stage, assignee
+   and contact corrections; notes; tasks; trash and restore; the board; the
+   per-type summary; "my tasks"; display names. Each write locks the lead,
+   records a timeline entry and an audit event in one tenant transaction;
+   neither stores contact values or note text a second time. The stage list
+   per type is `leadTypeCatalog` in the contracts, shared with the admin and
+   identical to CanadaWide's old admin, so its history imports one to one.
+3. **Twenty-style admin**: the inbox (type tabs with counts, search, stage and
+   assignee filters, table or board with drag-and-drop and a keyboard "Move to"
+   menu, everything in the URL), the lead page, My tasks, and Settings → Your
+   name. Read-only roles see the stage and source and nothing personal.
+4. **Browser journeys** (`apps/admin/e2e/leads.spec.ts`) against the real
+   backend and a disposable database through `apps/backend/tests/e2e/harness.ts`,
+   now a CI step. They caught two bugs before release: a delayed search update
+   that undid a tab clicked while it waited, and a task checkbox that only
+   moved once the server answered.
+5. **Historical import** in production (`packages/db/sql/canadawide-legacy-import.sql`):
+   all 708 legacy CanadaWide leads (669 internet, 39 mobility; four more than
+   the morning's count, sent by customers meanwhile), 623 contacts, 279 notes,
+   28 tasks; stages and trash matched the legacy rows one for one; a second run
+   changed nothing.
+
 ## 4. What is verified, and how
 
-| Claim                                       | Evidence                                                                                                                 |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Backend serves and the scheduler runs clean | `GET /api/v1/health` 200; deployment logs show no `scheduler_task_failed` since the pooler fix                           |
-| Admin is reachable and wired                | `/login` 200 on `gt-sales-crm-admin.vercel.app`; the JS bundle contains the backend URL, Supabase URL and key            |
-| CORS                                        | `OPTIONS /api/v1/staff/me` from the admin origin → 204 with `access-control-allow-origin` set                            |
-| Owner access                                | `app.memberships`: two `active` rows for the owner's user id; log shows `/staff/workspaces` 200 and leads 200            |
-| Code gates                                  | typecheck, lint, Prettier, 508/508 tests with integration suites, both builds, 14 browser checks (2026-10-26)            |
-| Website intake in production                | Smoke test 2026-10-26: two labelled leads stored and mirrored with matching ids; 401 without a key; 400 on a bad payload |
+| Claim                                       | Evidence                                                                                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backend serves and the scheduler runs clean | `GET /api/v1/health` 200; deployment logs show no `scheduler_task_failed` since the pooler fix                                                                                                   |
+| Admin is reachable and wired                | `/login` 200 on `gt-sales-crm-admin.vercel.app`; the JS bundle contains the backend URL, Supabase URL and key                                                                                    |
+| CORS                                        | `OPTIONS /api/v1/staff/me` from the admin origin → 204 with `access-control-allow-origin` set                                                                                                    |
+| Owner access                                | `app.memberships`: two `active` rows for the owner's user id; log shows `/staff/workspaces` 200 and leads 200                                                                                    |
+| Code gates                                  | typecheck, lint, Prettier, 557/557 tests with integration suites, both builds, 14 shell browser checks and 4 lead journeys against the real backend (2026-10-27); CI run 8 green on `b1409cf`    |
+| Website intake in production                | Smoke test 2026-10-26: two labelled leads stored and mirrored with matching ids; 401 without a key; 400 on a bad payload                                                                         |
+| Phase 2 live                                | Railway deployment of `b1409cf` SUCCESS; `/w/canadawide/tasks` and `/w/canadawide/leads/<id>` answer 200 on the admin domain (they did not exist before); migration 0003 verified in the catalog |
+| Import complete and idempotent              | Reconciliation in RUNBOOKS/legacy-import.md: 0 legacy rows missing, 0 stage or trash mismatches, every new id a valid UUID; identical counts and fingerprints after a second run                 |
 
 ## 5. What comes next, in order
 
@@ -348,16 +395,26 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    `R2_REGION=ap-south-1`, `R2_BUCKET=documents`, `R2_ACCOUNT_ID` (ENV.md). Until
    then document uploads fail, and CanadaWide's ID step cannot move here.
 4. Names and roles of the other admins; invite them from the admin (after 2).
-5. Move the Railway project into a GT Sales workspace; rotate the secrets
+   Each sets their own name under Settings → Your name (the owner too: until
+   then colleagues see "Unnamed owner").
+5. **Decide when staff move from the old admin to the CRM** for CanadaWide.
+   On the day: re-run the import (RUNBOOKS/legacy-import.md) so the last
+   statuses and notes come over, then staff work only in the CRM. After that a
+   session drops the 0002 mirror trigger and removes the Internet and Mobility
+   Leads pages from the Get Canada Sim admin.
+6. Move the Railway project into a GT Sales workspace; rotate the secrets
    generated during the build (`app_runtime` password, `CRON_SECRET`,
    `EMAIL_CONTACT_HASH_SECRET`, registry secrets) once stored properly.
-6. Optional: switch Supabase Auth's TOTP toggle off; nothing uses it.
+7. Enable leaked-password protection (Supabase → Authentication → Policies);
+   the security advisor flags it.
+8. Optional: switch Supabase Auth's TOTP toggle off; nothing uses it.
 
-### 5.2 Engineering: phase 1 (data + intake), per PLAN.md §6
+### 5.2 Engineering: what remains of phases 1 and 2, per PLAN.md §6–7
 
-- **Done 2026-10-26:** the lead-type registry with `internet` and `mobility`
-  modelled, one-shot intake, the legacy mirror, CanadaWide's two lead routes
-  behind its env switch (§3.2). Still to do in phase 1:
+- **Done:** the lead-type registry with `internet` and `mobility` modelled,
+  one-shot intake, the legacy mirror, CanadaWide's two lead routes behind its
+  env switch (§3.2); the historical import, stages, lead page, timeline, notes,
+  tasks, assignment, board, My tasks, trash (§3.3). Still to do in phase 1:
 - **CanadaWide's ID step** (`/api/mobility-applications`): needs Storage S3
   keys (§5.1) and `SENSITIVE_FIELDS_KEY` for SIN sealing. Route a licence
   photo through `uploads/intents` → `finalize` onto the mobility lead, and a
@@ -368,20 +425,26 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
   endpoint quirks first thing; a thin Storage-API adapter is the fallback).
 - **SIN sealing** with `crypto/cipher.ts` (AES-256-GCM, label
   `gt-sales-crm:sealed-value:v1`) before any identity field is stored.
-- **Historical import**: copy the 701 legacy CanadaWide leads into `app.leads`
-  **under their legacy ids** (the mirror skips them), contacts merged by email,
-  `notes` → activity, `reminder_*` → task, `deleted_at` kept, legacy working
-  status kept for phase 2. Rehearse locally; run right before the phase 2
-  cutover so statuses and notes are current.
 - **Model the planned types** (`sim_order`, `partner_application`,
   `contact_message`) when Get Canada Sim's forms move (phase 3).
 
-Then phase 2 (CRM screens: inbox across sites, kanban per type, lead page with
-timeline/notes/tasks/documents/assignment, contact page, my tasks,
-split/merge), phase 3 (port Get Canada Sim's orders, partners, finance, blog,
-staff management and portal; its forms call the intake API; read
-`docs/CRM_PLATFORM_PLAN.md` in that repository first), phase 4 (remove admin,
-portal and database code from the website repositories; drop legacy tables).
+Still to do in phase 2:
+
+- **Documents on the lead page**: a mobility lead's licence photo (after the
+  ID step moves and S3 keys exist), with review and download, reusing the
+  existing `files` routes.
+- **One inbox across sites** (PLAN.md §5.2: a query per site the admin belongs
+  to, merged), **saved views** (`saved_views` table), the **contact page** (all
+  leads of one person across sites) and **split/merge** of contacts, audited.
+- **Cutover clean-up** once staff are on the CRM (§5.1 step 5): a migration
+  dropping `leads_mirror_canadawide_legacy` and its function, and removing the
+  old pages from the Get Canada Sim admin.
+
+Then phase 3 (port Get Canada Sim's orders, partners, finance, blog, staff
+management and portal; its forms call the intake API; read
+`docs/CRM_PLATFORM_PLAN.md` in that repository first) and phase 4 (remove
+admin, portal and database code from the website repositories; drop legacy
+tables).
 
 ### 5.3 Technical follow-ups found during the build
 
@@ -443,9 +506,10 @@ the path.
   when only docs change (`watchPatterns`, `affected-builds.mjs`).
 - **Gate before every commit**: `pnpm run typecheck && pnpm run lint && pnpm run format && pnpm test && pnpm run build`,
   with the integration variables set so the database suites run (they are what
-  catch SQL mistakes the type system cannot; one such mistake was caught this
-  session). Browser checks: `pnpm --filter admin exec playwright test e2e/shell.spec.ts`
-  after an admin build.
+  catch SQL mistakes the type system cannot). Browser checks: `pnpm run test:e2e`
+  after an admin build, and `pnpm --filter admin test:e2e:leads` (needs local
+  Postgres with a `gt_sales_crm_e2e_test` database; it builds its own admin
+  into `.next-e2e` and puts `next-env.d.ts` back afterwards).
 - **Contracts change → regenerate** `docs/api/openapi.json` with
   `pnpm --filter @gt-sales/contracts build`; CI diffs it.
 - **Schema change**: edit `packages/db/src/schema.ts`, generate a migration

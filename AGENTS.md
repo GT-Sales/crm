@@ -44,8 +44,9 @@ The code was copied from the Canadian Plans platform and pruned
    Roles: `owner`, `leads`, `orders`, `partners`, `finance`, `content`,
    `viewer`. A privileged action needs only the role or per-member permission that
    grants it; there is no authenticator-code step (owner decision, 25 Oct 2026).
-   Contact details on the leads list are shown only to roles with
-   `lead.manage`, `order.manage` or `financial.read`.
+   Contact details, a lead's form, notes and tasks (and search, which would
+   reveal them) are shown only to roles with `lead.manage`, `order.manage` or
+   `financial.read`; every change to a lead needs `lead.manage`.
 5. **Websites authenticate with a service credential** (`gtsk_…`, hashed at
    rest, scoped, revocable; its row id is the actor for its writes) and prove a
    visitor owns a draft with a draft grant (`gtdg_…`). They can create and
@@ -69,7 +70,8 @@ pnpm install
 pnpm run typecheck && pnpm run lint && pnpm run format   # must pass before a commit
 pnpm run test                                            # unit + integration (integration needs the env below)
 pnpm run test:tooling                                    # scripts/*.test.mjs
-pnpm run test:e2e                                        # admin browser checks (build the admin first)
+pnpm run test:e2e                                        # admin shell browser checks (build the admin first)
+pnpm --filter admin test:e2e:leads                       # lead journeys against the real backend (needs Postgres)
 pnpm --filter @gt-sales/contracts build                  # regenerates docs/api/openapi.json (CI diffs it)
 pnpm --filter @gt-sales/db db:generate                   # drizzle-kit generate after a schema change
 ```
@@ -83,22 +85,32 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 ## Where things live
 
 - Lead intake and store: `apps/backend/src/leads/` (`store.ts` does the contact
-  merge and lead-type handling), routes in `src/routes/website.ts`.
-- Staff routes (sites, access, leads list, members, jobs, credentials, files):
-  `src/routes/staff.ts`.
+  merge and lead-type handling, `types.ts` the registry), routes in
+  `src/routes/website.ts`.
+- Staff lead work (detail, stage, assignee, notes, tasks, board, trash):
+  `src/leads/work-store.ts` for writes, `src/leads/staff-queries.ts` for reads
+  (plain SQL with explicit aliases; see the comment at its top).
+- Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
+  credentials, files): `src/routes/staff.ts`.
 - Documents: `src/documents/` (signed upload intent → finalize with
   signature verification → attach; staff review and download links).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
   `data_retention`), identities in `src/machines/registry.ts`.
-- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,documents,settings}`;
-  API client `apps/admin/src/lib/api.ts`.
+- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,settings}`;
+  lead screens in `src/components/leads/`; API client `apps/admin/src/lib/api.ts`.
+- Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
+  (docs/RUNBOOKS/legacy-import.md).
 
 ## Vocabulary
 
 `workspace` in code = **Site** in the UI = one website. `lead_type` names the
 form a lead came from (`sim_order`, `internet`, `mobility`,
-`partner_application`, `contact_message`); its payload schema and working
-statuses arrive with the lead-type registry in phase 1.
+`partner_application`, `contact_message`). A lead's `status` is the form's
+lifecycle (`incomplete` → `submitted`); its `stage` is where staff are working
+it (`new`, `contacted`, `won`…). Labels and stages per type live in one place,
+`leadTypeCatalog` in `packages/contracts/src/lead-types.ts`; the backend
+registry (`apps/backend/src/leads/types.ts`) adds payload schemas and intake
+rules.
 
 ## Git
 
