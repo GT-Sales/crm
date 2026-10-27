@@ -123,6 +123,17 @@ export const leadFieldCatalog: Readonly<Record<string, readonly LeadFieldDefinit
     field('reference', 'Reference', 'text', { editable: true, maxLength: 120 }),
     field('customerNotes', 'Customer notes', 'longText'),
     field('simNumber', 'SIM number', 'text', { editable: true, staffOnly: true, maxLength: 40 }),
+    // The commission the carrier pays on the order, tracked by hand (Get Canada
+    // Sim's `commission_status`); unset means not tracked yet. It voids nothing.
+    field('commissionStatus', 'Carrier commission', 'choice', {
+      options: [
+        { value: 'invoiced', label: 'Invoiced' },
+        { value: 'commission_received', label: 'Commission received' },
+        { value: 'claw_back', label: 'Clawback' },
+      ],
+      editable: true,
+      staffOnly: true,
+    }),
   ],
   partner_application: [
     field('company', 'Company', 'text'),

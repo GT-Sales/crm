@@ -257,6 +257,8 @@ databaseTest('Get Canada Sim historical import', () => {
          'verified', '2026-10-01T09:00:00Z', null, '2026-10-02', '2026-10-03T09:00:00Z')
     `;
 
+    await admin`update public.orders set commission_status = 'invoiced' where id = ${PAID}`;
+
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
     runtimeUrl.password = TEST_RUNTIME_PASSWORD;
@@ -366,6 +368,7 @@ databaseTest('Get Canada Sim historical import', () => {
         permitType: 'worker',
         shippingAddress: '1 Bay St, Toronto ON',
         simNumber: '4165550104',
+        commissionStatus: 'invoiced',
       },
     });
     const [contact] = await admin<{ full_name: string; phone: string }[]>`

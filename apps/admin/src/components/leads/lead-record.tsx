@@ -14,7 +14,7 @@ import {
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 import { Button, Card, CardContent, Input, NativeSelect } from '@gt-sales/ui';
-import { ArrowLeftIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react';
+import { ArrowLeftIcon, CopyIcon, PrinterIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react';
 
 import {
   emailLeadCustomer,
@@ -31,6 +31,7 @@ import { IdentityCheck } from './identity-check';
 import { LeadDocuments } from './lead-documents';
 import { formFields, staffFields } from './lead-fields';
 import { LeadFormEditor } from './lead-form-editor';
+import { deliveryLetterUrl, leadSummaryText } from './lead-summary';
 import { LeadTasks } from './lead-tasks';
 import { LeadTimeline } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
@@ -164,6 +165,14 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
   const [editingContact, setEditingContact] = useState(false);
   const [editingForm, setEditingForm] = useState<'customer' | 'staff'>();
   const [message, setMessage] = useState<string>();
+  const [copied, setCopied] = useState(false);
+
+  // "Copied" reads for a moment, then the button is itself again.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   if (record.error) {
     return (
@@ -187,6 +196,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
   }
 
   const { lead, activities, tasks, related, identities, documents, access } = record.data;
+  const letterUrl = access.contacts ? deliveryLetterUrl(record.data) : undefined;
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -256,6 +266,17 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
             ? 'Emailing customers is not set up for this site yet.'
             : `The email was not sent. Reason: ${reason}.`,
       );
+    }
+  }
+
+  async function copySummary() {
+    if (!record.data) return;
+    setMessage(undefined);
+    try {
+      await navigator.clipboard.writeText(leadSummaryText(record.data));
+      setCopied(true);
+    } catch {
+      setMessage('The browser did not allow copying. Select the details and copy them instead.');
     }
   }
 
@@ -367,6 +388,18 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
             ) : (
               <StageBadge leadType={lead.leadType} stage={lead.stage} />
             )}
+            {access.contacts ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => void copySummary()}>
+                <CopyIcon className="size-4" aria-hidden="true" /> {copied ? 'Copied' : 'Copy info'}
+              </Button>
+            ) : null}
+            {letterUrl ? (
+              <Button asChild variant="outline" size="sm">
+                <a href={letterUrl} target="_blank" rel="noopener noreferrer">
+                  <PrinterIcon className="size-4" aria-hidden="true" /> Print delivery letter
+                </a>
+              </Button>
+            ) : null}
             {access.manage ? (
               lead.deletedAt === null ? (
                 <Button

@@ -507,6 +507,31 @@ describe('LeadRecord order details', () => {
     mocks.getStaffLead.mockResolvedValue(response({ lead: order }));
   });
 
+  it('copies the order as text, and links its delivery letter', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy info' }));
+    await screen.findByRole('button', { name: 'Copied' });
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining('Plan: Unlimited Data · $40, Rogers'),
+    );
+
+    const letter = screen.getByRole('link', { name: 'Print delivery letter' });
+    expect(letter.getAttribute('target')).toBe('_blank');
+    expect(letter.getAttribute('rel')).toContain('noreferrer');
+    expect(letter.getAttribute('href')).toMatch(
+      /^https:\/\/getcanadasim\.com\/delivery-letter\.html\?first_name=Avery&/,
+    );
+  });
+
+  it('offers no delivery letter for a lead type without one', async () => {
+    mocks.getStaffLead.mockResolvedValue(response());
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    expect(await screen.findByRole('button', { name: 'Copy info' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Print delivery letter' })).toBeNull();
+  });
+
   it('shows the order as staff read it, with the staff-only SIM number apart', async () => {
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     expect(await screen.findByText('Unlimited Data · $40, Rogers')).toBeTruthy();

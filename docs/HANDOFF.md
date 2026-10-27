@@ -445,6 +445,18 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    run. In production on 2026-10-27: 121 files on 60 orders and partner
    applications, every one matching its original. Uploading or replacing a
    document in the CRM waits for moving day.
+8. **Copy info and Print delivery letter** in the lead page's header, as
+   in the old admin's row menu. Copy info puts the lead on the clipboard as
+   plain text: its number, stage, customer, every answer and staff field as
+   the page shows them, and which documents are on file. A SIM order's
+   Print delivery letter opens Get Canada Sim's own mailer
+   (`getcanadasim.com/delivery-letter.html`, the type's `deliveryLetterUrl`)
+   filled from its query exactly as the old admin fills it; the page sends
+   nothing anywhere, and the link carries no referrer.
+9. **Carrier commission**: a staff-only SIM order field (Invoiced,
+   Commission received, Clawback; unset means not tracked), edited in Staff
+   details and imported from Get Canada Sim's `commission_status` (unused
+   there so far). It voids nothing, as there.
 
 **Until staff move**, Get Canada Sim orders are worked in its own admin: the
 CRM's copy is refreshed by re-running the import, and nothing the CRM changes

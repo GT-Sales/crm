@@ -59,6 +59,12 @@ export interface LeadTypeCatalogEntry {
   readonly stages: readonly LeadStageDefinition[];
   /** The order ends with an identity for a credit check: a licence photo or a SIN. */
   readonly takesIdentity?: true;
+  /**
+   * The website's printable mailer for the order (Get Canada Sim's
+   * `delivery-letter.html`), which fills itself from its URL's query, as the
+   * site's own admin opens it.
+   */
+  readonly deliveryLetterUrl?: string;
 }
 
 const stage = (key: string, label: string): LeadStageDefinition => ({ key, label });
@@ -105,6 +111,7 @@ export const leadTypeCatalog = {
       stage('paid', 'Paid'),
       stage('cancelled', 'Cancelled'),
     ],
+    deliveryLetterUrl: 'https://getcanadasim.com/delivery-letter.html',
   },
   partner_application: {
     label: 'Partner application',

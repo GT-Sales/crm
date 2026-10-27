@@ -110,4 +110,17 @@ describe('applyLeadFormEdit', () => {
       applyLeadFormEdit('sim_order', { ...order, delivery: 'pickup' }, { simNumber: '4165550104' }),
     ).toMatchObject({ ok: true, changed: ['simNumber'] });
   });
+
+  it('tracks the carrier commission by its states, and clears it', () => {
+    const invoiced = applyLeadFormEdit('sim_order', order, { commissionStatus: 'invoiced' });
+    expect(invoiced).toMatchObject({ ok: true, payload: { commissionStatus: 'invoiced' } });
+    expect(applyLeadFormEdit('sim_order', order, { commissionStatus: 'paid' })).toEqual({
+      ok: false,
+      field: 'commissionStatus',
+    });
+    if (!invoiced.ok) throw new Error('unreachable');
+    const cleared = applyLeadFormEdit('sim_order', invoiced.payload, { commissionStatus: null });
+    expect(cleared).toMatchObject({ ok: true, changed: ['commissionStatus'] });
+    expect(cleared.ok && 'commissionStatus' in cleared.payload).toBe(false);
+  });
 });
