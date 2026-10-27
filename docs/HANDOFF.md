@@ -355,6 +355,22 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    the morning's count, sent by customers meanwhile), 623 contacts, 279 notes,
    28 tasks; stages and trash matched the legacy rows one for one; a second run
    changed nothing.
+6. **Fewer round trips per staff request.** Production had no staff traffic
+   yet, so the cost was measured instead: one round trip from the backend
+   (Singapore) to the pooler (Mumbai) is about 58 ms (the rate-limit statement
+   alone logs 115–138 ms), Auth's `getUser` about 100 ms, and every statement
+   with bind parameters costs two round trips, because with prepared
+   statements off (transaction pooler) postgres-js has the parameters
+   described first. The queries themselves run in 1–14 ms on the real data.
+   Cut: the tenant context and plain rate-limit keys travel as validated
+   literals; the access check is one call to `app.staff_access_snapshot`
+   (migration 0004) instead of a transaction; the lead page is one statement;
+   writes return their timeline rows instead of reading them back. Through a
+   local proxy adding 58 ms per round trip (no limiter, no Auth): list
+   713 → 359 ms, summary 718 → 298, board 715 → 358, lead page 951 → 358, My
+   tasks 711 → 357, stage change 1308 → 831, note 1185 → 714. Production adds
+   the limiter (now one round trip) and Auth, so a warm list or lead page
+   should answer in about half a second, from about 0.9–1.2 s.
 
 ## 4. What is verified, and how
 
@@ -448,13 +464,22 @@ tables).
 
 ### 5.3 Technical follow-ups found during the build
 
-- **Latency, second round.** Measure warm staff requests from the deploy logs
-  (`durationMs`). Remaining cost per request: one Auth API call, one rate-limit
-  statement, two transactions (membership, then the data). Options, in order of
-  safety: pipeline the independent statements inside a transaction; a 10–30 s
-  per-token cache of `getUser` results (changes revocation latency slightly,
-  decide with the owner); a read-through cache of the membership snapshot
-  keyed by actor+site invalidated by the staff mutation routes.
+- **Latency, what is left** (numbers in §3.3 item 6). A warm staff read is now
+  the limiter (one round trip), Auth (~100 ms), the access snapshot (one) and
+  the data transaction (begin, context, the statement's two, commit). Verify
+  with `durationMs` in the deploy logs once staff use it. The remaining
+  levers, safest first: (1) send BEGIN and the tenant context together
+  (postgres-js awaits BEGIN alone; a reserved connection running
+  `begin; select set_config(…)` over the simple protocol saves one round trip
+  per transaction, but replaces drizzle's transaction wrapper); (2) the session
+  pooler (port 5432) with `prepare: true`: every repeated statement one round
+  trip instead of two, writes gain most; needs the session port in
+  `DATABASE_URL` and a pool within the session-mode limit; (3) a 10–30 s
+  per-token cache of `getUser` results: saves ~100 ms a request, but a session
+  revoked in Auth keeps working that long (a revoked membership still stops
+  at once) — owner's call; (4) the access read and the data in one
+  transaction. The query plans are not the problem: the slowest, the list
+  page, runs in 14 ms on CanadaWide's 708 leads.
 - **Turnstile is off by design** (`WEBSITE_BOT_CHECK=delegated`). If a site
   ever shows abuse that its own screening misses, add Turnstile to that site's
   forms, forward the token as `x-turnstile-token`, set the `TURNSTILE_*`

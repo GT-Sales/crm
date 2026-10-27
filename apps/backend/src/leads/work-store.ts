@@ -22,14 +22,13 @@ import {
 } from '@gt-sales/contracts';
 
 import {
-  selectActivitiesById,
-  selectLeadActivities,
   selectLeadBoard,
   selectLeadDetail,
   selectLeadSummary,
-  selectLeadTasks,
+  selectLeadWithWork,
   selectTask,
   selectWorkspaceTasks,
+  toLeadActivity,
   type LeadFilters,
 } from './staff-queries.js';
 import { upsertContact } from './store.js';
@@ -194,6 +193,35 @@ async function requireTask(
   return task;
 }
 
+/** A timeline insert returns its entries, so the response needs no second read. */
+const ACTIVITY_RETURNING = {
+  id: leadActivities.id,
+  actorId: leadActivities.actorId,
+  kind: leadActivities.kind,
+  body: leadActivities.body,
+  data: leadActivities.data,
+  createdAt: leadActivities.createdAt,
+};
+
+interface InsertedActivity {
+  id: string;
+  actorId: string;
+  kind: string;
+  body: string | null;
+  data: unknown;
+  createdAt: Date;
+}
+
+/** Newly written timeline rows as entries, in the lead page's order: newest first, ties by id descending. */
+function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
+  return rows
+    .map((row) => toLeadActivity({ ...row, createdAt: row.createdAt.toISOString() }))
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+}
+
 const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
 type ContactField = (typeof CONTACT_FIELDS)[number];
 
@@ -205,7 +233,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
 
   summary(input: Scope) {
-    return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx, input.workspaceId));
+    return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx));
   }
 
   board(
@@ -224,12 +252,9 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
 
   getLead(input: Scope & { leadId: string; includeWork: boolean }) {
     return this.database.withTenantTx(input, async (tx) => {
+      if (input.includeWork) return selectLeadWithWork(tx, input.workspaceId, input.leadId);
       const lead = await selectLeadDetail(tx, input.workspaceId, input.leadId);
-      if (!lead) return undefined;
-      if (!input.includeWork) return { lead, activities: [], tasks: [] };
-      const activities = await selectLeadActivities(tx, input.workspaceId, input.leadId);
-      const tasks = await selectLeadTasks(tx, input.workspaceId, input.leadId);
-      return { lead, activities, tasks };
+      return lead ? { lead, activities: [], tasks: [] } : undefined;
     });
   }
 
@@ -320,7 +345,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
             data: entry.data,
           })),
         )
-        .returning({ id: leadActivities.id });
+        .returning(ACTIVITY_RETURNING);
       await tx.insert(auditEvents).values({
         workspaceId: input.workspaceId,
         actorId: input.actorId,
@@ -336,11 +361,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       return {
         status: 'updated',
         lead: await requireDetail(tx, input.workspaceId, input.leadId),
-        activities: await selectActivitiesById(
-          tx,
-          input.workspaceId,
-          inserted.map((row) => row.id),
-        ),
+        activities: insertedActivities(inserted),
       };
     });
   }
@@ -373,7 +394,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           kind: 'system',
           data: { event: input.trashed ? 'trashed' : 'restored' },
         })
-        .returning({ id: leadActivities.id });
+        .returning(ACTIVITY_RETURNING);
       if (!entry) throw new Error('activity insert did not return a row');
       await tx.insert(auditEvents).values({
         workspaceId: input.workspaceId,
@@ -387,7 +408,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         after: { trashed: input.trashed },
       });
 
-      const [activity] = await selectActivitiesById(tx, input.workspaceId, [entry.id]);
+      const [activity] = insertedActivities([entry]);
       return {
         status: 'changed',
         lead: await requireDetail(tx, input.workspaceId, input.leadId),
@@ -411,7 +432,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           kind: 'note',
           body: input.body,
         })
-        .returning({ id: leadActivities.id });
+        .returning(ACTIVITY_RETURNING);
       if (!entry) throw new Error('activity insert did not return a row');
       // A note is work on the lead: it moves up the inbox.
       await tx
@@ -429,8 +450,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         after: { activityId: entry.id },
       });
 
-      const [activity] = await selectActivitiesById(tx, input.workspaceId, [entry.id]);
-      if (!activity) throw new Error('note vanished inside its own transaction');
+      const [activity] = insertedActivities([entry]);
+      if (!activity) throw new Error('note insert did not return its entry');
       return { status: 'created', activity };
     });
   }

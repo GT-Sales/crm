@@ -359,6 +359,73 @@ databaseTest('tenant RLS and transaction-pool context', () => {
     expect(noContext).toHaveLength(0);
   });
 
+  test('the staff access snapshot returns only the named membership, with roles and overrides', async () => {
+    const owner = await tenantDatabase.staffAccessSnapshot({
+      workspaceId: STAFF_SEED_IDS.getCanadaSimWorkspace,
+      actorId: STAFF_SEED_IDS.ownerActor,
+    });
+    expect(owner).toEqual({
+      membershipId: STAFF_SEED_IDS.getCanadaSimOwnerMembership,
+      status: 'active',
+      roleNames: ['owner'],
+      permissionRows: [],
+    });
+
+    // A per-member override travels with the snapshot. Other suites share the
+    // seeded members, so the override is removed again.
+    const [permission] = await admin<{ id: string }[]>`
+      select id from app.permissions
+      where workspace_id = ${STAFF_SEED_IDS.canadaWideWorkspace} and name = 'document_download'
+    `;
+    if (!permission) throw new Error('the seed has no document_download permission');
+    const override = {
+      workspace: STAFF_SEED_IDS.canadaWideWorkspace,
+      membership: STAFF_SEED_IDS.canadaWideStaffMembership,
+      permission: permission.id,
+    };
+    await admin`
+      insert into app.membership_permissions (workspace_id, membership_id, permission_id, effect)
+      values (${override.workspace}, ${override.membership}, ${override.permission}, 'deny')
+      on conflict do nothing
+    `;
+    try {
+      const staff = await tenantDatabase.staffAccessSnapshot({
+        workspaceId: STAFF_SEED_IDS.canadaWideWorkspace,
+        actorId: STAFF_SEED_IDS.canadaWideActor,
+      });
+      expect(staff?.membershipId).toBe(STAFF_SEED_IDS.canadaWideStaffMembership);
+      expect(staff?.permissionRows).toEqual([{ name: 'document_download', effect: 'deny' }]);
+    } finally {
+      await admin`
+        delete from app.membership_permissions
+        where workspace_id = ${override.workspace}
+          and membership_id = ${override.membership}
+          and permission_id = ${override.permission}
+      `;
+    }
+
+    // Another site's member, or an actor with no membership, gets nothing.
+    await expect(
+      tenantDatabase.staffAccessSnapshot({
+        workspaceId: STAFF_SEED_IDS.getCanadaSimWorkspace,
+        actorId: STAFF_SEED_IDS.canadaWideActor,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      tenantDatabase.staffAccessSnapshot({
+        workspaceId: STAFF_SEED_IDS.getCanadaSimWorkspace,
+        actorId: '20000000-0000-4000-8000-0000000000ff',
+      }),
+    ).resolves.toBeUndefined();
+
+    const [grants] = await admin<{ publicExecute: boolean; runtimeExecute: boolean }[]>`
+      select
+        has_function_privilege('public', 'app.staff_access_snapshot(uuid, uuid)', 'execute') as "publicExecute",
+        has_function_privilege('app_runtime', 'app.staff_access_snapshot(uuid, uuid)', 'execute') as "runtimeExecute"
+    `;
+    expect(grants).toEqual({ publicExecute: false, runtimeExecute: true });
+  });
+
   test('first verified login accepts only matching pending invitations and audits the change', async () => {
     const invitedActor = '20000000-0000-4000-8000-000000000199';
     const invitationId = '30000000-0000-4000-8000-000000000199';

@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -41,12 +41,22 @@ export interface RateLimitInput {
   maxCount: number;
 }
 
+/** A staff member's membership in one site, as `app.staff_access_snapshot` returns it (unvalidated). */
+export interface StaffAccessRow {
+  membershipId: string;
+  status: string;
+  roleNames: string[];
+  permissionRows: Array<{ name: string; effect: string }>;
+}
+
 export interface DatabaseClient {
   db: Database;
   withActorTx<T>(actorId: string, fn: (tx: TenantTransaction) => Promise<T> | T): Promise<T>;
   withTenantTx<T>(ctx: TenantContext, fn: (tx: TenantTransaction) => Promise<T> | T): Promise<T>;
   resolveWebsiteCredential(secretHash: string): Promise<WebsiteCredentialResolution | undefined>;
   rateLimitHit(input: RateLimitInput): Promise<RateLimitResult>;
+  /** The actor's staff membership in the site, any status; undefined when there is none. */
+  staffAccessSnapshot(ctx: TenantContext): Promise<StaffAccessRow | undefined>;
   close(): Promise<void>;
 }
 
@@ -62,6 +72,67 @@ interface RateLimitRow {
   [key: string]: unknown;
   allowed: boolean;
   retryAfterSeconds: number;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function uuidLiteral(value: string): string {
+  if (!UUID_PATTERN.test(value)) throw new Error('tenant context ids must be UUIDs');
+  return `'${value}'`;
+}
+
+/**
+ * The statement that opens every transaction's tenant context.
+ * set_config(..., true) is PostgreSQL's equivalent of SET LOCAL: the values
+ * vanish at transaction end.
+ *
+ * The ids are literals, not bind parameters. With prepared statements off
+ * (see `createDatabaseClient`), postgres-js sends a statement that has bind
+ * parameters in two round trips, describing the parameters first, and the
+ * pooler is a long way off; a statement without them takes one. Only a UUID
+ * gets through, and a UUID has no quote to end the literal with.
+ */
+export function tenantContextStatement(ctx: { workspaceId?: string; actorId: string }): string {
+  const settings: string[] = [];
+  if (ctx.workspaceId !== undefined) {
+    settings.push(`set_config('app.workspace_id', ${uuidLiteral(ctx.workspaceId)}, true)`);
+  }
+  settings.push(`set_config('app.actor_id', ${uuidLiteral(ctx.actorId)}, true)`);
+  return `select ${settings.join(', ')}`;
+}
+
+/**
+ * The open transaction's site id, read back from its tenant context, for a
+ * statement whose only bind parameter would be that id: without it the
+ * statement skips the describe round trip (see `tenantContextStatement`). RLS
+ * reads the same setting, so the statement sees exactly the rows it would
+ * have seen.
+ */
+export const contextWorkspaceId = sql.raw(
+  `nullif(current_setting('app.workspace_id', true), '')::uuid`,
+);
+
+/** What a rate-limit key may hold to travel as a literal: no quote, no backslash, nothing else. */
+const LITERAL_BUCKET_KEY = /^[A-Za-z0-9:._-]{1,200}$/;
+
+/**
+ * One hit on a rate-limit window. Every staff request starts with this
+ * statement, so a key of plain characters (a prefix, an IP address, ids and
+ * hashes) and integer limits travel as literals, one round trip instead of
+ * two (see `tenantContextStatement`); any other key is bound as before.
+ */
+export function rateLimitStatement({ bucketKey, windowSeconds, maxCount }: RateLimitInput): SQL {
+  const columns = 'allowed, retry_after_seconds as "retryAfterSeconds"';
+  if (
+    LITERAL_BUCKET_KEY.test(bucketKey) &&
+    Number.isSafeInteger(windowSeconds) &&
+    Number.isSafeInteger(maxCount)
+  ) {
+    return sql.raw(
+      `select ${columns} from app.rate_limit_hit('${bucketKey}', ${windowSeconds}, ${maxCount})`,
+    );
+  }
+  return sql`select ${sql.raw(columns)} from app.rate_limit_hit(${bucketKey}, ${windowSeconds}, ${maxCount})`;
 }
 
 function createClient(options: DatabaseClientOptions) {
@@ -87,20 +158,12 @@ export function createDatabaseClient(options: DatabaseClientOptions): DatabaseCl
     db,
     withActorTx: (actorId, fn) =>
       db.transaction(async (tx) => {
-        await tx.execute(sql`select set_config('app.actor_id', ${actorId}, true)`);
+        await tx.execute(sql.raw(tenantContextStatement({ actorId })));
         return fn(tx);
       }),
     withTenantTx: (ctx, fn) =>
       db.transaction(async (tx) => {
-        // set_config(..., true) is PostgreSQL's parameter-safe equivalent of
-        // SET LOCAL. Both values disappear automatically at transaction end.
-        await tx.execute(
-          sql`
-            select
-              set_config('app.workspace_id', ${ctx.workspaceId}, true),
-              set_config('app.actor_id', ${ctx.actorId}, true)
-          `,
-        );
+        await tx.execute(sql.raw(tenantContextStatement(ctx)));
         return fn(tx);
       }),
     // Pre-tenant website bootstrap: resolve a credential
@@ -125,16 +188,26 @@ export function createDatabaseClient(options: DatabaseClientOptions): DatabaseCl
           }
         : undefined;
     },
-    rateLimitHit: async ({ bucketKey, windowSeconds, maxCount }) => {
-      const rows = await db.execute<RateLimitRow>(sql`
-        select
-          allowed,
-          retry_after_seconds as "retryAfterSeconds"
-        from app.rate_limit_hit(${bucketKey}, ${windowSeconds}, ${maxCount})
-      `);
+    rateLimitHit: async (input) => {
+      const rows = await db.execute<RateLimitRow>(rateLimitStatement(input));
       const row = rows[0];
       if (!row) throw new Error('rate_limit_hit returned no row');
       return { allowed: row.allowed, retryAfterSeconds: row.retryAfterSeconds };
+    },
+    // Every staff request's authorization read: one autocommit call with the
+    // ids as literals, so one round trip instead of a transaction's four.
+    staffAccessSnapshot: async (ctx) => {
+      const rows = await db.execute<StaffAccessRow & { [key: string]: unknown }>(
+        sql.raw(`
+          select
+            membership_id as "membershipId",
+            status,
+            role_names as "roleNames",
+            permission_rows as "permissionRows"
+          from app.staff_access_snapshot(${uuidLiteral(ctx.workspaceId)}, ${uuidLiteral(ctx.actorId)})
+        `),
+      );
+      return rows[0];
     },
     close: () => sqlClient.end(),
   };
@@ -213,4 +286,9 @@ export function resolveWebsiteCredential(
 /** Records one hit against a bounded per-key rate-limit window and reports whether it is allowed. */
 export function rateLimitHit(input: RateLimitInput): Promise<RateLimitResult> {
   return getDefaultClient().rateLimitHit(input);
+}
+
+/** Staff authorization read: the actor's membership in the site, in one call. */
+export function staffAccessSnapshot(ctx: TenantContext): Promise<StaffAccessRow | undefined> {
+  return getDefaultClient().staffAccessSnapshot(ctx);
 }

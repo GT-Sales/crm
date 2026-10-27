@@ -73,6 +73,20 @@ pg_proc / pg_policies where schemaname = 'app'`.
   `created_at` `1793049061874`. Verified against the catalog: both columns,
   all seven indexes, both checks.
 
+## 0004_staff_access_snapshot (2026-10-27)
+
+- Additive: `app.staff_access_snapshot(workspace, actor)`, SECURITY DEFINER
+  with an empty `search_path`, EXECUTE for `app_runtime` only. It returns the
+  actor's staff membership in one site with role names and permission
+  overrides, so every staff request's authorization read is one autocommit
+  call instead of a tenant transaction (four round trips to the pooler).
+- Applied with `apply_migration` before the code that calls it; Drizzle row
+  added by hand: hash
+  `83c04de60ce6af095009cfc105c38ef3f5ca04632e84fcb01e9f3fbf462db914`,
+  `created_at` `1793071632834`. Verified against the catalog: definer, owner
+  `postgres`, `search_path=""`, PUBLIC cannot execute, `app_runtime` can; the
+  owner's CanadaWide snapshot returns one row with `owner`.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

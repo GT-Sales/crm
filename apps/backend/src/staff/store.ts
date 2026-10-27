@@ -5,6 +5,7 @@ import {
   membershipRoles,
   memberships,
   roles,
+  staffAccessSnapshot,
   withActorTx,
   withTenantTx,
 } from '@gt-sales/db';
@@ -69,17 +70,9 @@ export interface StaffStore extends StaffAccessStore {
   }): Promise<number>;
 }
 
-interface StaffAccessRow {
-  [key: string]: unknown;
-  id: string;
-  status: string;
-  roleNames: string[];
-  permissionRows: Array<{ name: string; effect: string }>;
-}
+type StaffDatabase = Pick<DatabaseClient, 'withActorTx' | 'withTenantTx' | 'staffAccessSnapshot'>;
 
-type StaffDatabase = Pick<DatabaseClient, 'withActorTx' | 'withTenantTx'>;
-
-const defaultStaffDatabase: StaffDatabase = { withActorTx, withTenantTx };
+const defaultStaffDatabase: StaffDatabase = { withActorTx, withTenantTx, staffAccessSnapshot };
 
 export class DatabaseStaffStore implements StaffStore {
   constructor(private readonly database: StaffDatabase = defaultStaffDatabase) {}
@@ -113,51 +106,21 @@ export class DatabaseStaffStore implements StaffStore {
     actorId: string,
     workspaceId: string,
   ): Promise<StaffAccessSnapshot | undefined> {
-    return this.database.withTenantTx({ actorId, workspaceId }, async (tx) => {
-      // One statement: the membership with its role names and permission
-      // overrides aggregated as JSON. Every staff request runs this, and the
-      // pooler is remote, so three statements here cost three round trips.
-      // Plain SQL with aliases: the query builder drops the table qualifier
-      // from column references in a one-table select, which makes
-      // `workspace_id` ambiguous inside the correlated subqueries.
-      const rows = await tx.execute<StaffAccessRow>(sql`
-        select
-          m.id,
-          m.status,
-          coalesce((
-            select json_agg(r.name)
-            from app.membership_roles mr
-            inner join app.roles r
-              on r.workspace_id = mr.workspace_id and r.id = mr.role_id
-            where mr.workspace_id = m.workspace_id and mr.membership_id = m.id
-          ), '[]'::json) as "roleNames",
-          coalesce((
-            select json_agg(json_build_object('name', p.name, 'effect', mp.effect))
-            from app.membership_permissions mp
-            inner join app.permissions p
-              on p.workspace_id = mp.workspace_id and p.id = mp.permission_id
-            where mp.workspace_id = m.workspace_id and mp.membership_id = m.id
-          ), '[]'::json) as "permissionRows"
-        from app.memberships m
-        where m.workspace_id = ${workspaceId}
-          and m.user_id = ${actorId}
-          and m.membership_type = 'staff'
-        limit 1
-      `);
-      const row = rows[0];
+    // Every staff request runs this before its data, and the pooler is remote:
+    // one call to app.staff_access_snapshot (migration 0004) is one round trip,
+    // where a tenant transaction around the same read cost four.
+    const row = await this.database.staffAccessSnapshot({ actorId, workspaceId });
+    if (!row) return undefined;
 
-      if (!row) return undefined;
-
-      return {
-        membershipId: row.id,
-        status: membershipStatusSchema.parse(row.status),
-        roles: row.roleNames.map((name) => staffRoleNameSchema.parse(name)),
-        permissions: row.permissionRows.map((permission) => ({
-          name: staffPermissionNameSchema.parse(permission.name),
-          effect: permissionEffectSchema.parse(permission.effect),
-        })),
-      };
-    });
+    return {
+      membershipId: row.membershipId,
+      status: membershipStatusSchema.parse(row.status),
+      roles: row.roleNames.map((name) => staffRoleNameSchema.parse(name)),
+      permissions: row.permissionRows.map((permission) => ({
+        name: staffPermissionNameSchema.parse(permission.name),
+        effect: permissionEffectSchema.parse(permission.effect),
+      })),
+    };
   }
 
   async inviteStaff(input: InviteStaffInput): Promise<string> {

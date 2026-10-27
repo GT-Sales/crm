@@ -170,4 +170,21 @@ databaseTest('website credential and rate-limit bootstrap', () => {
     expect(overA.allowed).toBe(false);
     expect(freshB.allowed).toBe(true);
   });
+
+  test('a key outside the literal character set is bound, and counts as its own key', async () => {
+    const key = `ci:rl:o'brien%${Date.now()}`;
+    const first = await tenantDatabase.rateLimitHit({
+      bucketKey: key,
+      windowSeconds: 60,
+      maxCount: 1,
+    });
+    const second = await tenantDatabase.rateLimitHit({
+      bucketKey: key,
+      windowSeconds: 60,
+      maxCount: 1,
+    });
+
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(false);
+  });
 });

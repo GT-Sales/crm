@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm';
-import type { TenantTransaction } from '@gt-sales/db';
+import { contextWorkspaceId, type TenantTransaction } from '@gt-sales/db';
 import {
   attributionSchema,
   leadActivitySchema,
@@ -266,10 +266,13 @@ export async function selectLeadBoard(
   return [...columns.values()];
 }
 
-/** Active leads per type (only types that have one) and the size of the trash. */
+/**
+ * Active leads per type (only types that have one) and the size of the trash,
+ * for the transaction's own site: the site comes from the tenant context, so
+ * the statement binds nothing and costs one round trip, not two.
+ */
 export async function selectLeadSummary(
   tx: TenantTransaction,
-  workspaceId: string,
 ): Promise<{ types: LeadTypeCount[]; trash: number }> {
   const rows = await tx.execute<{
     [key: string]: unknown;
@@ -282,7 +285,7 @@ export async function selectLeadSummary(
       count(*) filter (where l.deleted_at is null)::int as active,
       count(*) filter (where l.deleted_at is not null)::int as trashed
     from app.leads l
-    where l.workspace_id = ${workspaceId} and l.customer_data_restricted_at is null
+    where l.workspace_id = ${contextWorkspaceId} and l.customer_data_restricted_at is null
     group by l.lead_type
     order by l.lead_type
   `);
@@ -350,50 +353,6 @@ export function toLeadActivity(row: ActivityRow): LeadActivity {
   };
 }
 
-const ACTIVITY_COLUMNS = sql.join(
-  [
-    sql.raw('a.id, a.actor_id as "actorId", a.kind, a.body, a.data'),
-    sql`${iso('a.created_at')} as "createdAt"`,
-  ],
-  sql`, `,
-);
-
-/** The lead's timeline, newest first; capped so one very long history cannot stall the page. */
-export async function selectLeadActivities(
-  tx: TenantTransaction,
-  workspaceId: string,
-  leadId: string,
-  limit = 500,
-): Promise<LeadActivity[]> {
-  const rows = await tx.execute<ActivityRow>(sql`
-    select ${ACTIVITY_COLUMNS}
-    from app.lead_activities a
-    where a.workspace_id = ${workspaceId} and a.lead_id = ${leadId}
-    order by a.created_at desc, a.id desc
-    limit ${limit}
-  `);
-  return rows.map(toLeadActivity);
-}
-
-export async function selectActivitiesById(
-  tx: TenantTransaction,
-  workspaceId: string,
-  ids: readonly string[],
-): Promise<LeadActivity[]> {
-  if (ids.length === 0) return [];
-  const rows = await tx.execute<ActivityRow>(sql`
-    select ${ACTIVITY_COLUMNS}
-    from app.lead_activities a
-    where a.workspace_id = ${workspaceId}
-      and a.id in (${sql.join(
-        ids.map((id) => sql`${id}`),
-        sql`, `,
-      )})
-    order by a.created_at desc, a.id desc
-  `);
-  return rows.map(toLeadActivity);
-}
-
 interface TaskRow {
   [key: string]: unknown;
   id: string;
@@ -436,23 +395,75 @@ export function toLeadTask(row: TaskRow): LeadTask {
   });
 }
 
-/** Open tasks first, soonest due (undated last); then closed ones, most recently changed first. */
-export async function selectLeadTasks(
+/**
+ * The lead page in one statement: the lead with its form, its timeline (newest
+ * first, capped so one very long history cannot stall the page) and its tasks
+ * (open first, soonest due, undated last; then closed ones, most recently
+ * changed first), the last two as JSON arrays. Each statement is a round trip
+ * to the remote pooler, so the page's three reads travel as one.
+ */
+export async function selectLeadWithWork(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
-): Promise<LeadTask[]> {
-  const rows = await tx.execute<TaskRow>(sql`
-    select ${TASK_COLUMNS}
-    from app.lead_tasks k
-    where k.workspace_id = ${workspaceId} and k.lead_id = ${leadId}
-    order by
-      (k.status = 'open') desc,
-      case when k.status = 'open' then k.due_at end asc nulls last,
-      k.updated_at desc,
-      k.id
+): Promise<{ lead: LeadDetail; activities: LeadActivity[]; tasks: LeadTask[] } | undefined> {
+  const [row] = await tx.execute<
+    LeadRow & { payload: unknown; activities: ActivityRow[]; tasks: TaskRow[] }
+  >(sql`
+    select
+      ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS},
+      l.payload,
+      (
+        select coalesce(json_agg(json_build_object(
+          'id', a.id,
+          'actorId', a.actor_id,
+          'kind', a.kind,
+          'body', a.body,
+          'data', a.data,
+          'createdAt', ${iso('a.created_at')}
+        ) order by a.created_at desc, a.id desc), '[]'::json)
+        from (
+          select entry.*
+          from app.lead_activities entry
+          where entry.workspace_id = l.workspace_id and entry.lead_id = l.id
+          order by entry.created_at desc, entry.id desc
+          limit 500
+        ) a
+      ) as activities,
+      (
+        select coalesce(json_agg(json_build_object(
+          'id', k.id,
+          'leadId', k.lead_id,
+          'title', k.title,
+          'assignedActorId', k.assigned_actor_id,
+          'status', k.status,
+          'createdBy', k.created_by,
+          'dueAt', ${iso('k.due_at')},
+          'completedAt', ${iso('k.completed_at')},
+          'createdAt', ${iso('k.created_at')},
+          'updatedAt', ${iso('k.updated_at')}
+        ) order by
+          (k.status = 'open') desc,
+          case when k.status = 'open' then k.due_at end asc nulls last,
+          k.updated_at desc,
+          k.id
+        ), '[]'::json)
+        from app.lead_tasks k
+        where k.workspace_id = l.workspace_id and k.lead_id = l.id
+      ) as tasks
+    from app.leads l
+    ${OPEN_TASK_SUMMARY}
+    where l.workspace_id = ${workspaceId}
+      and l.id = ${leadId}
+      and l.customer_data_restricted_at is null
   `);
-  return rows.map(toLeadTask);
+  if (!row) return undefined;
+  const form = leadFormSchema.safeParse(row.payload);
+  return {
+    lead: { ...toLeadListItem(row), form: form.success ? form.data : null },
+    activities: row.activities.map(toLeadActivity),
+    tasks: row.tasks.map(toLeadTask),
+  };
 }
 
 export async function selectTask(
