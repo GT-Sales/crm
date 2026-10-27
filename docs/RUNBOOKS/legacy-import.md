@@ -15,6 +15,7 @@ use), with:
 | `notes` (+ `notes_updated_at`)                     | a `note` timeline entry, actor `LEGACY_IMPORT_ACTOR_ID` (shown as "Old admin"), dated `notes_updated_at`                 |
 | `reminder_at`, `reminder_note`, `reminder_done_at` | a task: title from the note (or "Follow up"), due at noon UTC that day, `done` with `reminder_done_at` as its completion |
 | `consent_version`                                  | `cw-legacy-import` (the old tables never recorded one)                                                                   |
+| (no "New" badge in the old admin)                  | an `opened` system entry by the "Old admin", dated the lead's creation, so imported leads carry no "New" badge           |
 | `mobility_id_uploads` (licence photos, SINs)       | **not imported**: they wait for Storage S3 keys and the SIN-sealing key (PLAN.md §5.9)                                   |
 
 ## Running it
@@ -28,7 +29,8 @@ plus a reconciliation query):
 
 The last result row reconciles: `legacy_rows_missing` must be `0`, and
 `crm_internet` / `crm_mobility` must equal `legacy_internet` /
-`legacy_mobility`.
+`legacy_mobility`. `crm_new` counts the site's active leads nobody has
+opened in the CRM: only leads that came through the CRM's intake.
 
 ## Re-running it
 
@@ -39,13 +41,16 @@ where staff change statuses and notes. Every run is safe to repeat:
 
 - a lead is inserted once; later runs carry the old admin's stage and trash
   over, **except onto a lead someone already worked in the CRM** (any timeline
-  entry by a real person), where the CRM wins;
+  entry by a real person other than opening it), where the CRM wins;
 - an existing contact's name and phone are only filled where empty;
 - an edited note becomes a second timeline entry; the first is never
   rewritten;
 - a reminder's task is refreshed while the CRM has not touched it (its
   `updated_at` still equals `created_at`), and cancelled when the old admin
-  clears the reminder.
+  clears the reminder;
+- every lead the import brought over gets one `opened` entry; a lead from
+  the CRM's intake (mirrored into the legacy tables by 0002) gets none and
+  stays New until someone who works leads opens it.
 
 The ids of notes and tasks are derived from the legacy ids (`md5`, shaped as a
 version-4 UUID so the contracts accept them), which is how a re-run finds what
@@ -53,9 +58,10 @@ an earlier one wrote.
 
 ## History
 
-| Date       | Run                                                                                                                                                                                                                                                                                 |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-10-27 | First production run: 669 internet + 39 mobility leads (0 missing), 623 contacts, 279 notes, 28 tasks (12 done, 16 open), 129 in the trash; stages and trash matched the legacy rows one for one. A second run left every count and a fingerprint of all leads and tasks unchanged. |
+| Date       | Run                                                                                                                                                                                                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-27 | First production run: 669 internet + 39 mobility leads (0 missing), 623 contacts, 279 notes, 28 tasks (12 done, 16 open), 129 in the trash; stages and trash matched the legacy rows one for one. A second run left every count and a fingerprint of all leads and tasks unchanged.                                    |
+| 2026-10-27 | Run with the "New" badge (`f5d6639`): 676 internet + 40 mobility rows, 0 missing (6 leads CanadaWide wrote to the legacy tables before its 07:22 UTC switch came over); 712 imported leads each opened by the old admin; 280 notes, 28 tasks, 131 in the trash; `crm_new` 1, the first lead from the CRM's own intake. |
 
 The rehearsal is `apps/backend/tests/canadawide-legacy-import.integration.test.ts`
 (replica legacy tables in `tests/support/legacy-canadawide.ts`, shared with the
@@ -80,6 +86,7 @@ CanadaWide import above (it reads `public`, writes only `app`).
 | `reminder_at`, `reminder_note`, `reminder_done_at`                                       | a task, as for CanadaWide                                                                                                    |
 | a partner application                                                                    | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                               |
 | `sim_number`                                                                             | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                             |
+| `viewed_at` (the old admin's "New" badge)                                                | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                            |
 | documents, commission, invoices, edit requests, IP address                               | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                          |
 
 A later run also carries approved customer edits (name, phone, the order
@@ -92,3 +99,4 @@ The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test
 | Date       | Run                                                                                                                                                                |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2026-10-27 | First production run: 138 orders + 5 partner applications (0 missing, 0 stage mismatches), 44 archived orders in the trash, 14 staff notes, 21 reminders as tasks. |
+| 2026-10-27 | Run with the "New" badge (`f5d6639`): the same counts; all 138 orders had been opened in the old admin, so 143 `opened` entries and `crm_new` 0.                   |

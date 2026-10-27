@@ -97,9 +97,10 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | GET             | `/workspaces/:id/access`                                    | workspace.read               | Roles and permission names for the site switcher.                                                                                                                       |
 | PATCH           | `/profile`                                                  | —                            | The caller's own display name, on every site they belong to.                                                                                                            |
 | GET             | `/workspaces/:id/leads`                                     | workspace.read               | Paged; filters type, stage, assignee (`me`/`none`/id), `q`, `view=trash`. Contact fields hidden unless lead.manage, order.manage or financial.read; `q` needs that too. |
-| GET             | `/workspaces/:id/leads/summary` · `/leads/board`            | workspace.read               | Active leads per type and the trash; one type's leads by stage (a column per catalogue stage, counts, newest 50 each).                                                  |
+| GET             | `/workspaces/:id/leads/summary` · `/leads/board`            | workspace.read               | Active leads per type (with how many nobody has opened) and the trash; one type's leads by stage (a column per catalogue stage, counts, newest 50 each).                |
 | GET             | `/workspaces/:id/leads/:leadId`                             | workspace.read               | Lead with form, timeline and tasks; readers without contact access get stage and source only.                                                                           |
-| PATCH           | `/workspaces/:id/leads/:leadId`                             | lead.manage                  | Stage (checked against the type), assignee (active member), contact corrections; writes timeline + audit.                                                               |
+| PATCH           | `/workspaces/:id/leads/:leadId`                             | lead.manage                  | Stage (checked against the type), assignee (active member), contact and form corrections (`form`, checked against the type's field definitions); timeline + audit.      |
+| POST            | `/workspaces/:id/leads/:leadId/opened`                      | lead.manage                  | The lead page's first open: clears the "New" badge for the team (an `opened` system entry). Idempotent.                                                                 |
 | POST            | `/workspaces/:id/leads/:leadId/{notes,tasks,trash,restore}` | lead.manage                  | Note, follow-up task, soft delete and back. A trashed lead refuses changes (`lead_trashed`).                                                                            |
 | PATCH · GET     | `/workspaces/:id/tasks/:taskId` · `/tasks`                  | lead.manage · workspace.read | Complete, reopen, cancel, edit; "my tasks" (needs contact access).                                                                                                      |
 | GET             | `/workspaces/:id/members`                                   | workspace.read               | Assignee options: membership and actor ids, roles and display names, never emails.                                                                                      |
@@ -237,8 +238,10 @@ every request.
    `internet` and `mobility` (CanadaWide) are modelled: strict payloads, name,
    email and phone required, and **one-shot**: they must be sent with
    `submit: true`, are stored `submitted`, and get no draft grant.
-   `sim_order`, `partner_application`, `contact_message` are listed but not yet
-   modelled (any payload, resumable drafts). A refusal is
+   `sim_order` and `partner_application` have Get Canada Sim's stages and
+   field definitions (their history is imported and staff edit orders, §3.4),
+   but their intake is not modelled yet: with `contact_message` they take any
+   payload as resumable drafts. A refusal is
    `validation_error` with `details.field` naming the refused part, never a
    value. Contact rules are deliberately no stricter than the sites' own.
 4. Multi-step forms keep the returned draft grant and `PATCH` the lead.
@@ -382,6 +385,40 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    every active member under the name they set, with roles; the owner can
    remove someone's access behind a confirmation (the existing revoke route,
    audited; their past work stays on the leads).
+
+### 3.4 2026-10-27: Get Canada Sim's orders in the CRM
+
+1. **Survey** of what staff do in Get Canada Sim's admin today:
+   [GCS_ADMIN_INVENTORY.md](GCS_ADMIN_INVENTORY.md).
+2. **Import** (`packages/db/sql/getcanadasim-legacy-import.sql`,
+   [runbook](RUNBOOKS/legacy-import.md#get-canada-sim-historical-import)): all
+   138 orders as `sim_order` leads (`MS-<number>`, status as stage, archived
+   ones in the trash) and 5 partner applications (`PT-<number>`), with staff
+   and partner notes, reminders as tasks and SIM numbers. Re-runnable, like
+   CanadaWide's.
+3. **Order details**: each lead type has field definitions in the contracts
+   (`packages/contracts/src/lead-fields.ts`: label, kind, choices, editable,
+   staff-only, a countdown date), and one list drives the lead page, its edit
+   form and the backend's check. Staff correct an order's plan, SIM type,
+   arrival, permit, visa and flight answers, addresses and reference; the
+   timeline and audit name the fields changed, never their values. A mailed
+   SIM needs a shipping address.
+4. **SIM number**: a staff-only field in its own card. Emailing it to the
+   customer (the old admin's "email the customer this number?") waits on the
+   backend's email provider (§5.1).
+5. **"New" badge**: a lead nobody who works leads has opened carries a badge
+   on the table, the board and its page, and the menu counts them. The first
+   open records an `opened` entry (hidden from the timeline when the old admin
+   wrote it). Both imports carry the old admins over: Get Canada Sim's
+   `viewed_at`, and every imported CanadaWide lead counts as opened, so only
+   leads from the CRM's own intake start New (1 in production after the
+   re-runs). Opening a lead is not working it: the imports keep carrying the
+   old admin's changes onto it.
+
+**Until staff move**, Get Canada Sim orders are worked in its own admin: the
+CRM's copy is refreshed by re-running the import, and nothing the CRM changes
+flows back to `public.orders`, which `/track`, the partner portal and the
+invoices read.
 
 ## 4. What is verified, and how
 

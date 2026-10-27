@@ -231,10 +231,11 @@ select
      where not exists (select 1 from app.leads l where l.id = m.id)) as legacy_rows_missing,
   (select count(*) from app.leads l join app.workspaces w on w.id = l.workspace_id
      where w.slug = 'canadawide' and l.deleted_at is not null) as crm_trash,
-  (select count(*) from app.lead_activities
-     where actor_id = '00000000-0000-4000-8000-00000000a001' and kind = 'note') as imported_notes,
-  (select count(*) from app.lead_tasks
-     where created_by = '00000000-0000-4000-8000-00000000a001') as imported_tasks,
+  (select count(*) from app.lead_activities a join app.workspaces w on w.id = a.workspace_id
+     where w.slug = 'canadawide' and a.actor_id = '00000000-0000-4000-8000-00000000a001'
+       and a.kind = 'note') as imported_notes,
+  (select count(*) from app.lead_tasks k join app.workspaces w on w.id = k.workspace_id
+     where w.slug = 'canadawide' and k.created_by = '00000000-0000-4000-8000-00000000a001') as imported_tasks,
   (select count(*) from app.leads l join app.workspaces w on w.id = l.workspace_id
      where w.slug = 'canadawide' and l.deleted_at is null
        and not exists (
