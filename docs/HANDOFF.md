@@ -475,10 +475,19 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
     `CRM_ID_STEP=on` is set there as well (2026-10-27, its commit `2af30b7`):
     a SIN as it is, a licence photo with the signed PUT and then its SHA-256,
     one retry when the CRM is busy. Unset, it writes Supabase as before.
-  - Next, in order: migration 0006 in production; a production smoke test
-    with a test lead (SIN and licence, then clean up); the owner sets
-    `CRM_ID_STEP=on` on CanadaWide's Vercel project and redeploys; once real
-    IDs arrive, drop the last two anon policies.
+  - Smoke-tested in production 2026-10-27 after migration 0006, with a
+    temporary CanadaWide key against the live backend: a mobility test lead,
+    a test SIN (sealed, last three digits readable; a retry returned the same
+    identity), a licence photo through the signed PUT to Supabase Storage
+    (the first real upload through the S3 adapter) and its verified copy in
+    `mobility-ids`, a third identity, then `identity_limit_reached` at the
+    cap and a refused bad SIN that echoed nothing. All three identities were
+    in `public.mobility_id_uploads` under the same ids, the audit trail held
+    no SIN, about 1–2 s per call (4.4 s for the licence). The key was revoked
+    and the test lead trashed in both admins; the 286-byte test photo stays
+    in storage (no delete path without the Storage API key).
+  - Next: the owner sets `CRM_ID_STEP=on` on CanadaWide's Vercel project and
+    redeploys; once real IDs arrive, drop the last two anon policies.
 - **Documents on Supabase Storage** through the existing S3 adapter. Its first
   quirk is fixed: Supabase serves S3 under `/storage/v1/s3`, and SigV4 must
   sign that path too (the adapter signed only `/bucket/key`). The owner's
