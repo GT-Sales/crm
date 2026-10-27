@@ -1,6 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { contextWorkspaceId, type TenantTransaction } from '@gt-sales/db';
 import {
+  RELATED_LEADS_LIMIT,
   attributionSchema,
   leadActivitySchema,
   leadContactSchema,
@@ -10,6 +11,7 @@ import {
   leadTaskSchema,
   leadTypeEntry,
   leadTypeSchema,
+  relatedLeadSchema,
   type LeadActivity,
   type LeadAssigneeFilter,
   type LeadBoardColumn,
@@ -20,6 +22,7 @@ import {
   type LeadTaskStatus,
   type LeadTypeCount,
   type LeadView,
+  type RelatedLead,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 
@@ -395,20 +398,34 @@ export function toLeadTask(row: TaskRow): LeadTask {
   });
 }
 
+export interface LeadWithWork {
+  lead: LeadDetail;
+  activities: LeadActivity[];
+  tasks: LeadTask[];
+  related: RelatedLead[];
+}
+
 /**
  * The lead page in one statement: the lead with its form, its timeline (newest
- * first, capped so one very long history cannot stall the page) and its tasks
+ * first, capped so one very long history cannot stall the page), its tasks
  * (open first, soonest due, undated last; then closed ones, most recently
- * changed first), the last two as JSON arrays. Each statement is a round trip
- * to the remote pooler, so the page's three reads travel as one.
+ * changed first) and the same person's other requests on this site (newest
+ * first, trashed ones included and marked), the last three as JSON arrays.
+ * Each statement is a round trip to the remote pooler, so the page's reads
+ * travel as one.
  */
 export async function selectLeadWithWork(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
-): Promise<{ lead: LeadDetail; activities: LeadActivity[]; tasks: LeadTask[] } | undefined> {
+): Promise<LeadWithWork | undefined> {
   const [row] = await tx.execute<
-    LeadRow & { payload: unknown; activities: ActivityRow[]; tasks: TaskRow[] }
+    LeadRow & {
+      payload: unknown;
+      activities: ActivityRow[];
+      tasks: TaskRow[];
+      related: unknown[];
+    }
   >(sql`
     select
       ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS},
@@ -450,7 +467,28 @@ export async function selectLeadWithWork(
         ), '[]'::json)
         from app.lead_tasks k
         where k.workspace_id = l.workspace_id and k.lead_id = l.id
-      ) as tasks
+      ) as tasks,
+      (
+        select coalesce(json_agg(json_build_object(
+          'id', o.id,
+          'leadType', o.lead_type,
+          'status', o.status,
+          'stage', o.stage,
+          'deletedAt', ${iso('o.deleted_at')},
+          'createdAt', ${iso('o.created_at')},
+          'updatedAt', ${iso('o.updated_at')}
+        ) order by o.created_at desc, o.id desc), '[]'::json)
+        from (
+          select other.*
+          from app.leads other
+          where other.workspace_id = l.workspace_id
+            and other.contact_id = l.contact_id
+            and other.id <> l.id
+            and other.customer_data_restricted_at is null
+          order by other.created_at desc, other.id desc
+          limit ${sql.raw(String(RELATED_LEADS_LIMIT))}
+        ) o
+      ) as related
     from app.leads l
     ${OPEN_TASK_SUMMARY}
     where l.workspace_id = ${workspaceId}
@@ -463,6 +501,12 @@ export async function selectLeadWithWork(
     lead: { ...toLeadListItem(row), form: form.success ? form.data : null },
     activities: row.activities.map(toLeadActivity),
     tasks: row.tasks.map(toLeadTask),
+    // A request this version cannot show (say, a newer lead type) is left
+    // out rather than failing the page.
+    related: row.related.flatMap((item) => {
+      const parsed = relatedLeadSchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
+    }),
   };
 }
 

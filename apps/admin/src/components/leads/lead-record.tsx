@@ -22,6 +22,7 @@ import { leadDisplayName, StageBadge } from './lead-display';
 import { formFields } from './lead-fields';
 import { LeadTasks } from './lead-tasks';
 import { LeadTimeline } from './lead-timeline';
+import { RelatedRequests } from './related-requests';
 import { useLeadWorkspace } from './use-lead-workspace';
 
 const ATTRIBUTION_LABELS: Record<string, string> = {
@@ -148,7 +149,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
     );
   }
 
-  const { lead, activities, tasks, access } = record.data;
+  const { lead, activities, tasks, related, access } = record.data;
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -397,6 +398,8 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
               </CardContent>
             </Card>
           ) : null}
+
+          <RelatedRequests workspaceSlug={workspaceSlug} related={related} />
 
           {fields.length > 0 ? (
             <Card>

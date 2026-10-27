@@ -15,6 +15,7 @@ import {
   type LeadActivity,
   type LeadDetail,
   type LeadTask,
+  type RelatedLead,
   type StaffWorkspace,
 } from '@gt-sales/contracts';
 
@@ -79,6 +80,16 @@ const task: LeadTask = {
   status: 'open',
   completedAt: null,
   createdBy: ACTOR,
+  createdAt: NOW,
+  updatedAt: NOW,
+};
+
+const relatedLead: RelatedLead = {
+  id: '90000000-0000-4000-8000-000000000e02',
+  leadType: 'mobility',
+  status: 'submitted',
+  stage: 'contacted',
+  deletedAt: null,
   createdAt: NOW,
   updatedAt: NOW,
 };
@@ -149,6 +160,9 @@ function memoryWorkStore() {
             lead,
             activities: input.includeWork ? [note] : [],
             tasks: input.includeWork ? [task] : [],
+            // Always returned here, so the route's own redaction is what the
+            // viewer test sees.
+            related: [relatedLead],
           }
         : undefined,
     ),
@@ -281,7 +295,7 @@ describe('staff lead work routes', () => {
     expect((await call(`${leadsUrl()}/board`)).status).toBe(400);
   });
 
-  it('shows a viewer the lead without contact, form, timeline or tasks', async () => {
+  it('shows a viewer the lead without contact, form, timeline, tasks or related requests', async () => {
     store.access = { ...store.access, roles: ['viewer'] };
     const response = await call(`${leadsUrl()}/${LEAD}`);
     expect(response.status).toBe(200);
@@ -290,6 +304,7 @@ describe('staff lead work routes', () => {
     expect(body.lead.form).toBeNull();
     expect(body.activities).toEqual([]);
     expect(body.tasks).toEqual([]);
+    expect(body.related).toEqual([]);
     expect(body.access).toEqual({ contacts: false, manage: false });
     expect(work.getLead).toHaveBeenCalledWith(expect.objectContaining({ includeWork: false }));
   });
@@ -301,6 +316,7 @@ describe('staff lead work routes', () => {
     expect(body.lead).toEqual(lead);
     expect(body.activities).toEqual([note]);
     expect(body.tasks).toEqual([task]);
+    expect(body.related).toEqual([relatedLead]);
 
     const missing = await call(`${leadsUrl()}/90000000-0000-4000-8000-0000000000ff`);
     expect(missing.status).toBe(404);

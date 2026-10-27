@@ -173,6 +173,17 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
           updatedAt: NOW,
         },
       ],
+      related: [
+        {
+          id: UUID_B,
+          leadType: 'mobility',
+          status: 'submitted',
+          stage: 'new',
+          deletedAt: NOW,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
       access: { contacts: true, manage: true },
       requestId: UUID_C,
     },
@@ -300,6 +311,15 @@ describe('contract schemas reject invalid input', () => {
     expect(
       updateWorkspaceLeadRequestSchema.safeParse({ contact: { countryCode: 'CA' } }).success,
     ).toBe(false);
+  });
+
+  it('reads a lead page from a backend without related requests as having none', () => {
+    const roundTrip = cases.find(([name]) => name === 'getWorkspaceLeadResponse');
+    if (!roundTrip || typeof roundTrip[2] !== 'object' || roundTrip[2] === null) {
+      throw new Error('the lead page fixture is missing');
+    }
+    const { related: _related, ...older } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
+    expect(getWorkspaceLeadResponseSchema.parse(older).related).toEqual([]);
   });
 });
 

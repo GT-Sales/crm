@@ -195,6 +195,7 @@ export {
 
 export {
   LEGACY_IMPORT_ACTOR_ID,
+  RELATED_LEADS_LIMIT,
   createLeadNoteRequestSchema,
   createLeadNoteResponseSchema,
   createLeadTaskRequestSchema,
@@ -209,6 +210,7 @@ export {
   leadTrashResponseSchema,
   listWorkspaceTasksQuerySchema,
   listWorkspaceTasksResponseSchema,
+  relatedLeadSchema,
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
   updateWorkspaceLeadResponseSchema,
@@ -227,6 +229,7 @@ export {
   type LeadTrashResponse,
   type ListWorkspaceTasksQuery,
   type ListWorkspaceTasksResponse,
+  type RelatedLead,
   type UpdateLeadTaskRequest,
   type UpdateWorkspaceLeadRequest,
   type UpdateWorkspaceLeadResponse,

@@ -428,6 +428,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         lead: access.contacts ? result.lead : withoutPersonalDetails(result.lead),
         activities: result.activities,
         tasks: result.tasks,
+        // Which requests belong to one person is personal data as well.
+        related: access.contacts ? result.related : [],
         access,
         requestId: req.id,
       });

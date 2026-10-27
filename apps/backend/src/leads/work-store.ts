@@ -30,6 +30,7 @@ import {
   selectWorkspaceTasks,
   toLeadActivity,
   type LeadFilters,
+  type LeadWithWork,
 } from './staff-queries.js';
 import { upsertContact } from './store.js';
 
@@ -51,11 +52,7 @@ interface WriteScope extends Scope {
   requestId: string;
 }
 
-export interface LeadWorkResult {
-  lead: LeadDetail;
-  activities: LeadActivity[];
-  tasks: LeadTask[];
-}
+export type LeadWorkResult = LeadWithWork;
 
 export type UpdateLeadWorkOutcome =
   | { status: 'updated'; lead: LeadDetail; activities: LeadActivity[] }
@@ -100,7 +97,7 @@ export interface LeadWorkStore {
     input: Scope & { leadType: string; assignee?: LeadAssigneeFilter; search?: string },
     perStage: number,
   ): Promise<LeadBoardColumn[]>;
-  /** `includeWork: false` skips the timeline and tasks for a caller who may not see them. */
+  /** `includeWork: false` skips the timeline, tasks and related requests for a caller who may not see them. */
   getLead(
     input: Scope & { leadId: string; includeWork: boolean },
   ): Promise<LeadWorkResult | undefined>;
@@ -254,7 +251,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     return this.database.withTenantTx(input, async (tx) => {
       if (input.includeWork) return selectLeadWithWork(tx, input.workspaceId, input.leadId);
       const lead = await selectLeadDetail(tx, input.workspaceId, input.leadId);
-      return lead ? { lead, activities: [], tasks: [] } : undefined;
+      return lead ? { lead, activities: [], tasks: [], related: [] } : undefined;
     });
   }
 

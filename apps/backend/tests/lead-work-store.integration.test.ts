@@ -131,6 +131,38 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(leadDetailSchema.safeParse(result?.lead).success).toBe(true);
   });
 
+  test('the lead page lists the same person’s other requests on this site only', async () => {
+    const person = {
+      fullName: 'Jordan Again',
+      email: 'jordan.again@example.test',
+      phone: '403 555 0150',
+    };
+    const first = await createInternetLead(person);
+    const second = await createInternetLead({ ...person, email: 'Jordan.Again@example.test' });
+    const third = await createInternetLead(person);
+    await work.setTrashed({ ...writeScope, leadId: third, trashed: true });
+    // Someone else, and the same person on another site, are not related here.
+    await createInternetLead({ ...person, email: 'someone.else@example.test' });
+    await leadStore.createLead({
+      ...writeScope,
+      workspaceId: OTHER_WORKSPACE,
+      leadType: 'internet',
+      contact: person,
+      form: { schemaVersion: 1, payload: internetPayload },
+      consentVersion: 'cw-internet-contact-2026-10',
+      submit: true,
+    });
+
+    const page = await work.getLead({ ...scope, leadId: first, includeWork: true });
+    expect(page?.related.map((entry) => entry.id)).toEqual([third, second]);
+    expect(page?.related[0]).toMatchObject({ leadType: 'internet', stage: 'new' });
+    expect(page?.related[0]?.deletedAt).not.toBeNull();
+    expect(page?.related[1]?.deletedAt).toBeNull();
+
+    const hidden = await work.getLead({ ...scope, leadId: first, includeWork: false });
+    expect(hidden?.related).toEqual([]);
+  });
+
   test('a stage change is checked against the type, recorded on the timeline and audited', async () => {
     const leadId = await createInternetLead({
       fullName: 'Casey Stage',

@@ -87,6 +87,7 @@ function response(overrides: Partial<GetWorkspaceLeadResponse> = {}): GetWorkspa
     lead,
     activities: [],
     tasks: [],
+    related: [],
     access: { contacts: true, manage: true },
     requestId: '00000000-0000-4000-8000-000000000001',
     ...overrides,
@@ -107,6 +108,47 @@ describe('LeadRecord', () => {
     expect(screen.getByText('12 Example Street')).toBeTruthy();
     expect(screen.getByText('utm:google/cpc')).toBeTruthy();
     expect(mocks.getStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD);
+  });
+
+  it('lists the person’s other requests, each linked, and nothing when there are none', async () => {
+    const { unmount } = render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    expect(screen.queryByRole('heading', { name: 'Other requests from this person' })).toBeNull();
+    unmount();
+
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        related: [
+          {
+            id: '90000000-0000-4000-8000-000000000002',
+            leadType: 'mobility',
+            status: 'submitted',
+            stage: 'contacted',
+            deletedAt: null,
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+          {
+            id: '90000000-0000-4000-8000-000000000003',
+            leadType: 'internet',
+            status: 'submitted',
+            stage: 'new',
+            deletedAt: NOW,
+            createdAt: '2026-10-01T12:00:00.000Z',
+            updatedAt: NOW,
+          },
+        ],
+      }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const list = await screen.findByRole('list', { name: 'Other requests from this person' });
+    const links = within(list).getAllByRole('link');
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/w/canadawide/leads/90000000-0000-4000-8000-000000000002',
+      '/w/canadawide/leads/90000000-0000-4000-8000-000000000003',
+    ]);
+    expect(within(links[0] ?? list).getByText('Contacted')).toBeTruthy();
+    expect(within(links[1] ?? list).getByText('In trash')).toBeTruthy();
   });
 
   it('changes the stage and shows the new timeline entry', async () => {

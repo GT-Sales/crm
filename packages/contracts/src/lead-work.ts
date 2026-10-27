@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { isoDateTimeSchema, pageInfoSchema, requestIdSchema } from './common';
-import { leadContactSchema, leadFormSchema, leadTypeSchema } from './leads';
+import { leadContactSchema, leadFormSchema, leadStatusSchema, leadTypeSchema } from './leads';
 import {
   leadAccessSchema,
   leadAssigneeFilterSchema,
@@ -91,13 +91,34 @@ export const leadDetailSchema = leadListItemSchema.extend({
 export type LeadDetail = z.infer<typeof leadDetailSchema>;
 
 /**
+ * Another request on the same site from the same person (the same contact),
+ * for the lead page: what it was and where it stands, newest first. Its
+ * contact is the lead's own, so it is not repeated.
+ */
+export const relatedLeadSchema = z.object({
+  id: z.uuid(),
+  leadType: leadTypeSchema,
+  status: leadStatusSchema,
+  stage: leadStageSchema,
+  deletedAt: isoDateTimeSchema.nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type RelatedLead = z.infer<typeof relatedLeadSchema>;
+
+/** How many of the person's other requests the lead page lists. */
+export const RELATED_LEADS_LIMIT = 20;
+
+/**
  * `GET /workspaces/:id/leads/:leadId`. For a caller who cannot see contacts,
- * `contact` is empty, `form` is null and `activities` and `tasks` are empty.
+ * `contact` is empty, `form` is null and `activities`, `tasks` and `related`
+ * are empty: linking requests to one person is personal data too.
  */
 export const getWorkspaceLeadResponseSchema = z.object({
   lead: leadDetailSchema,
   activities: z.array(leadActivitySchema),
   tasks: z.array(leadTaskSchema),
+  related: z.array(relatedLeadSchema).max(RELATED_LEADS_LIMIT).default([]),
   access: leadAccessSchema,
   requestId: requestIdSchema,
 });
