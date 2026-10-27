@@ -88,5 +88,6 @@ contact details are erased from the CRM's copy 90 days after its last change.
 The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`.
 The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
 
-| Date | Run |
-| ---- | --- |
+| Date       | Run                                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-10-27 | First production run: 138 orders + 5 partner applications (0 missing, 0 stage mismatches), 44 archived orders in the trash, 14 staff notes, 21 reminders as tasks. |
