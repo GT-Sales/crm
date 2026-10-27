@@ -475,6 +475,8 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
     documents, never their values. While one still waits there, the lead
     page says so and where it is decided; approving and applying a request
     in the CRM comes with the move (its `/track` must then send them here).
+    In production: all 69 requests on 57 orders (64 approved, 4 rejected, 1
+    waiting).
 
 **Until staff move**, Get Canada Sim orders are worked in its own admin: the
 CRM's copy is refreshed by re-running the import, and nothing the CRM changes

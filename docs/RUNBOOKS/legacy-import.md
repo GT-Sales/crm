@@ -62,7 +62,6 @@ an earlier one wrote.
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-10-27 | First production run: 669 internet + 39 mobility leads (0 missing), 623 contacts, 279 notes, 28 tasks (12 done, 16 open), 129 in the trash; stages and trash matched the legacy rows one for one. A second run left every count and a fingerprint of all leads and tasks unchanged.                                    |
 | 2026-10-27 | Run with the "New" badge (`f5d6639`): 676 internet + 40 mobility rows, 0 missing (6 leads CanadaWide wrote to the legacy tables before its 07:22 UTC switch came over); 712 imported leads each opened by the old admin; 280 notes, 28 tasks, 131 in the trash; `crm_new` 1, the first lead from the CRM's own intake. |
-| 2026-10-27 | Run with documents (`081d478`): the same counts; 121 copies queued (50 passports, 51 approval letters, 9 billing contracts, 7 SIM photos, 4 licences), all completed in 9 minutes, about 2.5 s each; 121 current files on 60 leads, each matching its original's size and type, 121 `file.imported` audits, 0 failed.  |
 
 The rehearsal is `apps/backend/tests/canadawide-legacy-import.integration.test.ts`
 (replica legacy tables in `tests/support/legacy-canadawide.ts`, shared with the
@@ -127,7 +126,20 @@ The reconciliation row adds `documents_queued` (still to run),
 after the outbox has run, `documents_queued` and `documents_failed` should be
 `0` and `crm_documents` the number of files Get Canada Sim names that exist.
 
-| Date       | Run                                                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-10-27 | First production run: 138 orders + 5 partner applications (0 missing, 0 stage mismatches), 44 archived orders in the trash, 14 staff notes, 21 reminders as tasks. |
-| 2026-10-27 | Run with the "New" badge (`f5d6639`): the same counts; all 138 orders had been opened in the old admin, so 143 `opened` entries and `crm_new` 0.                   |
+**Change requests** (`order_edit_requests`) become two timeline entries each,
+written once and never rewritten: the request, dated when the customer sent
+it, and the old admin's decision, dated when it was made. A request still
+pending gets its decision entry on the first run after it is decided; until
+then the lead page shows it as waiting in the old admin. `change_requests` in
+the reconciliation row counts the requests on the CRM's timelines. **Deploy
+the backend and the admin first**, and once the entries are in, never roll
+the admin back to a build older than `9630b76`: the admin reads every
+response against its own contract, so an older build fails to open a lead
+page that has them.
+
+| Date       | Run                                                                                                                                                                                                                                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-27 | First production run: 138 orders + 5 partner applications (0 missing, 0 stage mismatches), 44 archived orders in the trash, 14 staff notes, 21 reminders as tasks.                                                                                                                                                    |
+| 2026-10-27 | Run with the "New" badge (`f5d6639`): the same counts; all 138 orders had been opened in the old admin, so 143 `opened` entries and `crm_new` 0.                                                                                                                                                                      |
+| 2026-10-27 | Run with documents (`081d478`): the same counts; 121 copies queued (50 passports, 51 approval letters, 9 billing contracts, 7 SIM photos, 4 licences), all completed in 9 minutes, about 2.5 s each; 121 current files on 60 leads, each matching its original's size and type, 121 `file.imported` audits, 0 failed. |
+| 2026-10-27 | Run with change requests (`9630b76`): the same counts, documents unchanged (121, none queued or failed); all 69 requests on 57 orders came over as 137 entries: 69 requests, 64 approvals, 4 rejections, and 1 request still waiting in the old admin.                                                                |
