@@ -70,18 +70,31 @@ function column(name: RegExp) {
   return screen.getByRole('region', { name });
 }
 
+/** Drags the Avery Example card onto a column, as the browser would. */
 async function moveTo(stageLabel: string) {
-  fireEvent.pointerDown(
-    await screen.findByRole('button', { name: 'Move Avery Example to another stage' }),
-    { button: 0, ctrlKey: false },
-  );
-  fireEvent.click(await screen.findByRole('menuitem', { name: stageLabel }));
+  const items = new Map<string, string>();
+  const dataTransfer = {
+    get types() {
+      return [...items.keys()];
+    },
+    setData: (type: string, value: string) => void items.set(type, value),
+    getData: (type: string) => items.get(type) ?? '',
+    effectAllowed: 'uninitialized',
+    dropEffect: 'none',
+  };
+  const card = (await screen.findByText('Avery Example')).closest('li');
+  if (!card) throw new Error('the Avery Example card is not on the board');
+  const target = column(new RegExp(`^${stageLabel}, \\d+ leads$`));
+  fireEvent.dragStart(card, { dataTransfer });
+  fireEvent.dragOver(target, { dataTransfer });
+  fireEvent.drop(target, { dataTransfer });
 }
 
 describe('LeadsBoard', () => {
   beforeEach(() => {
     mocks.getLeadBoard.mockReset();
     mocks.updateStaffLead.mockReset();
+    window.localStorage.clear();
   });
 
   it('lays out a column per stage with its count', async () => {
@@ -130,6 +143,44 @@ describe('LeadsBoard', () => {
     );
     expect(within(column(/^New, 1 leads$/)).getByText('Avery Example')).toBeTruthy();
     expect(column(/^Won, 4 leads$/)).toBeTruthy();
+  });
+
+  it('collapses a column to a strip and expands it again', async () => {
+    mocks.getLeadBoard.mockResolvedValue(board(true));
+    renderBoard();
+    await screen.findByText('Avery Example');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse New column' }));
+    expect(screen.queryByText('Avery Example')).toBeNull();
+    expect(window.localStorage.getItem('gt-board-collapsed:' + WORKSPACE + ':internet')).toBe(
+      '["new"]',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand New column' }));
+    expect(screen.getByText('Avery Example')).toBeTruthy();
+  });
+
+  it('hides a column via the options menu and restores it from Hidden columns', async () => {
+    mocks.getLeadBoard.mockResolvedValue(board(true));
+    renderBoard();
+    await screen.findByText('Avery Example');
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Contacted column options' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide column' }));
+    expect(screen.queryByRole('region', { name: /^Contacted/ })).toBeNull();
+    expect(window.localStorage.getItem('gt-board-hidden:' + WORKSPACE + ':internet')).toBe(
+      '["contacted"]',
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Hidden columns (1)' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Contacted \(0\)/ }));
+    expect(column(/^Contacted, 0 leads$/)).toBeTruthy();
   });
 
   it('offers no move controls to a role that cannot manage leads', async () => {

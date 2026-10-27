@@ -4,8 +4,9 @@ import { expect, test, type Page } from '@playwright/test';
  * Staff working leads in a real browser against the real backend (see
  * playwright.leads.config.ts). The harness seeds CanadaWide with four internet
  * leads (two new, one contacted with an overdue task, one won) and one
- * mobility lead, signed in as the owner "Takib" with a colleague "Sam". The
- * journeys share that one seeded site and run in order.
+ * mobility lead, plus Get Canada Sim with three SIM orders, signed in as the
+ * owner "Takib" with a colleague "Sam". The journeys share those seeded sites
+ * and run in order.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -74,8 +75,9 @@ test('a card moved on the board stays moved', async ({ page }) => {
   await page.goto('/w/canadawide/leads?type=internet&view=board');
   await expect(page.getByRole('region', { name: 'New, 2 leads' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Move Avery Example to another stage' }).click();
-  await page.getByRole('menuitem', { name: 'Qualified' }).click();
+  await page
+    .getByRole('link', { name: 'Avery Example' })
+    .dragTo(page.getByRole('region', { name: /^Qualified, \d+ leads$/ }));
   await expect(
     page.getByRole('region', { name: 'Qualified, 1 leads' }).getByRole('link', {
       name: 'Avery Example',
@@ -144,5 +146,56 @@ test('the trash hides a lead and restores it', async ({ page }) => {
 
   await page.goto('/w/canadawide/leads');
   await expect(page.getByRole('tab', { name: /All leads\s*5/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('SIM orders filter by permit type, sort by arrival ascending, add the Arrival in Canada column, and survive a reload', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await expect(page.getByRole('link', { name: 'Priya Sharma' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Marco Rossi' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add filter' }).click();
+  await page.getByLabel('Property').selectOption('permitType');
+  await page.getByLabel('Operator').selectOption('eq');
+  await page.getByLabel('Value').selectOption('student');
+  await page.getByRole('button', { name: 'Apply filter' }).click();
+
+  await expect(
+    page.getByRole('button', { name: /Visa \/ permit type is Study permit/ }),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Marco Rossi' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Priya Sharma' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page.getByRole('checkbox', { name: 'Arrival in Canada' }).check();
+  await expect(page).toHaveURL(/cols=arrivalDate/);
+
+  await page.getByRole('button', { name: /Arrival in Canada/ }).click();
+  await expect(page).toHaveURL(/sort=prop\.arrivalDate%3Aasc/);
+  await expect(page.getByRole('columnheader', { name: /Arrival in Canada/ })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  );
+  const rowsBeforeReload = page.locator('tbody tr');
+  await expect(rowsBeforeReload.nth(0)).toContainText('Arjun Patel');
+  await expect(rowsBeforeReload.nth(1)).toContainText('Priya Sharma');
+
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: /Visa \/ permit type is Study permit/ }),
+  ).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: /Arrival in Canada/ })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  );
+  await expect(page.getByRole('link', { name: 'Marco Rossi' })).toHaveCount(0);
+  const rowsAfterReload = page.locator('tbody tr');
+  await expect(rowsAfterReload.nth(0)).toContainText('Arjun Patel');
+  await expect(rowsAfterReload.nth(1)).toContainText('Priya Sharma');
   expect(errors).toEqual([]);
 });

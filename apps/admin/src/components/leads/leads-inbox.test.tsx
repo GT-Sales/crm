@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { todayDay } from '../../lib/dates';
+import { filterQueryForLeadType, inboxSearch, parseInboxQuery } from './inbox-query';
 import { LeadsInbox } from './leads-inbox';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -45,6 +46,52 @@ vi.mock('../staff-session-provider', () => ({
 }));
 
 const emptyPage = { leads: [], page: { page: 1, pageSize: 50, total: 0 } };
+
+describe('parseInboxQuery and inboxSearch', () => {
+  it('round-trips where, sort and cols in the URL and drops invalid values', () => {
+    const query = parseInboxQuery(
+      new URLSearchParams({
+        type: 'sim_order',
+        where: JSON.stringify([
+          { key: 'permitType', op: 'eq', value: 'student' },
+          { key: 'dateOfBirth', op: 'eq', value: '1999-01-01' },
+          { key: 'permitType', op: 'eq', value: 'not-an-option' },
+          { key: 'city', op: 'eq', value: 'Calgary' },
+        ]),
+        sort: 'prop.arrivalDate:asc',
+        cols: 'arrivalDate,permitType,dateOfBirth,city,arrivalDate',
+        page: '2',
+      }),
+    );
+
+    expect(query.where).toEqual([{ key: 'permitType', op: 'eq', value: 'student' }]);
+    expect(query.sort).toBe('prop.arrivalDate:asc');
+    expect(query.columns).toEqual(['arrivalDate', 'permitType']);
+
+    const encoded = inboxSearch(query);
+    const roundTripped = parseInboxQuery(new URLSearchParams(encoded.slice(1)));
+    expect(roundTripped).toEqual(query);
+
+    const invalidSortAndJson = parseInboxQuery(
+      new URLSearchParams({
+        type: 'internet',
+        where: '{bad-json',
+        sort: 'prop.dateOfBirth:asc',
+        cols: 'dateOfBirth,permitType',
+      }),
+    );
+    expect(invalidSortAndJson.where).toBeUndefined();
+    expect(invalidSortAndJson.sort).toBeUndefined();
+    expect(invalidSortAndJson.columns).toBeUndefined();
+
+    const switched = filterQueryForLeadType(query, 'internet');
+    expect(switched).toEqual({
+      where: undefined,
+      sort: undefined,
+      columns: undefined,
+    });
+  });
+});
 
 describe('LeadsInbox', () => {
   beforeEach(() => {
@@ -223,5 +270,122 @@ describe('LeadsInbox', () => {
         scroll: false,
       },
     );
+  });
+
+  it('offers operators and value controls by kind, renders removable filter chips, and clears filters', async () => {
+    navigation.search = 'type=sim_order&page=3';
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('button', { name: 'Add filter' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }));
+    const propertySelect = screen.getByLabelText('Property');
+
+    // Choice property: permitType offers eq, in, empty, notEmpty and a select of options.
+    fireEvent.change(propertySelect, { target: { value: 'permitType' } });
+    const operatorSelect = screen.getByLabelText('Operator');
+    expect(
+      Array.from(operatorSelect.querySelectorAll('option')).map((opt) => opt.textContent),
+    ).toEqual(['is', 'is any of', 'is empty', 'is not empty']);
+    const valueControl = screen.getByLabelText('Value');
+    expect(valueControl.tagName).toBe('SELECT');
+    fireEvent.change(valueControl, { target: { value: 'student' } });
+
+    // Date property: arrivalDate offers date input and date operators.
+    fireEvent.change(propertySelect, { target: { value: 'arrivalDate' } });
+    expect(
+      Array.from(screen.getByLabelText('Operator').querySelectorAll('option')).map(
+        (opt) => opt.textContent,
+      ),
+    ).toEqual(['is', 'on or before', 'on or after', 'is empty', 'is not empty']);
+    expect(screen.getByLabelText('Value').getAttribute('type')).toBe('date');
+
+    // Yes/No property: gotVisa offers Yes/No select and hides value when "is empty".
+    fireEvent.change(propertySelect, { target: { value: 'gotVisa' } });
+    expect(
+      Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+        (opt) => opt.textContent,
+      ),
+    ).toEqual(['Yes', 'No']);
+    fireEvent.change(screen.getByLabelText('Operator'), { target: { value: 'empty' } });
+    expect(screen.queryByLabelText('Value')).toBeNull();
+
+    // Apply `Visa / permit type is Study permit`.
+    fireEvent.change(propertySelect, { target: { value: 'permitType' } });
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'student' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filter' }));
+
+    expect(navigation.replace).toHaveBeenLastCalledWith(
+      '/w/canadawide/leads?type=sim_order&where=%5B%7B%22key%22%3A%22permitType%22%2C%22op%22%3A%22eq%22%2C%22value%22%3A%22student%22%7D%5D',
+      { scroll: false },
+    );
+
+    view.unmount();
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const chip = await screen.findByRole('button', {
+      name: /Visa \/ permit type is Study permit/,
+    });
+    expect(chip).toBeTruthy();
+
+    fireEvent.click(chip);
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=sim_order', {
+      scroll: false,
+    });
+  });
+
+  it('cycles column header sorting ascending → descending → default with aria-sort', async () => {
+    navigation.search = 'type=internet&cols=city';
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+
+    const cityHeader = await screen.findByRole('columnheader', { name: /City/ });
+    expect(cityHeader.getAttribute('aria-sort')).toBe('none');
+
+    fireEvent.click(screen.getByRole('button', { name: /City/ }));
+    expect(navigation.replace).toHaveBeenLastCalledWith(
+      '/w/canadawide/leads?type=internet&sort=prop.city%3Aasc&cols=city',
+      { scroll: false },
+    );
+
+    view.unmount();
+    const viewAsc = render(<LeadsInbox workspaceSlug="canadawide" />);
+    const ascHeader = await screen.findByRole('columnheader', { name: /City/ });
+    expect(ascHeader.getAttribute('aria-sort')).toBe('ascending');
+
+    fireEvent.click(screen.getByRole('button', { name: /City/ }));
+    expect(navigation.replace).toHaveBeenLastCalledWith(
+      '/w/canadawide/leads?type=internet&sort=prop.city%3Adesc&cols=city',
+      { scroll: false },
+    );
+
+    viewAsc.unmount();
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const descHeader = await screen.findByRole('columnheader', { name: /City/ });
+    expect(descHeader.getAttribute('aria-sort')).toBe('descending');
+
+    fireEvent.click(screen.getByRole('button', { name: /City/ }));
+    expect(navigation.replace).toHaveBeenLastCalledWith(
+      '/w/canadawide/leads?type=internet&cols=city',
+      { scroll: false },
+    );
+  });
+
+  it('hides filter, column and sort controls when access.contacts is false', async () => {
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'internet', total: 10 }],
+      trash: 0,
+      access: { contacts: false, manage: false },
+    });
+    mocks.getStaffLeads.mockResolvedValue({
+      ...emptyPage,
+      access: { contacts: false, manage: false },
+    });
+    navigation.search = 'type=internet';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+
+    await screen.findByRole('tab', { name: /Internet/ });
+    expect(screen.queryByRole('button', { name: 'Add filter' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Columns' })).toBeNull();
+    const leadHeader = screen.getByRole('columnheader', { name: 'Lead' });
+    expect(leadHeader.getAttribute('aria-sort')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Lead' })).toBeNull();
   });
 });
