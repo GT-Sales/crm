@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
  */
 
 /** The only stored document media types (recorded decision: PDF/JPG/PNG). */
-export type DocumentMediaType = 'application/pdf' | 'image/jpeg' | 'image/png';
+export type DocumentMediaType = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
 
 /** Resolve the logical key stored in the database to its private R2 object. */
 export function documentObjectKey(workspaceId: string, key: string): string {
@@ -37,6 +37,13 @@ export function detectDocumentType(bytes: Uint8Array): DocumentMediaType | undef
   if (startsWith(bytes, png)) return 'image/png';
   // JPEG: FF D8 FF
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
+  // WebP: "RIFF" <size> "WEBP" (52 49 46 46 .. .. .. .. 57 45 42 50)
+  if (
+    startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    matchesAt(bytes, 8, [0x57, 0x45, 0x42, 0x50])
+  ) {
+    return 'image/webp';
+  }
   // PDF: "%PDF-" (25 50 44 46 2D). Allow a small leading offset: some PDFs
   // carry a few bytes of whitespace/BOM before the header, which real readers
   // tolerate. Bound the scan so a huge non-PDF cannot force a long search.

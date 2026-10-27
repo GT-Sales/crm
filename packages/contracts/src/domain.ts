@@ -11,7 +11,12 @@ import { z } from 'zod';
  * The declared Content-Type is never trusted — the finalize step verifies the
  * file signature — but a caller must still declare an allowed type up front.
  */
-export const documentMediaTypeSchema = z.enum(['application/pdf', 'image/jpeg', 'image/png']);
+export const documentMediaTypeSchema = z.enum([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
 export type DocumentMediaType = z.infer<typeof documentMediaTypeSchema>;
 
 /**

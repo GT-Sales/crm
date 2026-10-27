@@ -20,7 +20,7 @@ import { fileSummarySchema } from './files';
 /**
  * Requests a signed PUT URL for one document. `sizeBytes` is bounded by the
  * recorded 10 MB limit; `documentType` must be a key from the offer's
- * checklist; `contentType` must be one of the three allowed media types.
+ * checklist; `contentType` must be one of the four allowed media types.
  */
 export const createUploadIntentRequestSchema = z.object({
   parentType: documentParentTypeSchema,

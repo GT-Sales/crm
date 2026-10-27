@@ -87,6 +87,25 @@ pg_proc / pg_policies where schemaname = 'app'`.
   `postgres`, `search_path=""`, PUBLIC cannot execute, `app_runtime` can; the
   owner's CanadaWide snapshot returns one row with `owner`.
 
+## 0005_lead_identities (2026-10-27)
+
+- `app.lead_identities`: the identity a customer gives for a credit check
+  (CanadaWide's mobility order, step 2), a licence photo as a `files` row or a
+  SIN sealed with AES-256-GCM under `SENSITIVE_FIELDS_KEY` (only its last
+  three digits readable). Tenant policy, FORCE RLS, `app_runtime` SELECT and
+  INSERT only (append-only), a guard against attaching one to a restricted
+  lead. `files` now also accepts `image/webp`, which CanadaWide's form allows.
+- Transitional `app.mirror_canadawide_legacy_identity(...)`, SECURITY DEFINER,
+  EXECUTE for `app_runtime` only: writes the same identity into
+  `public.mobility_id_uploads` (SIN in plain text, as the old admin always
+  had) for a CanadaWide mobility lead of the caller's own site. Drop it with
+  the 0002 trigger at the staff cutover.
+- Applied with `apply_migration`; Drizzle row added by hand: hash
+  `1f5d8279451e43700e472cb9166c3797c568066a60f965660aa27db803c5caa7`,
+  `created_at` `1793080995362`. Verified against the catalog: RLS forced, one
+  policy, no UPDATE or DELETE for the runtime role, the guard trigger, the
+  mirror definer and its grants, the widened `files` type check.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

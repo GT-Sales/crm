@@ -1,12 +1,12 @@
 import type postgres from 'postgres';
 
 /**
- * Replicas of CanadaWide's legacy lead tables (public.internet_leads and
- * public.mobility_leads) with production's columns, NOT NULL rules, defaults
- * and checks, for the suites that exercise the 0002 mirror trigger and the
- * historical import. The runtime role gets no grant on them: only the
- * trigger's SECURITY DEFINER owner and the import (run as `postgres`) touch
- * them.
+ * Replicas of CanadaWide's legacy lead tables (public.internet_leads,
+ * public.mobility_leads and public.mobility_id_uploads) with production's
+ * columns, NOT NULL rules, defaults and checks, for the suites that exercise
+ * the 0002 and 0005 mirrors and the historical import. The runtime role gets
+ * no grant on them: only the SECURITY DEFINER owners and the import (run as
+ * `postgres`) touch them.
  */
 export const LEGACY_TABLES_DDL = `
   create table if not exists public.internet_leads (
@@ -60,6 +60,26 @@ export const LEGACY_TABLES_DDL = `
     first_name text check (char_length(first_name) <= 80),
     last_name text check (char_length(last_name) <= 80)
   );
+  create table if not exists public.mobility_id_uploads (
+    id uuid primary key,
+    lead_id uuid not null references public.mobility_leads (id) on delete cascade,
+    id_type text not null
+      check (id_type in ('drivers-licence', 'provincial-id', 'passport', 'sin')),
+    id_file_path text,
+    credit_check_consent boolean not null check (credit_check_consent),
+    consented_at timestamptz not null,
+    created_at timestamptz not null default now(),
+    sin text,
+    date_of_birth date,
+    constraint mobility_id_uploads_sin_or_file_check check (
+      (id_type = 'sin' and sin ~ '^[0-9]{9}$' and id_file_path is null)
+      or (id_type <> 'sin' and sin is null and id_file_path is not null)
+    ),
+    constraint mobility_id_uploads_sin_date_of_birth_check check (
+      (id_type = 'sin' and date_of_birth is not null and date_of_birth >= '1900-01-01')
+      or (id_type <> 'sin' and date_of_birth is null)
+    )
+  );
 `;
 
 // Next to the runtime-password key (745284914) in packages/db/src/test-helpers.ts.
@@ -74,11 +94,11 @@ const LEGACY_TABLES_LOCK_KEY = 745284915;
  */
 export async function claimLegacyTables(admin: postgres.Sql): Promise<void> {
   await admin`select pg_advisory_lock(${LEGACY_TABLES_LOCK_KEY})`;
-  await admin`drop table if exists public.internet_leads, public.mobility_leads`;
+  await admin`drop table if exists public.mobility_id_uploads, public.internet_leads, public.mobility_leads`;
   await admin.unsafe(LEGACY_TABLES_DDL);
 }
 
 export async function releaseLegacyTables(admin: postgres.Sql): Promise<void> {
-  await admin`drop table if exists public.internet_leads, public.mobility_leads`;
+  await admin`drop table if exists public.mobility_id_uploads, public.internet_leads, public.mobility_leads`;
   await admin`select pg_advisory_unlock(${LEGACY_TABLES_LOCK_KEY})`;
 }

@@ -6763,7 +6763,7 @@
                           "anyOf": [
                             {
                               "type": "string",
-                              "enum": ["application/pdf", "image/jpeg", "image/png"]
+                              "enum": ["application/pdf", "image/jpeg", "image/png", "image/webp"]
                             },
                             { "type": "null" }
                           ]
@@ -8056,7 +8056,7 @@
                   "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
                   "contentType": {
                     "type": "string",
-                    "enum": ["application/pdf", "image/jpeg", "image/png"]
+                    "enum": ["application/pdf", "image/jpeg", "image/png", "image/webp"]
                   },
                   "sizeBytes": { "type": "integer", "exclusiveMinimum": 0, "maximum": 10485760 }
                 },
@@ -8139,7 +8139,7 @@
                         },
                         "contentType": {
                           "type": "string",
-                          "enum": ["application/pdf", "image/jpeg", "image/png"]
+                          "enum": ["application/pdf", "image/jpeg", "image/png", "image/webp"]
                         },
                         "sizeBytes": {
                           "type": "integer",

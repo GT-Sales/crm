@@ -215,7 +215,7 @@ databaseTest('CanadaWide legacy mirror (migration 0002)', () => {
   });
 
   test('is a no-op where the legacy tables do not exist', async () => {
-    await admin`drop table if exists public.internet_leads, public.mobility_leads`;
+    await admin`drop table if exists public.mobility_id_uploads, public.internet_leads, public.mobility_leads`;
     await expect(lead(canadawide, 'internet', internetPayload)).resolves.toMatchObject({
       lead: { status: 'submitted' },
     });

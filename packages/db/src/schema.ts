@@ -9,6 +9,7 @@ import {
 import {
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -771,7 +772,7 @@ export const files = appSchema
       check('files_record_type_check', sql`${table.recordType} in ('lead', 'order')`),
       check(
         'files_content_type_check',
-        sql`${table.declaredContentType} in ('application/pdf', 'image/jpeg', 'image/png')`,
+        sql`${table.declaredContentType} in ('application/pdf', 'image/jpeg', 'image/png', 'image/webp')`,
       ),
       check('files_declared_size_check', sql`${table.declaredSizeBytes} > 0`),
       check('files_size_check', sql`${table.sizeBytes} is null or ${table.sizeBytes} >= 0`),
@@ -802,6 +803,77 @@ export const files = appSchema
         table.expiresAt,
       ),
       tenantPolicy('files_tenant_policy', table.workspaceId),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * The identity a customer gave for a credit check (CanadaWide's mobility order,
+ * step 2): a driver's licence photo, held as a verified `files` row, or a SIN.
+ * A SIN is never stored readable: `sin_sealed` is AES-256-GCM under
+ * `SENSITIVE_FIELDS_KEY`, which only the backend holds, bound to this row;
+ * `sin_last3` is what staff see (`*** *** 123`). Append-only for the runtime
+ * role: a correction is a new row.
+ */
+export const leadIdentities = appSchema
+  .table(
+    'lead_identities',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      leadId: uuid('lead_id').notNull(),
+      idType: text('id_type').notNull(),
+      fileId: uuid('file_id'),
+      sinSealed: text('sin_sealed'),
+      sinLast3: text('sin_last3'),
+      dateOfBirth: date('date_of_birth', { mode: 'string' }),
+      creditCheckConsentAt: timestamp('credit_check_consent_at', {
+        withTimezone: true,
+        mode: 'date',
+      }).notNull(),
+      createdBy: uuid('created_by').notNull(),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      unique('lead_identities_workspace_id_id_unique').on(table.workspaceId, table.id),
+      foreignKey({
+        name: 'lead_identities_workspace_lead_fk',
+        columns: [table.workspaceId, table.leadId],
+        foreignColumns: [leads.workspaceId, leads.id],
+      }).onDelete('cascade'),
+      foreignKey({
+        name: 'lead_identities_workspace_file_fk',
+        columns: [table.workspaceId, table.fileId],
+        foreignColumns: [files.workspaceId, files.id],
+      }),
+      check('lead_identities_id_type_check', sql`${table.idType} in ('drivers_licence', 'sin')`),
+      // A licence is a file and nothing else; a SIN is the sealed number, its
+      // last three digits and the date of birth, and no file.
+      check(
+        'lead_identities_shape_check',
+        sql`(
+          ${table.idType} = 'drivers_licence'
+          and ${table.fileId} is not null
+          and ${table.sinSealed} is null
+          and ${table.sinLast3} is null
+          and ${table.dateOfBirth} is null
+        ) or (
+          ${table.idType} = 'sin'
+          and ${table.fileId} is null
+          and ${table.sinSealed} is not null
+          and ${table.sinLast3} ~ '^[0-9]{3}$'
+          and ${table.dateOfBirth} is not null
+        )`,
+      ),
+      index('lead_identities_workspace_lead_idx').on(
+        table.workspaceId,
+        table.leadId,
+        table.createdAt,
+      ),
+      index('lead_identities_workspace_file_idx').on(table.workspaceId, table.fileId),
+      tenantPolicy('lead_identities_tenant_policy', table.workspaceId),
     ],
   )
   .enableRLS();
@@ -1189,6 +1261,7 @@ export const schema = {
   rateLimitBuckets,
   auditEvents,
   files,
+  leadIdentities,
   fileRevisions,
   fileReviewEvents,
   emailMessages,
