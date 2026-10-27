@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema, pageInfoSchema, requestIdSchema } from './common';
 import { leadContactSchema, leadFormSchema, leadStatusSchema, leadTypeSchema } from './leads';
+import { leadFormEditSchema } from './lead-fields';
 import { leadIdentitySchema } from './lead-identity';
 import {
   leadAccessSchema,
@@ -33,9 +34,10 @@ const activityBase = {
 
 /**
  * One timeline entry. The timeline is append-only: a change is a new entry,
- * never an edit of an old one. Contact edits record which fields changed,
- * never their values, so the history holds no personal data a later erasure
- * would have to rewrite.
+ * never an edit of an old one. Edits record which fields changed (the
+ * contact's `fullName`, `email`, `phone`, or a form field's key), never their
+ * values, so the history holds no personal data a later erasure would have to
+ * rewrite.
  */
 export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({ ...activityBase, kind: z.literal('note'), body: z.string().min(1).max(4000) }),
@@ -54,7 +56,10 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({
     ...activityBase,
     kind: z.literal('edit'),
-    fields: z.array(z.enum(['fullName', 'email', 'phone'])).min(1),
+    fields: z
+      .array(z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/))
+      .min(1)
+      .max(50),
   }),
   z.object({
     ...activityBase,
@@ -146,19 +151,25 @@ export const leadContactEditSchema = z
   });
 export type LeadContactEdit = z.infer<typeof leadContactEditSchema>;
 
-/** `PATCH /workspaces/:id/leads/:leadId`: any of stage, assignee and contact, at least one. */
+/**
+ * `PATCH /workspaces/:id/leads/:leadId`: any of stage, assignee, contact and
+ * form corrections, at least one. `form` holds the type's editable fields
+ * (`leadFields`), each a new value or null to clear it.
+ */
 export const updateWorkspaceLeadRequestSchema = z
   .object({
     stage: leadStageSchema.optional(),
     assignedActorId: z.uuid().nullable().optional(),
     contact: leadContactEditSchema.optional(),
+    form: leadFormEditSchema.optional(),
   })
   .strict()
   .refine(
     (value) =>
       value.stage !== undefined ||
       value.assignedActorId !== undefined ||
-      value.contact !== undefined,
+      value.contact !== undefined ||
+      value.form !== undefined,
     { message: 'nothing to change' },
   );
 export type UpdateWorkspaceLeadRequest = z.infer<typeof updateWorkspaceLeadRequestSchema>;

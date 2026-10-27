@@ -259,6 +259,89 @@ databaseTest('DatabaseLeadWorkStore', () => {
     ]);
   });
 
+  test('an order correction checks each field, keeps the plan label, and records names only', async () => {
+    // On the other site, so this file's per-site counts stay internet-only.
+    const orderScope = { ...writeScope, workspaceId: OTHER_WORKSPACE };
+    const created = await leadStore.createLead({
+      ...orderScope,
+      leadType: 'sim_order',
+      contact: {
+        fullName: 'Arjun Order',
+        email: 'arjun.order@example.test',
+        phone: '+91 99999 00001',
+      },
+      form: {
+        schemaVersion: 1,
+        payload: {
+          planId: 'unlimited-data-rogers',
+          planLabel: 'Unlimited Data · $40, Rogers',
+          delivery: 'esim',
+          arrivalDate: '2026-11-02',
+          customerNotes: 'Call after 6pm',
+        },
+      },
+      consentVersion: 'gcs-order-2026-10',
+      submit: true,
+    });
+    const leadId = created.lead.id;
+
+    const outcome = await work.updateLead({
+      ...orderScope,
+      leadId,
+      stage: 'verified',
+      form: { planId: '75gb-fido', arrivalDate: '2026-11-09', simNumber: '4165550104' },
+    });
+    if (outcome.status !== 'updated') throw new Error('expected updated');
+    expect(outcome.lead.form).toEqual({
+      schemaVersion: 1,
+      payload: {
+        planId: '75gb-fido',
+        planLabel: '75GB · $35, Fido',
+        delivery: 'esim',
+        arrivalDate: '2026-11-09',
+        customerNotes: 'Call after 6pm',
+        simNumber: '4165550104',
+      },
+    });
+    expect(outcome.activities.map((entry) => entry.kind).sort()).toEqual(['edit', 'status_change']);
+    expect(outcome.activities).toContainEqual(
+      expect.objectContaining({ kind: 'edit', fields: ['planId', 'arrivalDate', 'simNumber'] }),
+    );
+
+    // Neither the timeline nor the audit trail keeps the values.
+    const stored = await admin<{ data: unknown; after: unknown }[]>`
+      select a.data, e.after
+      from app.lead_activities a, app.audit_events e
+      where a.lead_id = ${leadId} and a.kind = 'edit'
+        and e.entity_id = ${leadId} and e.action = 'lead.updated'
+    `;
+    expect(JSON.stringify(stored)).not.toContain('4165550104');
+    expect(JSON.stringify(stored)).not.toContain('Fido');
+
+    // A refused field changes nothing at all, the stage included.
+    const refused: Array<[Record<string, string>, string]> = [
+      [{ customerNotes: 'rewritten' }, 'customerNotes'],
+      [{ delivery: 'pickup' }, 'shippingAddress'],
+    ];
+    for (const [form, field] of refused) {
+      expect(await work.updateLead({ ...orderScope, leadId, stage: 'cancelled', form })).toEqual({
+        status: 'invalid_field',
+        field,
+      });
+    }
+    const unchanged = await work.getLead({
+      workspaceId: OTHER_WORKSPACE,
+      actorId: ACTOR,
+      leadId,
+      includeWork: false,
+    });
+    expect(unchanged?.lead.stage).toBe('verified');
+
+    // The same values again are no change and write nothing.
+    const again = await work.updateLead({ ...orderScope, leadId, form: { planId: '75gb-fido' } });
+    expect(again).toMatchObject({ status: 'updated', activities: [] });
+  });
+
   test('a contact correction moves the lead to the right contact and records field names only', async () => {
     const leadId = await createInternetLead({
       fullName: 'Ellis Typo',

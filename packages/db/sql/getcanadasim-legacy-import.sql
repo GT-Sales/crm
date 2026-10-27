@@ -31,9 +31,12 @@
 -- can be restored. `MS-<order_no>` and `PT-<partner_no>` become the leads'
 -- external references, so staff find them by the numbers they know.
 --
+-- The SIM number staff gave the order travels in the form too, as the
+-- staff-only `simNumber` field (contracts `leadFields`).
+--
 -- Not imported yet: documents (passport, visa, SIM photo, billing contract,
--- partner licence), the SIM number, commission and invoice data, customer
--- edit requests and the IP address. They stay in Get Canada Sim's admin.
+-- partner licence), commission and invoice data, customer edit requests and
+-- the IP address. They stay in Get Canada Sim's admin.
 
 create or replace function pg_temp.gcs_legacy_uuid(seed text) returns uuid
 language sql immutable as $function$
@@ -112,7 +115,8 @@ begin
       ),
       'reference', nullif(btrim(o.reference), ''),
       'customerNotes', case when o.notes ~* '^Shipping address:' then null
-                            else nullif(btrim(o.notes), '') end
+                            else nullif(btrim(o.notes), '') end,
+      'simNumber', nullif(btrim(o.sim_number), '')
     ))) as form
   from public.orders as o
   left join public.partners as p on p.id = o.partner_id

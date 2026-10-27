@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  leadFields,
   leadTypeEntry,
   leadTypeLabel,
   type GetWorkspaceLeadResponse,
@@ -20,7 +21,8 @@ import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
 import { leadDisplayName, StageBadge } from './lead-display';
 import { IdentityCheck } from './identity-check';
-import { formFields } from './lead-fields';
+import { formFields, staffFields } from './lead-fields';
+import { LeadFormEditor } from './lead-form-editor';
 import { LeadTasks } from './lead-tasks';
 import { LeadTimeline } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
@@ -127,6 +129,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
   const record = useResource(load);
   const [saving, setSaving] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
+  const [editingForm, setEditingForm] = useState<'customer' | 'staff'>();
   const [message, setMessage] = useState<string>();
 
   if (record.error) {
@@ -154,7 +157,12 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
-  const fields = lead.form ? formFields(lead.leadType, lead.form.payload) : [];
+  const payload = lead.form?.payload ?? {};
+  const fields = formFields(lead.leadType, payload);
+  const kept = staffFields(lead.leadType, payload);
+  const definitions = leadFields(lead.leadType);
+  const editableCustomer = definitions.filter((entry) => entry.editable && !entry.staffOnly);
+  const editableStaff = definitions.filter((entry) => entry.editable && entry.staffOnly);
   const attribution = Object.entries(lead.attribution).filter(
     ([key, value]) => value !== undefined && key !== 'partnerCodeMatched',
   );
@@ -179,6 +187,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
         activities: [...result.activities, ...current.activities],
       }));
       setEditingContact(false);
+      setEditingForm(undefined);
     } catch (error) {
       setMessage(`The change was not saved. Reason: ${errorReason(error)}.`);
     } finally {
@@ -410,17 +419,76 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
 
           <RelatedRequests workspaceSlug={workspaceSlug} related={related} />
 
-          {fields.length > 0 ? (
+          {access.contacts && kept.length > 0 ? (
             <Card>
               <CardContent className="flex flex-col gap-2">
-                <h2 className="text-base font-semibold">Request</h2>
-                <dl>
-                  {fields.map((field) => (
-                    <Field key={field.label} label={field.label}>
-                      {field.value}
-                    </Field>
-                  ))}
-                </dl>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold">Staff details</h2>
+                  {canWrite && editableStaff.length > 0 && editingForm !== 'staff' ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingForm('staff')}
+                    >
+                      Edit
+                    </Button>
+                  ) : null}
+                </div>
+                {editingForm === 'staff' ? (
+                  <LeadFormEditor
+                    fields={editableStaff}
+                    payload={payload}
+                    saving={saving}
+                    onSave={(form) => void update({ form })}
+                    onCancel={() => setEditingForm(undefined)}
+                  />
+                ) : (
+                  <dl>
+                    {kept.map((field) => (
+                      <Field key={field.key} label={field.label}>
+                        {field.value}
+                      </Field>
+                    ))}
+                  </dl>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {fields.length > 0 || (canWrite && access.contacts && editableCustomer.length > 0) ? (
+            <Card>
+              <CardContent className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold">Request</h2>
+                  {canWrite && editableCustomer.length > 0 && editingForm !== 'customer' ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingForm('customer')}
+                    >
+                      Edit
+                    </Button>
+                  ) : null}
+                </div>
+                {editingForm === 'customer' ? (
+                  <LeadFormEditor
+                    fields={editableCustomer}
+                    payload={payload}
+                    saving={saving}
+                    onSave={(form) => void update({ form })}
+                    onCancel={() => setEditingForm(undefined)}
+                  />
+                ) : (
+                  <dl>
+                    {fields.map((field) => (
+                      <Field key={field.label} label={field.label}>
+                        {field.value}
+                      </Field>
+                    ))}
+                  </dl>
+                )}
               </CardContent>
             </Card>
           ) : null}

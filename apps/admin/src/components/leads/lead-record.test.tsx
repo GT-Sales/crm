@@ -370,3 +370,99 @@ describe('LeadRecord ID check', () => {
     open.mockRestore();
   });
 });
+
+describe('LeadRecord order details', () => {
+  const orderPayload = {
+    planId: 'unlimited-data-rogers',
+    planLabel: 'Unlimited Data · $40, Rogers',
+    delivery: 'esim',
+    arrivalDate: '2026-11-02',
+    customerNotes: 'Call after 6pm',
+  };
+  const order: LeadDetail = {
+    ...lead,
+    leadType: 'sim_order',
+    stage: 'pending',
+    form: { schemaVersion: 1, payload: orderPayload },
+  };
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+    mocks.getStaffLead.mockResolvedValue(response({ lead: order }));
+  });
+
+  it('shows the order as staff read it, with the staff-only SIM number apart', async () => {
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    expect(await screen.findByText('Unlimited Data · $40, Rogers')).toBeTruthy();
+    expect(screen.getByText('eSIM')).toBeTruthy();
+    expect(screen.getByText('Call after 6pm')).toBeTruthy();
+    const staff = screen.getByRole('heading', { name: 'Staff details' }).closest('div');
+    expect(staff?.parentElement?.textContent).toContain('SIM number');
+  });
+
+  it('corrects only the changed order fields', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: {
+        ...order,
+        form: { schemaVersion: 1, payload: { ...orderPayload, arrivalDate: '2026-11-09' } },
+      },
+      activities: [
+        {
+          id: '92000000-0000-4000-8000-000000000003',
+          actorId: SELF,
+          createdAt: NOW,
+          kind: 'edit',
+          fields: ['arrivalDate'],
+        },
+      ],
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const request = (await screen.findByRole('heading', { name: 'Request' })).closest('div');
+    fireEvent.click(within(request!).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('Arrival in Canada'), {
+      target: { value: '2026-11-09' },
+    });
+    fireEvent.change(screen.getByLabelText('Has the visa'), { target: { value: 'yes' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        form: { arrivalDate: '2026-11-09', gotVisa: true },
+      }),
+    );
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(await within(timeline).findByText(/corrected the arrival in canada/)).toBeTruthy();
+  });
+
+  it('saves a SIM number from the staff card', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: {
+        ...order,
+        form: { schemaVersion: 1, payload: { ...orderPayload, simNumber: '4165550104' } },
+      },
+      activities: [],
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const staff = (await screen.findByRole('heading', { name: 'Staff details' })).closest('div');
+    fireEvent.click(within(staff!).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('SIM number'), { target: { value: ' 4165550104 ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        form: { simNumber: ' 4165550104 ' },
+      }),
+    );
+    expect(await screen.findByText('4165550104')).toBeTruthy();
+  });
+
+  it('offers no edits to someone who may only read', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: order, access: { contacts: true, manage: false } }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { name: 'Request' });
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+});

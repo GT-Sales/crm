@@ -475,10 +475,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         stage: body.data.stage,
         assignedActorId: body.data.assignedActorId,
         contact: body.data.contact,
+        form: body.data.form,
       });
       switch (outcome.status) {
         case 'updated':
           res.json({ lead: outcome.lead, activities: outcome.activities, requestId: req.id });
+          return;
+        case 'invalid_field':
+          sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
           return;
         case 'not_found':
           sendDomainError(res, req.id, 'lead_not_found', 404);

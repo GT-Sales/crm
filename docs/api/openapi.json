@@ -3046,11 +3046,9 @@
                               "kind": { "type": "string", "const": "edit" },
                               "fields": {
                                 "minItems": 1,
+                                "maxItems": 50,
                                 "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "enum": ["fullName", "email", "phone"]
-                                }
+                                "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
                               }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "fields"],
@@ -3735,11 +3733,9 @@
                               "kind": { "type": "string", "const": "edit" },
                               "fields": {
                                 "minItems": 1,
+                                "maxItems": 50,
                                 "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "enum": ["fullName", "email", "phone"]
-                                }
+                                "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
                               }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "fields"],
@@ -3940,6 +3936,18 @@
                       "phone": { "type": "string", "minLength": 1, "maxLength": 40 }
                     },
                     "additionalProperties": false
+                  },
+                  "form": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" },
+                    "additionalProperties": {
+                      "anyOf": [
+                        { "type": "string", "maxLength": 4000 },
+                        { "type": "boolean" },
+                        { "type": "number" },
+                        { "type": "null" }
+                      ]
+                    }
                   }
                 },
                 "additionalProperties": false
@@ -4259,10 +4267,11 @@
                                 "kind": { "type": "string", "const": "edit" },
                                 "fields": {
                                   "minItems": 1,
+                                  "maxItems": 50,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "enum": ["fullName", "email", "phone"]
+                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
                                   }
                                 }
                               },
@@ -4895,10 +4904,11 @@
                                 "kind": { "type": "string", "const": "edit" },
                                 "fields": {
                                   "minItems": 1,
+                                  "maxItems": 50,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "enum": ["fullName", "email", "phone"]
+                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
                                   }
                                 }
                               },
@@ -5212,8 +5222,9 @@
                             "kind": { "type": "string", "const": "edit" },
                             "fields": {
                               "minItems": 1,
+                              "maxItems": 50,
                               "type": "array",
-                              "items": { "type": "string", "enum": ["fullName", "email", "phone"] }
+                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
                             }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "fields"],

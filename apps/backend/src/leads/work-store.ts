@@ -9,12 +9,15 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  applyLeadFormEdit,
   isLeadStage,
+  leadFormSchema,
   type LeadActivity,
   type LeadAssigneeFilter,
   type LeadBoardColumn,
   type LeadContactEdit,
   type LeadDetail,
+  type LeadForm,
   type LeadTask,
   type LeadTaskStatus,
   type LeadTypeCount,
@@ -56,7 +59,9 @@ export type LeadWorkResult = LeadWithWork;
 
 export type UpdateLeadWorkOutcome =
   | { status: 'updated'; lead: LeadDetail; activities: LeadActivity[] }
-  | { status: 'not_found' | 'trashed' | 'invalid_stage' | 'assignee_not_found' };
+  | { status: 'not_found' | 'trashed' | 'invalid_stage' | 'assignee_not_found' }
+  /** A form correction the type does not allow; names the field, never the value. */
+  | { status: 'invalid_field'; field: string };
 
 export type TrashLeadOutcome =
   | { status: 'changed' | 'unchanged'; lead: LeadDetail; activity: LeadActivity | null }
@@ -74,6 +79,8 @@ export interface UpdateLeadWorkInput extends WriteScope {
   /** `null` unassigns; `undefined` leaves the assignee alone. */
   assignedActorId?: string | null;
   contact?: LeadContactEdit;
+  /** Corrections to the form's editable fields; null clears one. */
+  form?: Record<string, string | number | boolean | null>;
 }
 
 export interface CreateTaskInput extends WriteScope {
@@ -124,6 +131,13 @@ interface LockedLead {
   phone: string | null;
   countryCode: string | null;
   trashed: boolean;
+  payload: unknown;
+}
+
+/** The stored form, or an empty version-1 one for a lead that has none yet. */
+function storedForm(payload: unknown): LeadForm {
+  const form = leadFormSchema.safeParse(payload);
+  return form.success ? form.data : { schemaVersion: 1, payload: {} };
 }
 
 /** The lead, locked for the rest of the transaction; restricted leads do not exist here. */
@@ -142,7 +156,8 @@ async function lockLead(
       l.email,
       l.phone,
       l.country_code as "countryCode",
-      l.deleted_at is not null as trashed
+      l.deleted_at is not null as trashed,
+      l.payload
     from app.leads l
     where l.workspace_id = ${workspaceId}
       and l.id = ${leadId}
@@ -315,8 +330,24 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
             countryCode: lead.countryCode ?? undefined,
           });
         }
-        entries.push({ kind: 'edit', data: { fields: changed } });
-        after['changedFields'] = changed;
+      }
+
+      const changedForm: string[] = [];
+      if (input.form && Object.keys(input.form).length > 0) {
+        const form = storedForm(lead.payload);
+        const edit = applyLeadFormEdit(lead.leadType, form.payload, input.form);
+        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+        if (edit.changed.length > 0) {
+          set.payload = { schemaVersion: form.schemaVersion, payload: edit.payload };
+          changedForm.push(...edit.changed);
+        }
+      }
+
+      // One entry for the whole correction, naming the fields and never their values.
+      const changedFields = [...changed, ...changedForm];
+      if (changedFields.length > 0) {
+        entries.push({ kind: 'edit', data: { fields: changedFields } });
+        after['changedFields'] = changedFields;
       }
 
       if (entries.length === 0) {

@@ -238,6 +238,19 @@ export {
 } from './lead-work';
 
 export {
+  applyLeadFormEdit,
+  leadCountdownField,
+  leadFieldCatalog,
+  leadFields,
+  leadFormEditSchema,
+  type LeadFieldDefinition,
+  type LeadFieldKind,
+  type LeadFieldOption,
+  type LeadFormEdit,
+  type LeadFormEditResult,
+} from './lead-fields';
+
+export {
   MAX_IDENTITIES_PER_LEAD,
   MAX_IDENTITY_FILE_BYTES,
   createIdentityUploadRequestSchema,

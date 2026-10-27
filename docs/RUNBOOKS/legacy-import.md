@@ -79,7 +79,8 @@ CanadaWide import above (it reads `public`, writes only `app`).
 | `admin_note`, `partner_note`                                                             | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                        |
 | `reminder_at`, `reminder_note`, `reminder_done_at`                                       | a task, as for CanadaWide                                                                                                    |
 | a partner application                                                                    | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                               |
-| documents, SIM number, commission, invoices, edit requests, IP address                   | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                          |
+| `sim_number`                                                                             | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                             |
+| documents, commission, invoices, edit requests, IP address                               | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                          |
 
 A later run also carries approved customer edits (name, phone, the order
 form) over, unless someone worked the lead in the CRM. An unfinished

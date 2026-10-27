@@ -22,8 +22,9 @@ import { addLeadNote } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { actorName, memberName } from '../../lib/people';
 import { errorReason } from '../../lib/use-resource';
+import { fieldLabel } from './lead-fields';
 
-const FIELD_LABELS = { fullName: 'name', email: 'email', phone: 'phone' } as const;
+const CONTACT_LABELS: Record<string, string> = { fullName: 'name', email: 'email', phone: 'phone' };
 
 function personName(actorId: string | null, members: readonly AssignableMember[]): string {
   if (actorId === null) return 'nobody';
@@ -66,7 +67,9 @@ function describe(
     case 'edit':
       return {
         icon: <PencilIcon />,
-        text: `corrected the ${activity.fields.map((field) => FIELD_LABELS[field]).join(', ')}`,
+        text: `corrected the ${activity.fields
+          .map((field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field))
+          .join(', ')}`,
       };
     case 'system':
       if (activity.event === 'trashed')

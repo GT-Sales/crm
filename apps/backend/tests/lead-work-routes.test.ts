@@ -391,8 +391,36 @@ describe('staff lead work routes', () => {
     }
   });
 
+  it('passes form corrections through and names a refused field, never its value', async () => {
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { form: { arrivalDate: '2026-11-09', gotVisa: null } },
+    });
+    expect(response.status).toBe(200);
+    expect(work.updateLead).toHaveBeenCalledWith(
+      expect.objectContaining({ form: { arrivalDate: '2026-11-09', gotVisa: null } }),
+    );
+
+    work.updateLead.mockResolvedValueOnce({ status: 'invalid_field', field: 'arrivalDate' });
+    const refused = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { form: { arrivalDate: '2026-02-30' } },
+    });
+    expect(refused.status).toBe(400);
+    const error = await errorCode(refused);
+    expect(error).toMatchObject({ code: 'validation_error', details: { field: 'arrivalDate' } });
+    expect(JSON.stringify(error)).not.toContain('2026-02-30');
+  });
+
   it('refuses an update that changes nothing or names an unknown field', async () => {
-    for (const body of [{}, { contact: {} }, { status: 'submitted' }, { stage: 'Not A Slug' }]) {
+    for (const body of [
+      {},
+      { contact: {} },
+      { form: {} },
+      { form: { 'not a key': 'x' } },
+      { status: 'submitted' },
+      { stage: 'Not A Slug' },
+    ]) {
       const response = await call(`${leadsUrl()}/${LEAD}`, { method: 'PATCH', body });
       expect(response.status).toBe(400);
       expect((await errorCode(response)).code).toBe('invalid_request');

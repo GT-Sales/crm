@@ -283,7 +283,7 @@ databaseTest('Get Canada Sim historical import', () => {
         },
       },
     });
-    // Nothing the CRM does not model yet is copied: no IP address, no SIM number.
+    // Nothing the CRM does not model yet is copied: no IP address.
     expect(JSON.stringify(row)).not.toContain('203.0.113.9');
 
     const page = await work.getLead({
@@ -325,6 +325,7 @@ databaseTest('Get Canada Sim historical import', () => {
         delivery: 'pickup',
         permitType: 'worker',
         shippingAddress: '1 Bay St, Toronto ON',
+        simNumber: '4165550104',
       },
     });
     const [contact] = await admin<{ full_name: string; phone: string }[]>`
