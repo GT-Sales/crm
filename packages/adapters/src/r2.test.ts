@@ -1,3 +1,4 @@
+import { createHash, createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import { InMemoryR2DocumentStore, detectDocumentType, sha256Hex } from './r2.js';
@@ -283,5 +284,71 @@ describe('presignUrl (SigV4 query signing)', () => {
     expect(
       presignUrl(config, { method: 'GET', key: 'a/c.pdf', expiresInSeconds: 120, now }),
     ).not.toBe(url);
+  });
+
+  // Supabase Storage serves S3 under a path; the signature must cover it.
+  const supabase: R2Config = {
+    ...config,
+    endpoint: 'https://ref.storage.supabase.co/storage/v1/s3',
+    region: 'ap-south-1',
+  };
+
+  it('signs an endpoint path as part of the request path (Supabase Storage)', () => {
+    const url = presignUrl(supabase, { method: 'GET', key: 'a/b.pdf', expiresInSeconds: 120, now });
+    expect(url.startsWith('https://ref.storage.supabase.co/storage/v1/s3/docs/a/b.pdf?')).toBe(
+      true,
+    );
+
+    // Recompute SigV4 by hand over the full path, from the URL's own query.
+    const parsed = new URL(url);
+    const signature = parsed.searchParams.get('X-Amz-Signature');
+    parsed.searchParams.delete('X-Amz-Signature');
+    const query = [...parsed.searchParams.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join('&');
+    const canonicalRequest = [
+      'GET',
+      '/storage/v1/s3/docs/a/b.pdf',
+      query,
+      'host:ref.storage.supabase.co\n',
+      'host',
+      'UNSIGNED-PAYLOAD',
+    ].join('\n');
+    const sha = (data: string) => createHash('sha256').update(data).digest('hex');
+    const mac = (key: Buffer | string, data: string) =>
+      createHmac('sha256', key).update(data).digest();
+    const scope = '20260920/ap-south-1/s3/aws4_request';
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      '20260920T120000Z',
+      scope,
+      sha(canonicalRequest),
+    ].join('\n');
+    let key: Buffer = mac(`AWS4${supabase.secretAccessKey}`, '20260920');
+    for (const part of ['ap-south-1', 's3', 'aws4_request']) key = mac(key, part);
+    expect(signature).toBe(mac(key, stringToSign).toString('hex'));
+
+    // A trailing slash on the endpoint is the same endpoint.
+    expect(
+      presignUrl(
+        { ...supabase, endpoint: `${supabase.endpoint}/` },
+        { method: 'GET', key: 'a/b.pdf', expiresInSeconds: 120, now },
+      ),
+    ).toBe(url);
+  });
+
+  it('sends header-signed requests to the endpoint path too', async () => {
+    const request = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    await new S3R2DocumentStore(supabase, request).deleteObject({
+      workspaceId: 'w1',
+      bucket: 'docs',
+      objectKey: 'original/a.pdf',
+    });
+    const [url, init] = request.mock.calls[0] ?? [];
+    expect(String(url)).toBe(
+      'https://ref.storage.supabase.co/storage/v1/s3/docs/workspaces/w1/original/a.pdf',
+    );
+    expect(new Headers(init?.headers).get('host')).toBe('ref.storage.supabase.co');
   });
 });

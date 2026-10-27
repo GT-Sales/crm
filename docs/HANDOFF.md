@@ -215,8 +215,12 @@ Staff sign-in: the admin signs the user in with Supabase Auth in the browser
 invited email and a confirmation email). The first `GET /staff/workspaces`
 calls `accept_staff_invitations(verified_email)`, which turns pending
 memberships for that email into active ones bound to the Auth user id. Backend
-verification is `auth.getUser(token)` per request (`auth/session.ts`), never
-the token's own claims; the email must be confirmed.
+verification is `auth.getUser(token)` (`auth/session.ts`), never the token's
+own claims; the email must be confirmed. A successful verification is cached
+for 60 seconds per token (owner decision, 2026-10-27), never past the token's
+expiry: a session signed out in Auth can keep working that long, while a
+removed membership stops at the next request, since site access is read on
+every request.
 
 ### 2.6 How a website integrates (the contract for phase 1 and 3)
 
@@ -445,8 +449,11 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
   SIN as a sealed field; mirror the `mobility_id_uploads` row (SIN in plain
   text there, as the old admin shows it) until phase 2. Then drop the last two
   anon policies.
-- **Documents on Supabase Storage** through the existing S3 adapter (verify the
-  endpoint quirks first thing; a thin Storage-API adapter is the fallback).
+- **Documents on Supabase Storage** through the existing S3 adapter. Its first
+  quirk is fixed: Supabase serves S3 under `/storage/v1/s3`, and SigV4 must
+  sign that path too (the adapter signed only `/bucket/key`). Next: an
+  end-to-end upload in production once the owner's `R2_*` variables are
+  applied (a thin Storage-API adapter stays the fallback).
 - **SIN sealing** with `crypto/cipher.ts` (AES-256-GCM, label
   `gt-sales-crm:sealed-value:v1`) before any identity field is stored.
 - **Model the planned types** (`sim_order`, `partner_application`,
@@ -482,11 +489,9 @@ tables).
   per transaction, but replaces drizzle's transaction wrapper); (2) the session
   pooler (port 5432) with `prepare: true`: every repeated statement one round
   trip instead of two, writes gain most; needs the session port in
-  `DATABASE_URL` and a pool within the session-mode limit; (3) a 10–30 s
-  per-token cache of `getUser` results: saves ~100 ms a request, but a session
-  revoked in Auth keeps working that long (a revoked membership still stops
-  at once) — owner's call; (4) the access read and the data in one
-  transaction. The query plans are not the problem: the slowest, the list
+  `DATABASE_URL` and a pool within the session-mode limit; (3) the access
+  read and the data in one transaction. (The `getUser` cache, ~100 ms a
+  request, is done: 60 seconds, the owner's choice, §2.5.) The query plans are not the problem: the slowest, the list
   page, runs in 14 ms on CanadaWide's 708 leads.
 - **Turnstile is off by design** (`WEBSITE_BOT_CHECK=delegated`). If a site
   ever shows abuse that its own screening misses, add Turnstile to that site's

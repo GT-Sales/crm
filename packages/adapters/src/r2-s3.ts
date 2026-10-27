@@ -114,15 +114,29 @@ interface PresignParams {
 }
 
 /**
+ * Where an object lives: the endpoint's host, and the path SigV4 signs and the
+ * request goes to. An endpoint can carry a path of its own (Supabase Storage
+ * serves S3 under `/storage/v1/s3`; R2 under none), and the signature must
+ * cover the whole path the server sees, prefix included.
+ */
+function objectLocation(
+  config: R2Config,
+  key: string,
+): { host: string; canonicalUri: string; url: string } {
+  const endpoint = new URL(config.endpoint);
+  const prefix = endpoint.pathname.replace(/\/+$/, '');
+  const canonicalUri = `${prefix}/${encodeRfc3986(config.bucket)}/${encodeKey(key)}`;
+  return { host: endpoint.host, canonicalUri, url: `${endpoint.origin}${canonicalUri}` };
+}
+
+/**
  * Builds a SigV4 query-signed URL for a single object operation. Exported for
  * deterministic offline unit tests of the canonicalisation and signature.
  */
 export function presignUrl(config: R2Config, params: PresignParams): string {
   const now = params.now ?? new Date();
   const { amzDate, dateStamp } = amzTimestamp(now);
-  const url = new URL(config.endpoint);
-  const host = url.host;
-  const canonicalUri = `/${encodeRfc3986(config.bucket)}/${encodeKey(params.key)}`;
+  const { host, canonicalUri, url } = objectLocation(config, params.key);
   const credentialScope = `${dateStamp}/${config.region}/${SERVICE}/aws4_request`;
 
   const signedHeaders = params.contentLength === undefined ? 'host' : 'content-length;host';
@@ -153,7 +167,7 @@ export function presignUrl(config: R2Config, params: PresignParams): string {
 
   const stringToSign = [ALGORITHM, amzDate, credentialScope, hashHex(canonicalRequest)].join('\n');
   const signature = hmac(signingKey(config, dateStamp), stringToSign).toString('hex');
-  return `${config.endpoint}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+  return `${url}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
 interface SignedRequest {
@@ -171,9 +185,7 @@ function signRequest(
 ): { url: string; headers: Record<string, string> } {
   const now = req.now ?? new Date();
   const { amzDate, dateStamp } = amzTimestamp(now);
-  const url = new URL(config.endpoint);
-  const host = url.host;
-  const canonicalUri = `/${encodeRfc3986(config.bucket)}/${encodeKey(req.key)}`;
+  const { host, canonicalUri, url } = objectLocation(config, req.key);
   const payloadHash = req.body ? createHash('sha256').update(req.body).digest('hex') : hashHex('');
 
   const baseHeaders: Record<string, string> = {
@@ -203,7 +215,7 @@ function signRequest(
   const signature = hmac(signingKey(config, dateStamp), stringToSign).toString('hex');
 
   return {
-    url: `${config.endpoint}${canonicalUri}`,
+    url,
     headers: {
       ...baseHeaders,
       authorization: `${ALGORITHM} Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
