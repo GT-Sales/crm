@@ -506,11 +506,13 @@ invoices read.
    Variables, add `CRM_ID_STEP=on` for Production, then redeploy; the next
    mobility application's ID then goes to the CRM (and still to the old
    admin), after which its two policies can go (§5.4).
-2. **Close CanadaWide's anonymous lead inserts:** paste
-   `docs/RUNBOOKS/manual/close-canadawide-lead-inserts.sql` into Supabase →
-   SQL Editor and run it (it checks first and refuses if any lead bypassed
-   the CRM; §5.4).
-3. **Email from the CRM (SIM numbers to customers).** In the Resend account
+2. ~~Close CanadaWide's anonymous lead inserts~~: done 2026-10-27; neither
+   policy exists any more, and every CanadaWide lead since the switch is in
+   the CRM (§5.4).
+3. **Email from the CRM (SIM numbers to customers).** Set 2026-10-27:
+   `RESEND_API_KEY` and `EMAIL_PROVIDER` are on Railway, applied, and the
+   backend starts cleanly with them; the first SIM-number email is the
+   proof that the key sends. As it was asked for: in the Resend account
    where `getcanadasim.com` is verified (the one Get Canada Sim sends with),
    create an API key: name "GT Sales CRM", permission "Sending access",
    domain `getcanadasim.com`. In Railway → project GT Sales CRM → service
@@ -521,8 +523,11 @@ invoices read.
    the owner's choice of 2026-10-27), the default sender and the account
    label are already set. Optional later: a Resend webhook, so bounces and
    complaints reach the CRM's suppression list (ENV.md).
-4. **Custom SMTP for Supabase Auth**, before inviting anyone else: the
-   built-in mailer refuses addresses outside the Supabase team. Simplest: in
+4. **Custom SMTP for Supabase Auth**: on since 2026-10-27 04:50 UTC, when
+   Auth's email limit went from 2 an hour to 30 (Supabase allows that only
+   with custom SMTP). The first invitee's confirmation email is the proof
+   that it delivers. As it was asked for: the built-in mailer refuses
+   addresses outside the Supabase team. Simplest: in
    the Resend account Get Canada Sim already uses (domain `getcanadasim.com`
    verified there), create an API key, then Supabase → Authentication → Emails
    → SMTP: host `smtp.resend.com`, port 465, user `resend`, password the API
@@ -532,6 +537,8 @@ invoices read.
    set, and the ID step's smoke test and the Get Canada Sim document copies
    ran through them.
 6. Names and roles of the other admins; invite them from the admin (after 4).
+   One invitation is out (2026-10-27, owner of CanadaWide only); it waits for
+   the invitee to create their account with "I have a staff invitation".
    Each sets their own name under Settings → Your name (the owner too: until
    then colleagues see "Unnamed owner"); Settings → Team shows who has not.
 7. **Decide when staff move from the old admin to the CRM** for CanadaWide.
@@ -661,12 +668,12 @@ tables).
 
 ### 5.4 Closing the anonymous write paths
 
-| Policy (production)                                                      | Status                                                                                                     |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `public.internet_leads` "anon can submit leads"                          | Drop once every new `internet_leads` row has a matching `app.leads` id (CanadaWide switched, §5.1 step 1). |
-| `public.mobility_leads` "anon can insert mobility leads"                 | Same check against `mobility_leads`.                                                                       |
-| `public.mobility_id_uploads` "anon can insert mobility id uploads"       | Stays until the ID step moves (§5.2).                                                                      |
-| `storage.objects` "anon can upload mobility ids" (bucket `mobility-ids`) | Stays until the ID step moves (§5.2).                                                                      |
+| Policy (production)                                                      | Status                                                                           |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `public.internet_leads` "anon can submit leads"                          | Dropped 2026-10-27, after every new `internet_leads` row had its `app.leads` id. |
+| `public.mobility_leads` "anon can insert mobility leads"                 | Dropped 2026-10-27, the same check against `mobility_leads`.                     |
+| `public.mobility_id_uploads` "anon can insert mobility id uploads"       | Stays until the ID step moves (§5.2).                                            |
+| `storage.objects` "anon can upload mobility ids" (bucket `mobility-ids`) | Stays until the ID step moves (§5.2).                                            |
 
 Verification for the first two. A matching `app.leads` id proves nothing on
 its own: the historical import copies direct inserts into the CRM too. A row
