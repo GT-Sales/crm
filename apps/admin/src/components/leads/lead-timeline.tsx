@@ -11,7 +11,9 @@ import {
 import { Button, Textarea } from '@gt-sales/ui';
 import {
   ArrowRightIcon,
+  CheckIcon,
   EyeIcon,
+  FilePenLineIcon,
   InboxIcon,
   MailIcon,
   PencilIcon,
@@ -19,15 +21,60 @@ import {
   StickyNoteIcon,
   Trash2Icon,
   UserIcon,
+  XIcon,
 } from 'lucide-react';
 
 import { addLeadNote } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { actorName, memberName } from '../../lib/people';
 import { errorReason } from '../../lib/use-resource';
+import { documentLabel } from './lead-documents';
 import { fieldLabel } from './lead-fields';
 
 const CONTACT_LABELS: Record<string, string> = { fullName: 'name', email: 'email', phone: 'phone' };
+
+type SystemActivity = Extract<LeadActivity, { kind: 'system' }>;
+
+/** `asked to change the phone, arrival in canada and sent a new passport (request #12)`. */
+export function changeRequestText(activity: SystemActivity, leadType: string): string {
+  const fields = (activity.fields ?? []).map(
+    (field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field),
+  );
+  const documents = (activity.documents ?? []).map((document) =>
+    documentLabel(document).toLowerCase(),
+  );
+  const parts: string[] = [];
+  if (fields.length > 0) parts.push(`asked to change the ${fields.join(', ')}`);
+  if (documents.length > 0) {
+    parts.push(`${fields.length > 0 ? 'and sent' : 'sent'} a new ${documents.join(' and ')}`);
+  }
+  const what = parts.length > 0 ? parts.join(' ') : 'asked to change their order';
+  return activity.requestNo ? `${what} (request #${activity.requestNo})` : what;
+}
+
+/**
+ * The newest change request the customer made that the old admin has not
+ * decided yet, if any (activities come newest first).
+ */
+export function pendingChangeRequest(
+  activities: readonly LeadActivity[],
+): SystemActivity | undefined {
+  const decided = new Set(
+    activities.flatMap((activity) =>
+      activity.kind === 'system' &&
+      (activity.event === 'change_approved' || activity.event === 'change_rejected')
+        ? [activity.requestNo]
+        : [],
+    ),
+  );
+  return activities.find(
+    (activity): activity is SystemActivity =>
+      activity.kind === 'system' &&
+      activity.event === 'change_requested' &&
+      activity.requestNo !== undefined &&
+      !decided.has(activity.requestNo),
+  );
+}
 
 function personName(actorId: string | null, members: readonly AssignableMember[]): string {
   if (actorId === null) return 'nobody';
@@ -79,6 +126,18 @@ function describe(
         return { icon: <Trash2Icon />, text: 'moved this to the trash' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
+      if (activity.event === 'change_requested') {
+        return { icon: <FilePenLineIcon />, text: changeRequestText(activity, leadType) };
+      }
+      if (activity.event === 'change_approved' || activity.event === 'change_rejected') {
+        const approved = activity.event === 'change_approved';
+        return {
+          icon: approved ? <CheckIcon /> : <XIcon />,
+          text: `${approved ? 'approved' : 'rejected'} the customer’s change request${
+            activity.requestNo ? ` #${activity.requestNo}` : ''
+          }`,
+        };
+      }
       if (activity.event === 'customer_emailed') {
         return {
           icon: <MailIcon />,
@@ -191,7 +250,12 @@ export function LeadTimeline({
                 </span>
                 <div className="min-w-0 flex-1 pt-1 text-sm">
                   <p>
-                    <span className="font-medium">{actorName(activity.actorId, members)}</span>{' '}
+                    <span className="font-medium">
+                      {/* The customer asked, through the website; the import only carried it over. */}
+                      {activity.kind === 'system' && activity.event === 'change_requested'
+                        ? 'Customer'
+                        : actorName(activity.actorId, members)}
+                    </span>{' '}
                     <span className="text-muted-foreground">{text}</span>{' '}
                     <time
                       dateTime={activity.createdAt}

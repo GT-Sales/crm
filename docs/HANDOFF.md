@@ -468,6 +468,13 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
     (cancellations aside; hover or the arrow keys read a day; a table for
     screen readers) and the top 10 partners. The stats query runs in about
     11 ms on Get Canada Sim's orders.
+11. **Customer change requests** (Get Canada Sim's `/track` edits) come over
+    with the import as the order's history: "Customer asked to change the
+    arrival in canada and sent a new passport (request #12)", then "Old
+    admin approved the customer's change request #12", naming fields and
+    documents, never their values. While one still waits there, the lead
+    page says so and where it is decided; approving and applying a request
+    in the CRM comes with the move (its `/track` must then send them here).
 
 **Until staff move**, Get Canada Sim orders are worked in its own admin: the
 CRM's copy is refreshed by re-running the import, and nothing the CRM changes

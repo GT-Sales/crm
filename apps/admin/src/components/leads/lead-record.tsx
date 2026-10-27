@@ -33,7 +33,7 @@ import { formFields, staffFields } from './lead-fields';
 import { LeadFormEditor } from './lead-form-editor';
 import { deliveryLetterUrl, leadSummaryText } from './lead-summary';
 import { LeadTasks } from './lead-tasks';
-import { LeadTimeline } from './lead-timeline';
+import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
 import { useLeadWorkspace } from './use-lead-workspace';
 
@@ -197,6 +197,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
 
   const { lead, activities, tasks, related, identities, documents, access } = record.data;
   const letterUrl = access.contacts ? deliveryLetterUrl(record.data) : undefined;
+  const waitingChange = pendingChangeRequest(activities);
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -431,6 +432,19 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
           >
             This lead is in the trash (since {dateTimeLabel(lead.deletedAt)}). Restore it to work on
             it again.
+          </p>
+        ) : null}
+        {waitingChange ? (
+          <p
+            role="status"
+            className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+          >
+            Waiting in the old admin: the customer {changeRequestText(waitingChange, lead.leadType)}
+            , received{' '}
+            <time dateTime={waitingChange.createdAt} title={dateTimeLabel(waitingChange.createdAt)}>
+              {relativeTime(waitingChange.createdAt)}
+            </time>
+            . Approve or reject it there until staff move to the CRM.
           </p>
         ) : null}
         {!access.contacts ? (

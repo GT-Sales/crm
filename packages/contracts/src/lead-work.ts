@@ -8,6 +8,7 @@ import {
   leadStatusSchema,
   leadTypeSchema,
 } from './leads';
+import { documentChecklistKeySchema } from './domain';
 import { leadDocumentSchema } from './files';
 import { leadFormEditSchema } from './lead-fields';
 import { leadIdentitySchema } from './lead-identity';
@@ -32,6 +33,8 @@ import {
  * It is no one's account; the admin shows it as "Old admin".
  */
 export const LEGACY_IMPORT_ACTOR_ID = '00000000-0000-4000-8000-00000000a001';
+
+const activityFieldKeySchema = z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/);
 
 const activityBase = {
   id: z.uuid(),
@@ -71,10 +74,7 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({
     ...activityBase,
     kind: z.literal('edit'),
-    fields: z
-      .array(z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/))
-      .min(1)
-      .max(50),
+    fields: z.array(activityFieldKeySchema).min(1).max(50),
   }),
   z.object({
     ...activityBase,
@@ -82,10 +82,27 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     /**
      * `opened`: the first time someone who works leads opened it (the "New"
      * badge goes); `customer_emailed`: staff queued `template` to the
-     * customer (the address and the mail's contents are not kept here).
+     * customer (the address and the mail's contents are not kept here);
+     * `change_requested`, `change_approved`, `change_rejected`: the customer
+     * asked the website to change their order (Get Canada Sim's `/track`) and
+     * how its admin decided, by the website's `requestNo`.
      */
-    event: z.enum(['trashed', 'restored', 'opened', 'customer_emailed', 'unknown']),
+    event: z.enum([
+      'trashed',
+      'restored',
+      'opened',
+      'customer_emailed',
+      'change_requested',
+      'change_approved',
+      'change_rejected',
+      'unknown',
+    ]),
     template: customerEmailTemplateSchema.optional(),
+    requestNo: z.int().positive().optional(),
+    /** For `change_requested`: the fields asked to change (contact or form keys), never their values. */
+    fields: z.array(activityFieldKeySchema).max(50).optional(),
+    /** For `change_requested`: the documents sent with it. */
+    documents: z.array(documentChecklistKeySchema).max(10).optional(),
   }),
 ]);
 export type LeadActivity = z.infer<typeof leadActivitySchema>;

@@ -525,6 +525,52 @@ describe('LeadRecord order details', () => {
     );
   });
 
+  it('shows the customer’s change requests, and says where a waiting one is decided', async () => {
+    const legacy = '00000000-0000-4000-8000-00000000a001';
+    const changeRequest = (requestNo: number, createdAt: string, extra = {}) => ({
+      id: `92000000-0000-4000-8000-00000000c00${requestNo}`,
+      actorId: legacy,
+      createdAt,
+      kind: 'system' as const,
+      event: 'change_requested' as const,
+      requestNo,
+      ...extra,
+    });
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        lead: order,
+        activities: [
+          changeRequest(2, '2026-09-04T10:00:00.000Z', { fields: ['phone'], documents: [] }),
+          {
+            id: '92000000-0000-4000-8000-00000000d001',
+            actorId: legacy,
+            createdAt: '2026-09-03T10:00:00.000Z',
+            kind: 'system',
+            event: 'change_approved',
+            requestNo: 1,
+          },
+          changeRequest(1, '2026-09-02T10:00:00.000Z', {
+            fields: ['arrivalDate'],
+            documents: ['passport', 'visa'],
+          }),
+        ],
+      }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const timeline = await screen.findByRole('heading', { name: 'Timeline' });
+    const entries = within(timeline.parentElement!).getAllByRole('listitem');
+    expect(entries[0]?.textContent).toContain('Customer asked to change the phone (request #2)');
+    expect(entries[1]?.textContent).toContain(
+      'Old admin approved the customer’s change request #1',
+    );
+    expect(entries[2]?.textContent).toContain(
+      'Customer asked to change the arrival in canada and sent a new passport and visa or approval letter (request #1)',
+    );
+    // #2 is still undecided: the page says where it is decided.
+    const waiting = screen.getByText(/Waiting in the old admin/);
+    expect(waiting.textContent).toContain('asked to change the phone (request #2)');
+  });
+
   it('offers no delivery letter for a lead type without one', async () => {
     mocks.getStaffLead.mockResolvedValue(response());
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);

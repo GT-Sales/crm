@@ -89,7 +89,8 @@ CanadaWide import above (it reads `public`, writes only `app`).
 | `sim_number`                                                                              | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                              |
 | `viewed_at` (the old admin's "New" badge)                                                 | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                             |
 | `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`, `license_path` | files on the lead's Documents card (`passport`, `visa`, `sim_photo`, `billing_contract`, `business_licence`), copied verified |
-| commission, invoices, edit requests, IP address                                           | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                           |
+| `order_edit_requests` (`/track` change requests)                                          | timeline entries: the request by the customer (its fields and documents, never values) and the old admin's decision           |
+| commission, invoices, IP address                                                          | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                           |
 
 A later run also carries approved customer edits (name, phone, the order
 form) over, unless someone worked the lead in the CRM. An unfinished

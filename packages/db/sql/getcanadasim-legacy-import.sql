@@ -42,8 +42,11 @@
 -- licence) are queued here and copied by the backend's outbox, verified, onto
 -- the lead's Documents card; the originals stay where they are.
 --
--- Not imported yet: partner commission and invoice data, customer edit
--- requests and the IP address. They stay in Get Canada Sim's admin.
+-- Customer change requests (`order_edit_requests`) come over as timeline
+-- history; deciding them stays in Get Canada Sim's admin until staff move.
+--
+-- Not imported yet: partner commission and invoice data and the IP address.
+-- They stay in Get Canada Sim's admin.
 
 create or replace function pg_temp.gcs_legacy_uuid(seed text) returns uuid
 language sql immutable as $function$
@@ -250,6 +253,58 @@ begin
     )
   on conflict (id) do nothing;
 
+  -- Customer change requests from `/track` (`order_edit_requests`): the
+  -- request on the day it came, by the customer, naming the fields and the
+  -- documents it changes (never their values), then the old admin's decision
+  -- on the day it made it. A request still waiting there shows on the lead
+  -- page until a later run brings its decision.
+  if to_regclass('public.order_edit_requests') is not null then
+    insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, data, created_at)
+    select
+      pg_temp.gcs_legacy_uuid('gcs-legacy-change-request:' || q.id),
+      v_workspace, q.order_id, v_actor, 'system',
+      jsonb_build_object(
+        'event', 'change_requested',
+        'requestNo', q.request_no,
+        'fields', (
+          select coalesce(jsonb_agg(m.field order by m.position), '[]'::jsonb)
+          from (values
+            ('full_name', 'fullName', 1), ('phone', 'phone', 2), ('plan', 'planId', 3),
+            ('delivery', 'delivery', 4), ('arrival', 'arrivalDate', 5),
+            ('permit_type', 'permitType', 6), ('canada_address', 'canadaAddress', 7),
+            ('shipping_address', 'shippingAddress', 8), ('flight_booked', 'flightBooked', 9)
+          ) as m(source, field, position)
+          where q.changes ? m.source
+        ),
+        'documents', (
+          select coalesce(jsonb_agg(m.document order by m.position), '[]'::jsonb)
+          from (values ('passport_path', 'passport', 1), ('permit_path', 'visa', 2))
+            as m(source, document, position)
+          where q.changes ? m.source
+        )
+      ),
+      q.created_at
+    from public.order_edit_requests as q
+    join app.leads as l
+      on l.workspace_id = v_workspace and l.id = q.order_id
+     and l.customer_data_restricted_at is null
+    union all
+    select
+      pg_temp.gcs_legacy_uuid('gcs-legacy-change-review:' || q.id),
+      v_workspace, q.order_id, v_actor, 'system',
+      jsonb_build_object(
+        'event', case q.status when 'approved' then 'change_approved' else 'change_rejected' end,
+        'requestNo', q.request_no
+      ),
+      coalesce(q.reviewed_at, q.created_at)
+    from public.order_edit_requests as q
+    join app.leads as l
+      on l.workspace_id = v_workspace and l.id = q.order_id
+     and l.customer_data_restricted_at is null
+    where q.status in ('approved', 'rejected')
+    on conflict (id) do nothing;
+  end if;
+
   -- A task the CRM has changed has `updated_at` past `created_at`; this
   -- import never moves `updated_at`, so it can tell its own rows apart.
   insert into app.lead_tasks as k (
@@ -352,6 +407,10 @@ select
          where a.workspace_id = l.workspace_id and a.lead_id = l.id
            and a.kind = 'system' and a.data ->> 'event' = 'opened'
        )) as crm_new,
+  -- The customers' change requests now on the CRM's timelines.
+  (select count(*) from app.lead_activities a join app.workspaces w on w.id = a.workspace_id
+     where w.slug = 'getcanadasim' and a.kind = 'system'
+       and a.data ->> 'event' = 'change_requested') as change_requests,
   -- Copies still to run (pending or retrying) and those that failed; the
   -- documents now on the CRM's leads from the old admin, current ones only.
   (select count(*) from app.outbox_jobs j join app.workspaces w on w.id = j.workspace_id

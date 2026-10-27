@@ -111,6 +111,16 @@ const GCS_TABLES_DDL = `
       commission_status is null or commission_status in ('invoiced', 'commission_received', 'claw_back')
     )
   );
+  create table public.order_edit_requests (
+    id uuid primary key default gen_random_uuid(),
+    request_no bigint generated always as identity,
+    order_id uuid not null references public.orders (id) on delete cascade,
+    email text not null,
+    changes jsonb not null,
+    status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+    reviewed_at timestamptz,
+    created_at timestamptz not null default now()
+  );
 `;
 
 // Next to the legacy CanadaWide tables' key (745284915).
@@ -193,7 +203,7 @@ databaseTest('Get Canada Sim historical import', () => {
       await tx.unsafe(`ALTER ROLE app_runtime PASSWORD '${TEST_RUNTIME_PASSWORD}'`);
     });
     await admin`select pg_advisory_lock(${GCS_TABLES_LOCK_KEY})`;
-    await admin`drop table if exists public.orders, public.partners`;
+    await admin`drop table if exists public.order_edit_requests, public.orders, public.partners`;
     await admin.unsafe(GCS_TABLES_DDL);
     await admin.unsafe(STORAGE_DDL);
     await admin`delete from storage.objects where name like ${'%/15000000-0000-4000-8000-000000000a%'}`;
@@ -258,6 +268,17 @@ databaseTest('Get Canada Sim historical import', () => {
     `;
 
     await admin`update public.orders set commission_status = 'invoiced' where id = ${PAID}`;
+    // Two change requests from /track on the paid order: one approved (an
+    // address, the arrival, and new documents), one still waiting.
+    await admin`
+      insert into public.order_edit_requests (order_id, email, changes, status, reviewed_at, created_at)
+      values
+        (${PAID}, ${SHARED_EMAIL},
+         ${admin.json({ arrival: '2026-09-10', canada_address: 'Calgary', passport_path: `orders/${PAID}/passport-2.pdf`, permit_path: `orders/${PAID}/permit-2.pdf` })},
+         'approved', '2026-09-03T10:00:00Z', '2026-09-02T10:00:00Z'),
+        (${PAID}, ${SHARED_EMAIL}, ${admin.json({ phone: '647 555 0199' })}, 'pending', null,
+         '2026-09-04T10:00:00Z')
+    `;
 
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
@@ -274,7 +295,7 @@ databaseTest('Get Canada Sim historical import', () => {
     await database?.close();
     await admin`delete from storage.objects where name like ${'%/15000000-0000-4000-8000-000000000a%'}`;
     await admin`delete from app.leads where id in ${admin(LEADS)}`;
-    await admin`drop table if exists public.orders, public.partners`;
+    await admin`drop table if exists public.order_edit_requests, public.orders, public.partners`;
     await admin`select pg_advisory_unlock(${GCS_TABLES_LOCK_KEY})`;
     await admin.end();
   });
@@ -612,5 +633,65 @@ databaseTest('Get Canada Sim historical import', () => {
       createdAt: '2026-10-26T08:00:00.000Z',
     });
     expect(Number((await runImport())['crm_documents'])).toBe(4);
+  });
+
+  test('a customer’s change requests become the order’s history, values left out', async () => {
+    const page = await work.getLead({
+      workspaceId: site,
+      actorId: STAFF,
+      leadId: PAID,
+      includeWork: true,
+    });
+    const changes = (page?.activities ?? []).filter(
+      (entry) => entry.kind === 'system' && entry.event.startsWith('change_'),
+    );
+    expect(changes).toEqual([
+      expect.objectContaining({
+        event: 'change_requested',
+        requestNo: 2,
+        fields: ['phone'],
+        documents: [],
+        createdAt: '2026-09-04T10:00:00.000Z',
+      }),
+      expect.objectContaining({
+        event: 'change_approved',
+        requestNo: 1,
+        createdAt: '2026-09-03T10:00:00.000Z',
+      }),
+      expect.objectContaining({
+        event: 'change_requested',
+        requestNo: 1,
+        fields: ['arrivalDate', 'canadaAddress'],
+        documents: ['passport', 'visa'],
+        actorId: LEGACY_IMPORT_ACTOR_ID,
+      }),
+    ]);
+    expect(JSON.stringify(changes)).not.toContain('Calgary');
+    expect(JSON.stringify(changes)).not.toContain('0199');
+
+    // The old admin decides the waiting one: the next run brings the decision, once.
+    await admin`
+      update public.order_edit_requests set status = 'rejected', reviewed_at = '2026-09-05T10:00:00Z'
+      where status = 'pending'
+    `;
+    const reconciliation = await runImport();
+    expect(Number(reconciliation['change_requests'])).toBe(2);
+    await runImport();
+    const decided = await work.getLead({
+      workspaceId: site,
+      actorId: STAFF,
+      leadId: PAID,
+      includeWork: true,
+    });
+    expect(
+      decided?.activities
+        .filter((entry) => entry.kind === 'system' && entry.event.startsWith('change_'))
+        .map((entry) => (entry.kind === 'system' ? `${entry.event}:${entry.requestNo}` : '')),
+    ).toEqual([
+      'change_rejected:2',
+      'change_requested:2',
+      'change_approved:1',
+      'change_requested:1',
+    ]);
   });
 });
