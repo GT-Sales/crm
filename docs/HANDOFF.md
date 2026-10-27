@@ -98,7 +98,7 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | PATCH           | `/profile`                                                  | —                            | The caller's own display name, on every site they belong to.                                                                                                                                                                                              |
 | GET             | `/workspaces/:id/leads`                                     | workspace.read               | Paged; filters type, stage, assignee (`me`/`none`/id), `q`, `view=trash`, `dueBy` (a follow-up due by that day, most overdue first). Contact fields and the countdown date hidden unless lead.manage, order.manage or financial.read; `q` needs that too. |
 | GET             | `/workspaces/:id/leads/summary` · `/leads/board`            | workspace.read               | Active leads per type (with how many nobody has opened) and the trash; one type's leads by stage (a column per catalogue stage, counts, newest 50 each).                                                                                                  |
-| GET             | `/workspaces/:id/leads/:leadId`                             | workspace.read               | Lead with form, timeline and tasks; readers without contact access get stage and source only.                                                                                                                                                             |
+| GET             | `/workspaces/:id/leads/:leadId`                             | workspace.read               | Lead with form, timeline, tasks, identities and current documents; readers without contact access get stage and source only; `access.downloadDocuments` says whether the caller may open the documents.                                                   |
 | PATCH           | `/workspaces/:id/leads/:leadId`                             | lead.manage                  | Stage (checked against the type), assignee (active member), contact and form corrections (`form`, checked against the type's field definitions); timeline + audit.                                                                                        |
 | POST            | `/workspaces/:id/leads/:leadId/opened`                      | lead.manage                  | The lead page's first open: clears the "New" badge for the team (an `opened` system entry). Idempotent.                                                                                                                                                   |
 | POST            | `/workspaces/:id/leads/:leadId/customer-emails`             | lead.manage                  | Queues a mail to the customer (`sim_number_ready`) from the site's own sender; 409 `feature_not_ready` while the site cannot send, `conflict` with `details.missing` when the lead lacks the email or the number.                                         |
@@ -111,7 +111,7 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | DELETE          | `/workspaces/:id/memberships/:membershipId`                 | staff.remove                 | Revoke; takes effect on the member's next request.                                                                                                                                                                                                        |
 | GET/POST/DELETE | `/workspaces/:id/service-credentials[/:credId]`             | integration.manage           | Site keys `gtsk_…`, shown once, stored hashed, scoped.                                                                                                                                                                                                    |
 | POST            | `/workspaces/:id/files/:fileId/review`                      | order.manage                 | Approve/reject an uploaded document.                                                                                                                                                                                                                      |
-| POST            | `/workspaces/:id/files/:fileId/download-link`               | document.download            | Short-lived signed URL.                                                                                                                                                                                                                                   |
+| POST            | `/workspaces/:id/files/:fileId/download-link`               | document.download            | Short-lived signed URL: a download, or with `{ "disposition": "inline" }` one showing the verified PDF/JPEG/PNG in a tab of its own; audited either way.                                                                                                  |
 
 Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 
@@ -432,6 +432,19 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    the field definition's `countdown` flag decides which date, so another
    type can count down to its own. "Due" is a calendar day: the admin sends
    the viewer's today, since due dates are stored as days at noon UTC.
+7. **Documents.** The import queues a copy of every file Get Canada Sim's
+   admin keeps (passport, approval letter, SIM card photo, billing contract,
+   a partner's business licence) as a `legacy_document_import` outbox job; the
+   backend copies each into the CRM's part of the shared `documents` bucket
+   and verifies it like an upload (size, PDF/JPEG/PNG by its bytes, its
+   SHA-256). Get Canada Sim's originals are only read. The lead page's
+   **Documents** card lists the current file of each type with View (a new
+   tab) and Download, for anyone with `document.download` (owners, or the
+   individual permission); others see the list and who can grant it. A file
+   replaced in the old admin arrives as a newer revision on the next import
+   run. In production on 2026-10-27: 121 files on 60 orders and partner
+   applications, every one matching its original. Uploading or replacing a
+   document in the CRM waits for moving day.
 
 **Until staff move**, Get Canada Sim orders are worked in its own admin: the
 CRM's copy is refreshed by re-running the import, and nothing the CRM changes
@@ -483,11 +496,9 @@ invoices read.
    → SMTP: host `smtp.resend.com`, port 465, user `resend`, password the API
    key, sender e.g. `GT Sales CRM <crm@getcanadasim.com>`. The same account
    can later back the backend's `EMAIL_PROVIDER=resend`.
-5. Supabase → Storage → S3 access keys for the `documents` bucket; put them in
-   Railway as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, then set
-   `R2_ENDPOINT=https://xykrphbgpwisqacpyeiv.storage.supabase.co/storage/v1/s3`,
-   `R2_REGION=ap-south-1`, `R2_BUCKET=documents`, `R2_ACCOUNT_ID` (ENV.md). Until
-   then document uploads fail, and CanadaWide's ID step cannot move here.
+5. ~~Supabase Storage S3 keys in Railway~~: done; the `R2_*` variables are
+   set, and the ID step's smoke test and the Get Canada Sim document copies
+   ran through them.
 6. Names and roles of the other admins; invite them from the admin (after 4).
    Each sets their own name under Settings → Your name (the owner too: until
    then colleagues see "Unnamed owner"); Settings → Team shows who has not.
@@ -565,9 +576,10 @@ invoices read.
 
 Still to do in phase 2:
 
-- **Documents on the lead page**: a mobility lead's licence photo (after the
-  ID step moves and S3 keys exist), with review and download, reusing the
-  existing `files` routes.
+- **Documents on the lead page**: done for Get Canada Sim's files (§3.4
+  item 7); a mobility lead's licence photo shows in its ID check card. Left:
+  staff upload and replace, and the review buttons (the `files/:id/review`
+  route exists), with moving day.
 - **One inbox across sites** (PLAN.md §5.2: a query per site the admin belongs
   to, merged), **saved views** (`saved_views` table), the **contact page** (all
   leads of one person across sites) and **split/merge** of contacts, audited.

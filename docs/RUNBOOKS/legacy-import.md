@@ -62,6 +62,7 @@ an earlier one wrote.
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-10-27 | First production run: 669 internet + 39 mobility leads (0 missing), 623 contacts, 279 notes, 28 tasks (12 done, 16 open), 129 in the trash; stages and trash matched the legacy rows one for one. A second run left every count and a fingerprint of all leads and tasks unchanged.                                    |
 | 2026-10-27 | Run with the "New" badge (`f5d6639`): 676 internet + 40 mobility rows, 0 missing (6 leads CanadaWide wrote to the legacy tables before its 07:22 UTC switch came over); 712 imported leads each opened by the old admin; 280 notes, 28 tasks, 131 in the trash; `crm_new` 1, the first lead from the CRM's own intake. |
+| 2026-10-27 | Run with documents (`081d478`): the same counts; 121 copies queued (50 passports, 51 approval letters, 9 billing contracts, 7 SIM photos, 4 licences), all completed in 9 minutes, about 2.5 s each; 121 current files on 60 leads, each matching its original's size and type, 121 `file.imported` audits, 0 failed.  |
 
 The rehearsal is `apps/backend/tests/canadawide-legacy-import.integration.test.ts`
 (replica legacy tables in `tests/support/legacy-canadawide.ts`, shared with the
@@ -74,20 +75,21 @@ mirror suite under an advisory lock).
 row **under its own id**, the same way and with the same re-run rules as the
 CanadaWide import above (it reads `public`, writes only `app`).
 
-| Get Canada Sim                                                                           | CRM                                                                                                                          |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| an order                                                                                 | a `sim_order` lead; `MS-<order_no>` is its external reference                                                                |
-| `status`                                                                                 | `stage` (sim_order's stages are Get Canada Sim's statuses); `incomplete` is also the lead's status, the rest are `submitted` |
-| `archived_at`                                                                            | `deleted_at` (the CRM trash, restorable): the archive holds dismissed pending, incomplete and cancelled orders               |
-| name, email, phone, `country_code`                                                       | the lead's contact fields, and a contact found or created by `lower(btrim(email))`; contacts are shared by every site        |
-| plan, SIM type, arrival, permit, visa, flight, addresses, reference, the customer's note | `payload` as `{ schemaVersion: 1, payload }`; the plan label as `data.ts` names it today; an address kept in `notes`         |
-| `partner_id`                                                                             | `attribution.partnerCode` = `PT-<partner_no>`                                                                                |
-| `admin_note`, `partner_note`                                                             | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                        |
-| `reminder_at`, `reminder_note`, `reminder_done_at`                                       | a task, as for CanadaWide                                                                                                    |
-| a partner application                                                                    | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                               |
-| `sim_number`                                                                             | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                             |
-| `viewed_at` (the old admin's "New" badge)                                                | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                            |
-| documents, commission, invoices, edit requests, IP address                               | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                          |
+| Get Canada Sim                                                                            | CRM                                                                                                                           |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| an order                                                                                  | a `sim_order` lead; `MS-<order_no>` is its external reference                                                                 |
+| `status`                                                                                  | `stage` (sim_order's stages are Get Canada Sim's statuses); `incomplete` is also the lead's status, the rest are `submitted`  |
+| `archived_at`                                                                             | `deleted_at` (the CRM trash, restorable): the archive holds dismissed pending, incomplete and cancelled orders                |
+| name, email, phone, `country_code`                                                        | the lead's contact fields, and a contact found or created by `lower(btrim(email))`; contacts are shared by every site         |
+| plan, SIM type, arrival, permit, visa, flight, addresses, reference, the customer's note  | `payload` as `{ schemaVersion: 1, payload }`; the plan label as `data.ts` names it today; an address kept in `notes`          |
+| `partner_id`                                                                              | `attribution.partnerCode` = `PT-<partner_no>`                                                                                 |
+| `admin_note`, `partner_note`                                                              | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                         |
+| `reminder_at`, `reminder_note`, `reminder_done_at`                                        | a task, as for CanadaWide                                                                                                     |
+| a partner application                                                                     | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                                |
+| `sim_number`                                                                              | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                              |
+| `viewed_at` (the old admin's "New" badge)                                                 | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                             |
+| `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`, `license_path` | files on the lead's Documents card (`passport`, `visa`, `sim_photo`, `billing_contract`, `business_licence`), copied verified |
+| commission, invoices, edit requests, IP address                                           | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                           |
 
 A later run also carries approved customer edits (name, phone, the order
 form) over, unless someone worked the lead in the CRM. An unfinished
@@ -95,6 +97,34 @@ checkout falls under the CRM's 90-day rule for abandoned forms (SEC-12): its
 contact details are erased from the CRM's copy 90 days after its last change.
 The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`.
 The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
+
+**Documents** are not copied by the script itself: it queues one
+`legacy_document_import` outbox job per file Get Canada Sim keeps in the
+`documents` bucket (only where Supabase's `storage.objects` lists it, and only
+for a lead that is not restricted), and the backend's outbox copies each one
+within minutes:
+
+- The copy lands in the CRM's own part of the bucket
+  (`workspaces/<site>/candidate/<site>/legacy-<file id>`) and is verified like
+  any upload: at most 10 MB, a PDF, JPEG or PNG by its bytes, its SHA-256
+  recorded. Get Canada Sim's original is only read, never moved or deleted.
+- The file shows as from the "Old admin", dated when the customer gave it.
+  It takes the job's message id, so a rerun of a job imports nothing twice.
+- The job's key carries the object's storage version: a file replaced in the
+  old admin (Get Canada Sim overwrites under the same name) arrives as a
+  newer revision, which becomes the current one; an unchanged file is never
+  queued twice.
+- A lead that is gone or restricted, or a file no longer in storage, completes
+  as `skipped:…`; bytes that are not a document fail the job
+  (`document_unsupported_signature`, `document_too_large`) so the owner alert
+  shows it.
+- **Deploy the backend first.** A backend without the handler fails such jobs
+  as `handler_not_registered`.
+
+The reconciliation row adds `documents_queued` (still to run),
+`documents_failed` and `crm_documents` (current files from the old admin);
+after the outbox has run, `documents_queued` and `documents_failed` should be
+`0` and `crm_documents` the number of files Get Canada Sim names that exist.
 
 | Date       | Run                                                                                                                                                                |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
