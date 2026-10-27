@@ -472,9 +472,10 @@ invoices read.
    `crm` → Variables, add **both** `RESEND_API_KEY=<the key>` and
    `EMAIL_PROVIDER=resend`, then deploy (one without the other either does
    nothing or stops the backend from starting). The sender ("Get Canada Sim
-   <order@getcanadasim.com>"), the default sender and the account label are
-   already set. Optional later: a Resend webhook, so bounces and complaints
-   reach the CRM's suppression list (ENV.md).
+   <order@getcanadasim.com>", customer replies to `info@getcanadasim.com`,
+   the owner's choice of 2026-10-27), the default sender and the account
+   label are already set. Optional later: a Resend webhook, so bounces and
+   complaints reach the CRM's suppression list (ENV.md).
 4. **Custom SMTP for Supabase Auth**, before inviting anyone else: the
    built-in mailer refuses addresses outside the Supabase team. Simplest: in
    the Resend account Get Canada Sim already uses (domain `getcanadasim.com`
