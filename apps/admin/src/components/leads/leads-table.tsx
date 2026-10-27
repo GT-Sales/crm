@@ -11,7 +11,7 @@ import { dateTimeLabel, dueLabel, dueTone, relativeTime } from '../../lib/dates'
 import { assigneeName } from '../../lib/people';
 import { useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
-import { leadDisplayName, PersonChip, StageBadge } from './lead-display';
+import { leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
 
 const PAGE_SIZE = 50;
 
@@ -150,12 +150,15 @@ export function LeadsTable({
                     }}
                   >
                     <td className="max-w-[260px] px-3 py-2">
-                      <Link
-                        href={leadHref(lead)}
-                        className="block truncate font-medium text-foreground hover:underline"
-                      >
-                        {leadDisplayName(lead.contact)}
-                      </Link>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <Link
+                          href={leadHref(lead)}
+                          className="min-w-0 truncate font-medium text-foreground hover:underline"
+                        >
+                          {leadDisplayName(lead.contact)}
+                        </Link>
+                        {lead.isNew ? <NewBadge /> : null}
+                      </span>
                       {secondary ? (
                         <span className="block truncate text-xs text-muted-foreground">
                           {secondary}

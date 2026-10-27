@@ -25,6 +25,7 @@ import {
 } from '@gt-sales/contracts';
 
 import {
+  iso,
   selectLeadBoard,
   selectLeadDetail,
   selectLeadSummary,
@@ -32,6 +33,7 @@ import {
   selectTask,
   selectWorkspaceTasks,
   toLeadActivity,
+  type ActivityRow,
   type LeadFilters,
   type LeadWithWork,
 } from './staff-queries.js';
@@ -110,6 +112,10 @@ export interface LeadWorkStore {
   ): Promise<LeadWorkResult | undefined>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
   setTrashed(input: WriteScope & { leadId: string; trashed: boolean }): Promise<TrashLeadOutcome>;
+  /** The first open by someone who works leads; null activity when it was already opened. */
+  markOpened(
+    input: WriteScope & { leadId: string },
+  ): Promise<{ status: 'opened'; activity: LeadActivity | null } | { status: 'not_found' }>;
   addNote(input: WriteScope & { leadId: string; body: string }): Promise<NoteOutcome>;
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
@@ -391,6 +397,32 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         lead: await requireDetail(tx, input.workspaceId, input.leadId),
         activities: insertedActivities(inserted),
       };
+    });
+  }
+
+  markOpened(
+    input: WriteScope & { leadId: string },
+  ): Promise<{ status: 'opened'; activity: LeadActivity | null } | { status: 'not_found' }> {
+    return this.database.withTenantTx(input, async (tx) => {
+      // Locked, so two people opening the lead at once write one entry.
+      const lead = await lockLead(tx, input.workspaceId, input.leadId);
+      if (!lead) return { status: 'not_found' };
+      // Opening is not work on the lead: `updated_at` (the inbox's order) stays.
+      const inserted = await tx.execute<ActivityRow>(sql`
+        insert into app.lead_activities (workspace_id, lead_id, actor_id, kind, data)
+        select ${input.workspaceId}::uuid, ${input.leadId}::uuid, ${input.actorId}::uuid,
+               'system', '{"event":"opened"}'::jsonb
+        where not exists (
+          select 1 from app.lead_activities opened
+          where opened.workspace_id = ${input.workspaceId}
+            and opened.lead_id = ${input.leadId}
+            and opened.kind = 'system'
+            and opened.data ->> 'event' = 'opened'
+        )
+        returning id, actor_id as "actorId", kind, body, data, ${iso('created_at')} as "createdAt"
+      `);
+      const [row] = inserted;
+      return { status: 'opened', activity: row ? toLeadActivity(row) : null };
     });
   }
 

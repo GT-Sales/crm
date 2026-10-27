@@ -202,17 +202,17 @@ databaseTest('Get Canada Sim historical import', () => {
       insert into public.orders (id, order_no, full_name, email, phone, plan, delivery, arrival,
         permit_type, reference, notes, status, created_at, canada_address, flight_booked,
         admin_note, admin_note_at, got_visa, reminder_at, reminder_note, country_code,
-        partner_id, sim_number, ip_address)
+        partner_id, sim_number, ip_address, viewed_at)
       values
         (${PENDING}, 101, 'Arjun Patel', 'ARJUN@example.test ', '+91 99999 00001',
          'unlimited-data-rogers', 'esim', '2026-11-02', 'student', 'Batch 12',
          'Please call after 6pm IST', 'pending', '2026-10-20T09:00:00Z', 'Toronto', true,
          'Called, waiting on visa', '2026-10-21T10:00:00Z', true, '2026-10-30',
-         'Check visa status', 'in', ${PARTNER}, null, '203.0.113.9'),
+         'Check visa status', 'in', ${PARTNER}, null, '203.0.113.9', '2026-10-20T11:00:00Z'),
         (${PAID}, 104, 'Kept Person', ${SHARED_EMAIL}, '647 555 0104', '50gb-fido', 'pickup',
          null, 'worker', null, 'Shipping address: 1 Bay St, Toronto ON', 'paid',
          '2026-09-01T09:00:00Z', null, null, null, null, null, '2026-09-05', null, 'CA',
-         null, '4165550104', null)
+         null, '4165550104', null, null)
     `;
     await admin`
       insert into public.orders (id, order_no, full_name, email, phone, plan, delivery, status,
@@ -293,12 +293,20 @@ databaseTest('Get Canada Sim historical import', () => {
       includeWork: true,
     });
     expect(leadDetailSchema.safeParse(page?.lead).success).toBe(true);
+    // Opened in the old admin (`viewed_at`): opened here too, so not New.
+    expect(page?.lead.isNew).toBe(false);
     expect(page?.activities).toEqual([
       expect.objectContaining({
         kind: 'note',
         actorId: LEGACY_IMPORT_ACTOR_ID,
         body: 'Called, waiting on visa',
         createdAt: '2026-10-21T10:00:00.000Z',
+      }),
+      expect.objectContaining({
+        kind: 'system',
+        actorId: LEGACY_IMPORT_ACTOR_ID,
+        event: 'opened',
+        createdAt: '2026-10-20T11:00:00.000Z',
       }),
     ]);
     expect(page?.tasks).toEqual([
@@ -340,12 +348,29 @@ databaseTest('Get Canada Sim historical import', () => {
       stage: 'incomplete',
       external_ref: 'MS-102',
     });
+    // Nobody opened it in the old admin: New here until someone does.
+    const page = await work.getLead({
+      workspaceId: site,
+      actorId: STAFF,
+      leadId: OLD_CHECKOUT,
+      includeWork: true,
+    });
+    expect(page?.lead.isNew).toBe(true);
+    expect(page?.activities).toEqual([]);
     const archived = await lead(ARCHIVED);
     expect(archived?.stage).toBe('pending');
     expect(archived?.deleted_at?.toISOString()).toBe('2026-08-15T09:00:00.000Z');
   });
 
   test('a partner application keeps its company, its stage and its number', async () => {
+    const page = await work.getLead({
+      workspaceId: site,
+      actorId: STAFF,
+      leadId: PARTNER,
+      includeWork: false,
+    });
+    // Handled in the old admin, which had no badge for them: not New.
+    expect(page?.lead.isNew).toBe(false);
     expect(await lead(PARTNER)).toMatchObject({
       lead_type: 'partner_application',
       status: 'submitted',
@@ -384,6 +409,15 @@ databaseTest('Get Canada Sim historical import', () => {
   });
 
   test('later runs carry the old admin over, except onto a lead worked in the CRM', async () => {
+    // Opening a lead in the CRM is not working it: the old admin's changes still arrive.
+    await expect(
+      work.markOpened({
+        workspaceId: site,
+        actorId: STAFF,
+        requestId: '35000000-0000-4000-8000-000000000a02',
+        leadId: OLD_CHECKOUT,
+      }),
+    ).resolves.toMatchObject({ status: 'opened', activity: { kind: 'system' } });
     await work.addNote({
       workspaceId: site,
       actorId: STAFF,
@@ -410,10 +444,16 @@ databaseTest('Get Canada Sim historical import', () => {
     });
     expect(
       page?.activities.map((entry) => (entry.kind === 'note' ? entry.body : entry.kind)),
-    ).toEqual(['Visa approved', 'Called, waiting on visa']);
+    ).toEqual(['Visa approved', 'Called, waiting on visa', 'system']);
     expect(page?.tasks.map((task) => task.status)).toEqual(['cancelled']);
     // The customer finished the checkout in the old admin's time: no longer incomplete.
     expect(await lead(OLD_CHECKOUT)).toMatchObject({ status: 'submitted', stage: 'pending' });
+    // Opened once, by the CRM's staff: the import adds no second entry.
+    const opened = await admin<{ actor_id: string }[]>`
+      select actor_id from app.lead_activities
+      where lead_id = ${OLD_CHECKOUT} and kind = 'system' and data ->> 'event' = 'opened'
+    `;
+    expect(opened).toEqual([{ actor_id: STAFF }]);
     // Worked in the CRM: the CRM's view wins.
     expect(await lead(WORKED)).toMatchObject({ stage: 'verified' });
   });

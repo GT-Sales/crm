@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   listWorkspaceMembers: vi.fn(),
   revealLeadIdentity: vi.fn(),
   createFileDownloadLink: vi.fn(),
+  markLeadOpened: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -464,5 +465,64 @@ describe('LeadRecord order details', () => {
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     await screen.findByRole('heading', { name: 'Request' });
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+});
+
+describe('LeadRecord New badge', () => {
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+  });
+
+  it('clears the badge once when someone who works leads opens it', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ lead: { ...lead, isNew: true } }));
+    mocks.markLeadOpened.mockResolvedValue({
+      activity: {
+        id: '92000000-0000-4000-8000-000000000009',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'system',
+        event: 'opened',
+      },
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const timeline = await screen.findByRole('region', { name: 'Timeline' });
+    expect(await within(timeline).findByText('opened this')).toBeTruthy();
+    expect(mocks.markLeadOpened).toHaveBeenCalledTimes(1);
+    expect(mocks.markLeadOpened).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD);
+  });
+
+  it('leaves it for a reader, and never reports an opened lead again', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: { ...lead, isNew: true }, access: { contacts: true, manage: false } }),
+    );
+    const { unmount } = render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    unmount();
+
+    mocks.getStaffLead.mockResolvedValue(response({ lead: { ...lead, isNew: false } }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    expect(mocks.markLeadOpened).not.toHaveBeenCalled();
+  });
+
+  it('hides an open carried over from the old admin', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        activities: [
+          {
+            id: '92000000-0000-4000-8000-00000000000a',
+            actorId: '00000000-0000-4000-8000-00000000a001',
+            createdAt: NOW,
+            kind: 'system',
+            event: 'opened',
+          },
+        ],
+      }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const timeline = await screen.findByRole('region', { name: 'Timeline' });
+    expect(within(timeline).queryByText('opened this')).toBeNull();
   });
 });

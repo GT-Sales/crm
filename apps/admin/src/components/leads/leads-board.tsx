@@ -25,7 +25,7 @@ import { dueLabel, dueTone, relativeTime } from '../../lib/dates';
 import { assigneeName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
-import { leadDisplayName, PersonChip, stageDotClass } from './lead-display';
+import { leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
 
 const PER_STAGE = 50;
@@ -211,6 +211,7 @@ export function LeadsBoard({
                       >
                         {leadDisplayName(lead.contact)}
                       </Link>
+                      {lead.isNew ? <NewBadge className="mt-0.5" /> : null}
                       {canMove ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

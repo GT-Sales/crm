@@ -13,14 +13,17 @@
 --   * leads: inserted once; later runs carry the old admin's status, archive
 --     and approved customer edits (name, phone, the order form) over, but
 --     never onto a lead anyone has already worked in the CRM (any timeline
---     entry not written by this import);
+--     entry not written by this import, other than opening the lead);
 --   * contacts: found or created by normalised email; an existing contact's
 --     name, phone and country are only filled where empty, never overwritten;
 --   * notes: one timeline entry per distinct text (the staff note, the
 --     partner's note), so an edited note adds an entry instead of rewriting
 --     history;
 --   * the reminder: one task per order, refreshed while the CRM has not
---     touched it, cancelled when the old admin clears it.
+--     touched it, cancelled when the old admin clears it;
+--   * the "New" badge: an order opened in the old admin (`viewed_at`) and
+--     every partner application get an "opened" entry by the old admin.
+--     An order nobody opened there stays New here.
 -- Ids are derived from the legacy ids (version-4 shaped), so a re-run finds
 -- what an earlier one wrote.
 --
@@ -96,6 +99,7 @@ begin
     o.reminder_at,
     nullif(btrim(o.reminder_note), '') as reminder_note,
     o.reminder_done_at,
+    o.viewed_at as opened_at,
     case when p.id is null then '{}'::jsonb
          else jsonb_build_object('partnerCode', 'PT-' || p.partner_no, 'partnerCodeMatched', true)
     end as attribution,
@@ -141,6 +145,8 @@ begin
     null::date,
     null::text,
     null::timestamptz,
+    -- A partner application was handled in the old admin: never "New" here.
+    p.created_at,
     '{}'::jsonb,
     jsonb_build_object('schemaVersion', 1, 'payload', jsonb_strip_nulls(jsonb_build_object(
       'company', nullif(btrim(p.company), ''),
@@ -199,6 +205,8 @@ begin
     and not exists (
       select 1 from app.lead_activities as a
       where a.workspace_id = l.workspace_id and a.lead_id = l.id and a.actor_id <> v_actor
+        -- Opening a lead is not working it.
+        and not (a.kind = 'system' and a.data ->> 'event' = 'opened')
     );
 
   insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, body, data, created_at)
@@ -219,6 +227,22 @@ begin
   from gcs_legacy_rows as r
   join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
   where r.partner_note is not null
+  on conflict (id) do nothing;
+
+  -- The old admin's "New" badge: an order someone opened there (`viewed_at`)
+  -- is opened here too, by the old admin, so it carries no badge.
+  insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, data, created_at)
+  select
+    pg_temp.gcs_legacy_uuid('gcs-legacy-opened:' || r.id),
+    v_workspace, r.id, v_actor, 'system', jsonb_build_object('event', 'opened'), r.opened_at
+  from gcs_legacy_rows as r
+  join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
+  where r.opened_at is not null
+    and not exists (
+      select 1 from app.lead_activities as opened
+      where opened.workspace_id = v_workspace and opened.lead_id = r.id
+        and opened.kind = 'system' and opened.data ->> 'event' = 'opened'
+    )
   on conflict (id) do nothing;
 
   -- A task the CRM has changed has `updated_at` past `created_at`; this
@@ -277,4 +301,11 @@ select
      where w.slug = 'getcanadasim' and a.actor_id = '00000000-0000-4000-8000-00000000a001'
        and a.kind = 'note') as imported_notes,
   (select count(*) from app.lead_tasks k join app.workspaces w on w.id = k.workspace_id
-     where w.slug = 'getcanadasim' and k.created_by = '00000000-0000-4000-8000-00000000a001') as imported_tasks;
+     where w.slug = 'getcanadasim' and k.created_by = '00000000-0000-4000-8000-00000000a001') as imported_tasks,
+  (select count(*) from app.leads l join app.workspaces w on w.id = l.workspace_id
+     where w.slug = 'getcanadasim' and l.deleted_at is null
+       and not exists (
+         select 1 from app.lead_activities a
+         where a.workspace_id = l.workspace_id and a.lead_id = l.id
+           and a.kind = 'system' and a.data ->> 'event' = 'opened'
+       )) as crm_new;

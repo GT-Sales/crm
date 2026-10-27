@@ -9,6 +9,7 @@ import {
   leadTaskResponseSchema,
   leadTrashResponseSchema,
   listWorkspaceLeadsResponseSchema,
+  markLeadOpenedResponseSchema,
   listWorkspaceTasksResponseSchema,
   updateStaffProfileResponseSchema,
   updateWorkspaceLeadResponseSchema,
@@ -191,6 +192,16 @@ function memoryWorkStore() {
         createdAt: NOW,
         kind: 'system',
         event: input.trashed ? 'trashed' : 'restored',
+      },
+    })),
+    markOpened: vi.fn<LeadWorkStore['markOpened']>(async () => ({
+      status: 'opened',
+      activity: {
+        id: '92000000-0000-4000-8000-000000000e04',
+        actorId: ACTOR,
+        createdAt: NOW,
+        kind: 'system',
+        event: 'opened',
       },
     })),
     addNote: vi.fn<LeadWorkStore['addNote']>(async () => ({ status: 'created', activity: note })),
@@ -426,6 +437,25 @@ describe('staff lead work routes', () => {
       expect((await errorCode(response)).code).toBe('invalid_request');
     }
     expect(work.updateLead).not.toHaveBeenCalled();
+  });
+
+  it('records an open for someone who works leads, and refuses a reader', async () => {
+    const opened = await call(`${leadsUrl()}/${LEAD}/opened`, { method: 'POST' });
+    expect(opened.status).toBe(200);
+    expect(markLeadOpenedResponseSchema.parse(await opened.json()).activity).toMatchObject({
+      kind: 'system',
+      event: 'opened',
+    });
+    expect(work.markOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: WORKSPACE, leadId: LEAD, actorId: ACTOR }),
+    );
+
+    work.markOpened.mockResolvedValueOnce({ status: 'not_found' });
+    expect((await call(`${leadsUrl()}/${LEAD}/opened`, { method: 'POST' })).status).toBe(404);
+
+    store.access = { ...store.access, roles: ['viewer'] };
+    expect((await call(`${leadsUrl()}/${LEAD}/opened`, { method: 'POST' })).status).toBe(403);
+    expect(work.markOpened).toHaveBeenCalledTimes(2);
   });
 
   it('adds a note, creates and updates a task, and trashes and restores', async () => {

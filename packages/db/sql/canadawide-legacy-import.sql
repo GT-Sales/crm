@@ -11,13 +11,16 @@
 -- admin stays in use until then):
 --   * leads: inserted once; later runs carry the old admin's stage and trash
 --     over, but never onto a lead anyone has already worked in the CRM
---     (any timeline entry not written by this import);
+--     (any timeline entry not written by this import, other than opening
+--     the lead);
 --   * contacts: found or created by normalised email; an existing contact's
 --     name and phone are only filled where empty, never overwritten;
 --   * the note: one timeline entry per distinct text, so an edited note in
 --     the old admin adds an entry instead of rewriting history;
 --   * the reminder: one task per lead, refreshed while the CRM has not
---     touched it, cancelled when the old admin clears it.
+--     touched it, cancelled when the old admin clears it;
+--   * the "New" badge: every lead this import brought over is opened, by
+--     the old admin; one that came through the CRM's intake stays New.
 -- Ids are derived from the legacy ids (version-4 shaped), so a re-run finds
 -- what an earlier one wrote.
 --
@@ -145,6 +148,8 @@ begin
     and not exists (
       select 1 from app.lead_activities as a
       where a.workspace_id = l.workspace_id and a.lead_id = l.id and a.actor_id <> v_actor
+        -- Opening a lead is not working it.
+        and not (a.kind = 'system' and a.data ->> 'event' = 'opened')
     );
 
   insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, body, data, created_at)
@@ -183,6 +188,24 @@ begin
     completed_at = excluded.completed_at
   where k.workspace_id = excluded.workspace_id and k.updated_at = k.created_at;
 
+  -- Staff worked these leads in the old admin, which had no "New" badge: a
+  -- lead this import brought over is opened, by the old admin. One that came
+  -- through the CRM's own intake (and so reached the legacy tables through
+  -- the 0002 mirror) stays New until someone opens it here.
+  insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, data, created_at)
+  select
+    pg_temp.cw_legacy_uuid('cw-legacy-opened:' || r.id),
+    v_workspace, r.id, v_actor, 'system', jsonb_build_object('event', 'opened'), r.created_at
+  from cw_legacy_rows as r
+  join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
+  where l.consent_version = 'cw-legacy-import'
+    and not exists (
+      select 1 from app.lead_activities as opened
+      where opened.workspace_id = v_workspace and opened.lead_id = r.id
+        and opened.kind = 'system' and opened.data ->> 'event' = 'opened'
+    )
+  on conflict (id) do nothing;
+
   update app.lead_tasks as k
   set status = 'cancelled', completed_at = null
   from cw_legacy_rows as r
@@ -211,4 +234,11 @@ select
   (select count(*) from app.lead_activities
      where actor_id = '00000000-0000-4000-8000-00000000a001' and kind = 'note') as imported_notes,
   (select count(*) from app.lead_tasks
-     where created_by = '00000000-0000-4000-8000-00000000a001') as imported_tasks;
+     where created_by = '00000000-0000-4000-8000-00000000a001') as imported_tasks,
+  (select count(*) from app.leads l join app.workspaces w on w.id = l.workspace_id
+     where w.slug = 'canadawide' and l.deleted_at is null
+       and not exists (
+         select 1 from app.lead_activities a
+         where a.workspace_id = l.workspace_id and a.lead_id = l.id
+           and a.kind = 'system' and a.data ->> 'event' = 'opened'
+       )) as crm_new;

@@ -1,11 +1,24 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarProvider } from '@gt-sales/ui';
 
 import { AppSidebar } from './app-sidebar.js';
 
 const usePathname = vi.fn();
 vi.mock('next/navigation', () => ({ usePathname: () => usePathname() }));
+
+const getLeadsSummary = vi.fn();
+vi.mock('../lib/api', () => ({
+  getLeadsSummary: (...args: unknown[]) => getLeadsSummary(...args),
+}));
+vi.mock('./staff-session-provider', () => ({
+  useStaffSession: () => ({
+    accessToken: 'staff-token',
+    workspaces: [
+      { id: '10000000-0000-4000-8000-000000000001', slug: 'getcanadasim', roles: ['owner'] },
+    ],
+  }),
+}));
 
 function renderSidebar(workspace: string) {
   return render(
@@ -16,6 +29,15 @@ function renderSidebar(workspace: string) {
 }
 
 describe('AppSidebar', () => {
+  beforeEach(() => {
+    getLeadsSummary.mockReset();
+    getLeadsSummary.mockResolvedValue({
+      types: [],
+      trash: 0,
+      requestId: '00000000-0000-4000-8000-000000000001',
+    });
+  });
+
   it('marks the current section as the active page', () => {
     usePathname.mockReturnValue('/w/getcanadasim/leads');
     renderSidebar('getcanadasim');
@@ -53,5 +75,24 @@ describe('AppSidebar', () => {
       'Documents',
       'Settings',
     ]);
+  });
+
+  it('counts the leads no one has opened yet beside Leads', async () => {
+    usePathname.mockReturnValue('/w/getcanadasim/tasks');
+    getLeadsSummary.mockResolvedValue({
+      types: [
+        { leadType: 'sim_order', total: 94, unopened: 3 },
+        { leadType: 'partner_application', total: 5, unopened: 0 },
+      ],
+      trash: 44,
+      requestId: '00000000-0000-4000-8000-000000000001',
+    });
+    renderSidebar('getcanadasim');
+
+    expect(await screen.findByRole('link', { name: 'Leads, 3 new' })).toBeTruthy();
+    expect(getLeadsSummary).toHaveBeenCalledWith(
+      'staff-token',
+      '10000000-0000-4000-8000-000000000001',
+    );
   });
 });

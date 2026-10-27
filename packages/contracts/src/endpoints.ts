@@ -40,6 +40,7 @@ import {
   leadTaskResponseSchema,
   leadTrashResponseSchema,
   listWorkspaceTasksQuerySchema,
+  markLeadOpenedResponseSchema,
   listWorkspaceTasksResponseSchema,
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
@@ -273,6 +274,16 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'staff',
     successStatus: 200,
     response: revealLeadIdentityResponseSchema,
+  },
+  {
+    operationId: 'markWorkspaceLeadOpened',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/opened',
+    summary:
+      'Record that someone who works leads opened the lead, which clears its "New" badge (lead management; idempotent).',
+    auth: 'staff',
+    successStatus: 200,
+    response: markLeadOpenedResponseSchema,
   },
   {
     operationId: 'restoreWorkspaceLead',

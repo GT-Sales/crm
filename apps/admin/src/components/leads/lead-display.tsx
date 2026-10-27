@@ -47,6 +47,20 @@ export function stageDotClass(stage: string): string {
   return STAGE_DOTS[stage] ?? 'bg-muted-foreground';
 }
 
+/** A lead no one who works leads has opened yet. */
+export function NewBadge({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground',
+        className,
+      )}
+    >
+      New
+    </span>
+  );
+}
+
 export function StageBadge({
   leadType,
   stage,

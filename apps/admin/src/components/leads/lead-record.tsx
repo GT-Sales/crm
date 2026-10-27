@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   leadFields,
   leadTypeEntry,
@@ -15,7 +15,7 @@ import {
 import { Button, Card, CardContent, Input, NativeSelect } from '@gt-sales/ui';
 import { ArrowLeftIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react';
 
-import { getStaffLead, setLeadTrashed, updateStaffLead } from '../../lib/api';
+import { getStaffLead, markLeadOpened, setLeadTrashed, updateStaffLead } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
@@ -128,6 +128,28 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
   );
   const record = useResource(load);
   const [saving, setSaving] = useState(false);
+  const opening = useRef<string>(undefined);
+
+  // The first open by someone who works leads clears the "New" badge for the
+  // whole team. Best effort: a failure leaves the badge for the next open.
+  const shouldMarkOpened =
+    record.data?.lead.isNew === true && record.data.access.manage && Boolean(accessToken);
+  const { mutate } = record;
+  useEffect(() => {
+    if (!shouldMarkOpened || !accessToken || !workspaceId || opening.current === leadId) return;
+    opening.current = leadId;
+    markLeadOpened(accessToken, workspaceId, leadId)
+      .then((result) =>
+        mutate((current) => ({
+          ...current,
+          lead: { ...current.lead, isNew: false },
+          activities: result.activity
+            ? [result.activity, ...current.activities]
+            : current.activities,
+        })),
+      )
+      .catch(() => undefined);
+  }, [shouldMarkOpened, accessToken, workspaceId, leadId, mutate]);
   const [editingContact, setEditingContact] = useState(false);
   const [editingForm, setEditingForm] = useState<'customer' | 'staff'>();
   const [message, setMessage] = useState<string>();

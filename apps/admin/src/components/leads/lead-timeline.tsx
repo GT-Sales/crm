@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from 'react';
 import {
+  LEGACY_IMPORT_ACTOR_ID,
   leadStageLabel,
   type AssignableMember,
   type LeadActivity,
@@ -10,6 +11,7 @@ import {
 import { Button, Textarea } from '@gt-sales/ui';
 import {
   ArrowRightIcon,
+  EyeIcon,
   InboxIcon,
   PencilIcon,
   RotateCcwIcon,
@@ -75,6 +77,7 @@ function describe(
       if (activity.event === 'trashed')
         return { icon: <Trash2Icon />, text: 'moved this to the trash' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
+      if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
       return { icon: <InboxIcon />, text: 'recorded a change' };
   }
 }
@@ -156,37 +159,47 @@ export function LeadTimeline({
       ) : null}
 
       <ol className="flex flex-col">
-        {activities.map((activity) => {
-          const { icon, text } = describe(activity, lead.leadType, members);
-          return (
-            <li key={activity.id} className="relative flex gap-3 pb-5 last:pb-0">
-              <span
-                aria-hidden="true"
-                className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
-              >
-                {icon}
-              </span>
-              <div className="min-w-0 flex-1 pt-1 text-sm">
-                <p>
-                  <span className="font-medium">{actorName(activity.actorId, members)}</span>{' '}
-                  <span className="text-muted-foreground">{text}</span>{' '}
-                  <time
-                    dateTime={activity.createdAt}
-                    title={dateTimeLabel(activity.createdAt)}
-                    className="text-xs text-muted-foreground"
-                  >
-                    · {relativeTime(activity.createdAt)}
-                  </time>
-                </p>
-                {activity.kind === 'note' ? (
-                  <p className="mt-2 rounded-md border bg-card px-3 py-2 whitespace-pre-wrap">
-                    {activity.body}
+        {/* An open carried over from the old admin tells staff nothing. */}
+        {activities
+          .filter(
+            (activity) =>
+              !(
+                activity.kind === 'system' &&
+                activity.event === 'opened' &&
+                activity.actorId === LEGACY_IMPORT_ACTOR_ID
+              ),
+          )
+          .map((activity) => {
+            const { icon, text } = describe(activity, lead.leadType, members);
+            return (
+              <li key={activity.id} className="relative flex gap-3 pb-5 last:pb-0">
+                <span
+                  aria-hidden="true"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
+                >
+                  {icon}
+                </span>
+                <div className="min-w-0 flex-1 pt-1 text-sm">
+                  <p>
+                    <span className="font-medium">{actorName(activity.actorId, members)}</span>{' '}
+                    <span className="text-muted-foreground">{text}</span>{' '}
+                    <time
+                      dateTime={activity.createdAt}
+                      title={dateTimeLabel(activity.createdAt)}
+                      className="text-xs text-muted-foreground"
+                    >
+                      · {relativeTime(activity.createdAt)}
+                    </time>
                   </p>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
+                  {activity.kind === 'note' ? (
+                    <p className="mt-2 rounded-md border bg-card px-3 py-2 whitespace-pre-wrap">
+                      {activity.body}
+                    </p>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
         <li className="flex gap-3">
           <span
             aria-hidden="true"

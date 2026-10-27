@@ -56,6 +56,7 @@ import {
   leadTaskResponseSchema,
   leadTrashResponseSchema,
   listWorkspaceTasksResponseSchema,
+  markLeadOpenedResponseSchema,
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
   updateWorkspaceLeadResponseSchema,
@@ -67,6 +68,7 @@ import {
   type LeadTrashResponse,
   type ListWorkspaceTasksQuery,
   type ListWorkspaceTasksResponse,
+  type MarkLeadOpenedResponse,
   type UpdateLeadTaskRequest,
   type UpdateWorkspaceLeadRequest,
   type UpdateWorkspaceLeadResponse,
@@ -257,6 +259,7 @@ export interface BackendClient {
       body: UpdateWorkspaceLeadRequest,
     ): Promise<UpdateWorkspaceLeadResponse>;
     trashLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
+    markLeadOpened(workspaceId: string, leadId: string): Promise<MarkLeadOpenedResponse>;
     restoreLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
     createLeadNote(
       workspaceId: string,
@@ -560,6 +563,12 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}`,
           body: updateWorkspaceLeadRequestSchema.parse(body),
           responseSchema: updateWorkspaceLeadResponseSchema,
+        }),
+      markLeadOpened: (workspaceId, leadId) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/opened`,
+          responseSchema: markLeadOpenedResponseSchema,
         }),
       trashLead: (workspaceId, leadId) =>
         call({

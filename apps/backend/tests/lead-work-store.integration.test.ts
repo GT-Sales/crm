@@ -342,6 +342,44 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(again).toMatchObject({ status: 'updated', activities: [] });
   });
 
+  test('a lead is new until someone who works leads opens it, and only the first open is kept', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'Nova Unopened',
+      email: 'nova.unopened@example.test',
+      phone: '403 555 0160',
+    });
+    const before = await work.getLead({ ...scope, leadId, includeWork: true });
+    expect(before?.lead.isNew).toBe(true);
+    const unopened = async () =>
+      (await work.summary(scope)).types.find((entry) => entry.leadType === 'internet')?.unopened;
+    const countBefore = await unopened();
+
+    const opened = await Promise.all([
+      work.markOpened({ ...writeScope, leadId }),
+      work.markOpened({ ...writeScope, leadId }),
+    ]);
+    expect(opened.filter((entry) => entry.status === 'opened' && entry.activity)).toHaveLength(1);
+    expect(opened).toContainEqual({
+      status: 'opened',
+      activity: expect.objectContaining({ kind: 'system', event: 'opened', actorId: ACTOR }),
+    });
+    expect(await work.markOpened({ ...writeScope, leadId })).toEqual({
+      status: 'opened',
+      activity: null,
+    });
+
+    const after = await work.getLead({ ...scope, leadId, includeWork: true });
+    expect(after?.lead.isNew).toBe(false);
+    expect(after?.activities.filter((entry) => entry.kind === 'system')).toHaveLength(1);
+    // Opening is not work on the lead: its place in the inbox stays.
+    expect(after?.lead.updatedAt).toBe(before?.lead.updatedAt);
+    expect(await unopened()).toBe((countBefore ?? 0) - 1);
+
+    expect(
+      await work.markOpened({ ...writeScope, leadId: '13000000-0000-4000-8000-0000000000ff' }),
+    ).toEqual({ status: 'not_found' });
+  });
+
   test('a contact correction moves the lead to the right contact and records field names only', async () => {
     const leadId = await createInternetLead({
       fullName: 'Ellis Typo',

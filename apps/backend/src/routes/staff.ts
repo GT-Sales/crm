@@ -537,6 +537,36 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     });
   }
 
+  // The lead page reports that someone who works leads opened the lead, which
+  // clears its "New" badge for the whole team. Only the first open writes.
+  router.post('/workspaces/:workspaceId/leads/:leadId/opened', async (req, res) => {
+    const params = uuidParams(req, res, 'leadId');
+    if (!params) return;
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = await store.markOpened({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        requestId: req.id,
+        leadId: params.id,
+      });
+      if (outcome.status === 'not_found') {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      res.json({ activity: outcome.activity, requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
   // An owner opening a customer's SIN for the credit check. Audited in the
   // transaction that reads it, and never cached anywhere on the way back.
   router.post(

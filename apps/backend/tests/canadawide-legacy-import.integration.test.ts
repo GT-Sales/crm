@@ -47,8 +47,9 @@ const WON = '14000000-0000-4000-8000-000000000f11';
 const TRASHED = '14000000-0000-4000-8000-000000000f12';
 const MOBILITY = '14000000-0000-4000-8000-000000000f13';
 const SAME_PERSON = '14000000-0000-4000-8000-000000000f14';
+const FROM_INTAKE = '14000000-0000-4000-8000-000000000f15';
 const STAFF = '24000000-0000-4000-8000-000000000f01';
-const LEADS = [WON, TRASHED, MOBILITY, SAME_PERSON];
+const LEADS = [WON, TRASHED, MOBILITY, SAME_PERSON, FROM_INTAKE];
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 databaseTest('CanadaWide historical import', () => {
@@ -228,12 +229,20 @@ databaseTest('CanadaWide historical import', () => {
     });
     if (!won) throw new Error('expected the lead');
     expect(leadDetailSchema.safeParse(won.lead).success).toBe(true);
+    // Worked in the old admin, which had no "New" badge: opened, so not New.
+    expect(won.lead.isNew).toBe(false);
     expect(won.activities).toEqual([
       expect.objectContaining({
         kind: 'note',
         body: 'Called twice, installed.',
         actorId: LEGACY_IMPORT_ACTOR_ID,
         createdAt: '2026-03-05T10:00:00.000Z',
+      }),
+      expect.objectContaining({
+        kind: 'system',
+        event: 'opened',
+        actorId: LEGACY_IMPORT_ACTOR_ID,
+        createdAt: '2026-03-02T15:00:00.000Z',
       }),
     ]);
     expect(won.activities.every((entry) => leadActivitySchema.safeParse(entry).success)).toBe(true);
@@ -261,10 +270,12 @@ databaseTest('CanadaWide historical import', () => {
   });
 
   test('a second run changes nothing and writes nothing twice', async () => {
-    const before = await admin<{ leads: number; notes: number; tasks: number; legacy: number }[]>`
+    const before = await admin<
+      { leads: number; activities: number; tasks: number; legacy: number }[]
+    >`
       select
         (select count(*)::int from app.leads where id in ${admin(LEADS)}) as leads,
-        (select count(*)::int from app.lead_activities where lead_id in ${admin(LEADS)}) as notes,
+        (select count(*)::int from app.lead_activities where lead_id in ${admin(LEADS)}) as activities,
         (select count(*)::int from app.lead_tasks where lead_id in ${admin(LEADS)}) as tasks,
         (select count(*)::int from public.internet_leads) + (select count(*)::int from public.mobility_leads) as legacy
     `;
@@ -272,12 +283,13 @@ databaseTest('CanadaWide historical import', () => {
     const after = await admin<typeof before>`
       select
         (select count(*)::int from app.leads where id in ${admin(LEADS)}) as leads,
-        (select count(*)::int from app.lead_activities where lead_id in ${admin(LEADS)}) as notes,
+        (select count(*)::int from app.lead_activities where lead_id in ${admin(LEADS)}) as activities,
         (select count(*)::int from app.lead_tasks where lead_id in ${admin(LEADS)}) as tasks,
         (select count(*)::int from public.internet_leads) + (select count(*)::int from public.mobility_leads) as legacy
     `;
     expect(after).toEqual(before);
-    expect(before[0]).toEqual({ leads: 4, notes: 2, tasks: 2, legacy: 4 });
+    // Two notes, and one "opened" entry per lead.
+    expect(before[0]).toEqual({ leads: 4, activities: 6, tasks: 2, legacy: 4 });
   });
 
   test('later runs carry the old admin’s changes, except onto leads worked in the CRM', async () => {
@@ -328,5 +340,55 @@ databaseTest('CanadaWide historical import', () => {
         (select count(*)::int from public.mobility_leads) as mobility
     `;
     expect(counts).toEqual({ internet: 3, mobility: 1 });
+  });
+
+  test('a lead from the CRM’s own intake stays New, though the mirror copied it over', async () => {
+    await admin`
+      insert into app.leads (id, workspace_id, lead_type, status, full_name, email, phone,
+        payload, consent_version)
+      values (${FROM_INTAKE}, ${canadawide}, 'internet', 'submitted', 'Intake Person',
+        'intake.person@example.test', '403 555 0204',
+        ${admin.json({
+          schemaVersion: 1,
+          payload: {
+            planId: 'ab-1gbps',
+            planLabel: '1Gbps',
+            dateOfBirth: '1990-04-12',
+            streetAddress: '4 Intake Way',
+            city: 'Calgary',
+            consent: true,
+            consentedAt: '2026-10-26T10:00:00.000Z',
+          },
+        })},
+        'cw-internet-v1')
+    `;
+    const [mirrored] = await admin<{ count: number }[]>`
+      select count(*)::int as count from public.internet_leads where id = ${FROM_INTAKE}
+    `;
+    expect(mirrored?.count).toBe(1);
+
+    await runImport();
+
+    const page = await work.getLead({
+      workspaceId: canadawide,
+      actorId: STAFF,
+      leadId: FROM_INTAKE,
+      includeWork: true,
+    });
+    expect(page?.lead.isNew).toBe(true);
+    expect(page?.activities).toEqual([]);
+
+    // Opening it in the CRM is not working it: the old admin's changes still arrive.
+    await expect(
+      work.markOpened({
+        workspaceId: canadawide,
+        actorId: STAFF,
+        requestId: '34000000-0000-4000-8000-000000000f02',
+        leadId: FROM_INTAKE,
+      }),
+    ).resolves.toMatchObject({ status: 'opened', activity: { actorId: STAFF } });
+    await admin`update public.internet_leads set status = 'contacted' where id = ${FROM_INTAKE}`;
+    await runImport();
+    expect((await leadRow(FROM_INTAKE)).stage).toBe('contacted');
   });
 });

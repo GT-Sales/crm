@@ -63,6 +63,7 @@ export interface LeadRow {
   consentVersion: string | null;
   openTaskCount: number;
   nextTaskDueAt: string | null;
+  isNew: boolean;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -85,6 +86,13 @@ const LEAD_COLUMNS = sql.raw(`
   l.attribution,
   l.consent_version as "consentVersion",
   coalesce(t.open_count, 0)::int as "openTaskCount",
+  not exists (
+    select 1 from app.lead_activities opened
+    where opened.workspace_id = l.workspace_id
+      and opened.lead_id = l.id
+      and opened.kind = 'system'
+      and opened.data ->> 'event' = 'opened'
+  ) as "isNew",
 `);
 
 const LEAD_TIMESTAMPS = sql.join(
@@ -130,6 +138,7 @@ export function toLeadListItem(row: LeadRow): LeadListItem {
     consentVersion: row.consentVersion,
     openTaskCount: row.openTaskCount,
     nextTaskDueAt: row.nextTaskDueAt,
+    isNew: row.isNew === true,
     deletedAt: row.deletedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -284,11 +293,22 @@ export async function selectLeadSummary(
     [key: string]: unknown;
     leadType: string;
     active: number;
+    unopened: number;
     trashed: number;
   }>(sql`
     select
       l.lead_type as "leadType",
       count(*) filter (where l.deleted_at is null)::int as active,
+      count(*) filter (
+        where l.deleted_at is null
+          and not exists (
+            select 1 from app.lead_activities opened
+            where opened.workspace_id = l.workspace_id
+              and opened.lead_id = l.id
+              and opened.kind = 'system'
+              and opened.data ->> 'event' = 'opened'
+          )
+      )::int as unopened,
       count(*) filter (where l.deleted_at is not null)::int as trashed
     from app.leads l
     where l.workspace_id = ${contextWorkspaceId} and l.customer_data_restricted_at is null
@@ -298,7 +318,11 @@ export async function selectLeadSummary(
   return {
     types: rows
       .filter((row) => row.active > 0)
-      .map((row) => ({ leadType: leadTypeSchema.parse(row.leadType), total: row.active })),
+      .map((row) => ({
+        leadType: leadTypeSchema.parse(row.leadType),
+        total: row.active,
+        unopened: row.unopened,
+      })),
     trash: rows.reduce((sum, row) => sum + row.trashed, 0),
   };
 }
@@ -322,7 +346,7 @@ export async function selectLeadDetail(
   return { ...toLeadListItem(row), form: form.success ? form.data : null };
 }
 
-interface ActivityRow {
+export interface ActivityRow {
   [key: string]: unknown;
   id: string;
   actorId: string;

@@ -64,7 +64,8 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({
     ...activityBase,
     kind: z.literal('system'),
-    event: z.enum(['trashed', 'restored', 'unknown']),
+    /** `opened`: the first time someone who works leads opened it (the "New" badge goes). */
+    event: z.enum(['trashed', 'restored', 'opened', 'unknown']),
   }),
 ]);
 export type LeadActivity = z.infer<typeof leadActivitySchema>;
@@ -233,6 +234,18 @@ export const leadTrashResponseSchema = z.object({
   requestId: requestIdSchema,
 });
 export type LeadTrashResponse = z.infer<typeof leadTrashResponseSchema>;
+
+/**
+ * `POST /workspaces/:id/leads/:leadId/opened` — the lead page tells the
+ * backend it was opened by someone who works leads, which clears its "New"
+ * badge for the whole team. Idempotent: `activity` is the timeline entry the
+ * first open wrote, null when it was already opened.
+ */
+export const markLeadOpenedResponseSchema = z.object({
+  activity: leadActivitySchema.nullable(),
+  requestId: requestIdSchema,
+});
+export type MarkLeadOpenedResponse = z.infer<typeof markLeadOpenedResponseSchema>;
 
 /**
  * `GET /workspaces/:id/tasks` — tasks across the workspace's active leads,

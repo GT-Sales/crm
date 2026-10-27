@@ -10,6 +10,7 @@ import {
   type LeadsSummaryResponse,
   type LeadTaskResponse,
   type LeadTrashResponse,
+  type MarkLeadOpenedResponse,
   type ListWorkspaceTasksQuery,
   type ListWorkspaceTasksResponse,
   type UpdateLeadTaskRequest,
@@ -152,6 +153,15 @@ export async function updateStaffLead(
   body: UpdateWorkspaceLeadRequest,
 ): Promise<UpdateWorkspaceLeadResponse> {
   return client(accessToken).staff.updateLead(workspaceId, leadId, body);
+}
+
+/** Clears the lead's "New" badge for the team; idempotent. */
+export async function markLeadOpened(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+): Promise<MarkLeadOpenedResponse> {
+  return client(accessToken).staff.markLeadOpened(workspaceId, leadId);
 }
 
 export async function setLeadTrashed(

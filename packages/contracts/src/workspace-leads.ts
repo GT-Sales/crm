@@ -86,6 +86,8 @@ export const leadListItemSchema = z.object({
   consentVersion: z.string().max(64).nullable(),
   openTaskCount: z.int().nonnegative(),
   nextTaskDueAt: isoDateTimeSchema.nullable(),
+  /** No one who works leads has opened it yet: the "New" badge. Absent means no. */
+  isNew: z.boolean().optional(),
   deletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -138,6 +140,8 @@ export type LeadBoardResponse = z.infer<typeof leadBoardResponseSchema>;
 export const leadTypeCountSchema = z.object({
   leadType: leadTypeSchema,
   total: z.int().nonnegative(),
+  /** Active leads of the type no one who works leads has opened yet. */
+  unopened: z.int().nonnegative().optional(),
 });
 export type LeadTypeCount = z.infer<typeof leadTypeCountSchema>;
 
