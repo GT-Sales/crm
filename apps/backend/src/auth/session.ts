@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { RateLimitInput, RateLimitResult } from '@gt-sales/db';
 import { createClient } from '@supabase/supabase-js';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
@@ -50,6 +52,92 @@ export class SupabaseStaffSessionVerifier implements StaffSessionVerifier {
 
     return { actorId: user.id, verifiedEmail: user.email };
   }
+}
+
+/** How long a verified token is trusted without asking Auth again (owner decision, 2026-10-27). */
+export const STAFF_SESSION_CACHE_SECONDS = 60;
+const STAFF_SESSION_CACHE_MAX_ENTRIES = 1_000;
+
+interface CachedSession {
+  /** The verification, shared by concurrent requests carrying the same token. */
+  session: Promise<VerifiedStaffSession | undefined>;
+  expiresAt: number;
+}
+
+/** The token's own `exp`, in milliseconds, read only to cap how long it is cached. */
+function tokenExpiry(accessToken: string): number | undefined {
+  const payload = accessToken.split('.')[1];
+  if (!payload) return undefined;
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (typeof claims !== 'object' || claims === null || !('exp' in claims)) return undefined;
+    return typeof claims.exp === 'number' ? claims.exp * 1000 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Remembers a successful verification for up to `STAFF_SESSION_CACHE_SECONDS`
+ * (never past the token's own expiry), so a staff member clicking around makes
+ * one Auth call a minute instead of one per request. The trade, accepted by the
+ * owner: a session signed out or revoked in Auth keeps working for at most that
+ * long on this instance. Site access is not cached: every request still reads
+ * the membership, so removing someone from a site takes effect at once.
+ *
+ * Only successes are kept, keyed by a hash of the token rather than the token
+ * itself; concurrent requests with one token share a single Auth call; the map
+ * is bounded, oldest entries leaving first.
+ */
+export class CachedStaffSessionVerifier implements StaffSessionVerifier {
+  private readonly entries = new Map<string, CachedSession>();
+
+  constructor(
+    private readonly inner: StaffSessionVerifier,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  async verify(accessToken: string): Promise<VerifiedStaffSession | undefined> {
+    const key = createHash('sha256').update(accessToken).digest('hex');
+    const now = this.now();
+    const cached = this.entries.get(key);
+    if (cached && cached.expiresAt > now) return cached.session;
+    if (cached) this.entries.delete(key);
+
+    const session = this.inner.verify(accessToken);
+    const expiresAt = Math.min(
+      now + STAFF_SESSION_CACHE_SECONDS * 1000,
+      tokenExpiry(accessToken) ?? Number.POSITIVE_INFINITY,
+    );
+    this.entries.set(key, { session, expiresAt });
+    while (this.entries.size > STAFF_SESSION_CACHE_MAX_ENTRIES) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+
+    try {
+      const result = await session;
+      if (!result) this.forget(key, session);
+      return result;
+    } catch (error) {
+      this.forget(key, session);
+      throw error;
+    }
+  }
+
+  /** Drops an entry, unless a newer verification for the token has replaced it meanwhile. */
+  private forget(key: string, session: CachedSession['session']): void {
+    if (this.entries.get(key)?.session === session) this.entries.delete(key);
+  }
+}
+
+let sharedVerifier: StaffSessionVerifier | undefined;
+
+/** The process's one staff verifier: Supabase Auth behind the short cache. */
+export function defaultStaffSessionVerifier(): StaffSessionVerifier {
+  sharedVerifier ??= new CachedStaffSessionVerifier(new SupabaseStaffSessionVerifier());
+  return sharedVerifier;
 }
 
 function bearerToken(req: Request): string | undefined {

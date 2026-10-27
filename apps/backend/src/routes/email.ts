@@ -4,8 +4,8 @@ import { rateLimitHit } from '@gt-sales/db';
 import { z } from 'zod';
 
 import {
+  defaultStaffSessionVerifier,
   requireStaffSession,
-  SupabaseStaffSessionVerifier,
   type StaffRateLimit,
   type StaffSessionVerifier,
 } from '../auth/session.js';
@@ -42,7 +42,7 @@ export function createDefaultEmailRouteDependencies(
 ): EmailRouteDependencies {
   return {
     store: new DatabaseEmailStore(),
-    sessionVerifier: new SupabaseStaffSessionVerifier(),
+    sessionVerifier: defaultStaffSessionVerifier(),
     rateLimit: rateLimitHit,
     contactHashSecret: () => requireContactHashSecret(),
     unsubscribeConsentVersion: process.env.MARKETING_CONSENT_VERSION ?? '1',

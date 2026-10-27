@@ -25,8 +25,8 @@ import type { DocumentService } from '../documents/service.js';
 import { toStaffFile } from '../documents/summary.js';
 
 import {
+  defaultStaffSessionVerifier,
   requireStaffSession,
-  SupabaseStaffSessionVerifier,
   type StaffRateLimit,
   type StaffSessionVerifier,
 } from '../auth/session.js';
@@ -73,7 +73,7 @@ export interface StaffRouteDependencies {
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
   return {
-    sessionVerifier: new SupabaseStaffSessionVerifier(),
+    sessionVerifier: defaultStaffSessionVerifier(),
     rateLimit: rateLimitHit,
     store: new DatabaseStaffStore(),
     credentialStore: new DatabaseWebsiteCredentialStore(),
