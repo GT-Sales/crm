@@ -60,3 +60,33 @@ an earlier one wrote.
 The rehearsal is `apps/backend/tests/canadawide-legacy-import.integration.test.ts`
 (replica legacy tables in `tests/support/legacy-canadawide.ts`, shared with the
 mirror suite under an advisory lock).
+
+# Get Canada Sim historical import
+
+`packages/db/sql/getcanadasim-legacy-import.sql` copies Get Canada Sim's
+`public.orders` and `public.partners` into the CRM's `getcanadasim` site, each
+row **under its own id**, the same way and with the same re-run rules as the
+CanadaWide import above (it reads `public`, writes only `app`).
+
+| Get Canada Sim                                                                           | CRM                                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| an order                                                                                 | a `sim_order` lead; `MS-<order_no>` is its external reference                                                                |
+| `status`                                                                                 | `stage` (sim_order's stages are Get Canada Sim's statuses); `incomplete` is also the lead's status, the rest are `submitted` |
+| `archived_at`                                                                            | `deleted_at` (the CRM trash, restorable): the archive holds dismissed pending, incomplete and cancelled orders               |
+| name, email, phone, `country_code`                                                       | the lead's contact fields, and a contact found or created by `lower(btrim(email))`; contacts are shared by every site        |
+| plan, SIM type, arrival, permit, visa, flight, addresses, reference, the customer's note | `payload` as `{ schemaVersion: 1, payload }`; the plan label as `data.ts` names it today; an address kept in `notes`         |
+| `partner_id`                                                                             | `attribution.partnerCode` = `PT-<partner_no>`                                                                                |
+| `admin_note`, `partner_note`                                                             | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                        |
+| `reminder_at`, `reminder_note`, `reminder_done_at`                                       | a task, as for CanadaWide                                                                                                    |
+| a partner application                                                                    | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                               |
+| documents, SIM number, commission, invoices, edit requests, IP address                   | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                          |
+
+A later run also carries approved customer edits (name, phone, the order
+form) over, unless someone worked the lead in the CRM. An unfinished
+checkout falls under the CRM's 90-day rule for abandoned forms (SEC-12): its
+contact details are erased from the CRM's copy 90 days after its last change.
+The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`.
+The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
+
+| Date | Run |
+| ---- | --- |

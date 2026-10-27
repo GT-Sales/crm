@@ -438,10 +438,25 @@ describe('lead-type catalogue', () => {
     ]);
   });
 
-  it('starts every type at new and falls back to the slug for unknown labels', () => {
-    for (const entry of Object.values(leadTypeCatalog)) {
-      expect(entry.stages[0]?.key).toBe('new');
+  it('starts each type at its first stage and falls back to the slug for unknown labels', () => {
+    for (const [leadType, entry] of Object.entries(leadTypeCatalog)) {
+      // A SIM order begins as Get Canada Sim's unfinished checkout.
+      expect(entry.stages[0]?.key).toBe(leadType === 'sim_order' ? 'incomplete' : 'new');
     }
+    // Get Canada Sim's order statuses, one for one, in its admin's order.
+    expect(leadTypeCatalog.sim_order.stages.map((entry) => entry.key)).toEqual([
+      'incomplete',
+      'pending',
+      'verified',
+      'on_hold',
+      'delivered',
+      'activated',
+      'completed',
+      'invoiced',
+      'paid',
+      'cancelled',
+    ]);
+    expect(leadStageLabel('sim_order', 'on_hold')).toBe('On Hold');
     expect(leadStageLabel('internet', 'existing_shaw')).toBe('Existing Shaw');
     expect(leadStageLabel('internet', 'mystery')).toBe('mystery');
     expect(isLeadStage('mobility', 'activated')).toBe(true);

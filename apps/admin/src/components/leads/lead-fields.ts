@@ -38,6 +38,17 @@ const dateTime: Formatter = (value) => {
 };
 const simType: Formatter = (value) =>
   value === 'esim' ? 'eSIM' : value === 'physical' ? 'Physical SIM' : text(value);
+// Get Canada Sim stores a mailed physical SIM as `pickup` (there is no pickup).
+const delivery: Formatter = (value) =>
+  value === 'esim' ? 'eSIM' : value === 'pickup' ? 'Physical SIM (mailed)' : text(value);
+const PERMIT_TYPES: Record<string, string> = {
+  newcomer: 'Newcomer / permanent resident',
+  student: 'Study permit',
+  worker: 'Work permit',
+  tourist: 'Tourist / visitor',
+};
+const permit: Formatter = (value) =>
+  typeof value === 'string' ? (PERMIT_TYPES[value] ?? text(value)) : undefined;
 
 type FieldSpec = readonly [key: string, label: string, format: Formatter];
 
@@ -69,6 +80,27 @@ const FIELDS: Record<string, readonly FieldSpec[]> = {
     ['aptUnit', 'Apt / unit', text],
     ['city', 'City', text],
     ['postalCode', 'Postal code', text],
+  ],
+  sim_order: [
+    ['planLabel', 'Plan', text],
+    ['planId', 'Plan id', text],
+    ['delivery', 'SIM type', delivery],
+    ['arrivalDate', 'Arrival in Canada', date],
+    ['permitType', 'Visa / permit type', permit],
+    ['gotVisa', 'Has the visa', yesNo],
+    ['flightBooked', 'Flight booked', yesNo],
+    ['shippingAddress', 'Shipping address', text],
+    ['canadaAddress', 'Address in Canada / City', text],
+    ['reference', 'Reference', text],
+    ['customerNotes', 'Customer notes', text],
+  ],
+  partner_application: [
+    ['company', 'Company', text],
+    ['businessType', 'Business type', text],
+    ['country', 'Country', text],
+    ['website', 'Website', text],
+    ['volume', 'Expected volume', text],
+    ['message', 'Message', text],
   ],
 };
 

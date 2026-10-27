@@ -89,8 +89,23 @@ export const leadTypeCatalog = {
     stages: [NEW, CONTACTED, QUALIFIED, stage('activated', 'Activated'), WON, LOST],
     takesIdentity: true,
   },
-  // Orders keep their own statuses on the order itself from phase 3.
-  sim_order: { label: 'SIM order', stages: [NEW] },
+  // Get Canada Sim's order statuses, as its admin names them. `incomplete` is
+  // a checkout the customer never finished (also the lead's status).
+  sim_order: {
+    label: 'SIM order',
+    stages: [
+      stage('incomplete', 'Incomplete'),
+      stage('pending', 'Pending'),
+      stage('verified', 'Verified'),
+      stage('on_hold', 'On Hold'),
+      stage('delivered', 'Delivered'),
+      stage('activated', 'Activated'),
+      stage('completed', 'Completed'),
+      stage('invoiced', 'Invoiced'),
+      stage('paid', 'Paid'),
+      stage('cancelled', 'Cancelled'),
+    ],
+  },
   partner_application: {
     label: 'Partner application',
     stages: [NEW, CONTACTED, stage('approved', 'Approved'), stage('declined', 'Declined')],
