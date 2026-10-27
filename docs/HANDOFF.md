@@ -443,19 +443,40 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
   env switch (§3.2); the historical import, stages, lead page, timeline, notes,
   tasks, assignment, board, My tasks, trash, related requests, the team list (§3.3).
   Still to do in phase 1:
-- **CanadaWide's ID step** (`/api/mobility-applications`): needs Storage S3
-  keys (§5.1) and `SENSITIVE_FIELDS_KEY` for SIN sealing. Route a licence
-  photo through `uploads/intents` → `finalize` onto the mobility lead, and a
-  SIN as a sealed field; mirror the `mobility_id_uploads` row (SIN in plain
-  text there, as the old admin shows it) until phase 2. Then drop the last two
-  anon policies.
+- **CanadaWide's ID step** (`/api/mobility-applications`). The CRM side is
+  built (2026-10-27), waiting on migration 0006 in production
+  ([database runbook](RUNBOOKS/database.md#0006_legacy_identity_mirror_result-2026-10-27)):
+  - `POST /website/leads/:leadId/identity/uploads` authorises a licence photo
+    upload (the usual signed PUT, `drivers_licence` on the lead), and
+    `POST /website/leads/:leadId/identity` records the identity: the finished
+    upload (verified like any document) or a SIN with the date of birth. Both
+    take `leads:write`, the `identity` endpoint limit (10 a minute per
+    visitor), and only a mobility lead (the registry's `takesIdentity`) that is
+    under 24 hours old, live and not restricted, with at most three
+    identities. A retried submit returns the identity already on file.
+  - The SIN is sealed under `SENSITIVE_FIELDS_KEY` (AES-256-GCM, bound to its
+    row; `crypto/cipher.ts`); the database keeps only the last three digits
+    readable. Without the key both routes answer `feature_not_ready`.
+  - For a CanadaWide mobility lead the identity also goes to
+    `public.mobility_id_uploads` in the same transaction (SIN in plain text
+    there, as the old admin always had it), and a licence photo is first
+    copied to the old admin's `mobility-ids` bucket at
+    `<lead id>/<file id>.<ext>`. A failed copy fails the step (503,
+    retryable), so the two admins never disagree.
+  - Staff see identities on the lead page with contact access, a SIN as
+    `*** *** 123`; only an owner can reveal it
+    (`POST /staff/workspaces/:id/leads/:leadId/identities/:identityId/reveal`,
+    action `sensitive.reveal`, no individual permission grants it), audited as
+    `lead.identity_revealed` before the number is returned.
+  - Next: the admin's ID card (masked SIN, Reveal for owners, licence
+    download), then CanadaWide's route calling the CRM behind its env switch,
+    a production smoke test with a test lead, and dropping the last two anon
+    policies.
 - **Documents on Supabase Storage** through the existing S3 adapter. Its first
   quirk is fixed: Supabase serves S3 under `/storage/v1/s3`, and SigV4 must
-  sign that path too (the adapter signed only `/bucket/key`). Next: an
-  end-to-end upload in production once the owner's `R2_*` variables are
-  applied (a thin Storage-API adapter stays the fallback).
-- **SIN sealing** with `crypto/cipher.ts` (AES-256-GCM, label
-  `gt-sales-crm:sealed-value:v1`) before any identity field is stored.
+  sign that path too (the adapter signed only `/bucket/key`). The owner's
+  `R2_*` variables are applied; the first real upload is the ID step's smoke
+  test (no current lead type has a draft grant for `uploads/intents`).
 - **Model the planned types** (`sim_order`, `partner_application`,
   `contact_message`) when Get Canada Sim's forms move (phase 3).
 

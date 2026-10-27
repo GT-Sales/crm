@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  MAX_IDENTITY_FILE_BYTES,
   apiErrorResponseSchema,
   apiErrorSchema,
   createDownloadLinkResponseSchema,
   createExportRequestSchema,
   createExportResponseSchema,
+  createIdentityUploadRequestSchema,
   createLeadRequestSchema,
   createLeadResponseSchema,
   createUploadIntentRequestSchema,
@@ -14,12 +16,17 @@ import {
   finalizeUploadRequestSchema,
   finalizeUploadResponseSchema,
   getWorkspaceLeadResponseSchema,
+  identityLeadTypes,
   isLeadStage,
+  isValidDateOfBirth,
+  isValidSin,
+  leadIdentitySchema,
   leadStageLabel,
   leadTypeCatalog,
   listAssignableMembersResponseSchema,
   listWorkspaceLeadsResponseSchema,
   reviewFileRequestSchema,
+  submitLeadIdentityRequestSchema,
   updateLeadRequestSchema,
   updateLeadResponseSchema,
   updateLeadTaskRequestSchema,
@@ -184,7 +191,17 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
           updatedAt: NOW,
         },
       ],
-      access: { contacts: true, manage: true },
+      identities: [
+        {
+          id: UUID_C,
+          idType: 'sin',
+          sinMasked: '*** *** 286',
+          dateOfBirth: '1990-01-31',
+          fileId: null,
+          createdAt: NOW,
+        },
+      ],
+      access: { contacts: true, manage: true, revealSensitive: true },
       requestId: UUID_C,
     },
   ],
@@ -318,8 +335,83 @@ describe('contract schemas reject invalid input', () => {
     if (!roundTrip || typeof roundTrip[2] !== 'object' || roundTrip[2] === null) {
       throw new Error('the lead page fixture is missing');
     }
-    const { related: _related, ...older } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
-    expect(getWorkspaceLeadResponseSchema.parse(older).related).toEqual([]);
+    const {
+      related: _related,
+      identities: _identities,
+      ...older
+    } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
+    const parsed = getWorkspaceLeadResponseSchema.parse(older);
+    expect(parsed.related).toEqual([]);
+    expect(parsed.identities).toEqual([]);
+  });
+});
+
+describe('the credit-check identity', () => {
+  // Made-up numbers that pass the Luhn check, never a real person's.
+  it('takes a SIN only with a valid check digit, a real past birth date and consent', () => {
+    const sin = {
+      idType: 'sin',
+      sin: '046454286',
+      dateOfBirth: '1990-01-31',
+      creditCheckConsent: true,
+    };
+    expect(submitLeadIdentityRequestSchema.safeParse(sin).success).toBe(true);
+    for (const wrong of [
+      { ...sin, sin: '046454287' },
+      { ...sin, sin: '046 454 286' },
+      { ...sin, dateOfBirth: '1990-02-30' },
+      { ...sin, dateOfBirth: '1899-12-31' },
+      { ...sin, dateOfBirth: '2999-01-01' },
+      { ...sin, creditCheckConsent: false },
+      { ...sin, uploadId: UUID_A },
+    ]) {
+      expect(submitLeadIdentityRequestSchema.safeParse(wrong).success).toBe(false);
+    }
+    expect(isValidSin('130692544')).toBe(true);
+    expect(isValidDateOfBirth('2026-10-27', new Date('2026-10-27T12:00:00Z'))).toBe(true);
+    expect(isValidDateOfBirth('2026-10-28', new Date('2026-10-27T12:00:00Z'))).toBe(false);
+  });
+
+  it('takes a licence as its finished upload, never with a SIN', () => {
+    const licence = {
+      idType: 'drivers_licence',
+      uploadId: UUID_A,
+      checksumSha256: 'a'.repeat(64),
+      creditCheckConsent: true,
+    };
+    expect(submitLeadIdentityRequestSchema.safeParse(licence).success).toBe(true);
+    expect(
+      submitLeadIdentityRequestSchema.safeParse({ ...licence, sin: '046454286' }).success,
+    ).toBe(false);
+    expect(
+      createIdentityUploadRequestSchema.safeParse({ contentType: 'image/webp', sizeBytes: 1 })
+        .success,
+    ).toBe(true);
+    expect(
+      createIdentityUploadRequestSchema.safeParse({
+        contentType: 'image/jpeg',
+        sizeBytes: MAX_IDENTITY_FILE_BYTES + 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('shows staff a SIN only masked to its last three digits', () => {
+    const identity = {
+      id: UUID_A,
+      idType: 'sin',
+      sinMasked: '*** *** 286',
+      dateOfBirth: '1990-01-31',
+      fileId: null,
+      createdAt: NOW,
+    };
+    expect(leadIdentitySchema.safeParse(identity).success).toBe(true);
+    expect(leadIdentitySchema.safeParse({ ...identity, sinMasked: '046454286' }).success).toBe(
+      false,
+    );
+  });
+
+  it('marks the mobility order as the one that takes an identity', () => {
+    expect(identityLeadTypes).toEqual(['mobility']);
   });
 });
 

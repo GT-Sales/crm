@@ -194,6 +194,8 @@ export interface EndpointRateLimit {
  */
 export const DEFAULT_ENDPOINT_RATE_LIMITS = {
   leads: { windowSeconds: 60, maxCount: 30 },
+  // The ID step: an upload authorisation and a submit per customer, retries included.
+  identity: { windowSeconds: 60, maxCount: 10 },
 } as const satisfies Record<string, EndpointRateLimit>;
 
 export type EndpointRateLimitName = keyof typeof DEFAULT_ENDPOINT_RATE_LIMITS;
@@ -221,6 +223,7 @@ export function loadEndpointRateLimits(
   };
   return {
     leads: resolve('leads'),
+    identity: resolve('identity'),
   };
 }
 

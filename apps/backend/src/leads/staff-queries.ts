@@ -6,6 +6,7 @@ import {
   leadActivitySchema,
   leadContactSchema,
   leadFormSchema,
+  leadIdentitySchema,
   leadStageSchema,
   leadStatusSchema,
   leadTaskSchema,
@@ -16,6 +17,7 @@ import {
   type LeadAssigneeFilter,
   type LeadBoardColumn,
   type LeadDetail,
+  type LeadIdentity,
   type LeadListItem,
   type LeadStatus,
   type LeadTask,
@@ -38,7 +40,8 @@ import { deriveSource } from './source.js';
  */
 
 /** A constant column expression formatted as `2026-10-26T21:15:42.123Z`; never user input. */
-function iso(expression: string): SQL {
+/** A timestamp column as the API's ISO form (`2026-10-27T12:00:00.000Z`), computed in SQL. */
+export function iso(expression: string): SQL {
   return sql.raw(`to_char((${expression}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`);
 }
 
@@ -403,14 +406,17 @@ export interface LeadWithWork {
   activities: LeadActivity[];
   tasks: LeadTask[];
   related: RelatedLead[];
+  identities: LeadIdentity[];
 }
 
 /**
  * The lead page in one statement: the lead with its form, its timeline (newest
  * first, capped so one very long history cannot stall the page), its tasks
  * (open first, soonest due, undated last; then closed ones, most recently
- * changed first) and the same person's other requests on this site (newest
- * first, trashed ones included and marked), the last three as JSON arrays.
+ * changed first), the same person's other requests on this site (newest
+ * first, trashed ones included and marked) and the identities given for a
+ * credit check (newest first, a SIN masked to its last three digits), the last
+ * four as JSON arrays.
  * Each statement is a round trip to the remote pooler, so the page's reads
  * travel as one.
  */
@@ -425,6 +431,7 @@ export async function selectLeadWithWork(
       activities: ActivityRow[];
       tasks: TaskRow[];
       related: unknown[];
+      identities: unknown[];
     }
   >(sql`
     select
@@ -488,7 +495,19 @@ export async function selectLeadWithWork(
           order by other.created_at desc, other.id desc
           limit ${sql.raw(String(RELATED_LEADS_LIMIT))}
         ) o
-      ) as related
+      ) as related,
+      (
+        select coalesce(json_agg(json_build_object(
+          'id', i.id,
+          'idType', i.id_type,
+          'sinMasked', case when i.sin_last3 is null then null else '*** *** ' || i.sin_last3 end,
+          'dateOfBirth', to_char(i.date_of_birth, 'YYYY-MM-DD'),
+          'fileId', i.file_id,
+          'createdAt', ${iso('i.created_at')}
+        ) order by i.created_at desc, i.id desc), '[]'::json)
+        from app.lead_identities i
+        where i.workspace_id = l.workspace_id and i.lead_id = l.id
+      ) as identities
     from app.leads l
     ${OPEN_TASK_SUMMARY}
     where l.workspace_id = ${workspaceId}
@@ -505,6 +524,11 @@ export async function selectLeadWithWork(
     // out rather than failing the page.
     related: row.related.flatMap((item) => {
       const parsed = relatedLeadSchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
+    }),
+    // Masked as stored: the sealed SIN never leaves the database on this path.
+    identities: row.identities.flatMap((item) => {
+      const parsed = leadIdentitySchema.safeParse(item);
       return parsed.success ? [parsed.data] : [];
     }),
   };

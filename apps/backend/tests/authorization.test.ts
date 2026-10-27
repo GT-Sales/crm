@@ -52,6 +52,34 @@ describe('central staff authorization', () => {
     }
   });
 
+  it('lets only an owner reveal a sealed value; no other role or permission grants it', async () => {
+    const store = new MemoryAccessStore();
+    const authorize = createAuthorize({ accessStore: store });
+    const reveal = () =>
+      authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'sensitive.reveal' });
+
+    store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['owner']));
+    await expect(reveal()).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+
+    for (const role of ['leads', 'orders', 'partners', 'finance', 'content', 'viewer'] as const) {
+      store.rows.set(
+        `${ACTOR}:${WORKSPACE_A}`,
+        activeAccess(
+          [role],
+          [
+            { name: 'document_download', effect: 'allow' },
+            { name: 'financial_data', effect: 'allow' },
+            { name: 'bulk_export', effect: 'allow' },
+            { name: 'deletion', effect: 'allow' },
+            { name: 'invoice_approval', effect: 'allow' },
+            { name: 'integration_management', effect: 'allow' },
+          ],
+        ),
+      );
+      await expect(reveal()).resolves.toEqual({ allowed: false, reason: 'permission_denied' });
+    }
+  });
+
   it('denies the Orders role a document download without an individual permission', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['orders']));

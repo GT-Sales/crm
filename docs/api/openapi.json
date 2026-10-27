@@ -119,6 +119,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -301,6 +303,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -448,6 +452,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -658,6 +664,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -811,6 +819,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -1001,6 +1011,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -1190,6 +1202,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -1374,6 +1388,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -1551,6 +1567,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -1728,6 +1746,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -2029,7 +2049,8 @@
                       "type": "object",
                       "properties": {
                         "contacts": { "type": "boolean" },
-                        "manage": { "type": "boolean" }
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -2110,6 +2131,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -2203,7 +2226,8 @@
                       "type": "object",
                       "properties": {
                         "contacts": { "type": "boolean" },
-                        "manage": { "type": "boolean" }
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -2284,6 +2308,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -2572,7 +2598,8 @@
                       "type": "object",
                       "properties": {
                         "contacts": { "type": "boolean" },
-                        "manage": { "type": "boolean" }
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -2653,6 +2680,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -3193,11 +3222,67 @@
                         "additionalProperties": false
                       }
                     },
+                    "identities": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "idType": { "type": "string", "enum": ["drivers_licence", "sin"] },
+                          "sinMasked": {
+                            "anyOf": [
+                              { "type": "string", "pattern": "^\\*\\*\\* \\*\\*\\* \\d{3}$" },
+                              { "type": "null" }
+                            ]
+                          },
+                          "dateOfBirth": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "fileId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "idType",
+                          "sinMasked",
+                          "dateOfBirth",
+                          "fileId",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
                     "access": {
                       "type": "object",
                       "properties": {
                         "contacts": { "type": "boolean" },
-                        "manage": { "type": "boolean" }
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -3208,7 +3293,15 @@
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
-                  "required": ["lead", "activities", "tasks", "related", "access", "requestId"],
+                  "required": [
+                    "lead",
+                    "activities",
+                    "tasks",
+                    "related",
+                    "identities",
+                    "access",
+                    "requestId"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -3278,6 +3371,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -3756,6 +3851,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -4280,6 +4377,160 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/identities/{identityId}/reveal": {
+      "post": {
+        "operationId": "revealLeadIdentity",
+        "summary": "Reveal a lead's sealed SIN (owner only); every reveal is audited.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "identityId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sin": { "type": "string", "pattern": "^\\d{9}$" },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["sin", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -4762,6 +5013,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -5071,6 +5324,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -5307,6 +5562,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -5565,6 +5822,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -5843,7 +6102,8 @@
                       "type": "object",
                       "properties": {
                         "contacts": { "type": "boolean" },
-                        "manage": { "type": "boolean" }
+                        "manage": { "type": "boolean" },
+                        "revealSensitive": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -5924,6 +6184,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -6134,6 +6396,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -6288,6 +6552,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -6442,6 +6708,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -6631,6 +6899,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -6921,6 +7191,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -7090,6 +7362,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -7291,6 +7565,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -7538,6 +7814,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -7798,6 +8076,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -7846,6 +8126,423 @@
                   "required": ["error"],
                   "additionalProperties": false
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/website/leads/{leadId}/identity/uploads": {
+      "post": {
+        "operationId": "createWebsiteLeadIdentityUpload",
+        "summary": "Authorise the upload of a recent mobility lead's licence photo for the credit check (leads:write).",
+        "tags": ["website"],
+        "security": [{ "websiteCredential": [] }],
+        "parameters": [
+          { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "X-Website-Visitor-Id",
+            "in": "header",
+            "required": false,
+            "description": "Server-owned keyed visitor digest from the authenticated website; never raw browser forwarding headers.",
+            "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          {
+            "name": "X-Turnstile-Token",
+            "in": "header",
+            "required": true,
+            "description": "Fresh single-use challenge token bound to this route action. Obtain a new token before each request or retry.",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 2048 }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "uploadId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "url": { "type": "string", "format": "uri" },
+                    "method": { "type": "string", "const": "PUT" },
+                    "headers": {
+                      "type": "object",
+                      "propertyNames": { "type": "string" },
+                      "additionalProperties": { "type": "string" }
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["uploadId", "url", "method", "headers", "expiresAt", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contentType": {
+                    "type": "string",
+                    "enum": ["application/pdf", "image/jpeg", "image/png", "image/webp"]
+                  },
+                  "sizeBytes": { "type": "integer", "exclusiveMinimum": 0, "maximum": 4194304 }
+                },
+                "required": ["contentType", "sizeBytes"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/website/leads/{leadId}/identity": {
+      "post": {
+        "operationId": "submitWebsiteLeadIdentity",
+        "summary": "Record the credit-check identity of a recent mobility lead: its verified licence photo, or a SIN, stored sealed (leads:write).",
+        "tags": ["website"],
+        "security": [{ "websiteCredential": [] }],
+        "parameters": [
+          { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "X-Website-Visitor-Id",
+            "in": "header",
+            "required": false,
+            "description": "Server-owned keyed visitor digest from the authenticated website; never raw browser forwarding headers.",
+            "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          {
+            "name": "X-Turnstile-Token",
+            "in": "header",
+            "required": true,
+            "description": "Fresh single-use challenge token bound to this route action. Obtain a new token before each request or retry.",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 2048 }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "identity": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "idType": { "type": "string", "enum": ["drivers_licence", "sin"] },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": ["id", "idType", "createdAt"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["identity", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "idType": { "type": "string", "const": "drivers_licence" },
+                      "uploadId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "checksumSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                      "creditCheckConsent": { "type": "boolean", "const": true }
+                    },
+                    "required": ["idType", "uploadId", "checksumSha256", "creditCheckConsent"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "idType": { "type": "string", "const": "sin" },
+                      "sin": { "type": "string" },
+                      "dateOfBirth": { "type": "string" },
+                      "creditCheckConsent": { "type": "boolean", "const": true }
+                    },
+                    "required": ["idType", "sin", "dateOfBirth", "creditCheckConsent"],
+                    "additionalProperties": false
+                  }
+                ]
               }
             }
           }
@@ -7982,6 +8679,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -8247,6 +8946,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",
@@ -8435,6 +9136,8 @@
                             "feature_not_ready",
                             "lead_not_found",
                             "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
                             "task_not_found",
                             "assignee_not_found",
                             "reminder_not_found",

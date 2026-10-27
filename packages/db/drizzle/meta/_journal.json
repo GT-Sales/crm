@@ -43,6 +43,13 @@
       "when": 1793080995362,
       "tag": "0005_lead_identities",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793082645098,
+      "tag": "0006_legacy_identity_mirror_result",
+      "breakpoints": true
     }
   ]
 }

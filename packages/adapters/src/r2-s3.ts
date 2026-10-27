@@ -5,7 +5,9 @@ import {
   documentObjectKey,
   sha256Hex,
   type CopyForExportInput,
+  type CopyToBucketInput,
   type CreateUploadInput,
+  type DeleteFromBucketInput,
   type IssueDownloadInput,
   type PresignedDownload,
   type PresignedUpload,
@@ -82,6 +84,13 @@ function encodeRfc3986(value: string): string {
   );
 }
 
+/** A key of plain segments: no empty, `.` or `..` segment and no backslash. */
+function isPlainKey(key: string): boolean {
+  return (
+    !key.includes('\\') && key.split('/').every((part) => part && part !== '.' && part !== '..')
+  );
+}
+
 /** Encodes an object key for the path, keeping `/` separators. */
 function encodeKey(key: string): string {
   return key
@@ -122,10 +131,11 @@ interface PresignParams {
 function objectLocation(
   config: R2Config,
   key: string,
+  bucket: string = config.bucket,
 ): { host: string; canonicalUri: string; url: string } {
   const endpoint = new URL(config.endpoint);
   const prefix = endpoint.pathname.replace(/\/+$/, '');
-  const canonicalUri = `${prefix}/${encodeRfc3986(config.bucket)}/${encodeKey(key)}`;
+  const canonicalUri = `${prefix}/${encodeRfc3986(bucket)}/${encodeKey(key)}`;
   return { host: endpoint.host, canonicalUri, url: `${endpoint.origin}${canonicalUri}` };
 }
 
@@ -173,6 +183,8 @@ export function presignUrl(config: R2Config, params: PresignParams): string {
 interface SignedRequest {
   method: 'GET' | 'PUT' | 'HEAD' | 'DELETE';
   key: string;
+  /** Another bucket than the configured one (the transitional legacy copy only). */
+  bucket?: string;
   headers: Record<string, string>;
   body?: Uint8Array;
   now?: Date;
@@ -185,7 +197,7 @@ function signRequest(
 ): { url: string; headers: Record<string, string> } {
   const now = req.now ?? new Date();
   const { amzDate, dateStamp } = amzTimestamp(now);
-  const { host, canonicalUri, url } = objectLocation(config, req.key);
+  const { host, canonicalUri, url } = objectLocation(config, req.key, req.bucket);
   const payloadHash = req.body ? createHash('sha256').update(req.body).digest('hex') : hashHex('');
 
   const baseHeaders: Record<string, string> = {
@@ -335,6 +347,36 @@ export class S3R2DocumentStore implements R2DocumentStore {
     });
     const response = await this.send(copy.url, { method: 'PUT', headers: copy.headers });
     if (!response.ok) throw new Error(`r2 export copy failed: ${response.status}`);
+  }
+
+  async copyToBucket(input: CopyToBucketInput): Promise<void> {
+    if (input.destinationBucket === this.config.bucket) throw new Error('r2_copy_same_bucket');
+    if (!isPlainKey(input.destinationKey)) throw new Error('r2_copy_key_invalid');
+    const copy = signRequest(this.config, {
+      method: 'PUT',
+      bucket: input.destinationBucket,
+      key: input.destinationKey,
+      headers: {
+        'x-amz-copy-source': `/${this.config.bucket}/${encodeKey(
+          this.scopedKey(input.workspaceId, input.objectKey),
+        )}`,
+      },
+    });
+    const response = await this.send(copy.url, { method: 'PUT', headers: copy.headers });
+    if (!response.ok) throw new Error(`r2 bucket copy failed: ${response.status}`);
+  }
+
+  async deleteFromBucket(input: DeleteFromBucketInput): Promise<void> {
+    if (input.bucket === this.config.bucket) throw new Error('r2_copy_same_bucket');
+    if (!isPlainKey(input.key)) throw new Error('r2_copy_key_invalid');
+    const request = signRequest(this.config, {
+      method: 'DELETE',
+      bucket: input.bucket,
+      key: input.key,
+      headers: {},
+    });
+    const response = await this.send(request.url, { method: 'DELETE', headers: request.headers });
+    if (!response.ok && response.status !== 404) throw new Error('r2_bucket_delete_failed');
   }
 
   /** Per-workspace key prefix so a bug cannot address another tenant's object. */

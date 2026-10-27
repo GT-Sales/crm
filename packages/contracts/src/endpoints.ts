@@ -21,6 +21,12 @@ import {
 import { createExportRequestSchema, createExportResponseSchema } from './exports';
 import { healthResponseSchema } from './health';
 import {
+  createIdentityUploadRequestSchema,
+  revealLeadIdentityResponseSchema,
+  submitLeadIdentityRequestSchema,
+  submitLeadIdentityResponseSchema,
+} from './lead-identity';
+import {
   listWorkspaceJobsResponseSchema,
   resolveUncertainJobRequestSchema,
   resolveUncertainJobResponseSchema,
@@ -260,6 +266,15 @@ export const endpoints: readonly EndpointDef[] = [
     response: leadTrashResponseSchema,
   },
   {
+    operationId: 'revealLeadIdentity',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/identities/{identityId}/reveal',
+    summary: "Reveal a lead's sealed SIN (owner only); every reveal is audited.",
+    auth: 'staff',
+    successStatus: 200,
+    response: revealLeadIdentityResponseSchema,
+  },
+  {
     operationId: 'restoreWorkspaceLead',
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/restore',
@@ -407,6 +422,28 @@ export const endpoints: readonly EndpointDef[] = [
   },
 
   // Website — customer documents
+  {
+    operationId: 'createWebsiteLeadIdentityUpload',
+    method: 'POST',
+    path: '/api/v1/website/leads/{leadId}/identity/uploads',
+    summary:
+      "Authorise the upload of a recent mobility lead's licence photo for the credit check (leads:write).",
+    auth: 'website',
+    successStatus: 201,
+    request: createIdentityUploadRequestSchema,
+    response: createUploadIntentResponseSchema,
+  },
+  {
+    operationId: 'submitWebsiteLeadIdentity',
+    method: 'POST',
+    path: '/api/v1/website/leads/{leadId}/identity',
+    summary:
+      'Record the credit-check identity of a recent mobility lead: its verified licence photo, or a SIN, stored sealed (leads:write).',
+    auth: 'website',
+    successStatus: 201,
+    request: submitLeadIdentityRequestSchema,
+    response: submitLeadIdentityResponseSchema,
+  },
   {
     operationId: 'createUploadIntent',
     method: 'POST',

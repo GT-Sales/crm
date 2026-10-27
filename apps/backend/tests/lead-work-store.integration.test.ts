@@ -163,6 +163,38 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(hidden?.related).toEqual([]);
   });
 
+  test('the lead page lists the identities given, a SIN masked and its sealed text never', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'Sam Identity',
+      email: 'sam.identity@example.test',
+      phone: '403 555 0151',
+    });
+    const [sin] = await admin<{ id: string }[]>`
+      insert into app.lead_identities (
+        workspace_id, lead_id, id_type, sin_sealed, sin_last3, date_of_birth,
+        credit_check_consent_at, created_by
+      ) values (
+        ${WORKSPACE}, ${leadId}, 'sin', 'v1.sealed-for-the-test', '286', '1990-01-31', now(), ${ACTOR}
+      )
+      returning id
+    `;
+    const page = await work.getLead({ ...scope, leadId, includeWork: true });
+    expect(page?.identities).toEqual([
+      {
+        id: sin!.id,
+        idType: 'sin',
+        sinMasked: '*** *** 286',
+        dateOfBirth: '1990-01-31',
+        fileId: null,
+        createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+      },
+    ]);
+    expect(JSON.stringify(page)).not.toContain('sealed-for-the-test');
+
+    const hidden = await work.getLead({ ...scope, leadId, includeWork: false });
+    expect(hidden?.identities).toEqual([]);
+  });
+
   test('a stage change is checked against the type, recorded on the timeline and audited', async () => {
     const leadId = await createInternetLead({
       fullName: 'Casey Stage',

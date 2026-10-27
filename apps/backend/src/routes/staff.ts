@@ -34,6 +34,8 @@ import { isConnectionLevelError, logRequestError } from '../http/logger.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
+import { sensitiveFieldsKey } from '../crypto/cipher.js';
+import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import {
   DatabaseLeadWorkStore,
@@ -67,6 +69,8 @@ export interface StaffRouteDependencies {
   leadWorkStore?: LeadWorkStore;
   jobStore?: JobAdminStore;
   documentService?: Pick<DocumentService, 'review' | 'issueDownload'>;
+  /** Opens a lead's sealed SIN for an owner; absent without `SENSITIVE_FIELDS_KEY`. */
+  identityStore?: Pick<IdentityStore, 'revealSin'>;
   /** Receives every unexpected handler failure; optional so tests can omit it. */
   errorTracker?: ErrorTracker;
 }
@@ -81,8 +85,14 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     leadWorkStore: new DatabaseLeadWorkStore(),
     jobStore: new DatabaseOutboxStore(),
     documentService: createDocumentServiceFromEnv(),
+    identityStore: identityStoreFromEnv(),
     errorTracker: createErrorTrackerFromEnv(),
   };
+}
+
+function identityStoreFromEnv(): IdentityStore | undefined {
+  const secret = sensitiveFieldsKey();
+  return secret ? new DatabaseIdentityStore(secret) : undefined;
 }
 
 function credentialSummary(record: ServiceCredentialRecord) {
@@ -165,6 +175,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     return {
       contacts: canSeeContacts(access),
       manage: decideAccess(access, 'lead.manage').allowed,
+      revealSensitive: decideAccess(access, 'sensitive.reveal').allowed,
     };
   }
 
@@ -430,6 +441,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         tasks: result.tasks,
         // Which requests belong to one person is personal data as well.
         related: access.contacts ? result.related : [],
+        identities: access.contacts ? result.identities : [],
         access,
         requestId: req.id,
       });
@@ -520,6 +532,55 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       }
     });
   }
+
+  // An owner opening a customer's SIN for the credit check. Audited in the
+  // transaction that reads it, and never cached anywhere on the way back.
+  router.post(
+    '/workspaces/:workspaceId/leads/:leadId/identities/:identityId/reveal',
+    async (req, res) => {
+      res.setHeader('cache-control', 'private, no-store');
+      const params = uuidParams(req, res, 'leadId');
+      if (!params) return;
+      const identityId = z.uuid().safeParse(req.params['identityId']);
+      if (!identityId.success) {
+        sendStaffAuthError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      try {
+        const { actor, decision } = await decide(req, params.workspaceId, 'sensitive.reveal');
+        if (!decision.allowed) {
+          sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+          return;
+        }
+        const store = dependencies.identityStore;
+        if (!store) {
+          sendDomainError(res, req.id, 'feature_not_ready', 409);
+          return;
+        }
+        const outcome = await store.revealSin({
+          workspaceId: params.workspaceId,
+          actorId: actor.actorId,
+          requestId: req.id,
+          leadId: params.id,
+          identityId: identityId.data,
+        });
+        if (outcome.status === 'revealed') {
+          res.json({ sin: outcome.sin, requestId: req.id });
+          return;
+        }
+        if (outcome.status === 'not_found') {
+          sendDomainError(res, req.id, 'identity_not_found', 404);
+          return;
+        }
+        // Sealed under another key: the key was changed, which loses every SIN.
+        reportFailure(req, new Error('sealed identity cannot be opened'));
+        sendStaffAuthError(res, req.id, 'internal_error', 500);
+      } catch (error) {
+        reportFailure(req, error);
+        sendStaffAuthError(res, req.id, 'internal_error', 500);
+      }
+    },
+  );
 
   router.post('/workspaces/:workspaceId/leads/:leadId/notes', async (req, res) => {
     const params = uuidParams(req, res, 'leadId');

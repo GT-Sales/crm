@@ -151,6 +151,7 @@ export {
 } from './leads';
 
 export {
+  identityLeadTypes,
   initialLeadStage,
   internetLeadPayloadSchema,
   isLeadStage,
@@ -235,6 +236,25 @@ export {
   type UpdateWorkspaceLeadResponse,
   type WorkspaceTask,
 } from './lead-work';
+
+export {
+  MAX_IDENTITIES_PER_LEAD,
+  MAX_IDENTITY_FILE_BYTES,
+  createIdentityUploadRequestSchema,
+  isValidDateOfBirth,
+  isValidSin,
+  leadIdentitySchema,
+  leadIdentityTypeSchema,
+  revealLeadIdentityResponseSchema,
+  submitLeadIdentityRequestSchema,
+  submitLeadIdentityResponseSchema,
+  type CreateIdentityUploadRequest,
+  type LeadIdentity,
+  type LeadIdentityType,
+  type RevealLeadIdentityResponse,
+  type SubmitLeadIdentityRequest,
+  type SubmitLeadIdentityResponse,
+} from './lead-identity';
 
 export {
   createUploadIntentRequestSchema,

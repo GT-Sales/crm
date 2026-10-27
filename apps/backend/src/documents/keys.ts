@@ -40,3 +40,17 @@ export function sanitizedDownloadFilename(
   const shortId = fileId.replace(/[^a-z0-9]/gi, '').slice(0, 12);
   return `${safeType}-${shortId}.${EXTENSIONS[contentType]}`;
 }
+
+/**
+ * Where a lead's ID photo also lands in the old admin's `mobility-ids` bucket
+ * (migration 0006), as CanadaWide named it there: under the lead, then an id
+ * and the verified extension. The id is the file's own, so a retried copy
+ * writes the same object again instead of a second one.
+ */
+export function legacyIdentityKey(
+  leadId: string,
+  fileId: string,
+  contentType: DocumentMediaType,
+): string {
+  return `${leadId}/${fileId}.${EXTENSIONS[contentType]}`;
+}

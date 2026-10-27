@@ -352,3 +352,73 @@ describe('presignUrl (SigV4 query signing)', () => {
     expect(new Headers(init?.headers).get('host')).toBe('ref.storage.supabase.co');
   });
 });
+
+describe('S3R2DocumentStore copies into another bucket', () => {
+  const storage: R2Config = {
+    ...config,
+    endpoint: 'https://ref.storage.supabase.co/storage/v1/s3',
+    region: 'ap-south-1',
+  };
+
+  it('copies a scoped object to an exact key in the other bucket, server side', async () => {
+    const request = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+    await new S3R2DocumentStore(storage, request).copyToBucket({
+      workspaceId: 'w1',
+      objectKey: 'candidate/c1',
+      destinationBucket: 'mobility-ids',
+      destinationKey: 'lead-1/file-1.jpg',
+    });
+    const [url, init] = request.mock.calls[0]!;
+    expect(String(url)).toBe(
+      'https://ref.storage.supabase.co/storage/v1/s3/mobility-ids/lead-1/file-1.jpg',
+    );
+    expect(init?.method).toBe('PUT');
+    expect(new Headers(init?.headers).get('x-amz-copy-source')).toBe(
+      '/docs/workspaces/w1/candidate/c1',
+    );
+  });
+
+  it('deletes such a copy by its exact key, a missing one included', async () => {
+    for (const status of [204, 404]) {
+      const request = vi.fn<typeof fetch>(async () => new Response(null, { status }));
+      await new S3R2DocumentStore(storage, request).deleteFromBucket({
+        bucket: 'mobility-ids',
+        key: 'lead-1/file-1.jpg',
+      });
+      const [url, init] = request.mock.calls[0]!;
+      expect(String(url)).toBe(
+        'https://ref.storage.supabase.co/storage/v1/s3/mobility-ids/lead-1/file-1.jpg',
+      );
+      expect(init?.method).toBe('DELETE');
+    }
+    const failing: typeof fetch = async () => new Response('boom', { status: 500 });
+    await expect(
+      new S3R2DocumentStore(storage, failing).deleteFromBucket({
+        bucket: 'mobility-ids',
+        key: 'lead-1/file-1.jpg',
+      }),
+    ).rejects.toThrow('r2_bucket_delete_failed');
+  });
+
+  it('never addresses the documents bucket or a key that climbs out', async () => {
+    const request = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    const store = new S3R2DocumentStore(storage, request);
+    await expect(store.deleteFromBucket({ bucket: 'docs', key: 'a/b.jpg' })).rejects.toThrow(
+      'r2_copy_same_bucket',
+    );
+    await expect(
+      store.copyToBucket({
+        workspaceId: 'w1',
+        objectKey: 'candidate/c1',
+        destinationBucket: 'docs',
+        destinationKey: 'a/b.jpg',
+      }),
+    ).rejects.toThrow('r2_copy_same_bucket');
+    for (const key of ['../b.jpg', 'a//b.jpg', 'a\\b.jpg', 'a/./b.jpg']) {
+      await expect(store.deleteFromBucket({ bucket: 'mobility-ids', key })).rejects.toThrow(
+        'r2_copy_key_invalid',
+      );
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+});

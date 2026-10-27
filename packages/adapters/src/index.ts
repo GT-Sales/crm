@@ -42,6 +42,8 @@ export {
   documentObjectKey,
   sha256Hex,
   type CopyForExportInput,
+  type CopyToBucketInput,
+  type DeleteFromBucketInput,
   type CreateUploadInput,
   type DocumentMediaType,
   type IssueDownloadInput,

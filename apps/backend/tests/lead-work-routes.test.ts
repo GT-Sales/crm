@@ -14,6 +14,7 @@ import {
   updateWorkspaceLeadResponseSchema,
   type LeadActivity,
   type LeadDetail,
+  type LeadIdentity,
   type LeadTask,
   type RelatedLead,
   type StaffWorkspace,
@@ -94,6 +95,15 @@ const relatedLead: RelatedLead = {
   updatedAt: NOW,
 };
 
+const identity: LeadIdentity = {
+  id: '90000000-0000-4000-8000-000000000e03',
+  idType: 'sin',
+  sinMasked: '*** *** 046',
+  dateOfBirth: '1990-01-31',
+  fileId: null,
+  createdAt: NOW,
+};
+
 const { form: _form, ...listItem } = lead;
 
 class TokenVerifier implements StaffSessionVerifier {
@@ -163,6 +173,7 @@ function memoryWorkStore() {
             // Always returned here, so the route's own redaction is what the
             // viewer test sees.
             related: [relatedLead],
+            identities: [identity],
           }
         : undefined,
     ),
@@ -255,7 +266,7 @@ describe('staff lead work routes', () => {
     );
     expect(response.status).toBe(200);
     const body = listWorkspaceLeadsResponseSchema.parse(await response.json());
-    expect(body.access).toEqual({ contacts: true, manage: true });
+    expect(body.access).toEqual({ contacts: true, manage: true, revealSensitive: true });
     expect(leadStore.listCalls[0]).toMatchObject({
       leadType: 'internet',
       stage: 'qualified',
@@ -305,7 +316,8 @@ describe('staff lead work routes', () => {
     expect(body.activities).toEqual([]);
     expect(body.tasks).toEqual([]);
     expect(body.related).toEqual([]);
-    expect(body.access).toEqual({ contacts: false, manage: false });
+    expect(body.identities).toEqual([]);
+    expect(body.access).toEqual({ contacts: false, manage: false, revealSensitive: false });
     expect(work.getLead).toHaveBeenCalledWith(expect.objectContaining({ includeWork: false }));
   });
 
@@ -317,6 +329,8 @@ describe('staff lead work routes', () => {
     expect(body.activities).toEqual([note]);
     expect(body.tasks).toEqual([task]);
     expect(body.related).toEqual([relatedLead]);
+    expect(body.identities).toEqual([identity]);
+    expect(body.access.revealSensitive).toBe(false);
 
     const missing = await call(`${leadsUrl()}/90000000-0000-4000-8000-0000000000ff`);
     expect(missing.status).toBe(404);

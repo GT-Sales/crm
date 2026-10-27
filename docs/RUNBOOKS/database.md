@@ -106,6 +106,24 @@ pg_proc / pg_policies where schemaname = 'app'`.
   policy, no UPDATE or DELETE for the runtime role, the guard trigger, the
   mirror definer and its grants, the widened `files` type check.
 
+## 0006_legacy_identity_mirror_result (2026-10-27)
+
+- Replaces 0005's mirror, which raised for any lead that is not a CanadaWide
+  mobility lead: `app.mirror_canadawide_legacy_identity(...)` now returns
+  whether it wrote (false: nothing to do, nothing written; also false for a
+  licence without its copied photo path), and the new read-only
+  `app.canadawide_legacy_identity_applies(lead)` answers the same question
+  first, so the backend knows whether to copy a licence photo into
+  `mobility-ids`. Both SECURITY DEFINER, empty `search_path`, EXECUTE for
+  `app_runtime` only, and both read the site from the tenant transaction.
+- **Not yet applied to production.** The Supabase tool holds the
+  `DROP FUNCTION` for the owner's confirmation, and the first attempt timed
+  out unanswered. Re-run it with `apply_migration` while the owner is at the
+  screen to accept, then add the Drizzle row: hash
+  `063cfe0eff5e3a986f093c1cca8b1c1c3255e5e90763beb1b206ddae3d1877ac`, `created_at`
+  `1793082645098`, and verify both functions return `boolean`. Nothing calls
+  the functions until CanadaWide's ID step moves, so the code can deploy first.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

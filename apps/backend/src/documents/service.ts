@@ -257,6 +257,34 @@ export class DocumentService {
     return { status: 'available', file: attached.file };
   }
 
+  /**
+   * Copies an available file's verified object into another bucket at an exact
+   * key: the transitional copy of an ID photo into the old admin's bucket
+   * (migrations 0005–0006). Storage work, so never inside a transaction
+   * (invariant 7).
+   */
+  async copyAvailableToBucket(input: {
+    workspaceId: string;
+    file: FileRow;
+    destinationBucket: string;
+    destinationKey: string;
+  }): Promise<void> {
+    if (input.file.status !== 'available' || !input.file.objectKey) {
+      throw new Error('file_not_available');
+    }
+    await this.r2.copyToBucket({
+      workspaceId: input.workspaceId,
+      objectKey: input.file.objectKey,
+      destinationBucket: input.destinationBucket,
+      destinationKey: input.destinationKey,
+    });
+  }
+
+  /** Best-effort undo of `copyAvailableToBucket`, for a copy nothing ended up linking to. */
+  async removeBucketCopy(input: { bucket: string; key: string }): Promise<void> {
+    await this.r2.deleteFromBucket(input);
+  }
+
   async issueDownload(input: {
     workspaceId: string;
     actorId: string;

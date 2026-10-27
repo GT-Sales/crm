@@ -138,6 +138,19 @@ export interface CopyForExportInput {
   destinationKey: string;
 }
 
+export interface CopyToBucketInput {
+  workspaceId: string;
+  objectKey: string;
+  destinationBucket: string;
+  destinationKey: string;
+}
+
+/** An object `copyToBucket` wrote, by its exact key in that other bucket. */
+export interface DeleteFromBucketInput {
+  bucket: string;
+  key: string;
+}
+
 /**
  * Every method is workspace-scoped so an implementation can enforce a
  * per-workspace key prefix. Verification always runs against the immutable
@@ -159,6 +172,14 @@ export interface R2DocumentStore {
   issueDownload(input: IssueDownloadInput): Promise<PresignedDownload>;
   /** Server-side copy of an attached object into an export location (Phase B boundary). */
   copyForExport(input: CopyForExportInput): Promise<void>;
+  /**
+   * Server-side copy of an attached object into another bucket at an exact,
+   * unscoped key: the transitional copy of an ID photo into the old admin's
+   * bucket (migrations 0005–0006). The source stays where it is.
+   */
+  copyToBucket(input: CopyToBucketInput): Promise<void>;
+  /** Removes such a copy again (a best-effort undo); never touches the documents bucket. */
+  deleteFromBucket(input: DeleteFromBucketInput): Promise<void>;
 }
 
 /**
@@ -250,5 +271,21 @@ export class InMemoryR2DocumentStore implements R2DocumentStore {
     const source = this.objects.get(input.objectKey);
     if (!source) throw new Error(`object not found: ${input.objectKey}`);
     this.objects.set(input.destinationKey, Uint8Array.from(source));
+  }
+
+  /** Copies live under `<bucket>:<key>`, so a test can tell them from this store's own objects. */
+  async copyToBucket(input: CopyToBucketInput): Promise<void> {
+    const source = this.objects.get(input.objectKey);
+    if (!source) throw new Error(`object not found: ${input.objectKey}`);
+    this.objects.set(`${input.destinationBucket}:${input.destinationKey}`, Uint8Array.from(source));
+  }
+
+  async deleteFromBucket(input: DeleteFromBucketInput): Promise<void> {
+    this.objects.delete(`${input.bucket}:${input.key}`);
+  }
+
+  /** Test seam: the bytes at a key, if any. */
+  objectAt(key: string): Uint8Array | undefined {
+    return this.objects.get(key);
   }
 }

@@ -6,6 +6,7 @@ export const websiteBotActions = [
   'upload-intent',
   'upload-finalize',
   'file-download',
+  'identity-submit',
 ] as const;
 export type WebsiteBotAction = (typeof websiteBotActions)[number];
 export const websiteBotTokenSchema = z.string().min(1).max(2048);

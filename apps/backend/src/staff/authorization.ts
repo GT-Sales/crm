@@ -20,6 +20,9 @@ const actionNames = tuple(
   'record.delete',
   'invoice.approve',
   'integration.manage',
+  // Opening a sealed value (a customer's SIN). No role but owner has it, and no
+  // individual permission grants it.
+  'sensitive.reveal',
 );
 
 export type StaffAction = (typeof actionNames)[number];

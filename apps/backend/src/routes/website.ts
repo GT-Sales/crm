@@ -2,20 +2,30 @@ import { websiteBotActions, type WebsiteBotAction } from '@gt-sales/contracts';
 import { Router, type Request, type Response } from 'express';
 import { rateLimitHit, resolveWebsiteCredential } from '@gt-sales/db';
 import {
+  createIdentityUploadRequestSchema,
   createLeadRequestSchema,
   createUploadIntentRequestSchema,
   finalizeUploadRequestSchema,
+  submitLeadIdentityRequestSchema,
   updateLeadRequestSchema,
 } from '@gt-sales/contracts';
 import { z } from 'zod';
 
+import { sensitiveFieldsKey } from '../crypto/cipher.js';
 import { DatabaseDraftGrantVerifier, type DraftGrantVerifier } from '../documents/grant.js';
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
+import { legacyIdentityKey } from '../documents/keys.js';
 import { toFileSummary } from '../documents/summary.js';
 import type { DocumentService } from '../documents/service.js';
 
 import { sendDomainError } from '../http/domain-errors.js';
 import { isConnectionLevelError, logRequestError } from '../http/logger.js';
+import {
+  DatabaseIdentityStore,
+  LEGACY_IDENTITY_BUCKET,
+  type IdentityStore,
+  type RecordIdentityOutcome,
+} from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import { parseDraftGrantToken } from '../leads/token.js';
 import { checkLeadIntake } from '../leads/types.js';
@@ -36,9 +46,14 @@ export interface WebsiteRouteDependencies {
   auth: WebsiteAuthDependencies;
   leads: { store: LeadStore };
   documents?: {
-    service: Pick<DocumentService, 'createIntent' | 'finalize' | 'issueDownload'>;
+    service: Pick<
+      DocumentService,
+      'createIntent' | 'finalize' | 'issueDownload' | 'copyAvailableToBucket' | 'removeBucketCopy'
+    >;
     grants: DraftGrantVerifier;
   };
+  /** The ID step; absent without `SENSITIVE_FIELDS_KEY`, which refuses it rather than store a SIN unsealed. */
+  identities?: { store: IdentityStore };
 }
 
 /**
@@ -105,7 +120,13 @@ export function createDefaultWebsiteRouteDependencies(): WebsiteRouteDependencie
     },
     leads: { store: new DatabaseLeadStore() },
     ...documentsDependencies(),
+    ...identityDependencies(),
   };
+}
+
+function identityDependencies(): Pick<WebsiteRouteDependencies, 'identities'> {
+  const secret = sensitiveFieldsKey();
+  return secret ? { identities: { store: new DatabaseIdentityStore(secret) } } : {};
 }
 
 function documentsDependencies(): Pick<WebsiteRouteDependencies, 'documents'> {
@@ -495,5 +516,209 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
     },
   );
 
+  // ---- The customer's identity for a credit check (CanadaWide's ID step) ---
+  // The lead was created submitted, so there is no draft grant: what ties the
+  // request to the lead is its id, which only the website's server holds, a
+  // lead type that takes an identity, a 24-hour window and a cap per lead.
+  const identities = dependencies.identities;
+
+  router.post(
+    '/leads/:leadId/identity/uploads',
+    ...admit('identity-submit'),
+    requireScope('leads:write'),
+    requireEndpointRateLimit(dependencies.auth, 'identity', endpointRateLimits.identity),
+    async (req, res) => {
+      if (!identities || !documents) {
+        sendDomainError(res, req.id, 'feature_not_ready', 409);
+        return;
+      }
+      const leadId = z.uuid().safeParse(req.params['leadId']);
+      const body = createIdentityUploadRequestSchema.safeParse(req.body);
+      if (!leadId.success || !body.success) {
+        sendDomainError(res, req.id, 'validation_error', 400);
+        return;
+      }
+      try {
+        const ctx = websiteContext(req);
+        const scope = { workspaceId: ctx.workspaceId, actorId: ctx.credentialId };
+        const eligibility = await identities.store.eligibility({ ...scope, leadId: leadId.data });
+        if (eligibility.status !== 'eligible') {
+          sendIdentityRefusal(req, res, eligibility.status);
+          return;
+        }
+        const outcome = await documents.service.createIntent({
+          ...scope,
+          requestId: req.id,
+          recordType: 'lead',
+          recordId: leadId.data,
+          documentType: 'drivers_licence',
+          declaredContentType: body.data.contentType,
+          declaredSizeBytes: body.data.sizeBytes,
+        });
+        if (outcome.status === 'created') {
+          res.status(201).json({
+            uploadId: outcome.uploadId,
+            url: outcome.url,
+            method: 'PUT',
+            headers: outcome.headers,
+            expiresAt: outcome.expiresAt.toISOString(),
+            requestId: req.id,
+          });
+          return;
+        }
+        if (outcome.status === 'too_large') {
+          sendDomainError(res, req.id, 'document_too_large', 413);
+          return;
+        }
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+      } catch (error) {
+        failRequest(req, res, '/api/v1/website/leads/:leadId/identity/uploads', error);
+      }
+    },
+  );
+
+  router.post(
+    '/leads/:leadId/identity',
+    ...admit('identity-submit'),
+    requireScope('leads:write'),
+    requireEndpointRateLimit(dependencies.auth, 'identity', endpointRateLimits.identity),
+    async (req, res) => {
+      if (!identities) {
+        sendDomainError(res, req.id, 'feature_not_ready', 409);
+        return;
+      }
+      const leadId = z.uuid().safeParse(req.params['leadId']);
+      // The refusal never names or echoes a submitted value: this body can carry a SIN.
+      const body = submitLeadIdentityRequestSchema.safeParse(req.body);
+      if (!leadId.success || !body.success) {
+        sendDomainError(res, req.id, 'validation_error', 400);
+        return;
+      }
+      try {
+        const ctx = websiteContext(req);
+        const scope = {
+          workspaceId: ctx.workspaceId,
+          actorId: ctx.credentialId,
+          requestId: req.id,
+          leadId: leadId.data,
+          consentedAt: new Date(),
+        };
+        let outcome: RecordIdentityOutcome;
+        if (body.data.idType === 'sin') {
+          outcome = await identities.store.recordSin({
+            ...scope,
+            sin: body.data.sin,
+            dateOfBirth: body.data.dateOfBirth,
+          });
+        } else {
+          if (!documents) {
+            sendDomainError(res, req.id, 'feature_not_ready', 409);
+            return;
+          }
+          const eligibility = await identities.store.eligibility(scope);
+          if (eligibility.status !== 'eligible') {
+            sendIdentityRefusal(req, res, eligibility.status);
+            return;
+          }
+          const finalized = await documents.service.finalize({
+            workspaceId: scope.workspaceId,
+            actorId: scope.actorId,
+            requestId: req.id,
+            fileId: body.data.uploadId,
+            checksumSha256: body.data.checksumSha256,
+            ownedLeadId: scope.leadId,
+          });
+          switch (finalized.status) {
+            case 'available':
+              break;
+            case 'rejected':
+              sendDomainError(res, req.id, 'document_verification_failed', 422, {
+                reason: finalized.reason,
+              });
+              return;
+            case 'in_progress':
+              res.setHeader('retry-after', '2');
+              sendDomainError(res, req.id, 'verification_in_progress', 409, { retryable: true });
+              return;
+            case 'expired':
+              sendDomainError(res, req.id, 'upload_expired', 410);
+              return;
+            case 'not_found':
+              sendDomainError(res, req.id, 'upload_not_found', 404);
+              return;
+          }
+          const file = finalized.file;
+          if (file.documentType !== 'drivers_licence' || !file.detectedMime) {
+            sendDomainError(res, req.id, 'upload_not_found', 404);
+            return;
+          }
+          // The old admin reads ID photos from its own bucket, so the copy
+          // goes there before the row that points at it. A failed copy fails
+          // the step (retryable): the two admins never disagree.
+          const legacyPath = eligibility.legacy
+            ? legacyIdentityKey(scope.leadId, file.id, file.detectedMime)
+            : null;
+          if (legacyPath) {
+            try {
+              await documents.service.copyAvailableToBucket({
+                workspaceId: scope.workspaceId,
+                file,
+                destinationBucket: LEGACY_IDENTITY_BUCKET,
+                destinationKey: legacyPath,
+              });
+            } catch {
+              logRequestError({
+                requestId: req.id,
+                workspaceId: scope.workspaceId,
+                route: '/api/v1/website/leads/:leadId/identity',
+                code: 'legacy_copy_failed',
+                flag: 'retryable',
+              });
+              res.setHeader('retry-after', '2');
+              sendDomainError(res, req.id, 'persistence_unavailable', 503, { retryable: true });
+              return;
+            }
+          }
+          outcome = await identities.store.recordLicence({ ...scope, fileId: file.id, legacyPath });
+          // Undo a copy nothing links to. Never after `not_found`: a retry that
+          // lands after the lead closed may share its key with the identity
+          // already recorded, and an orphaned copy costs nothing.
+          const unlinked =
+            outcome.status === 'limit_reached' ||
+            outcome.status === 'file_not_usable' ||
+            (outcome.status === 'recorded' && !outcome.replayed && !outcome.mirrored);
+          if (legacyPath && unlinked) {
+            await documents.service
+              .removeBucketCopy({ bucket: LEGACY_IDENTITY_BUCKET, key: legacyPath })
+              .catch(() => undefined);
+          }
+        }
+        if (outcome.status !== 'recorded') {
+          sendIdentityRefusal(req, res, outcome.status);
+          return;
+        }
+        res.status(201).json({ identity: outcome.identity, requestId: req.id });
+      } catch (error) {
+        failRequest(req, res, '/api/v1/website/leads/:leadId/identity', error);
+      }
+    },
+  );
+
   return router;
+}
+
+function sendIdentityRefusal(
+  req: Request,
+  res: Response,
+  status: 'not_found' | 'limit_reached' | 'file_not_usable',
+): void {
+  if (status === 'limit_reached') {
+    sendDomainError(res, req.id, 'identity_limit_reached', 409);
+    return;
+  }
+  if (status === 'file_not_usable') {
+    sendDomainError(res, req.id, 'upload_not_found', 404);
+    return;
+  }
+  sendDomainError(res, req.id, 'lead_not_found', 404);
 }

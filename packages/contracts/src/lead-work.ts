@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema, pageInfoSchema, requestIdSchema } from './common';
 import { leadContactSchema, leadFormSchema, leadStatusSchema, leadTypeSchema } from './leads';
+import { leadIdentitySchema } from './lead-identity';
 import {
   leadAccessSchema,
   leadAssigneeFilterSchema,
@@ -111,14 +112,16 @@ export const RELATED_LEADS_LIMIT = 20;
 
 /**
  * `GET /workspaces/:id/leads/:leadId`. For a caller who cannot see contacts,
- * `contact` is empty, `form` is null and `activities`, `tasks` and `related`
- * are empty: linking requests to one person is personal data too.
+ * `contact` is empty, `form` is null and `activities`, `tasks`, `related` and
+ * `identities` are empty: linking requests to one person is personal data too.
  */
 export const getWorkspaceLeadResponseSchema = z.object({
   lead: leadDetailSchema,
   activities: z.array(leadActivitySchema),
   tasks: z.array(leadTaskSchema),
   related: z.array(relatedLeadSchema).max(RELATED_LEADS_LIMIT).default([]),
+  /** The credit-check identities on the lead, newest first; empty without contact access. */
+  identities: z.array(leadIdentitySchema).default([]),
   access: leadAccessSchema,
   requestId: requestIdSchema,
 });

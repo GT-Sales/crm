@@ -80,6 +80,8 @@ export const domainErrorCodeSchema = z.enum([
   'feature_not_ready',
   'lead_not_found',
   'lead_trashed',
+  'identity_not_found',
+  'identity_limit_reached',
   'task_not_found',
   'assignee_not_found',
   'reminder_not_found',

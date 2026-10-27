@@ -58,6 +58,8 @@ export type ListWorkspaceLeadsQuery = z.infer<typeof listWorkspaceLeadsQuerySche
 export const leadAccessSchema = z.object({
   contacts: z.boolean(),
   manage: z.boolean(),
+  /** May open a sealed identity number (a SIN): owners only. Absent means no. */
+  revealSensitive: z.boolean().optional(),
 });
 export type LeadAccess = z.infer<typeof leadAccessSchema>;
 

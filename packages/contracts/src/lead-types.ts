@@ -57,6 +57,8 @@ export interface LeadStageDefinition {
 export interface LeadTypeCatalogEntry {
   readonly label: string;
   readonly stages: readonly LeadStageDefinition[];
+  /** The order ends with an identity for a credit check: a licence photo or a SIN. */
+  readonly takesIdentity?: true;
 }
 
 const stage = (key: string, label: string): LeadStageDefinition => ({ key, label });
@@ -85,6 +87,7 @@ export const leadTypeCatalog = {
   mobility: {
     label: 'Mobility',
     stages: [NEW, CONTACTED, QUALIFIED, stage('activated', 'Activated'), WON, LOST],
+    takesIdentity: true,
   },
   // Orders keep their own statuses on the order itself from phase 3.
   sim_order: { label: 'SIM order', stages: [NEW] },
@@ -117,6 +120,11 @@ export function leadStageLabel(leadType: string, stageKey: string): string {
 export function isLeadStage(leadType: string, stageKey: string): boolean {
   return catalog.get(leadType)?.stages.some((entry) => entry.key === stageKey) ?? false;
 }
+
+/** The lead types whose website may send a customer's identity (`POST /website/leads/:id/identity`). */
+export const identityLeadTypes: readonly string[] = [...catalog]
+  .filter(([, entry]) => entry.takesIdentity)
+  .map(([leadType]) => leadType);
 
 /** Where a new lead of this type starts: its first stage. */
 export function initialLeadStage(leadType: string): string {
