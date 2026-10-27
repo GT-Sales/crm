@@ -19,7 +19,7 @@ why) → [ENV.md](ENV.md) (every variable) → [RUNBOOKS/database.md](RUNBOOKS/d
 | **Admin**    | Vercel team `gt-sales` (`team_PDmnYZIjHmPgGmDSYFB0Ru3K`), project `gt-sales-crm-admin` (`prj_cjhH8QnFnO5RdOHHRZVhOrxsStnp`). Root `apps/admin`, framework Next.js, **Node 22.x** (the repo's `engines` field rejects Vercel's default of 24), production branch `main`, functions in `iad1` (`apps/admin/vercel.json`). Live at **`https://gt-sales-crm-admin.vercel.app`**. The `…-gt-sales.vercel.app` alias and per-deployment URLs sit behind Vercel's login wall.                                                                                                                                                                                                                                          |
 | **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (25 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued.                                                                                                                                                                                                                                         |
 | **Auth**     | Supabase Auth on the same project: email + password, confirmation required, sign-ups allowed (the invitation flow needs them). Site URL and redirect URL are the admin domain above. No multi-factor step (owner decision, see §4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **Email**    | The Resend account this session can reach has no domains; CanadaWide and Get Canada Sim send their own mail with their own Resend keys. The backend's email provider stays off until the owner adds the Resend key (§5.1 step 2; Get Canada Sim's sender is already configured), and Supabase custom SMTP is unset. Supabase's built-in mailer **delivers only to members of the Supabase organization's team**, at about two messages an hour: the owner's own sign-up worked because the owner is on the team, but any other admin's confirmation email is refused until custom SMTP is set (§5.1).                                                                                                           |
+| **Email**    | The Resend account this session can reach has no domains; CanadaWide and Get Canada Sim send their own mail with their own Resend keys. The backend's email provider stays off until the owner adds the Resend key (§5.1 step 3; Get Canada Sim's sender is already configured), and Supabase custom SMTP is unset. Supabase's built-in mailer **delivers only to members of the Supabase organization's team**, at about two messages an hour: the owner's own sign-up worked because the owner is on the team, but any other admin's confirmation email is refused until custom SMTP is set (§5.1).                                                                                                           |
 | **Owner**    | Md Takibuddin, gamertakib@gmail.com — GitHub org owner, Railway workspace, Vercel team, Supabase org. First `owner` of both sites in the CRM (Auth user `b8fbfaea-a3a8-4cfd-b609-d9d422fa7b7e`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | **Websites** | Get Canada Sim (`Md-Takibuddin/Get-Canada-Sim`, Next.js on Vercel, its own admin and tables in `public`; sends nothing here until phase 3). CanadaWide (`Md-Takibuddin/Canadawide-Sales-website`, Next.js on Vercel in the owner's personal team, which this session's Vercel token cannot see): its internet and mobility forms send to the CRM once `CRM_API_URL` and `CRM_SITE_KEY` are set in its Vercel project (code on `main` since 2026-10-26, inert until then); its ID-upload step still writes Supabase directly. All 708 of its historical leads are in the CRM (imported 2026-10-27, re-run before the staff cutover); staff still use the Get Canada Sim admin until the owner moves them (§5.1). |
 
@@ -412,7 +412,7 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    itself, never as the CRM), with the suppression check and the delivery
    record. The timeline says "emailed the customer their SIM number", with
    no address and no number. It goes live once Resend is set up (§5.1 step
-   2); until then the card says the site cannot email yet.
+   3); until then the card says the site cannot email yet.
 5. **"New" badge**: a lead nobody who works leads has opened carries a badge
    on the table, the board and its page, and the menu counts them. The first
    open records an `opened` entry (hidden from the timeline when the old admin
@@ -455,16 +455,17 @@ invoices read.
 
 ### 5.1 Owner, before anything else
 
-1. **Switch CanadaWide to the CRM** (closes phase 0 and starts closing the anon
-   write paths). In the CRM admin, open CanadaWide → Settings → site keys,
-   create one with scope `leads:write` and copy it (shown once). In Vercel,
-   open the CanadaWide project → Settings → Environment Variables, add
-   `CRM_API_URL=https://crm-production-cf2e.up.railway.app` and
-   `CRM_SITE_KEY=<the key>` for Production, then redeploy. The next CanadaWide
-   lead should appear in both the CRM inbox and the old admin. Then the next
-   session (or a scheduled check) verifies and drops the two lead policies
-   (§5.4).
-2. **Email from the CRM (SIM numbers to customers).** In the Resend account
+1. **Switch CanadaWide to the CRM.** Done 2026-10-27: its first lead through
+   the CRM arrived at 07:22 UTC and reached the old admin too. Left: its ID
+   step. In Vercel, open the CanadaWide project → Settings → Environment
+   Variables, add `CRM_ID_STEP=on` for Production, then redeploy; the next
+   mobility application's ID then goes to the CRM (and still to the old
+   admin), after which its two policies can go (§5.4).
+2. **Close CanadaWide's anonymous lead inserts:** paste
+   `docs/RUNBOOKS/manual/close-canadawide-lead-inserts.sql` into Supabase →
+   SQL Editor and run it (it checks first and refuses if any lead bypassed
+   the CRM; §5.4).
+3. **Email from the CRM (SIM numbers to customers).** In the Resend account
    where `getcanadasim.com` is verified (the one Get Canada Sim sends with),
    create an API key: name "GT Sales CRM", permission "Sending access",
    domain `getcanadasim.com`. In Railway → project GT Sales CRM → service
@@ -474,32 +475,32 @@ invoices read.
    <order@getcanadasim.com>"), the default sender and the account label are
    already set. Optional later: a Resend webhook, so bounces and complaints
    reach the CRM's suppression list (ENV.md).
-3. **Custom SMTP for Supabase Auth**, before inviting anyone else: the
+4. **Custom SMTP for Supabase Auth**, before inviting anyone else: the
    built-in mailer refuses addresses outside the Supabase team. Simplest: in
    the Resend account Get Canada Sim already uses (domain `getcanadasim.com`
    verified there), create an API key, then Supabase → Authentication → Emails
    → SMTP: host `smtp.resend.com`, port 465, user `resend`, password the API
    key, sender e.g. `GT Sales CRM <crm@getcanadasim.com>`. The same account
    can later back the backend's `EMAIL_PROVIDER=resend`.
-4. Supabase → Storage → S3 access keys for the `documents` bucket; put them in
+5. Supabase → Storage → S3 access keys for the `documents` bucket; put them in
    Railway as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, then set
    `R2_ENDPOINT=https://xykrphbgpwisqacpyeiv.storage.supabase.co/storage/v1/s3`,
    `R2_REGION=ap-south-1`, `R2_BUCKET=documents`, `R2_ACCOUNT_ID` (ENV.md). Until
    then document uploads fail, and CanadaWide's ID step cannot move here.
-5. Names and roles of the other admins; invite them from the admin (after 3).
+6. Names and roles of the other admins; invite them from the admin (after 4).
    Each sets their own name under Settings → Your name (the owner too: until
    then colleagues see "Unnamed owner"); Settings → Team shows who has not.
-6. **Decide when staff move from the old admin to the CRM** for CanadaWide.
+7. **Decide when staff move from the old admin to the CRM** for CanadaWide.
    On the day: re-run the import (RUNBOOKS/legacy-import.md) so the last
    statuses and notes come over, then staff work only in the CRM. After that a
    session drops the 0002 mirror trigger and removes the Internet and Mobility
    Leads pages from the Get Canada Sim admin.
-7. Move the Railway project into a GT Sales workspace; rotate the secrets
+8. Move the Railway project into a GT Sales workspace; rotate the secrets
    generated during the build (`app_runtime` password, `CRON_SECRET`,
    `EMAIL_CONTACT_HASH_SECRET`, registry secrets) once stored properly.
-8. Enable leaked-password protection (Supabase → Authentication → Policies);
+9. Enable leaked-password protection (Supabase → Authentication → Policies);
    the security advisor flags it.
-9. Optional: switch Supabase Auth's TOTP toggle off; nothing uses it.
+10. Optional: switch Supabase Auth's TOTP toggle off; nothing uses it.
 
 ### 5.2 Engineering: what remains of phases 1 and 2, per PLAN.md §6–7
 
@@ -569,7 +570,7 @@ Still to do in phase 2:
 - **One inbox across sites** (PLAN.md §5.2: a query per site the admin belongs
   to, merged), **saved views** (`saved_views` table), the **contact page** (all
   leads of one person across sites) and **split/merge** of contacts, audited.
-- **Cutover clean-up** once staff are on the CRM (§5.1 step 6): a migration
+- **Cutover clean-up** once staff are on the CRM (§5.1 step 7): a migration
   dropping `leads_mirror_canadawide_legacy` and its function, and removing the
   old pages from the Get Canada Sim admin.
 
@@ -649,6 +650,14 @@ Then `drop policy "anon can submit leads" on public.internet_leads;` and
 confirm in `pg_policies`. CanadaWide's direct-write fallback then stops working,
 which is the point: unset CRM variables would fail loudly instead of reopening
 the path.
+
+Checked 2026-10-27 10:25 UTC: switch at 07:22:21 UTC, every legacy row since
+then came through intake (0 direct). CanadaWide's lead routes have no
+Supabase fallback while the CRM is configured. The drop is ready as
+[`RUNBOOKS/manual/close-canadawide-lead-inserts.sql`](RUNBOOKS/manual/close-canadawide-lead-inserts.sql):
+it repeats this check inside its transaction and drops nothing unless it
+passes (rehearsed on a scratch database both ways). The Supabase connector
+holds DROP statements for a confirmation, so it is a paste in the SQL Editor.
 
 ## 6. How to work in this repository
 
