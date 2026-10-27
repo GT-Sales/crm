@@ -6,6 +6,7 @@ import {
   createServiceCredentialRequestSchema,
   inviteStaffRequestSchema,
   leadBoardQuerySchema,
+  leadsSummaryQuerySchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceTasksQuerySchema,
   resolveUncertainJobRequestSchema,
@@ -179,12 +180,13 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     };
   }
 
+  // The countdown date comes from the form, which these roles never see.
   function withoutContact(lead: LeadListItem): LeadListItem {
-    return { ...lead, contact: {} };
+    return { ...lead, contact: {}, countdownDate: null };
   }
 
   function withoutPersonalDetails(lead: LeadDetail): LeadDetail {
-    return { ...lead, contact: {}, form: null };
+    return { ...lead, contact: {}, form: null, countdownDate: null };
   }
 
   /** The lead work store, or a logged 500 when this deployment was built without it. */
@@ -330,6 +332,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         assignee: query.data.assignee,
         search: query.data.q,
         view: query.data.view,
+        dueBy: query.data.dueBy,
         page: query.data.page,
         pageSize: query.data.pageSize,
       });
@@ -344,7 +347,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   // Registered before `/leads/:leadId` so the literal segments win.
   router.get('/workspaces/:workspaceId/leads/summary', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
-    if (!workspaceId.success) {
+    const query = leadsSummaryQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -359,6 +363,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       const summary = await store.summary({
         workspaceId: workspaceId.data,
         actorId: actor.actorId,
+        dueBy: query.data.dueBy,
       });
       res.json({ ...summary, access: leadAccessOf(decision.access), requestId: req.id });
     } catch (error) {
@@ -745,6 +750,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           actorId: actor.actorId,
           assignee: query.data.assignee ?? 'me',
           status: query.data.status ?? 'open',
+          dueBy: query.data.dueBy,
         },
         page,
         pageSize,

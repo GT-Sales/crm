@@ -25,7 +25,7 @@ import { dueLabel, dueTone, relativeTime } from '../../lib/dates';
 import { assigneeName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
-import { leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
+import { CountdownDay, leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
 
 const PER_STAGE = 50;
@@ -252,6 +252,11 @@ export function LeadsBoard({
                         {lead.contact.phone ?? lead.contact.email}
                       </p>
                     ) : null}
+                    <CountdownDay
+                      leadType={lead.leadType}
+                      day={lead.countdownDate}
+                      className="mt-0.5"
+                    />
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       {assignee ? (
                         <PersonChip name={assignee} size="xs" className="max-w-[9rem]" />

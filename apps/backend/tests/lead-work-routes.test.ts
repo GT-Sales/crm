@@ -59,6 +59,8 @@ const lead: LeadDetail = {
   consentVersion: 'cw-internet-contact-2026-10',
   openTaskCount: 1,
   nextTaskDueAt: NOW,
+  // A countdown is a form detail too, so it goes with the form for a viewer.
+  countdownDate: '2026-11-09',
   deletedAt: null,
   createdAt: NOW,
   updatedAt: NOW,
@@ -317,6 +319,15 @@ describe('staff lead work routes', () => {
     expect((await call(`${leadsUrl()}/board`)).status).toBe(400);
   });
 
+  it('counts follow-ups due in the summary only for a calendar day', async () => {
+    expect((await call(`${leadsUrl()}/summary?dueBy=2026-11-05`)).status).toBe(200);
+    expect(work.summary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspaceId: WORKSPACE, dueBy: '2026-11-05' }),
+    );
+    expect((await call(`${leadsUrl()}/summary?dueBy=soon`)).status).toBe(400);
+    expect(work.summary).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a viewer the lead without contact, form, timeline, tasks or related requests', async () => {
     store.access = { ...store.access, roles: ['viewer'] };
     const response = await call(`${leadsUrl()}/${LEAD}`);
@@ -324,6 +335,7 @@ describe('staff lead work routes', () => {
     const body = getWorkspaceLeadResponseSchema.parse(await response.json());
     expect(body.lead.contact).toEqual({});
     expect(body.lead.form).toBeNull();
+    expect(body.lead.countdownDate).toBeNull();
     expect(body.activities).toEqual([]);
     expect(body.tasks).toEqual([]);
     expect(body.related).toEqual([]);
@@ -513,6 +525,19 @@ describe('staff lead work routes', () => {
       1,
       50,
     );
+
+    const due = await call(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks?assignee=all&dueBy=2026-11-05&pageSize=6`,
+    );
+    expect(due.status).toBe(200);
+    expect(work.listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ assignee: 'all', status: 'open', dueBy: '2026-11-05' }),
+      1,
+      6,
+    );
+    expect(
+      (await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks?dueBy=11/05/2026`)).status,
+    ).toBe(400);
 
     store.access = { ...store.access, roles: ['viewer'] };
     const denied = await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks`);

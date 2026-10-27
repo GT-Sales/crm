@@ -12,6 +12,8 @@ import { leadFields, type LeadFieldDefinition } from '@gt-sales/contracts';
 export interface FormField {
   label: string;
   value: string;
+  /** For the type's countdown field (a SIM order's arrival): the day it counts down to. */
+  countdownDay?: string;
 }
 
 function text(value: unknown): string | undefined {
@@ -94,7 +96,13 @@ export function formFields(leadType: string, payload: Record<string, unknown>): 
   for (const definition of definitions) {
     if (definition.staffOnly) continue;
     const value = fieldValue(definition, payload);
-    if (value !== undefined) fields.push({ label: definition.label, value });
+    if (value === undefined) continue;
+    const raw = payload[definition.key];
+    fields.push(
+      definition.countdown && typeof raw === 'string'
+        ? { label: definition.label, value, countdownDay: raw }
+        : { label: definition.label, value },
+    );
   }
   for (const [key, raw] of Object.entries(payload)) {
     if (known.has(key)) continue;

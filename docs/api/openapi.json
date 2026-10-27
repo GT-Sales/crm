@@ -1805,7 +1805,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads": {
       "get": {
         "operationId": "listWorkspaceLeads",
-        "summary": "List leads with filters (type, stage, assignee, search, trash) and attribution.",
+        "summary": "List leads with filters (type, stage, assignee, search, trash, follow-ups due) and attribution.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -1864,6 +1864,16 @@
             "in": "query",
             "required": false,
             "schema": { "type": "string", "enum": ["active", "trash"] }
+          },
+          {
+            "name": "dueBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            }
           },
           {
             "name": "page",
@@ -1989,6 +1999,16 @@
                             ]
                           },
                           "isNew": { "type": "boolean" },
+                          "countdownDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "deletedAt": {
                             "anyOf": [
                               {
@@ -2191,11 +2211,21 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads/summary": {
       "get": {
         "operationId": "getWorkspaceLeadsSummary",
-        "summary": "Count active leads per type, and the trash.",
+        "summary": "Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the trash.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
-          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "dueBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -2218,6 +2248,11 @@
                           },
                           "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                           "unopened": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "followUpsDue": {
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
@@ -2553,6 +2588,16 @@
                                   ]
                                 },
                                 "isNew": { "type": "boolean" },
+                                "countdownDate": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
                                 "deletedAt": {
                                   "anyOf": [
                                     {
@@ -2862,6 +2907,16 @@
                           ]
                         },
                         "isNew": { "type": "boolean" },
+                        "countdownDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "deletedAt": {
                           "anyOf": [
                             {
@@ -3550,6 +3605,16 @@
                           ]
                         },
                         "isNew": { "type": "boolean" },
+                        "countdownDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "deletedAt": {
                           "anyOf": [
                             {
@@ -4085,6 +4150,16 @@
                           ]
                         },
                         "isNew": { "type": "boolean" },
+                        "countdownDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "deletedAt": {
                           "anyOf": [
                             {
@@ -5043,6 +5118,16 @@
                           ]
                         },
                         "isNew": { "type": "boolean" },
+                        "countdownDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "deletedAt": {
                           "anyOf": [
                             {
@@ -6258,7 +6343,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/tasks": {
       "get": {
         "operationId": "listWorkspaceTasks",
-        "summary": "List tasks across the workspace's active leads; defaults to the caller's open ones.",
+        "summary": "List tasks across the workspace's active leads: the caller's, unassigned, everyone's or one member's, optionally only those due by a day; defaults to the caller's open ones.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -6269,7 +6354,7 @@
             "required": false,
             "schema": {
               "anyOf": [
-                { "type": "string", "enum": ["me", "none"] },
+                { "type": "string", "enum": ["me", "none", "all"] },
                 {
                   "type": "string",
                   "format": "uuid",
@@ -6283,6 +6368,16 @@
             "in": "query",
             "required": false,
             "schema": { "type": "string", "enum": ["open", "done", "cancelled"] }
+          },
+          {
+            "name": "dueBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            }
           },
           {
             "name": "page",
@@ -6404,6 +6499,12 @@
                                   "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" }
                                 },
                                 "additionalProperties": false
+                              },
+                              "externalRef": {
+                                "anyOf": [
+                                  { "type": "string", "minLength": 1, "maxLength": 128 },
+                                  { "type": "null" }
+                                ]
                               }
                             },
                             "required": ["id", "leadType", "stage", "contact"],

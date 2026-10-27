@@ -37,6 +37,13 @@ export type LeadView = z.infer<typeof leadViewSchema>;
 /** Free-text search over name, email, phone and external reference. */
 export const leadSearchSchema = z.string().trim().min(1).max(100);
 
+/**
+ * A calendar day, `YYYY-MM-DD`, by which a follow-up counts as due: the
+ * viewer's own today, sent by the admin, since task due dates are calendar
+ * days (stored at noon UTC) and "today" depends on where staff are.
+ */
+export const leadDueBySchema = z.iso.date();
+
 export const listWorkspaceLeadsQuerySchema = z.object({
   status: leadStatusSchema.optional(),
   type: leadTypeSchema.optional(),
@@ -44,6 +51,8 @@ export const listWorkspaceLeadsQuerySchema = z.object({
   assignee: leadAssigneeFilterSchema.optional(),
   q: leadSearchSchema.optional(),
   view: leadViewSchema.optional(),
+  /** Only leads with an open task due on or before this day (a follow-up due), most overdue first. */
+  dueBy: leadDueBySchema.optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(200).optional(),
 });
@@ -88,6 +97,12 @@ export const leadListItemSchema = z.object({
   nextTaskDueAt: isoDateTimeSchema.nullable(),
   /** No one who works leads has opened it yet: the "New" badge. Absent means no. */
   isNew: z.boolean().optional(),
+  /**
+   * The type's countdown date from the form (a SIM order's arrival in
+   * Canada, `leadCountdownField`), for "6 days left" on lists. Form details:
+   * only for roles that see contacts, like the contact fields.
+   */
+  countdownDate: z.iso.date().nullable().optional(),
   deletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -142,8 +157,16 @@ export const leadTypeCountSchema = z.object({
   total: z.int().nonnegative(),
   /** Active leads of the type no one who works leads has opened yet. */
   unopened: z.int().nonnegative().optional(),
+  /** With the summary's `dueBy`: active leads of the type with an open task due by then. */
+  followUpsDue: z.int().nonnegative().optional(),
 });
 export type LeadTypeCount = z.infer<typeof leadTypeCountSchema>;
+
+export const leadsSummaryQuerySchema = z.object({
+  /** Also count each type's leads with a follow-up due on or before this day. */
+  dueBy: leadDueBySchema.optional(),
+});
+export type LeadsSummaryQuery = z.infer<typeof leadsSummaryQuerySchema>;
 
 export const leadsSummaryResponseSchema = z.object({
   types: z.array(leadTypeCountSchema),

@@ -21,6 +21,8 @@ export interface InboxQuery {
   stage?: string;
   assignee?: LeadAssigneeFilter;
   q?: string;
+  /** Only leads with a follow-up due today or earlier (`?due=1`), most overdue first; a table view. */
+  due: boolean;
   page: number;
 }
 
@@ -35,11 +37,13 @@ function parsed<T>(result: { success: true; data: T } | { success: false }): T |
 export function parseInboxQuery(params: ReadableParams): InboxQuery {
   const trash = params.get('trash') === '1';
   const type = trash ? undefined : parsed(leadTypeSchema.safeParse(params.get('type')));
+  const due = !trash && params.get('due') === '1';
   const page = Number.parseInt(params.get('page') ?? '1', 10);
   return {
     type,
     trash,
-    view: params.get('view') === 'board' && type !== undefined ? 'board' : 'table',
+    due,
+    view: params.get('view') === 'board' && type !== undefined && !due ? 'board' : 'table',
     stage: type ? parsed(leadStageSchema.safeParse(params.get('stage'))) : undefined,
     assignee: parsed(leadAssigneeFilterSchema.safeParse(params.get('assignee'))),
     q: parsed(leadSearchSchema.safeParse(params.get('q'))),
@@ -51,7 +55,8 @@ export function inboxSearch(query: InboxQuery): string {
   const params = new URLSearchParams();
   if (query.trash) params.set('trash', '1');
   else if (query.type) params.set('type', query.type);
-  if (query.view === 'board' && query.type && !query.trash) params.set('view', 'board');
+  if (query.due && !query.trash) params.set('due', '1');
+  else if (query.view === 'board' && query.type && !query.trash) params.set('view', 'board');
   if (query.stage && query.type) params.set('stage', query.stage);
   if (query.assignee) params.set('assignee', query.assignee);
   if (query.q) params.set('q', query.q);

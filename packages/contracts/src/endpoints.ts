@@ -67,6 +67,7 @@ import {
 import {
   leadBoardQuerySchema,
   leadBoardResponseSchema,
+  leadsSummaryQuerySchema,
   leadsSummaryResponseSchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceLeadsResponseSchema,
@@ -213,7 +214,8 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'listWorkspaceLeads',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads',
-    summary: 'List leads with filters (type, stage, assignee, search, trash) and attribution.',
+    summary:
+      'List leads with filters (type, stage, assignee, search, trash, follow-ups due) and attribution.',
     auth: 'staff',
     successStatus: 200,
     query: listWorkspaceLeadsQuerySchema,
@@ -223,9 +225,11 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'getWorkspaceLeadsSummary',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads/summary',
-    summary: 'Count active leads per type, and the trash.',
+    summary:
+      'Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the trash.',
     auth: 'staff',
     successStatus: 200,
+    query: leadsSummaryQuerySchema,
     response: leadsSummaryResponseSchema,
   },
   {
@@ -328,7 +332,8 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'listWorkspaceTasks',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/tasks',
-    summary: "List tasks across the workspace's active leads; defaults to the caller's open ones.",
+    summary:
+      "List tasks across the workspace's active leads: the caller's, unassigned, everyone's or one member's, optionally only those due by a day; defaults to the caller's open ones.",
     auth: 'staff',
     successStatus: 200,
     query: listWorkspaceTasksQuerySchema,

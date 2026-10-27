@@ -70,6 +70,7 @@ describe('AppSidebar', () => {
     renderSidebar('canadawide');
 
     expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+      'Dashboard',
       'Leads',
       'My tasks',
       'Documents',

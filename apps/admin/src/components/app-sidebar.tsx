@@ -3,7 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { FileTextIcon, ListTodoIcon, SettingsIcon, UsersIcon } from 'lucide-react';
+import {
+  FileTextIcon,
+  LayoutDashboardIcon,
+  ListTodoIcon,
+  SettingsIcon,
+  UsersIcon,
+} from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -26,6 +32,7 @@ import { useStaffSession } from './staff-session-provider';
  * 404, not a placeholder.
  */
 const NAV_ITEMS = [
+  { section: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
   { section: 'leads', label: 'Leads', icon: UsersIcon },
   { section: 'tasks', label: 'My tasks', icon: ListTodoIcon },
   { section: 'documents', label: 'Documents', icon: FileTextIcon },

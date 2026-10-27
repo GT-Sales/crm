@@ -3,15 +3,27 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
-import { leadTypeLabel, type AssignableMember, type LeadListItem } from '@gt-sales/contracts';
+import {
+  leadCountdownField,
+  leadTypeLabel,
+  type AssignableMember,
+  type LeadListItem,
+} from '@gt-sales/contracts';
 import { Button, cn } from '@gt-sales/ui';
 
 import { getStaffLeads } from '../../lib/api';
-import { dateTimeLabel, dueLabel, dueTone, relativeTime } from '../../lib/dates';
+import {
+  dateTimeLabel,
+  dayLabel,
+  dueLabel,
+  dueTone,
+  relativeTime,
+  todayDay,
+} from '../../lib/dates';
 import { assigneeName } from '../../lib/people';
 import { useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
-import { leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
+import { CountdownLabel, leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
 
 const PAGE_SIZE = 50;
 
@@ -28,7 +40,7 @@ function secondaryLine(lead: LeadListItem): string | undefined {
   return undefined;
 }
 
-/** The inbox as a table: one row per lead, newest activity first. */
+/** The inbox as a table: one row per lead, newest activity first (follow-ups due: most overdue first). */
 export function LeadsTable({
   workspaceSlug,
   workspaceId,
@@ -53,6 +65,8 @@ export function LeadsTable({
         assignee: query.assignee,
         q: query.q,
         view: query.trash ? 'trash' : 'active',
+        // Due by the viewer's own today: due dates are calendar days.
+        dueBy: query.due ? todayDay() : undefined,
         page: query.page,
         pageSize: PAGE_SIZE,
       }),
@@ -64,6 +78,7 @@ export function LeadsTable({
       query.assignee,
       query.q,
       query.trash,
+      query.due,
       query.page,
     ],
   );
@@ -72,6 +87,10 @@ export function LeadsTable({
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
   const leadHref = (lead: LeadListItem) => `/w/${workspaceSlug}/leads/${lead.id}`;
+  // The type's countdown (a SIM order's arrival) gets a column; on every type's
+  // tab, when this page holds a lead that has one.
+  const countdownType = query.type ?? rows.find((lead) => lead.countdownDate)?.leadType;
+  const countdownField = countdownType ? leadCountdownField(countdownType) : undefined;
 
   if (leads.error) {
     return (
@@ -107,6 +126,11 @@ export function LeadsTable({
               <th scope="col" className="px-3 py-2 font-medium">
                 Next task
               </th>
+              {countdownField ? (
+                <th scope="col" className="px-3 py-2 font-medium">
+                  {countdownField.label}
+                </th>
+              ) : null}
               <th scope="col" className="px-3 py-2 font-medium">
                 Source
               </th>
@@ -121,14 +145,16 @@ export function LeadsTable({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">
+                <td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">
                   {leads.loading
                     ? 'Loading…'
                     : query.trash
                       ? 'The trash is empty.'
-                      : query.q || query.stage || query.assignee
-                        ? 'No leads match these filters.'
-                        : 'No leads yet.'}
+                      : query.due
+                        ? 'No follow-ups due today or earlier.'
+                        : query.q || query.stage || query.assignee
+                          ? 'No leads match these filters.'
+                          : 'No leads yet.'}
                 </td>
               </tr>
             ) : (
@@ -192,6 +218,18 @@ export function LeadsTable({
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
+                    {countdownField ? (
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {lead.countdownDate ? (
+                          <>
+                            <span className="block">{dayLabel(lead.countdownDate)}</span>
+                            <CountdownLabel day={lead.countdownDate} className="block" />
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td className="max-w-[180px] truncate px-3 py-2">
                       <code className="text-xs text-muted-foreground">{lead.source}</code>
                     </td>

@@ -32,12 +32,15 @@ const databaseTest = migrationUrl ? describe : describe.skip;
 // A distinct id range from every other integration test file sharing this database.
 const WORKSPACE = '13000000-0000-4000-8000-000000000e01';
 const OTHER_WORKSPACE = '13000000-0000-4000-8000-000000000e02';
+// Its own site, so the follow-ups test counts exactly.
+const DUE_WORKSPACE = '13000000-0000-4000-8000-000000000e03';
 const ACTOR = '23000000-0000-4000-8000-000000000e01';
 const COLLEAGUE = '23000000-0000-4000-8000-000000000e02';
 const STRANGER = '23000000-0000-4000-8000-000000000e03';
 const ACTOR_MEMBERSHIP = '33000000-0000-4000-8000-000000000e01';
 const COLLEAGUE_MEMBERSHIP = '33000000-0000-4000-8000-000000000e02';
 const ACTOR_OTHER_MEMBERSHIP = '33000000-0000-4000-8000-000000000e03';
+const ACTOR_DUE_MEMBERSHIP = '33000000-0000-4000-8000-000000000e04';
 const REQUEST_ID = '43000000-0000-4000-8000-000000000e01';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
@@ -80,19 +83,23 @@ databaseTest('DatabaseLeadWorkStore', () => {
       await tx.unsafe(`ALTER ROLE app_runtime PASSWORD '${TEST_RUNTIME_PASSWORD}'`);
     });
     // Each run starts from empty sites; the cascade clears their leads, tasks and timeline.
-    await admin`delete from app.workspaces where id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
+    await admin`
+      delete from app.workspaces where id in (${WORKSPACE}, ${OTHER_WORKSPACE}, ${DUE_WORKSPACE})
+    `;
     await admin`
       insert into app.workspaces (id, slug, name)
       values
         (${WORKSPACE}, 'ci-lead-work', 'CI Lead Work'),
-        (${OTHER_WORKSPACE}, 'ci-lead-work-other', 'CI Lead Work Other')
+        (${OTHER_WORKSPACE}, 'ci-lead-work-other', 'CI Lead Work Other'),
+        (${DUE_WORKSPACE}, 'ci-lead-work-due', 'CI Lead Work Due')
     `;
     await admin`
       insert into app.memberships (id, workspace_id, user_id, membership_type, status, accepted_at)
       values
         (${ACTOR_MEMBERSHIP}, ${WORKSPACE}, ${ACTOR}, 'staff', 'active', now()),
         (${COLLEAGUE_MEMBERSHIP}, ${WORKSPACE}, ${COLLEAGUE}, 'staff', 'active', now()),
-        (${ACTOR_OTHER_MEMBERSHIP}, ${OTHER_WORKSPACE}, ${ACTOR}, 'staff', 'active', now())
+        (${ACTOR_OTHER_MEMBERSHIP}, ${OTHER_WORKSPACE}, ${ACTOR}, 'staff', 'active', now()),
+        (${ACTOR_DUE_MEMBERSHIP}, ${DUE_WORKSPACE}, ${ACTOR}, 'staff', 'active', now())
     `;
     // A revoked member keeps a row but can no longer be given work.
     await admin`
@@ -661,6 +668,133 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(summary.trash).toBe(counts?.trashed);
   });
 
+  test('follow-ups due by a calendar day: the list, the summary and the team’s tasks', async () => {
+    const dueScope = { ...writeScope, workspaceId: DUE_WORKSPACE };
+    const lead = async (
+      leadType: 'internet' | 'sim_order',
+      name: string,
+      payload: Record<string, unknown>,
+      externalRef?: string,
+    ) => {
+      const created = await leadStore.createLead({
+        ...dueScope,
+        leadType,
+        externalRef,
+        contact: { fullName: name, email: `${name.toLowerCase()}@example.test`, phone: '000' },
+        form: { schemaVersion: 1, payload },
+        consentVersion: 'ci-due',
+        submit: true,
+      });
+      return created.lead.id;
+    };
+    const task = async (leadId: string, title: string, dueAt: string | null) => {
+      const created = await work.createTask({ ...dueScope, leadId, title, dueAt });
+      if (created.status !== 'saved') throw new Error('expected a task');
+      return created.task.id;
+    };
+
+    const overdue = await lead('internet', 'Overdue', internetPayload);
+    await task(overdue, 'Call about the install', '2026-11-01T12:00:00.000Z');
+    await task(overdue, 'Send the contract', '2026-11-20T12:00:00.000Z');
+    const order = await lead(
+      'sim_order',
+      'Arriving',
+      { planId: '75gb-fido', delivery: 'esim', arrivalDate: '2026-11-09' },
+      'MS-900',
+    );
+    // Late on the day itself is still due by that day.
+    await task(order, 'Check the visa', '2026-11-05T23:30:00.000Z');
+    const notYet = await lead('internet', 'Notyet', internetPayload);
+    await task(notYet, 'Tomorrow’s call', '2026-11-06T00:00:00.000Z');
+    const finished = await task(notYet, 'Old call', '2026-10-01T12:00:00.000Z');
+    await work.updateTask({ ...dueScope, taskId: finished, status: 'done' });
+    const undated = await lead('internet', 'Undated', internetPayload);
+    await task(undated, 'Whenever', null);
+    const trashed = await lead('internet', 'Trashed', internetPayload);
+    await task(trashed, 'Never shown', '2026-10-01T12:00:00.000Z');
+    await work.setTrashed({ ...dueScope, leadId: trashed, trashed: true });
+
+    const due = await leadStore.listLeads({
+      workspaceId: DUE_WORKSPACE,
+      actorId: ACTOR,
+      dueBy: '2026-11-05',
+    });
+    // The most overdue first, whatever moved last.
+    expect(due.leads.map((entry) => entry.id)).toEqual([overdue, order]);
+    expect(due.page.total).toBe(2);
+    expect(due.leads.map((entry) => entry.nextTaskDueAt)).toEqual([
+      '2026-11-01T12:00:00.000Z',
+      '2026-11-05T23:30:00.000Z',
+    ]);
+    const all = await leadStore.listLeads({ workspaceId: DUE_WORKSPACE, actorId: ACTOR });
+    expect(all.leads.map((entry) => entry.id).sort()).toEqual(
+      [overdue, order, notYet, undated].sort(),
+    );
+
+    // The order's arrival counts down on lists; a lead type without a countdown has none.
+    expect(due.leads.find((entry) => entry.id === order)?.countdownDate).toBe('2026-11-09');
+    expect(due.leads.find((entry) => entry.id === overdue)?.countdownDate).toBeNull();
+    // A stored value that is not a calendar day counts down to nothing.
+    await admin`
+      update app.leads set payload = jsonb_set(payload, '{payload,arrivalDate}', '"soon"')
+      where id = ${order}
+    `;
+    const odd = await leadStore.listLeads({
+      workspaceId: DUE_WORKSPACE,
+      actorId: ACTOR,
+      dueBy: '2026-11-05',
+    });
+    expect(odd.leads.find((entry) => entry.id === order)?.countdownDate).toBeNull();
+
+    const summary = await work.summary({
+      workspaceId: DUE_WORKSPACE,
+      actorId: ACTOR,
+      dueBy: '2026-11-05',
+    });
+    expect(summary.types).toEqual([
+      expect.objectContaining({ leadType: 'internet', total: 3, followUpsDue: 1 }),
+      expect.objectContaining({ leadType: 'sim_order', total: 1, followUpsDue: 1 }),
+    ]);
+    const plain = await work.summary({ workspaceId: DUE_WORKSPACE, actorId: ACTOR });
+    expect(plain.types.every((entry) => entry.followUpsDue === undefined)).toBe(true);
+
+    const teamDue = await work.listTasks(
+      {
+        workspaceId: DUE_WORKSPACE,
+        actorId: ACTOR,
+        assignee: 'all',
+        status: 'open',
+        dueBy: '2026-11-05',
+      },
+      1,
+      6,
+    );
+    expect(teamDue.total).toBe(2);
+    expect(teamDue.tasks.map((entry) => entry.title)).toEqual([
+      'Call about the install',
+      'Check the visa',
+    ]);
+    expect(teamDue.tasks[1]?.lead).toMatchObject({
+      id: order,
+      leadType: 'sim_order',
+      externalRef: 'MS-900',
+      contact: { fullName: 'Arriving' },
+    });
+    const teamOpen = await work.listTasks(
+      { workspaceId: DUE_WORKSPACE, actorId: ACTOR, assignee: 'all', status: 'open' },
+      1,
+      50,
+    );
+    // Every open task on an active lead, undated last; none of the trashed lead's.
+    expect(teamOpen.tasks.map((entry) => entry.title)).toEqual([
+      'Call about the install',
+      'Check the visa',
+      'Tomorrow’s call',
+      'Send the contract',
+      'Whenever',
+    ]);
+  });
+
   test('another site cannot read or change these leads', async () => {
     const leadId = await createInternetLead({
       fullName: 'Isla Isolated',
@@ -684,8 +818,8 @@ databaseTest('DatabaseLeadWorkStore', () => {
       displayName: 'Takib',
       requestId: REQUEST_ID,
     });
-    // Both test sites; the revoked membership elsewhere is not renamed.
-    expect(renamed).toBe(2);
+    // All three test sites; the revoked membership elsewhere is not renamed.
+    expect(renamed).toBe(3);
 
     const members = await staff.listAssignableMembers(WORKSPACE, COLLEAGUE);
     expect(members).toEqual(

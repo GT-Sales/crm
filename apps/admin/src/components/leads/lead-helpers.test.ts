@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { LEGACY_IMPORT_ACTOR_ID, type AssignableMember } from '@gt-sales/contracts';
 
-import { dueLabel, dueSentence, dueTone, relativeTime, todayDay } from '../../lib/dates';
+import {
+  countdown,
+  dayLabel,
+  dueLabel,
+  dueSentence,
+  dueTone,
+  followUpLabel,
+  relativeTime,
+  todayDay,
+} from '../../lib/dates';
 import { actorName, assigneeName, initials, memberName } from '../../lib/people';
 import { inboxSearch, parseInboxQuery } from './inbox-query';
 import { formFields } from './lead-fields';
@@ -33,6 +42,7 @@ describe('inbox query', () => {
     expect(query).toEqual({
       type: 'internet',
       trash: false,
+      due: false,
       view: 'board',
       stage: undefined,
       assignee: 'me',
@@ -40,6 +50,14 @@ describe('inbox query', () => {
       page: 3,
     });
     expect(inboxSearch(query)).toBe('?type=internet&view=board&assignee=me&q=avery&page=3');
+  });
+
+  it('keeps the follow-ups due filter in the URL, as a table and never in the trash', () => {
+    const due = parseInboxQuery(new URLSearchParams('type=sim_order&view=board&due=1'));
+    expect(due).toMatchObject({ type: 'sim_order', due: true, view: 'table' });
+    expect(inboxSearch(due)).toBe('?type=sim_order&due=1');
+    expect(parseInboxQuery(new URLSearchParams('trash=1&due=1')).due).toBe(false);
+    expect(parseInboxQuery(new URLSearchParams('due=yes')).due).toBe(false);
   });
 
   it('drops values the backend would refuse and keeps the board to one type', () => {
@@ -70,6 +88,24 @@ describe('dates', () => {
     expect(relativeTime(new Date(at - 5 * 60_000).toISOString(), at)).toBe('5m ago');
     expect(relativeTime(new Date(at - 3 * 3_600_000).toISOString(), at)).toBe('3h ago');
     expect(relativeTime(new Date(at - 2 * 86_400_000).toISOString(), at)).toBe('2d ago');
+  });
+
+  it('says a follow-up’s state as Get Canada Sim’s admin does', () => {
+    expect(followUpLabel('2026-10-26T12:00:00.000Z', now)).toBe('Due today');
+    expect(followUpLabel('2026-10-25T12:00:00.000Z', now)).toBe('Overdue by 1 day');
+    expect(followUpLabel('2026-10-20T12:00:00.000Z', now)).toBe('Overdue by 6 days');
+    expect(followUpLabel('2026-10-27T12:00:00.000Z', now)).toBe('Due tomorrow');
+  });
+
+  it('counts down to a day, and stops once it has passed', () => {
+    expect(countdown('2026-10-26', now)).toEqual({ label: 'Today', tone: 'today' });
+    expect(countdown('2026-10-27', now)).toEqual({ label: '1 day left', tone: 'soon' });
+    expect(countdown('2026-11-02', now)).toEqual({ label: '7 days left', tone: 'soon' });
+    expect(countdown('2026-11-03', now)).toEqual({ label: '8 days left', tone: 'upcoming' });
+    expect(countdown('2026-10-25', now)).toBeUndefined();
+    expect(countdown('soon', now)).toBeUndefined();
+    expect(dayLabel('2026-11-02', now)).toMatch(/Nov/);
+    expect(dayLabel('2027-01-05', now)).toMatch(/2027/);
   });
 });
 
@@ -106,6 +142,20 @@ describe('form fields', () => {
       { label: 'Keep current number', value: 'No' },
       { label: 'Postal code', value: 'T2P 1J9' },
       { label: 'New field', value: 'kept' },
+    ]);
+  });
+
+  it('marks the type’s countdown field with the day it counts down to', () => {
+    expect(
+      formFields('sim_order', { planId: '75gb-fido', arrivalDate: '2026-11-02', gotVisa: true }),
+    ).toEqual([
+      { label: 'Plan', value: '75GB · $35, Fido' },
+      {
+        label: 'Arrival in Canada',
+        value: expect.stringMatching(/2026/),
+        countdownDay: '2026-11-02',
+      },
+      { label: 'Has the visa', value: 'Yes' },
     ]);
   });
 

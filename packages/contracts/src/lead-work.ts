@@ -1,12 +1,18 @@
 import { z } from 'zod';
 
 import { isoDateTimeSchema, pageInfoSchema, requestIdSchema } from './common';
-import { leadContactSchema, leadFormSchema, leadStatusSchema, leadTypeSchema } from './leads';
+import {
+  leadContactSchema,
+  leadExternalRefSchema,
+  leadFormSchema,
+  leadStatusSchema,
+  leadTypeSchema,
+} from './leads';
 import { leadFormEditSchema } from './lead-fields';
 import { leadIdentitySchema } from './lead-identity';
 import {
   leadAccessSchema,
-  leadAssigneeFilterSchema,
+  leadDueBySchema,
   leadListItemSchema,
   leadStageSchema,
 } from './workspace-leads';
@@ -251,9 +257,15 @@ export type MarkLeadOpenedResponse = z.infer<typeof markLeadOpenedResponseSchema
  * `GET /workspaces/:id/tasks` — tasks across the workspace's active leads,
  * soonest due first (undated last). Defaults to the caller's open tasks.
  */
+/** Whose tasks: `me`, `none` (unassigned), `all` (the whole team) or one member's actor id. */
+export const taskAssigneeFilterSchema = z.union([z.enum(['me', 'none', 'all']), z.uuid()]);
+export type TaskAssigneeFilter = z.infer<typeof taskAssigneeFilterSchema>;
+
 export const listWorkspaceTasksQuerySchema = z.object({
-  assignee: leadAssigneeFilterSchema.optional(),
+  assignee: taskAssigneeFilterSchema.optional(),
   status: leadTaskStatusSchema.optional(),
+  /** Only tasks due on or before this day: the follow-ups due (undated tasks never are). */
+  dueBy: leadDueBySchema.optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(200).optional(),
 });
@@ -265,6 +277,8 @@ export const workspaceTaskSchema = leadTaskSchema.extend({
     leadType: leadTypeSchema,
     stage: leadStageSchema,
     contact: leadContactSchema,
+    /** The website's own number for it (`MS-101`), which staff know it by. */
+    externalRef: leadExternalRefSchema.nullable().optional(),
   }),
 });
 export type WorkspaceTask = z.infer<typeof workspaceTaskSchema>;

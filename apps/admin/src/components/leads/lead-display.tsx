@@ -1,6 +1,7 @@
-import { leadStageLabel, type LeadContact } from '@gt-sales/contracts';
+import { leadCountdownField, leadStageLabel, type LeadContact } from '@gt-sales/contracts';
 import { Avatar, AvatarFallback, cn } from '@gt-sales/ui';
 
+import { countdown, dayLabel } from '../../lib/dates';
 import { initials } from '../../lib/people';
 
 /**
@@ -45,6 +46,51 @@ const STAGE_DOTS: Record<string, string> = {
 
 export function stageDotClass(stage: string): string {
   return STAGE_DOTS[stage] ?? 'bg-muted-foreground';
+}
+
+const COUNTDOWN_TONE_CLASS = {
+  today: 'text-rose-300',
+  soon: 'text-amber-300',
+  upcoming: 'text-muted-foreground',
+} as const;
+
+/** `6 days left` to a counted-down day (a SIM order's arrival); nothing once it has passed. */
+export function CountdownLabel({
+  day,
+  className,
+}: {
+  day: string | null | undefined;
+  className?: string;
+}) {
+  const left = day ? countdown(day) : undefined;
+  if (!left) return null;
+  return (
+    <span className={cn('text-xs font-medium', COUNTDOWN_TONE_CLASS[left.tone], className)}>
+      {left.label}
+    </span>
+  );
+}
+
+/** `Arrival in Canada Nov 2 · 6 days left` on a board card: the type's countdown field. */
+export function CountdownDay({
+  leadType,
+  day,
+  className,
+}: {
+  leadType: string;
+  day: string | null | undefined;
+  className?: string;
+}) {
+  const field = leadCountdownField(leadType);
+  if (!field || !day) return null;
+  const left = countdown(day);
+  return (
+    <p className={cn('truncate text-xs text-muted-foreground', className)}>
+      {field.label} {dayLabel(day)}
+      {left ? ' · ' : null}
+      <CountdownLabel day={day} />
+    </p>
+  );
 }
 
 /** A lead no one who works leads has opened yet. */

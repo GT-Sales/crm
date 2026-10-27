@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { todayDay } from '../../lib/dates';
 import { LeadsInbox } from './leads-inbox';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -97,6 +98,85 @@ describe('LeadsInbox', () => {
       }),
     );
     expect(await screen.findByText('No leads match these filters.')).toBeTruthy();
+  });
+
+  it('offers the follow-ups due with their count, and lists them most overdue first', async () => {
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [
+        { leadType: 'internet', total: 665, followUpsDue: 2 },
+        { leadType: 'mobility', total: 39, followUpsDue: 1 },
+      ],
+      trash: 3,
+      access: { contacts: true, manage: true },
+    });
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    // Due by the viewer's own today.
+    expect(mocks.getLeadsSummary).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+      dueBy: todayDay(),
+    });
+    const toggle = await screen.findByRole('button', { name: /Follow-ups due\s*3/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?due=1', {
+      scroll: false,
+    });
+
+    view.unmount();
+    mocks.getStaffLeads.mockClear();
+    navigation.search = 'type=mobility&due=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ type: 'mobility', dueBy: todayDay() }),
+      ),
+    );
+    expect(await screen.findByText('No follow-ups due today or earlier.')).toBeTruthy();
+    // The type's own count, and pressed while on.
+    const on = await screen.findByRole('button', { name: /Follow-ups due\s*1/ });
+    expect(on.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('hides the follow-ups button while nothing is due', async () => {
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('tab', { name: /Internet/ });
+    expect(screen.queryByRole('button', { name: /Follow-ups due/ })).toBeNull();
+  });
+
+  it('shows a SIM order’s arrival and how many days are left', async () => {
+    const inThreeDays = new Date();
+    inThreeDays.setDate(inThreeDays.getDate() + 3);
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [
+        {
+          id: '90000000-0000-4000-8000-000000000001',
+          workspaceId: WORKSPACE,
+          leadType: 'sim_order',
+          status: 'submitted',
+          stage: 'pending',
+          contact: { fullName: 'Arjun Patel' },
+          contactId: null,
+          assignedActorId: null,
+          externalRef: 'MS-101',
+          source: 'direct',
+          attribution: {},
+          consentVersion: null,
+          openTaskCount: 0,
+          nextTaskDueAt: null,
+          countdownDate: todayDay(inThreeDays),
+          deletedAt: null,
+          createdAt: '2026-10-20T09:00:00.000Z',
+          updatedAt: '2026-10-21T10:00:00.000Z',
+        },
+      ],
+      page: { page: 1, pageSize: 50, total: 1 },
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = 'type=sim_order';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    expect(await screen.findByRole('columnheader', { name: 'Arrival in Canada' })).toBeTruthy();
+    expect(screen.getByText('3 days left')).toBeTruthy();
   });
 
   it('opens the board for the chosen type', async () => {

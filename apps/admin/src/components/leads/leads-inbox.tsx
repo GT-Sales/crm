@@ -4,9 +4,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { leadTypeEntry, leadTypeLabel } from '@gt-sales/contracts';
 import { cn, Input, NativeSelect } from '@gt-sales/ui';
-import { KanbanSquareIcon, SearchIcon, TableIcon, Trash2Icon } from 'lucide-react';
+import { BellRingIcon, KanbanSquareIcon, SearchIcon, TableIcon, Trash2Icon } from 'lucide-react';
 
 import { getLeadsSummary } from '../../lib/api';
+import { todayDay } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { useResource } from '../../lib/use-resource';
 import { inboxSearch, parseInboxQuery, type InboxQuery } from './inbox-query';
@@ -53,9 +54,9 @@ function Count({ value }: { value: number | undefined }) {
 }
 
 /**
- * The leads inbox: a tab per lead type the site has, the trash, a search and
- * stage and assignee filters, and a table or (for one type) a board. Every
- * choice is in the URL.
+ * The leads inbox: a tab per lead type the site has, the trash, a search,
+ * stage and assignee filters, "Follow-ups due", and a table or (for one
+ * type) a board. Every choice is in the URL.
  */
 export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const router = useRouter();
@@ -64,15 +65,22 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const query = parseInboxQuery(searchParams);
   const { workspaceId, accessToken, members } = useLeadWorkspace(workspaceSlug);
 
+  // Follow-ups count as due by the viewer's own today.
+  const today = todayDay();
   const loadSummary = useMemo(
     () =>
-      accessToken && workspaceId ? () => getLeadsSummary(accessToken, workspaceId) : undefined,
-    [accessToken, workspaceId],
+      accessToken && workspaceId
+        ? () => getLeadsSummary(accessToken, workspaceId, { dueBy: today })
+        : undefined,
+    [accessToken, workspaceId, today],
   );
   const summary = useResource(loadSummary);
   const types = summary.data?.types ?? [];
   const access = summary.data?.access;
   const totalActive = types.reduce((sum, entry) => sum + entry.total, 0);
+  const followUpsDue = types
+    .filter((entry) => !query.type || entry.leadType === query.type)
+    .reduce((sum, entry) => sum + (entry.followUpsDue ?? 0), 0);
 
   // Every change merges into the filters as they are when it lands, not as
   // they were when it was scheduled: the delayed search below must not undo a
@@ -115,7 +123,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="text-sm text-muted-foreground">
-            Every enquiry the site has sent, newest activity first.
+            {query.due
+              ? 'Leads with a follow-up due today or earlier, most overdue first.'
+              : 'Every enquiry the site has sent, newest activity first.'}
           </p>
         </div>
         <div role="group" aria-label="View" className="inline-flex rounded-md border p-0.5 text-sm">
@@ -136,7 +146,13 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
             disabled={!boardType || query.trash}
             title={query.trash ? 'The trash has no board' : undefined}
             onClick={() =>
-              update({ view: 'board', type: boardType, stage: undefined, trash: false })
+              update({
+                view: 'board',
+                type: boardType,
+                stage: undefined,
+                trash: false,
+                due: false,
+              })
             }
             className={cn(
               'inline-flex items-center gap-1.5 rounded px-2.5 py-1 disabled:opacity-50',
@@ -232,6 +248,32 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
               ))}
           </NativeSelect>
         </label>
+        {/* "Who do I call today": shown while there is something due, or while on. */}
+        {!query.trash && (followUpsDue > 0 || query.due) ? (
+          <button
+            type="button"
+            aria-pressed={query.due}
+            onClick={() => update(query.due ? { due: false } : { due: true, view: 'table' })}
+            className={cn(
+              'inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
+              query.due
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'text-foreground hover:bg-muted',
+            )}
+          >
+            <BellRingIcon className="size-4" aria-hidden="true" /> Follow-ups due
+            {summary.data ? (
+              <span
+                className={cn(
+                  'rounded-sm px-1 text-xs tabular-nums',
+                  query.due ? 'bg-primary-foreground/20' : 'bg-muted text-muted-foreground',
+                )}
+              >
+                {followUpsDue}
+              </span>
+            ) : null}
+          </button>
+        ) : null}
       </div>
 
       {summary.error ? (

@@ -39,6 +39,27 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   expect(errors).toEqual([]);
 });
 
+test('the dashboard lists the follow-ups due, and Leads filters to them', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/dashboard');
+  await expect(page.getByRole('heading', { level: 2, name: 'Follow-ups due' })).toBeVisible();
+  const followUp = page.getByRole('link', { name: /Casey Demo/ });
+  await expect(followUp).toContainText('Confirm the install window');
+  await expect(followUp).toContainText(/Overdue by \d+ days/);
+
+  await page.getByRole('link', { name: 'Open the follow-ups in Leads' }).click();
+  await expect(page).toHaveURL(/\/leads\?due=1$/);
+  const toggle = page.getByRole('button', { name: /Follow-ups due\s*1/ });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('link', { name: 'Casey Demo' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Avery Example' })).toHaveCount(0);
+
+  await toggle.click();
+  await expect(page.getByRole('link', { name: 'Avery Example' })).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
+
 test('a card moved on the board stays moved', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet&view=board');

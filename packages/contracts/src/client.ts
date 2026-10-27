@@ -121,6 +121,7 @@ import {
   listWorkspaceLeadsResponseSchema,
   type LeadBoardQuery,
   type LeadBoardResponse,
+  type LeadsSummaryQuery,
   type LeadsSummaryResponse,
   type ListWorkspaceLeadsQuery,
   type ListWorkspaceLeadsResponse,
@@ -250,7 +251,7 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceLeadsQuery,
     ): Promise<ListWorkspaceLeadsResponse>;
-    leadsSummary(workspaceId: string): Promise<LeadsSummaryResponse>;
+    leadsSummary(workspaceId: string, query?: LeadsSummaryQuery): Promise<LeadsSummaryResponse>;
     leadBoard(workspaceId: string, query: LeadBoardQuery): Promise<LeadBoardResponse>;
     getLead(workspaceId: string, leadId: string): Promise<GetWorkspaceLeadResponse>;
     updateLead(
@@ -528,15 +529,17 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             assignee: query?.assignee,
             q: query?.q,
             view: query?.view,
+            dueBy: query?.dueBy,
             page: query?.page,
             pageSize: query?.pageSize,
           },
           responseSchema: listWorkspaceLeadsResponseSchema,
         }),
-      leadsSummary: (workspaceId) =>
+      leadsSummary: (workspaceId, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/summary`,
+          query: { dueBy: query?.dueBy },
           responseSchema: leadsSummaryResponseSchema,
         }),
       leadBoard: (workspaceId, query) =>
@@ -610,6 +613,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           query: {
             assignee: query?.assignee,
             status: query?.status,
+            dueBy: query?.dueBy,
             page: query?.page,
             pageSize: query?.pageSize,
           },

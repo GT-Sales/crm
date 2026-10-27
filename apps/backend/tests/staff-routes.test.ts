@@ -104,6 +104,7 @@ const sampleLead: LeadListItem = {
   consentVersion: 'terms-2026-09',
   openTaskCount: 0,
   nextTaskDueAt: null,
+  countdownDate: '2026-11-09',
   deletedAt: null,
   createdAt: '2026-09-14T00:00:00.000Z',
   updatedAt: '2026-09-14T00:00:00.000Z',
@@ -378,13 +379,27 @@ describe('protected staff routes', () => {
       expect(response.status).toBe(200);
       return listWorkspaceLeadsResponseSchema.parse(await response.json()).leads;
     };
+    // The countdown date is read from the form, which they do not see either.
     for (const role of ['viewer', 'content', 'partners'] as const) {
-      expect(await listAs([role])).toEqual([{ ...sampleLead, contact: {} }]);
+      expect(await listAs([role])).toEqual([{ ...sampleLead, contact: {}, countdownDate: null }]);
     }
     // Finance sees contacts too, through financial.read.
     for (const role of ['leads', 'orders', 'finance'] as const) {
       expect(await listAs([role])).toEqual([sampleLead]);
     }
+  });
+
+  it('filters the list to follow-ups due by a calendar day, and refuses anything else', async () => {
+    const list = (search: string) =>
+      fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/leads${search}`, {
+        headers: { authorization: 'Bearer token' },
+      });
+    expect((await list('?dueBy=2026-11-05')).status).toBe(200);
+    expect(leadStore.listLeadsCalls.at(-1)).toMatchObject({ dueBy: '2026-11-05' });
+    for (const bad of ['?dueBy=tomorrow', '?dueBy=2026-02-30', "?dueBy=2026-11-05'--"]) {
+      expect((await list(bad)).status).toBe(400);
+    }
+    expect(leadStore.listLeadsCalls).toHaveLength(1);
   });
 
   it('denies a revoked member the leads list', async () => {

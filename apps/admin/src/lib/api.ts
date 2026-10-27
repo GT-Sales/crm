@@ -7,6 +7,7 @@ import {
   type GetWorkspaceLeadResponse,
   type LeadBoardQuery,
   type LeadBoardResponse,
+  type LeadsSummaryQuery,
   type LeadsSummaryResponse,
   type LeadTaskResponse,
   type LeadTrashResponse,
@@ -126,8 +127,9 @@ export async function getStaffLeads(
 export async function getLeadsSummary(
   accessToken: string,
   workspaceId: string,
+  query?: LeadsSummaryQuery,
 ): Promise<LeadsSummaryResponse> {
-  return client(accessToken).staff.leadsSummary(workspaceId);
+  return client(accessToken).staff.leadsSummary(workspaceId, query);
 }
 
 export async function getLeadBoard(

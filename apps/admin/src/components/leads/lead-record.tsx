@@ -19,7 +19,7 @@ import { getStaffLead, markLeadOpened, setLeadTrashed, updateStaffLead } from '.
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
-import { leadDisplayName, StageBadge } from './lead-display';
+import { CountdownLabel, leadDisplayName, StageBadge } from './lead-display';
 import { IdentityCheck } from './identity-check';
 import { formFields, staffFields } from './lead-fields';
 import { LeadFormEditor } from './lead-form-editor';
@@ -507,6 +507,7 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
                     {fields.map((field) => (
                       <Field key={field.label} label={field.label}>
                         {field.value}
+                        <CountdownLabel day={field.countdownDay} className="ml-2" />
                       </Field>
                     ))}
                   </dl>

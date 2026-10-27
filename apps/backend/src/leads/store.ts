@@ -79,6 +79,8 @@ export interface ListLeadsInput {
   /** Name, email, phone or external reference; only for callers who may see contacts. */
   search?: string;
   view?: LeadView;
+  /** Only leads with a follow-up due by this calendar day, the most overdue first. */
+  dueBy?: string;
   page?: number;
   pageSize?: number;
 }
@@ -404,6 +406,7 @@ export class DatabaseLeadStore implements LeadStore {
             assignee: input.assignee,
             search: input.search,
             view: input.view,
+            dueBy: input.dueBy,
           },
           page,
           pageSize,

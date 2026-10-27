@@ -5,6 +5,8 @@ import {
   attributionSchema,
   leadActivitySchema,
   leadContactSchema,
+  leadCountdownField,
+  leadFieldCatalog,
   leadFormSchema,
   leadIdentitySchema,
   leadStageSchema,
@@ -25,8 +27,10 @@ import {
   type LeadTypeCount,
   type LeadView,
   type RelatedLead,
+  type TaskAssigneeFilter,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
+import { z } from 'zod';
 
 import { deriveSource } from './source.js';
 
@@ -64,10 +68,29 @@ export interface LeadRow {
   openTaskCount: number;
   nextTaskDueAt: string | null;
   isNew: boolean;
+  countdownDate: unknown;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * Each type's countdown date from its form (a SIM order's arrival), as one
+ * CASE over the field definitions (`leadCountdownField`). The type names and
+ * field keys are code constants, checked against their shapes because they
+ * become SQL text.
+ */
+const COUNTDOWN_DATE = (() => {
+  const branches = Object.keys(leadFieldCatalog).flatMap((leadType) => {
+    const field = leadCountdownField(leadType);
+    if (!field) return [];
+    if (!/^[a-z0-9_]{1,64}$/.test(leadType) || !/^[a-z][A-Za-z0-9]{0,63}$/.test(field.key)) {
+      throw new Error(`unsafe countdown field ${leadType}.${field.key}`);
+    }
+    return [`when '${leadType}' then l.payload -> 'payload' ->> '${field.key}'`];
+  });
+  return branches.length === 0 ? 'null::text' : `case l.lead_type ${branches.join(' ')} end`;
+})();
 
 /** The columns every list-shaped read returns, from a lead aliased `l` and its open-task summary `t`. */
 const LEAD_COLUMNS = sql.raw(`
@@ -93,6 +116,7 @@ const LEAD_COLUMNS = sql.raw(`
       and opened.kind = 'system'
       and opened.data ->> 'event' = 'opened'
   ) as "isNew",
+  ${COUNTDOWN_DATE} as "countdownDate",
 `);
 
 const LEAD_TIMESTAMPS = sql.join(
@@ -139,10 +163,30 @@ export function toLeadListItem(row: LeadRow): LeadListItem {
     openTaskCount: row.openTaskCount,
     nextTaskDueAt: row.nextTaskDueAt,
     isNew: row.isNew === true,
+    // Whatever the form holds; only a real calendar day counts down.
+    countdownDate: calendarDay(row.countdownDate),
     deletedAt: row.deletedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+const calendarDaySchema = z.iso.date();
+
+function calendarDay(value: unknown): string | null {
+  const parsed = calendarDaySchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The first instant after the calendar day `day` (midnight UTC that ends
+ * it): a task is due by `day` when its `due_at`, a calendar day stored at
+ * noon UTC, falls before this. A validated literal, so a statement that
+ * otherwise binds nothing stays at one round trip.
+ */
+function dueCutoff(day: string): SQL {
+  if (!calendarDaySchema.safeParse(day).success) throw new Error('dueBy must be YYYY-MM-DD');
+  return sql.raw(`(('${day}'::date + 1)::timestamp at time zone 'UTC')`);
 }
 
 /** `%term%` for ILIKE, with the term's own wildcards escaped. */
@@ -159,6 +203,8 @@ export interface LeadFilters {
   assignee?: LeadAssigneeFilter;
   search?: string;
   view?: LeadView;
+  /** Only leads with an open task due on or before this calendar day. */
+  dueBy?: string;
 }
 
 /** The WHERE conditions for lead `l`. Restricted leads are never listed, whatever the view. */
@@ -174,6 +220,15 @@ function leadConditions(filters: LeadFilters): SQL {
   if (filters.assignee === 'me') conditions.push(sql`l.assigned_actor_id = ${filters.actorId}`);
   else if (filters.assignee === 'none') conditions.push(sql`l.assigned_actor_id is null`);
   else if (filters.assignee) conditions.push(sql`l.assigned_actor_id = ${filters.assignee}`);
+  if (filters.dueBy) {
+    conditions.push(sql`exists (
+      select 1 from app.lead_tasks due
+      where due.workspace_id = l.workspace_id
+        and due.lead_id = l.id
+        and due.status = 'open'
+        and due.due_at < ${dueCutoff(filters.dueBy)}
+    )`);
+  }
   if (filters.search) {
     const pattern = likePattern(filters.search);
     const matches: SQL[] = [
@@ -200,10 +255,17 @@ export interface LeadPage {
   total: number;
 }
 
+/** A lead's soonest open task, for ordering the follow-ups due before the page is cut. */
+const NEXT_DUE = sql.raw(`(
+  select min(task.due_at) from app.lead_tasks task
+  where task.workspace_id = l.workspace_id and task.lead_id = l.id and task.status = 'open'
+)`);
+
 /**
  * One page of leads, newest activity first (the trash: most recently deleted
- * first). The page's total rides on each row as a window count taken before
- * the limit; the task summary is joined after it, so only the page pays.
+ * first; follow-ups due: the most overdue first). The page's total rides on
+ * each row as a window count taken before the limit; the task summary is
+ * joined after it, so only the page pays.
  */
 export async function selectLeadPage(
   tx: TenantTransaction,
@@ -212,22 +274,32 @@ export async function selectLeadPage(
   pageSize: number,
 ): Promise<LeadPage> {
   const offset = (page - 1) * pageSize;
-  const order =
-    filters.view === 'trash'
-      ? sql.raw('l.deleted_at desc, l.id')
+  // Follow-ups due: the page is cut on the lead's own next due date, and the
+  // rows come back in the same order from the summary joined after it
+  // (`t.next_due`, the same minimum).
+  const trash = filters.view === 'trash';
+  const pageOrder = trash
+    ? sql.raw('l.deleted_at desc, l.id')
+    : filters.dueBy
+      ? sql`${NEXT_DUE} asc, l.id`
+      : sql.raw('l.updated_at desc, l.id');
+  const rowOrder = trash
+    ? sql.raw('l.deleted_at desc, l.id')
+    : filters.dueBy
+      ? sql.raw('t.next_due asc, l.id')
       : sql.raw('l.updated_at desc, l.id');
   const rows = await tx.execute<LeadRow & { total: number }>(sql`
     with page as (
       select l.*, count(*) over ()::int as total
       from app.leads l
       where ${leadConditions(filters)}
-      order by ${order}
+      order by ${pageOrder}
       limit ${pageSize} offset ${offset}
     )
     select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total
     from page l
     ${OPEN_TASK_SUMMARY}
-    order by ${order}
+    order by ${rowOrder}
   `);
 
   // An empty page past the end still needs the real total, which no row
@@ -282,18 +354,34 @@ export async function selectLeadBoard(
 }
 
 /**
- * Active leads per type (only types that have one) and the size of the trash,
- * for the transaction's own site: the site comes from the tenant context, so
- * the statement binds nothing and costs one round trip, not two.
+ * Active leads per type (only types that have one), how many nobody has
+ * opened, with `dueBy` how many have a follow-up due, and the size of the
+ * trash, for the transaction's own site: the site comes from the tenant
+ * context and the day travels as a validated literal, so the statement binds
+ * nothing and costs one round trip, not two.
  */
 export async function selectLeadSummary(
   tx: TenantTransaction,
+  dueBy?: string,
 ): Promise<{ types: LeadTypeCount[]; trash: number }> {
+  const followUpsDue = dueBy
+    ? sql`count(*) filter (
+        where l.deleted_at is null
+          and exists (
+            select 1 from app.lead_tasks due
+            where due.workspace_id = l.workspace_id
+              and due.lead_id = l.id
+              and due.status = 'open'
+              and due.due_at < ${dueCutoff(dueBy)}
+          )
+      )::int`
+    : sql.raw('null::int');
   const rows = await tx.execute<{
     [key: string]: unknown;
     leadType: string;
     active: number;
     unopened: number;
+    followUpsDue: number | null;
     trashed: number;
   }>(sql`
     select
@@ -309,6 +397,7 @@ export async function selectLeadSummary(
               and opened.data ->> 'event' = 'opened'
           )
       )::int as unopened,
+      ${followUpsDue} as "followUpsDue",
       count(*) filter (where l.deleted_at is not null)::int as trashed
     from app.leads l
     where l.workspace_id = ${contextWorkspaceId} and l.customer_data_restricted_at is null
@@ -322,6 +411,7 @@ export async function selectLeadSummary(
         leadType: leadTypeSchema.parse(row.leadType),
         total: row.active,
         unopened: row.unopened,
+        ...(row.followUpsDue === null ? {} : { followUpsDue: row.followUpsDue }),
       })),
     trash: rows.reduce((sum, row) => sum + row.trashed, 0),
   };
@@ -574,8 +664,10 @@ export async function selectTask(
 export interface TaskFilters {
   workspaceId: string;
   actorId: string;
-  assignee: LeadAssigneeFilter;
+  assignee: TaskAssigneeFilter;
   status: LeadTaskStatus;
+  /** Only tasks due on or before this calendar day (an undated task never is). */
+  dueBy?: string;
 }
 
 /** Tasks on the workspace's active leads, soonest due first (undated last), with each lead's summary. */
@@ -586,11 +678,14 @@ export async function selectWorkspaceTasks(
   pageSize: number,
 ): Promise<{ tasks: WorkspaceTask[]; total: number }> {
   const assignee =
-    filters.assignee === 'me'
-      ? sql`k.assigned_actor_id = ${filters.actorId}`
-      : filters.assignee === 'none'
-        ? sql`k.assigned_actor_id is null`
-        : sql`k.assigned_actor_id = ${filters.assignee}`;
+    filters.assignee === 'all'
+      ? sql`true`
+      : filters.assignee === 'me'
+        ? sql`k.assigned_actor_id = ${filters.actorId}`
+        : filters.assignee === 'none'
+          ? sql`k.assigned_actor_id is null`
+          : sql`k.assigned_actor_id = ${filters.assignee}`;
+  const due = filters.dueBy ? sql`k.due_at < ${dueCutoff(filters.dueBy)}` : sql`true`;
   const rows = await tx.execute<
     TaskRow & {
       total: number;
@@ -600,6 +695,7 @@ export async function selectWorkspaceTasks(
       email: string | null;
       phone: string | null;
       countryCode: string | null;
+      externalRef: string | null;
     }
   >(sql`
     select
@@ -610,12 +706,14 @@ export async function selectWorkspaceTasks(
       l.full_name as "fullName",
       l.email,
       l.phone,
-      l.country_code as "countryCode"
+      l.country_code as "countryCode",
+      l.external_ref as "externalRef"
     from app.lead_tasks k
     inner join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
     where k.workspace_id = ${filters.workspaceId}
       and k.status = ${filters.status}
       and ${assignee}
+      and ${due}
       and l.deleted_at is null
       and l.customer_data_restricted_at is null
     order by k.due_at asc nulls last, k.created_at asc, k.id
@@ -634,6 +732,7 @@ export async function selectWorkspaceTasks(
           phone: row.phone ?? undefined,
           countryCode: row.countryCode ?? undefined,
         }),
+        externalRef: row.externalRef,
       },
     })),
     total: rows[0]?.total ?? 0,

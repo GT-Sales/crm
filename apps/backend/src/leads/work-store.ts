@@ -20,6 +20,7 @@ import {
   type LeadForm,
   type LeadTask,
   type LeadTaskStatus,
+  type TaskAssigneeFilter,
   type LeadTypeCount,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
@@ -101,7 +102,8 @@ export interface UpdateTaskInput extends WriteScope {
 }
 
 export interface LeadWorkStore {
-  summary(input: Scope): Promise<{ types: LeadTypeCount[]; trash: number }>;
+  /** With `dueBy`, each type also counts its leads with a follow-up due by that day. */
+  summary(input: Scope & { dueBy?: string }): Promise<{ types: LeadTypeCount[]; trash: number }>;
   board(
     input: Scope & { leadType: string; assignee?: LeadAssigneeFilter; search?: string },
     perStage: number,
@@ -120,7 +122,7 @@ export interface LeadWorkStore {
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
   listTasks(
-    input: Scope & { assignee: LeadAssigneeFilter; status: LeadTaskStatus },
+    input: Scope & { assignee: TaskAssigneeFilter; status: LeadTaskStatus; dueBy?: string },
     page: number,
     pageSize: number,
   ): Promise<{ tasks: WorkspaceTask[]; total: number }>;
@@ -250,8 +252,8 @@ const defaultLeadDatabase: LeadDatabase = { withTenantTx };
 export class DatabaseLeadWorkStore implements LeadWorkStore {
   constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
 
-  summary(input: Scope) {
-    return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx));
+  summary(input: Scope & { dueBy?: string }) {
+    return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx, input.dueBy));
   }
 
   board(
@@ -634,7 +636,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   listTasks(
-    input: Scope & { assignee: LeadAssigneeFilter; status: LeadTaskStatus },
+    input: Scope & { assignee: TaskAssigneeFilter; status: LeadTaskStatus; dueBy?: string },
     page: number,
     pageSize: number,
   ) {
@@ -646,6 +648,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           actorId: input.actorId,
           assignee: input.assignee,
           status: input.status,
+          dueBy: input.dueBy,
         },
         page,
         pageSize,
