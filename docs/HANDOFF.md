@@ -482,15 +482,27 @@ tables).
 | `public.mobility_id_uploads` "anon can insert mobility id uploads"       | Stays until the ID step moves (§5.2).                                                                      |
 | `storage.objects` "anon can upload mobility ids" (bucket `mobility-ids`) | Stays until the ID step moves (§5.2).                                                                      |
 
-Verification query for the first two (zero rows = safe to drop):
+Verification for the first two. A matching `app.leads` id proves nothing on
+its own: the historical import copies direct inserts into the CRM too. A row
+came through the CRM only if intake audited its creation, so the check is the
+rows that did **not** (zero rows after the switch = safe to drop):
 
 ```sql
-select 'internet' as t, i.id from public.internet_leads i
-where i.created_at > '<switch time>' and not exists (select 1 from app.leads l where l.id = i.id)
+select 'internet' as t, i.id, i.created_at from public.internet_leads i
+where i.created_at > '<switch time>' and not exists (
+  select 1 from app.audit_events e
+  where e.entity_id = i.id and e.action = 'lead.created' and e.actor_label = 'website credential')
 union all
-select 'mobility', m.id from public.mobility_leads m
-where m.created_at > '<switch time>' and not exists (select 1 from app.leads l where l.id = m.id);
+select 'mobility', m.id, m.created_at from public.mobility_leads m
+where m.created_at > '<switch time>' and not exists (
+  select 1 from app.audit_events e
+  where e.entity_id = m.id and e.action = 'lead.created' and e.actor_label = 'website credential');
 ```
+
+`<switch time>` is the creation time of the first lead that did come through
+intake. The scheduled check-in (daily from 2026-10-27 21:00 UTC until
+2026-11-03) runs exactly this, refreshes the import while CanadaWide has not
+switched, and drops the two policies once it has.
 
 Then `drop policy "anon can submit leads" on public.internet_leads;` and
 `drop policy "anon can insert mobility leads" on public.mobility_leads;`, and
