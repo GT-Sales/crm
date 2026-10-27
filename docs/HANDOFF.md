@@ -471,9 +471,14 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
   - The lead page's **ID check** card lists them: a SIN masked, with Reveal
     for owners (shown for a minute, then masked again), a licence photo with
     Download (the usual `document.download` check).
-  - Next: CanadaWide's route calling the CRM behind its env switch, a
-    production smoke test with a test lead, and dropping the last two anon
-    policies.
+  - CanadaWide's `/api/mobility-applications` sends the ID to the CRM once
+    `CRM_ID_STEP=on` is set there as well (2026-10-27, its commit `2af30b7`):
+    a SIN as it is, a licence photo with the signed PUT and then its SHA-256,
+    one retry when the CRM is busy. Unset, it writes Supabase as before.
+  - Next, in order: migration 0006 in production; a production smoke test
+    with a test lead (SIN and licence, then clean up); the owner sets
+    `CRM_ID_STEP=on` on CanadaWide's Vercel project and redeploys; once real
+    IDs arrive, drop the last two anon policies.
 - **Documents on Supabase Storage** through the existing S3 adapter. Its first
   quirk is fixed: Supabase serves S3 under `/storage/v1/s3`, and SigV4 must
   sign that path too (the adapter signed only `/bucket/key`). The owner's
