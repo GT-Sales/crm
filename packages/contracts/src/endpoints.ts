@@ -39,6 +39,8 @@ import {
   getWorkspaceLeadResponseSchema,
   leadTaskResponseSchema,
   leadTrashResponseSchema,
+  queueCustomerEmailRequestSchema,
+  queueCustomerEmailResponseSchema,
   listWorkspaceTasksQuerySchema,
   markLeadOpenedResponseSchema,
   listWorkspaceTasksResponseSchema,
@@ -297,6 +299,17 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'staff',
     successStatus: 200,
     response: leadTrashResponseSchema,
+  },
+  {
+    operationId: 'queueLeadCustomerEmail',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/customer-emails',
+    summary:
+      "Queue a mail to the lead's customer from the site's own sender, such as a SIM order's number (lead management).",
+    auth: 'staff',
+    successStatus: 202,
+    request: queueCustomerEmailRequestSchema,
+    response: queueCustomerEmailResponseSchema,
   },
   {
     operationId: 'createLeadNote',

@@ -795,6 +795,86 @@ databaseTest('DatabaseLeadWorkStore', () => {
     ]);
   });
 
+  test('a mail to the customer waits in the outbox; its entry keeps no address or number', async () => {
+    // On the other site, beside the order-correction test's order.
+    const mailScope = { ...writeScope, workspaceId: OTHER_WORKSPACE };
+    const created = await leadStore.createLead({
+      ...mailScope,
+      leadType: 'sim_order',
+      externalRef: 'MS-777',
+      contact: { fullName: 'Mail Person', email: 'mail.person@example.test', phone: '000' },
+      form: {
+        schemaVersion: 1,
+        payload: { planId: '75gb-fido', delivery: 'esim', arrivalDate: '2026-11-09' },
+      },
+      consentVersion: 'ci-mail',
+      submit: true,
+    });
+    const leadId = created.lead.id;
+    const queue = (id = leadId) =>
+      work.queueCustomerEmail({
+        ...mailScope,
+        requestId: crypto.randomUUID(),
+        leadId: id,
+        template: 'sim_number_ready',
+        siteUrl: 'https://site.example',
+        contactHash: (email) => `hash:${email}`,
+      });
+
+    expect(await queue()).toEqual({ status: 'missing', missing: 'simNumber' });
+    await work.updateLead({ ...mailScope, leadId, form: { simNumber: '+1 778-555-0142' } });
+    expect(await queue()).toMatchObject({
+      status: 'queued',
+      activity: { kind: 'system', event: 'customer_emailed', template: 'sim_number_ready' },
+    });
+
+    const jobs = await admin<{ job_type: string; status: string; payload: unknown }[]>`
+      select job_type, status, payload from app.outbox_jobs
+      where workspace_id = ${OTHER_WORKSPACE} and payload ->> 'leadId' = ${leadId}
+    `;
+    expect(jobs).toEqual([
+      {
+        job_type: 'lead_sim_number_email',
+        status: 'pending',
+        payload: {
+          leadId,
+          toAddress: 'mail.person@example.test',
+          contactHash: 'hash:mail.person@example.test',
+          reference: 'MS-777',
+          variables: {
+            simNumber: '+1 778-555-0142',
+            firstName: 'Mail',
+            planLabel: '75GB · $35, Fido',
+            delivery: 'Instant eSIM (delivered by email)',
+            arrival: 'Monday, November 9, 2026',
+            trackUrl: 'https://site.example/track',
+          },
+        },
+      },
+    ]);
+    // Only the job holds the address and the number.
+    const stored = await admin<{ data: unknown; after: unknown }[]>`
+      select a.data, e.after
+      from app.lead_activities a, app.audit_events e
+      where a.lead_id = ${leadId} and a.kind = 'system' and a.data ->> 'event' = 'customer_emailed'
+        and e.entity_id = ${leadId} and e.action = 'lead.customer_emailed'
+    `;
+    expect(stored).toHaveLength(1);
+    expect(JSON.stringify(stored)).not.toContain('mail.person');
+    expect(JSON.stringify(stored)).not.toContain('778-555');
+    const page = await work.getLead({
+      workspaceId: OTHER_WORKSPACE,
+      actorId: ACTOR,
+      leadId,
+      includeWork: true,
+    });
+    expect(page?.activities[0]).toMatchObject({ event: 'customer_emailed' });
+
+    await work.setTrashed({ ...mailScope, leadId, trashed: true });
+    expect(await queue()).toEqual({ status: 'trashed' });
+    expect(await queue('53000000-0000-4000-8000-0000000000ef')).toEqual({ status: 'not_found' });
+  });
+
   test('another site cannot read or change these leads', async () => {
     const leadId = await createInternetLead({
       fullName: 'Isla Isolated',

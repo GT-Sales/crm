@@ -15,8 +15,9 @@ import {
 } from '@gt-sales/jobs';
 import { z } from 'zod';
 
+import { loadEmailSenders, type EmailSenders } from '../email/senders.js';
 import { DatabaseEmailStore } from '../email/store.js';
-import { loadMachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
 
 /**
  * The explicit opt-in for the in-memory analytics fake. There is deliberately
@@ -70,6 +71,25 @@ export function loadUmamiAnalyticsSink(
   });
 }
 
+/**
+ * The Resend account a site's mail is recorded against: the one its Resend
+ * webhook reports from, when it has one; otherwise, for a site with its own
+ * sender, the one configured account (its deliveries are then recorded
+ * without inbound events until a webhook is registered). Either way it must
+ * be `RESEND_ACCOUNT_ID`, or nothing sends.
+ */
+export function resendAccountForWorkspace(
+  env: NodeJS.ProcessEnv,
+  registry: Pick<MachineRegistry, 'resendForWorkspace'> | undefined,
+  senders: EmailSenders,
+  workspaceId: string,
+): string | undefined {
+  const account =
+    registry?.resendForWorkspace(workspaceId)?.providerAccount ??
+    (senders.forWorkspace(workspaceId) ? env.RESEND_ACCOUNT_ID : undefined);
+  return account && account === env.RESEND_ACCOUNT_ID ? account : undefined;
+}
+
 /** Fails an email job permanently until a real selected adapter is wired. */
 function unconfiguredEmailAdapter(): EmailAdapter {
   return {
@@ -113,6 +133,7 @@ export function createOutboxJobHandlers(
   env: NodeJS.ProcessEnv = process.env,
   eligibility: EmailEligibilityChecker = new DatabaseEmailStore(),
   deliveryOverride?: EmailDeliveryRecorder,
+  senders: EmailSenders = loadEmailSenders(env),
 ): JobHandlerRegistry {
   const explicitFake = env.OUTBOX_ADAPTERS === FAKE_OUTBOX_ADAPTERS_VALUE;
   const allowFakes = explicitFake && env.NODE_ENV !== 'production';
@@ -132,6 +153,7 @@ export function createOutboxJobHandlers(
         fromName: requireEnv(env, 'RESEND_FROM_NAME', 'resend'),
         replyToAddress: env.RESEND_REPLY_TO_EMAIL,
       },
+      senderForWorkspace: (workspaceId) => senders.forWorkspace(workspaceId),
     });
   } else {
     // No email provider selected: email jobs fail per-job, but analytics still works.
@@ -149,12 +171,9 @@ export function createOutboxJobHandlers(
             if (!provider) throw new JobHandlerError('provider_not_configured', false);
             const providerAccount =
               provider === 'resend'
-                ? registry?.resendForWorkspace(input.workspaceId)?.providerAccount
+                ? resendAccountForWorkspace(env, registry, senders, input.workspaceId)
                 : provider;
-            if (
-              !providerAccount ||
-              (provider === 'resend' && providerAccount !== env.RESEND_ACCOUNT_ID)
-            ) {
+            if (!providerAccount) {
               throw new JobHandlerError('email_account_not_configured', false);
             }
             await eligibility.prepareDelivery({ ...input, provider, providerAccount });

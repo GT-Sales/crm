@@ -11,11 +11,18 @@ import {
   type LeadContactEdit,
   type LeadTask,
   type UpdateWorkspaceLeadRequest,
+  type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 import { Button, Card, CardContent, Input, NativeSelect } from '@gt-sales/ui';
 import { ArrowLeftIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react';
 
-import { getStaffLead, markLeadOpened, setLeadTrashed, updateStaffLead } from '../../lib/api';
+import {
+  emailLeadCustomer,
+  getStaffLead,
+  markLeadOpened,
+  setLeadTrashed,
+  updateStaffLead,
+} from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
@@ -150,6 +157,9 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
       )
       .catch(() => undefined);
   }, [shouldMarkOpened, accessToken, workspaceId, leadId, mutate]);
+  // Get Canada Sim's "email the customer this number?" after a SIM number is saved.
+  const [simEmail, setSimEmail] = useState<'ask' | 'sending' | 'sent'>();
+  const [simEmailMessage, setSimEmailMessage] = useState<string>();
   const [editingContact, setEditingContact] = useState(false);
   const [editingForm, setEditingForm] = useState<'customer' | 'staff'>();
   const [message, setMessage] = useState<string>();
@@ -185,6 +195,12 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
   const definitions = leadFields(lead.leadType);
   const editableCustomer = definitions.filter((entry) => entry.editable && !entry.staffOnly);
   const editableStaff = definitions.filter((entry) => entry.editable && entry.staffOnly);
+  // A SIM order's number can be emailed to its customer once it is saved.
+  const offersSimEmail = kept.some((field) => field.key === 'simNumber');
+  const savedSimNumber =
+    typeof payload.simNumber === 'string' && payload.simNumber.trim() !== ''
+      ? payload.simNumber
+      : undefined;
   const attribution = Object.entries(lead.attribution).filter(
     ([key, value]) => value !== undefined && key !== 'partnerCodeMatched',
   );
@@ -197,8 +213,10 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
     }));
   }
 
-  async function update(body: UpdateWorkspaceLeadRequest) {
-    if (!accessToken || !workspaceId) return;
+  async function update(
+    body: UpdateWorkspaceLeadRequest,
+  ): Promise<UpdateWorkspaceLeadResponse | undefined> {
+    if (!accessToken || !workspaceId) return undefined;
     setSaving(true);
     setMessage(undefined);
     try {
@@ -210,10 +228,33 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
       }));
       setEditingContact(false);
       setEditingForm(undefined);
+      return result;
     } catch (error) {
       setMessage(`The change was not saved. Reason: ${errorReason(error)}.`);
+      return undefined;
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function emailSimNumber() {
+    if (!accessToken || !workspaceId) return;
+    setSimEmail('sending');
+    setSimEmailMessage(undefined);
+    try {
+      const result = await emailLeadCustomer(accessToken, workspaceId, leadId, 'sim_number_ready');
+      addActivities([result.activity]);
+      setSimEmail('sent');
+    } catch (error) {
+      const reason = errorReason(error);
+      setSimEmail(undefined);
+      setSimEmailMessage(
+        reason === 'conflict'
+          ? 'The order needs the customer’s email address and a SIM number first.'
+          : reason === 'feature_not_ready'
+            ? 'Emailing customers is not set up for this site yet.'
+            : `The email was not sent. Reason: ${reason}.`,
+      );
     }
   }
 
@@ -462,7 +503,14 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
                     fields={editableStaff}
                     payload={payload}
                     saving={saving}
-                    onSave={(form) => void update({ form })}
+                    onSave={(form) =>
+                      void update({ form }).then((result) => {
+                        const saved = result?.lead.form?.payload.simNumber;
+                        if ('simNumber' in form && typeof saved === 'string' && saved.trim()) {
+                          setSimEmail('ask');
+                        }
+                      })
+                    }
                     onCancel={() => setEditingForm(undefined)}
                   />
                 ) : (
@@ -474,6 +522,56 @@ export function LeadRecord({ workspaceSlug, leadId }: { workspaceSlug: string; l
                     ))}
                   </dl>
                 )}
+                {offersSimEmail && canWrite && savedSimNumber && editingForm !== 'staff' ? (
+                  access.emailCustomer ? (
+                    simEmail === 'ask' ? (
+                      <div
+                        role="group"
+                        aria-label="Email the customer this number?"
+                        className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+                      >
+                        <span className="mr-auto">Email the customer this number?</span>
+                        <Button type="button" size="sm" onClick={() => void emailSimNumber()}>
+                          Email the customer
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setSimEmail(undefined)}
+                        >
+                          Not now
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={simEmail === 'sending'}
+                          onClick={() => void emailSimNumber()}
+                        >
+                          {simEmail === 'sending' ? 'Sending…' : 'Email it to the customer'}
+                        </Button>
+                        {simEmail === 'sent' ? (
+                          <span role="status" className="text-muted-foreground">
+                            Queued: the customer gets it within a minute.
+                          </span>
+                        ) : null}
+                      </div>
+                    )
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Emailing the customer is not set up for this site yet.
+                    </p>
+                  )
+                ) : null}
+                {simEmailMessage ? (
+                  <p role="alert" className="text-sm text-rose-300">
+                    {simEmailMessage}
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}

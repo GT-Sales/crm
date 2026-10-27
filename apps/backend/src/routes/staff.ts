@@ -9,6 +9,7 @@ import {
   leadsSummaryQuerySchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceTasksQuerySchema,
+  queueCustomerEmailRequestSchema,
   resolveUncertainJobRequestSchema,
   reviewFileRequestSchema,
   updateLeadTaskRequestSchema,
@@ -36,6 +37,7 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { sensitiveFieldsKey } from '../crypto/cipher.js';
+import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import {
@@ -72,6 +74,8 @@ export interface StaffRouteDependencies {
   documentService?: Pick<DocumentService, 'review' | 'issueDownload'>;
   /** Opens a lead's sealed SIN for an owner; absent without `SENSITIVE_FIELDS_KEY`. */
   identityStore?: Pick<IdentityStore, 'revealSin'>;
+  /** Mail to a lead's customer; absent, no site can send. */
+  customerEmail?: CustomerEmail;
   /** Receives every unexpected handler failure; optional so tests can omit it. */
   errorTracker?: ErrorTracker;
 }
@@ -87,6 +91,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     jobStore: new DatabaseOutboxStore(),
     documentService: createDocumentServiceFromEnv(),
     identityStore: identityStoreFromEnv(),
+    customerEmail: customerEmailFromEnv(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -427,7 +432,12 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       }
       const store = leadWork(req, res);
       if (!store) return;
-      const access = leadAccessOf(decision.access);
+      const access = {
+        ...leadAccessOf(decision.access),
+        emailCustomer:
+          decideAccess(decision.access, 'lead.manage').allowed &&
+          (dependencies.customerEmail?.available(params.workspaceId) ?? false),
+      };
       // Form details, notes and tasks carry personal details as freely as
       // the contact fields do, so they travel only with contact visibility.
       const result = await store.getLead({
@@ -653,6 +663,58 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       res.status(201).json({ activity: outcome.activity, requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  // A mail to the lead's customer (a SIM order's number), queued for the
+  // outbox and sent from the site's own sender. Refused while the site cannot
+  // send, so staff learn it now rather than from a failed job.
+  router.post('/workspaces/:workspaceId/leads/:leadId/customer-emails', async (req, res) => {
+    const params = uuidParams(req, res, 'leadId');
+    if (!params) return;
+    const body = queueCustomerEmailRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, params.workspaceId, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const mail = dependencies.customerEmail;
+      if (!mail?.available(params.workspaceId)) {
+        sendDomainError(res, req.id, 'feature_not_ready', 409);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = await store.queueCustomerEmail({
+        workspaceId: params.workspaceId,
+        actorId: actor.actorId,
+        requestId: req.id,
+        leadId: params.id,
+        template: body.data.template,
+        siteUrl: mail.sender(params.workspaceId)?.siteUrl,
+        contactHash: (email) => mail.contactHash(email),
+      });
+      if (outcome.status === 'not_found') {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      if (outcome.status === 'trashed') {
+        sendDomainError(res, req.id, 'lead_trashed', 409);
+        return;
+      }
+      if (outcome.status === 'missing') {
+        sendDomainError(res, req.id, 'conflict', 409, { missing: outcome.missing });
+        return;
+      }
+      res.status(202).json({ activity: outcome.activity, requestId: req.id });
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);

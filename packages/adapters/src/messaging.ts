@@ -1,9 +1,11 @@
 import { z } from 'zod';
 
 /**
- * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email").
- * `abandoned_form_marketing` is the one marketing template; every other
- * template is transactional and is never gated on marketing opt-out.
+ * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
+ * plus `sim_number_ready`, Get Canada Sim's "your Canadian number is ready"
+ * mail to a SIM order's customer. `abandoned_form_marketing` is the one
+ * marketing template; every other template is transactional and is never
+ * gated on marketing opt-out.
  */
 export const emailTemplates = [
   'order_acknowledgement',
@@ -13,6 +15,7 @@ export const emailTemplates = [
   'order_dispatch',
   'order_activation',
   'abandoned_form_marketing',
+  'sim_number_ready',
 ] as const;
 export type EmailTemplate = (typeof emailTemplates)[number];
 
@@ -128,7 +131,7 @@ export class SesEmailAdapter implements EmailAdapter {
   async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
     const { SendEmailCommand } = await import('@aws-sdk/client-sesv2');
     const client = await this.getClient();
-    const { subject, text, html } = renderTemplate(message);
+    const { subject, text, html } = renderTemplate(message, this.config.sender.fromName);
     try {
       const result = await client.send(
         new SendEmailCommand({
@@ -178,7 +181,10 @@ export class ResendEmailAdapter implements EmailAdapter {
   constructor(
     private readonly config: {
       apiKey: string;
+      /** The deployment's own sender, for a site that has none of its own. */
       sender: SenderIdentity;
+      /** Each site's own sender (Get Canada Sim mails its customers as itself). */
+      senderForWorkspace?: (workspaceId: string) => SenderIdentity | undefined;
       apiUrl?: string;
       /** Upper bound per send; a timeout is an "uncertain" outcome, retried with the same idempotency key. */
       timeoutMs?: number;
@@ -189,7 +195,8 @@ export class ResendEmailAdapter implements EmailAdapter {
   }
 
   async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
-    const { subject, text, html } = renderTemplate(message);
+    const sender = this.config.senderForWorkspace?.(message.workspaceId) ?? this.config.sender;
+    const { subject, text, html } = renderTemplate(message, sender.fromName);
     try {
       const response = await fetch(`${this.config.apiUrl ?? 'https://api.resend.com'}/emails`, {
         method: 'POST',
@@ -201,8 +208,8 @@ export class ResendEmailAdapter implements EmailAdapter {
           'Idempotency-Key': `${message.workspaceId}/${message.messageId}`,
         },
         body: JSON.stringify({
-          from: `${this.config.sender.fromName} <${this.config.sender.fromAddress}>`,
-          reply_to: this.config.sender.replyToAddress,
+          from: `${sender.fromName} <${sender.fromAddress}>`,
+          reply_to: sender.replyToAddress,
           to: [message.toAddress],
           subject,
           text,
@@ -231,23 +238,118 @@ export class ResendEmailAdapter implements EmailAdapter {
 
 /**
  * Sender identification on every email (CASL s.6(2) requires it in each
- * commercial message; transactional mail carries it too). These are the
- * owner-confirmed details already published in the Terms.
+ * commercial message; transactional mail carries it too): the name of the
+ * site that sends it, as its From header shows.
  */
-const SENDER_FOOTER = '\n\nGT Sales';
-
-function renderTemplate(message: EmailMessage): { subject: string; text: string; html?: string } {
-  const rendered = renderTemplateBody(message);
-  return { ...rendered, text: rendered.text + SENDER_FOOTER };
+function renderTemplate(
+  message: EmailMessage,
+  senderName: string,
+): { subject: string; text: string; html?: string } {
+  const rendered = renderTemplateBody(message, senderName);
+  return { ...rendered, text: `${rendered.text}\n\n${senderName}` };
 }
 
-function renderTemplateBody(message: EmailMessage): {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Get Canada Sim's "your Canadian number is ready" mail, in its admin's own
+ * words: the number, the order's details, what it means before landing, and
+ * the way to the order page.
+ */
+function renderSimNumberReady(
+  message: EmailMessage,
+  senderName: string,
+): { subject: string; text: string; html: string } {
+  const variables = message.variables ?? {};
+  const ref = message.reference?.trim() || undefined;
+  const name = variables.firstName?.trim() || 'there';
+  const number = variables.simNumber?.trim() ?? '';
+  const trackUrl = variables.trackUrl?.trim() || undefined;
+  const rows: Array<[string, string]> = [];
+  if (ref) rows.push(['Order number', ref]);
+  if (variables.planLabel) rows.push(['Plan', variables.planLabel]);
+  if (variables.delivery) rows.push(['SIM type', variables.delivery]);
+  if (variables.arrival) rows.push(['Arrival in Canada', variables.arrival]);
+
+  const intro = `Good news: your Canadian number has been assigned${
+    ref ? ` to order ${ref}` : ''
+  }. Save it below, share it with family, and use it for any Canadian sign-up that needs a local number.`;
+  const meaning =
+    'This is the Canadian mobile number that belongs to your plan. The line activates up to 24 hours before your arrival date, so it will generally be working the moment you land. Until then, you can share the number, but calls and texts to it will not be delivered.';
+  const mismatch =
+    'If the number does not match what you were expecting, reply to this email straight away and our team will sort it. It is much easier to fix now than after you land.';
+
+  const text = [
+    `Your Canadian mobile number is ready, ${name}.`,
+    '',
+    intro,
+    '',
+    `Your Canadian number: ${number}`,
+    '',
+    ...rows.map(([label, value]) => `${label}: ${value}`),
+    '',
+    'What this means:',
+    meaning,
+    ...(trackUrl ? ['', `View your order: ${trackUrl}`] : []),
+    '',
+    mismatch,
+  ].join('\n');
+
+  const cell = 'padding:6px 0;font-size:14px;vertical-align:top;';
+  const html = [
+    '<div style="font-family:Arial,Helvetica,sans-serif;color:#15130f;max-width:560px;margin:0 auto;line-height:1.5;">',
+    `<h1 style="font-size:20px;margin:0 0 16px;">Your Canadian mobile number is ready, ${escapeHtml(name)}.</h1>`,
+    `<p style="margin:0 0 16px;">${escapeHtml(intro)}</p>`,
+    '<div style="background:#fbf7f2;border:1px solid #e8e1d8;border-radius:12px;padding:18px;text-align:center;margin:0 0 20px;">',
+    '<div style="font-size:12px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:#d72638;margin:0 0 6px;">Your Canadian number</div>',
+    `<div style="font-size:26px;font-weight:bold;letter-spacing:0.05em;font-family:Menlo,Consolas,monospace;">${escapeHtml(number)}</div>`,
+    '</div>',
+    rows.length > 0
+      ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 20px;">${rows
+          .map(
+            ([label, value]) =>
+              `<tr><td style="${cell}color:#6b6359;width:40%;">${escapeHtml(label)}</td><td style="${cell}">${escapeHtml(value)}</td></tr>`,
+          )
+          .join('')}</table>`
+      : '',
+    '<p style="margin:0 0 6px;font-weight:bold;">What this means</p>',
+    `<p style="margin:0 0 20px;">${escapeHtml(meaning)}</p>`,
+    trackUrl
+      ? `<p style="margin:0 0 20px;"><a href="${escapeHtml(trackUrl)}" style="background:#d72638;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;">View your order</a></p>`
+      : '',
+    `<p style="margin:0 0 20px;color:#6b6359;font-size:13px;">${escapeHtml(mismatch)}</p>`,
+    `<p style="margin:0;color:#9a9286;font-size:12px;">${escapeHtml(senderName)}</p>`,
+    '</div>',
+  ].join('');
+
+  return {
+    subject: ref
+      ? `Your Canadian mobile number is ready (${ref})`
+      : 'Your Canadian mobile number is ready',
+    text,
+    html,
+  };
+}
+
+function renderTemplateBody(
+  message: EmailMessage,
+  senderName: string,
+): {
   subject: string;
   text: string;
   html?: string;
 } {
   const ref = message.reference ?? message.variables?.reference ?? '';
   switch (message.template) {
+    case 'sim_number_ready':
+      return renderSimNumberReady(message, senderName);
     case 'tracking_otp':
       return {
         subject: `Your GT Sales tracking code`,

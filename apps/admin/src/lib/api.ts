@@ -12,6 +12,8 @@ import {
   type LeadTaskResponse,
   type LeadTrashResponse,
   type MarkLeadOpenedResponse,
+  type CustomerEmailTemplate,
+  type QueueCustomerEmailResponse,
   type ListWorkspaceTasksQuery,
   type ListWorkspaceTasksResponse,
   type UpdateLeadTaskRequest,
@@ -155,6 +157,16 @@ export async function updateStaffLead(
   body: UpdateWorkspaceLeadRequest,
 ): Promise<UpdateWorkspaceLeadResponse> {
   return client(accessToken).staff.updateLead(workspaceId, leadId, body);
+}
+
+/** Queues a mail to the lead's customer (a SIM order's number), sent within a minute. */
+export async function emailLeadCustomer(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  template: CustomerEmailTemplate,
+): Promise<QueueCustomerEmailResponse> {
+  return client(accessToken).staff.emailLeadCustomer(workspaceId, leadId, { template });
 }
 
 /** Clears the lead's "New" badge for the team; idempotent. */

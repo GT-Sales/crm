@@ -4,6 +4,7 @@ import {
   leadActivities,
   leads,
   leadTasks,
+  outboxJobs,
   withTenantTx,
   type DatabaseClient,
   type TenantTransaction,
@@ -12,6 +13,7 @@ import {
   applyLeadFormEdit,
   isLeadStage,
   leadFormSchema,
+  type CustomerEmailTemplate,
   type LeadActivity,
   type LeadAssigneeFilter,
   type LeadBoardColumn,
@@ -25,6 +27,7 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 
+import { draftCustomerEmail } from '../email/customer-emails.js';
 import {
   iso,
   selectLeadBoard,
@@ -73,6 +76,21 @@ export type TrashLeadOutcome =
 export type NoteOutcome =
   { status: 'created'; activity: LeadActivity } | { status: 'not_found' } | { status: 'trashed' };
 
+export type CustomerEmailOutcome =
+  | { status: 'queued'; activity: LeadActivity }
+  | { status: 'not_found' }
+  | { status: 'trashed' }
+  | { status: 'missing'; missing: 'email' | 'simNumber' };
+
+export interface QueueCustomerEmailInput extends WriteScope {
+  leadId: string;
+  template: CustomerEmailTemplate;
+  /** The site's public address, for the mail's link back to it. */
+  siteUrl?: string;
+  /** The keyed digest of the address, for suppression and delivery records. */
+  contactHash(email: string): string;
+}
+
 export type TaskOutcome =
   { status: 'saved'; task: LeadTask } | { status: 'not_found' | 'trashed' | 'assignee_not_found' };
 
@@ -119,6 +137,8 @@ export interface LeadWorkStore {
     input: WriteScope & { leadId: string },
   ): Promise<{ status: 'opened'; activity: LeadActivity | null } | { status: 'not_found' }>;
   addNote(input: WriteScope & { leadId: string; body: string }): Promise<NoteOutcome>;
+  /** Queues a mail to the lead's customer in the outbox, with its timeline entry. */
+  queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome>;
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
   listTasks(
@@ -138,6 +158,7 @@ interface LockedLead {
   email: string | null;
   phone: string | null;
   countryCode: string | null;
+  externalRef: string | null;
   trashed: boolean;
   payload: unknown;
 }
@@ -164,6 +185,7 @@ async function lockLead(
       l.email,
       l.phone,
       l.country_code as "countryCode",
+      l.external_ref as "externalRef",
       l.deleted_at is not null as trashed,
       l.payload
     from app.leads l
@@ -476,6 +498,70 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         lead: await requireDetail(tx, input.workspaceId, input.leadId),
         activity: activity ?? null,
       };
+    });
+  }
+
+  queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome> {
+    return this.database.withTenantTx(input, async (tx) => {
+      const lead = await lockLead(tx, input.workspaceId, input.leadId);
+      if (!lead) return { status: 'not_found' };
+      if (lead.trashed) return { status: 'trashed' };
+      const draft = draftCustomerEmail(
+        input.template,
+        { ...lead, form: storedForm(lead.payload).payload },
+        { siteUrl: input.siteUrl },
+      );
+      if (!draft.ok) return { status: 'missing', missing: draft.missing };
+
+      // Sent by the outbox, after this commits; the address and the mail's
+      // contents live only in the job, never on the timeline or in the audit.
+      const [job] = await tx
+        .insert(outboxJobs)
+        .values({
+          workspaceId: input.workspaceId,
+          jobType: draft.jobType,
+          // One mail per request: sending again is a second, deliberate mail.
+          dedupeKey: `${input.leadId}:${input.requestId}`,
+          payload: {
+            leadId: input.leadId,
+            toAddress: draft.toAddress,
+            contactHash: input.contactHash(draft.toAddress),
+            ...(draft.reference ? { reference: draft.reference } : {}),
+            variables: draft.variables,
+          },
+        })
+        .returning({ id: outboxJobs.id });
+      if (!job) throw new Error('outbox insert did not return a row');
+      const [entry] = await tx
+        .insert(leadActivities)
+        .values({
+          workspaceId: input.workspaceId,
+          leadId: input.leadId,
+          actorId: input.actorId,
+          kind: 'system',
+          data: { event: 'customer_emailed', template: input.template },
+        })
+        .returning(ACTIVITY_RETURNING);
+      if (!entry) throw new Error('activity insert did not return a row');
+      // Writing to the customer is work on the lead: it moves up the inbox.
+      await tx
+        .update(leads)
+        .set({ updatedAt: new Date() })
+        .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
+      await tx.insert(auditEvents).values({
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        actorLabel: 'staff actor',
+        action: 'lead.customer_emailed',
+        entity: 'lead',
+        entityId: input.leadId,
+        requestId: input.requestId,
+        after: { template: input.template, jobId: job.id },
+      });
+
+      const [activity] = insertedActivities([entry]);
+      if (!activity) throw new Error('email entry did not map');
+      return { status: 'queued', activity };
     });
   }
 

@@ -45,6 +45,14 @@ const activityBase = {
  * values, so the history holds no personal data a later erasure would have to
  * rewrite.
  */
+/**
+ * The mails staff can send a lead's customer from its page:
+ * `sim_number_ready`, a SIM order's Canadian number (Get Canada Sim's
+ * "email the customer this number?").
+ */
+export const customerEmailTemplateSchema = z.enum(['sim_number_ready']);
+export type CustomerEmailTemplate = z.infer<typeof customerEmailTemplateSchema>;
+
 export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({ ...activityBase, kind: z.literal('note'), body: z.string().min(1).max(4000) }),
   z.object({
@@ -70,8 +78,13 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({
     ...activityBase,
     kind: z.literal('system'),
-    /** `opened`: the first time someone who works leads opened it (the "New" badge goes). */
-    event: z.enum(['trashed', 'restored', 'opened', 'unknown']),
+    /**
+     * `opened`: the first time someone who works leads opened it (the "New"
+     * badge goes); `customer_emailed`: staff queued `template` to the
+     * customer (the address and the mail's contents are not kept here).
+     */
+    event: z.enum(['trashed', 'restored', 'opened', 'customer_emailed', 'unknown']),
+    template: customerEmailTemplateSchema.optional(),
   }),
 ]);
 export type LeadActivity = z.infer<typeof leadActivitySchema>;
@@ -240,6 +253,24 @@ export const leadTrashResponseSchema = z.object({
   requestId: requestIdSchema,
 });
 export type LeadTrashResponse = z.infer<typeof leadTrashResponseSchema>;
+
+/**
+ * `POST /workspaces/:id/leads/:leadId/customer-emails` — queue a mail to the
+ * lead's customer, sent by the outbox from the site's own sender within a
+ * minute. Refused while the site cannot send (`feature_not_ready`) and when
+ * the lead lacks what the mail needs (`conflict`, `details.missing` naming
+ * the field: `email`, `simNumber`). `activity` is its timeline entry.
+ */
+export const queueCustomerEmailRequestSchema = z
+  .object({ template: customerEmailTemplateSchema })
+  .strict();
+export type QueueCustomerEmailRequest = z.infer<typeof queueCustomerEmailRequestSchema>;
+
+export const queueCustomerEmailResponseSchema = z.object({
+  activity: leadActivitySchema,
+  requestId: requestIdSchema,
+});
+export type QueueCustomerEmailResponse = z.infer<typeof queueCustomerEmailResponseSchema>;
 
 /**
  * `POST /workspaces/:id/leads/:leadId/opened` — the lead page tells the

@@ -8,6 +8,7 @@ export const outboxJobTypes = [
   'order_dispatch_email',
   'order_activation_email',
   'abandoned_form_marketing_email',
+  'lead_sim_number_email',
   'analytics_order_submitted',
   'analytics_lead_saved',
 ] as const;
@@ -20,6 +21,7 @@ const emailJobTypeToTemplate: Record<string, EmailTemplate> = {
   order_dispatch_email: 'order_dispatch',
   order_activation_email: 'order_activation',
   abandoned_form_marketing_email: 'abandoned_form_marketing',
+  lead_sim_number_email: 'sim_number_ready',
 };
 
 /**
@@ -185,6 +187,21 @@ const orderEmailPayloadSchema = z
   })
   .strict();
 
+/**
+ * A transactional mail about one lead (a SIM order's number): its address,
+ * the contact hash suppression is checked by, the website's own number for
+ * it and the template's small variables, fixed when staff queued it.
+ */
+const leadEmailPayloadSchema = z
+  .object({
+    leadId: z.uuid(),
+    reference: z.string().min(1).max(128).optional(),
+    toAddress: z.string().email(),
+    contactHash: z.string().min(1),
+    variables: z.record(z.string(), z.string().max(500)).optional(),
+  })
+  .strict();
+
 const marketingPayloadSchema = z
   .object({
     leadId: z.uuid(),
@@ -268,6 +285,59 @@ function transactionalEmailHandler(
   };
 }
 
+/** A lead's transactional mail: suppression checked, the send recorded, then sent. */
+function leadEmailHandler(
+  email: EmailAdapter,
+  eligibility: EmailEligibilityChecker,
+  delivery?: EmailDeliveryRecorder,
+): JobHandler {
+  return async (job) => {
+    if (job.payloadVersion !== 1) throw new JobHandlerError('unsupported_payload_version', false);
+    const template = emailJobTypeToTemplate[job.jobType];
+    const parsed = leadEmailPayloadSchema.safeParse(job.payload);
+    if (!parsed.success || !template) throw new JobHandlerError('invalid_job_payload', false);
+    const check = await eligibility.checkTransactional({
+      workspaceId: job.workspaceId,
+      actorId: emailActor(job),
+      contactHash: parsed.data.contactHash,
+      leadId: parsed.data.leadId,
+    });
+    if (!check.eligible) {
+      return {
+        status: 'completed',
+        providerId: `skipped:${safeErrorCode(check.reason ?? 'suppressed', 'suppressed')}`,
+      };
+    }
+    await delivery?.prepare({
+      workspaceId: job.workspaceId,
+      actorId: emailActor(job),
+      messageId: job.messageId,
+      template,
+      messageClass: 'transactional',
+      contactHash: parsed.data.contactHash,
+      leadId: parsed.data.leadId,
+    });
+    const result = await email.send({
+      workspaceId: job.workspaceId,
+      messageId: job.messageId,
+      template,
+      toAddress: parsed.data.toAddress,
+      leadId: parsed.data.leadId,
+      reference: parsed.data.reference,
+      variables: parsed.data.variables,
+    });
+    await delivery?.recordResult({
+      workspaceId: job.workspaceId,
+      actorId: emailActor(job),
+      messageId: job.messageId,
+      result,
+    });
+    return result.status === 'delivered'
+      ? { status: 'completed', providerId: result.providerId }
+      : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+  };
+}
+
 /**
  * The complete handler registry (T15 + T18 + T20). Email jobs consult
  * suppression/consent eligibility before sending; analytics conversions are
@@ -320,6 +390,10 @@ export function createJobHandlerRegistry(dependencies: {
         dependencies.eligibility,
         dependencies.delivery,
       ),
+    ],
+    [
+      'lead_sim_number_email',
+      leadEmailHandler(dependencies.email, dependencies.eligibility, dependencies.delivery),
     ],
     [
       'abandoned_form_marketing_email',

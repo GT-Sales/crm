@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   revealLeadIdentity: vi.fn(),
   createFileDownloadLink: vi.fn(),
   markLeadOpened: vi.fn(),
+  emailLeadCustomer: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -456,6 +457,85 @@ describe('LeadRecord order details', () => {
       }),
     );
     expect(await screen.findByText('4165550104')).toBeTruthy();
+  });
+
+  it('asks to email the customer a newly saved SIM number, and sends it on yes', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: order, access: { contacts: true, manage: true, emailCustomer: true } }),
+    );
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: {
+        ...order,
+        form: { schemaVersion: 1, payload: { ...orderPayload, simNumber: '4165550104' } },
+      },
+      activities: [],
+      requestId: NOW,
+    });
+    mocks.emailLeadCustomer.mockResolvedValue({
+      activity: {
+        id: '92000000-0000-4000-8000-000000000010',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'system',
+        event: 'customer_emailed',
+        template: 'sim_number_ready',
+      },
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const staff = (await screen.findByRole('heading', { name: 'Staff details' })).closest('div');
+    fireEvent.click(within(staff!).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('SIM number'), { target: { value: '4165550104' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const ask = await screen.findByRole('group', { name: 'Email the customer this number?' });
+    fireEvent.click(within(ask).getByRole('button', { name: 'Email the customer' }));
+    await waitFor(() =>
+      expect(mocks.emailLeadCustomer).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        LEAD,
+        'sim_number_ready',
+      ),
+    );
+    expect((await screen.findByRole('status')).textContent).toContain('within a minute');
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(within(timeline).getByText('emailed the customer their SIM number')).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Email the customer this number?' })).toBeNull();
+  });
+
+  it('lets staff decline, resend later, and hear why a mail could not go', async () => {
+    const withNumber = {
+      ...order,
+      form: { schemaVersion: 1 as const, payload: { ...orderPayload, simNumber: '4165550104' } },
+    };
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: withNumber, access: { contacts: true, manage: true, emailCustomer: true } }),
+    );
+    const { BackendError } = await import('../../lib/api');
+    mocks.emailLeadCustomer.mockRejectedValue(new BackendError('conflict', 409, NOW));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Email it to the customer' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'The order needs the customer’s email address and a SIM number first.',
+    );
+  });
+
+  it('says when this site cannot email its customers yet', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        lead: {
+          ...order,
+          form: { schemaVersion: 1, payload: { ...orderPayload, simNumber: '4165550104' } },
+        },
+        access: { contacts: true, manage: true, emailCustomer: false },
+      }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    expect(
+      await screen.findByText('Emailing the customer is not set up for this site yet.'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Email it to the customer' })).toBeNull();
   });
 
   it('offers no edits to someone who may only read', async () => {

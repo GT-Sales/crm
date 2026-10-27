@@ -11,6 +11,7 @@ import {
   listWorkspaceLeadsResponseSchema,
   markLeadOpenedResponseSchema,
   listWorkspaceTasksResponseSchema,
+  queueCustomerEmailResponseSchema,
   updateStaffProfileResponseSchema,
   updateWorkspaceLeadResponseSchema,
   type LeadActivity,
@@ -207,6 +208,17 @@ function memoryWorkStore() {
       },
     })),
     addNote: vi.fn<LeadWorkStore['addNote']>(async () => ({ status: 'created', activity: note })),
+    queueCustomerEmail: vi.fn<LeadWorkStore['queueCustomerEmail']>(async () => ({
+      status: 'queued',
+      activity: {
+        id: '92000000-0000-4000-8000-000000000e05',
+        actorId: ACTOR,
+        createdAt: NOW,
+        kind: 'system',
+        event: 'customer_emailed',
+        template: 'sim_number_ready',
+      },
+    })),
     createTask: vi.fn<LeadWorkStore['createTask']>(async () => ({ status: 'saved', task })),
     updateTask: vi.fn<LeadWorkStore['updateTask']>(async () => ({ status: 'saved', task })),
     listTasks: vi.fn<LeadWorkStore['listTasks']>(async () => ({
@@ -231,11 +243,14 @@ let baseUrl: string;
 let store: MemoryStaffStore;
 let leadStore: MemoryLeadStore;
 let work: ReturnType<typeof memoryWorkStore>;
+// Whether this site can send mail to its customers right now.
+let mailReady: boolean;
 
 beforeEach(async () => {
   store = new MemoryStaffStore();
   leadStore = new MemoryLeadStore();
   work = memoryWorkStore();
+  mailReady = true;
   server = createApp({
     staff: {
       sessionVerifier: new TokenVerifier(),
@@ -243,6 +258,15 @@ beforeEach(async () => {
       credentialStore: noopCredentialStore,
       leadStore,
       leadWorkStore: work,
+      customerEmail: {
+        available: (workspaceId) => mailReady && workspaceId === WORKSPACE,
+        sender: () => ({
+          fromAddress: 'order@site.example',
+          fromName: 'The Site',
+          siteUrl: 'https://site.example',
+        }),
+        contactHash: (email) => `hash:${email}`,
+      },
     },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -340,8 +364,68 @@ describe('staff lead work routes', () => {
     expect(body.tasks).toEqual([]);
     expect(body.related).toEqual([]);
     expect(body.identities).toEqual([]);
-    expect(body.access).toEqual({ contacts: false, manage: false, revealSensitive: false });
+    expect(body.access).toEqual({
+      contacts: false,
+      manage: false,
+      revealSensitive: false,
+      emailCustomer: false,
+    });
     expect(work.getLead).toHaveBeenCalledWith(expect.objectContaining({ includeWork: false }));
+  });
+
+  it('offers to email the customer only to those who work leads, while the site can send', async () => {
+    const access = async () =>
+      getWorkspaceLeadResponseSchema.parse(await (await call(`${leadsUrl()}/${LEAD}`)).json())
+        .access.emailCustomer;
+    expect(await access()).toBe(true);
+    mailReady = false;
+    expect(await access()).toBe(false);
+  });
+
+  it('queues a mail to the customer, and says plainly why it cannot', async () => {
+    const send = (body: unknown = { template: 'sim_number_ready' }) =>
+      call(`${leadsUrl()}/${LEAD}/customer-emails`, { method: 'POST', body });
+
+    const queued = await send();
+    expect(queued.status).toBe(202);
+    expect(queueCustomerEmailResponseSchema.parse(await queued.json()).activity).toMatchObject({
+      kind: 'system',
+      event: 'customer_emailed',
+      template: 'sim_number_ready',
+    });
+    const [input] = work.queueCustomerEmail.mock.calls[0] ?? [];
+    expect(input).toMatchObject({
+      workspaceId: WORKSPACE,
+      leadId: LEAD,
+      template: 'sim_number_ready',
+      siteUrl: 'https://site.example',
+    });
+    expect(input?.contactHash('a@example.test')).toBe('hash:a@example.test');
+
+    expect((await send({ template: 'something_else' })).status).toBe(400);
+
+    work.queueCustomerEmail.mockResolvedValueOnce({ status: 'missing', missing: 'simNumber' });
+    const missing = await send();
+    expect(missing.status).toBe(409);
+    expect(await errorCode(missing)).toMatchObject({
+      code: 'conflict',
+      details: { missing: 'simNumber' },
+    });
+
+    work.queueCustomerEmail.mockResolvedValueOnce({ status: 'trashed' });
+    expect((await errorCode(await send())).code).toBe('lead_trashed');
+    work.queueCustomerEmail.mockResolvedValueOnce({ status: 'not_found' });
+    expect((await send()).status).toBe(404);
+
+    // The site cannot send: refused before anything is queued.
+    const calls = work.queueCustomerEmail.mock.calls.length;
+    mailReady = false;
+    const notReady = await send();
+    expect(notReady.status).toBe(409);
+    expect((await errorCode(notReady)).code).toBe('feature_not_ready');
+    store.access = { ...store.access, roles: ['viewer'] };
+    expect((await send()).status).toBe(403);
+    expect(work.queueCustomerEmail.mock.calls.length).toBe(calls);
   });
 
   it('shows a lead worker everything, and 404s an unknown lead', async () => {

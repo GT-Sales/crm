@@ -69,6 +69,8 @@ export const leadAccessSchema = z.object({
   manage: z.boolean(),
   /** May open a sealed identity number (a SIN): owners only. Absent means no. */
   revealSensitive: z.boolean().optional(),
+  /** May email the lead's customer (works leads, and the site can send mail). Absent means no. */
+  emailCustomer: z.boolean().optional(),
 });
 export type LeadAccess = z.infer<typeof leadAccessSchema>;
 

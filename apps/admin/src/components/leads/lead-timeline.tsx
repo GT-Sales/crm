@@ -13,6 +13,7 @@ import {
   ArrowRightIcon,
   EyeIcon,
   InboxIcon,
+  MailIcon,
   PencilIcon,
   RotateCcwIcon,
   StickyNoteIcon,
@@ -78,6 +79,15 @@ function describe(
         return { icon: <Trash2Icon />, text: 'moved this to the trash' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
+      if (activity.event === 'customer_emailed') {
+        return {
+          icon: <MailIcon />,
+          text:
+            activity.template === 'sim_number_ready'
+              ? 'emailed the customer their SIM number'
+              : 'emailed the customer',
+        };
+      }
       return { icon: <InboxIcon />, text: 'recorded a change' };
   }
 }
