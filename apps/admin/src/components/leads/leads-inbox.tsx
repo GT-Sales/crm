@@ -236,7 +236,10 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     if (!isValidLeadPropertyFilter(candidate, query.type)) return;
     const current = latestQuery.current.where ?? [];
     if (current.length >= 10) return;
-    update({ where: [...current, candidate] });
+    const next = [...current, candidate];
+    // The backend reads `where` as a JSON string of at most 2000 characters.
+    if (JSON.stringify(next).length > 2000) return;
+    update({ where: next });
     setFilterOpen(false);
   }
 

@@ -338,12 +338,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       }
       const access = leadAccessOf(decision.access);
       const parsedSort = query.data.sort ? parseLeadSort(query.data.sort) : undefined;
-      // Searching, filtering, sorting by a property or requesting property columns reveals form/contact details.
+      // Searching, filtering, sorting by name or a property, or requesting
+      // property columns reveals contact or form details these roles never see.
       if (
         !access.contacts &&
         (query.data.q !== undefined ||
           query.data.where !== undefined ||
           query.data.columns !== undefined ||
+          parsedSort?.field === 'fullName' ||
           parsedSort?.propertyKey !== undefined)
       ) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
   leadStageLabel,
+  leadTypeEntry,
   type AssignableMember,
   type LeadBoardColumn,
   type LeadListItem,
@@ -22,6 +23,7 @@ import {
   ArrowLeftIcon,
   ArrowLeftToLineIcon,
   ArrowRightIcon,
+  ArrowRightLeftIcon,
   ArrowRightToLineIcon,
   EllipsisIcon,
   EyeIcon,
@@ -132,8 +134,10 @@ function moveCard(columns: LeadBoardColumn[], move: Move, replacement?: LeadList
 
 /**
  * The inbox as a board for one lead type: a column per stage, newest first.
- * Staff who manage leads drag a card to another column; the move shows at once
- * and is undone if the backend refuses it.
+ * Staff who manage leads drag a card to another column, or use its "Move to"
+ * menu (the keyboard and touch path); the move shows at once and is undone
+ * if the backend refuses it. Column order, collapsed and hidden columns and
+ * the card fields shown are personal view preferences kept in this browser.
  */
 export function LeadsBoard({
   workspaceSlug,
@@ -227,6 +231,7 @@ export function LeadsBoard({
     );
   }
   const canMove = board.data?.access.manage ?? false;
+  const stages = leadTypeEntry(query.type)?.stages ?? [];
 
   async function move(next: Move) {
     if (next.from === next.to) return;
@@ -509,6 +514,47 @@ export function LeadsBoard({
                               {leadDisplayName(lead.contact)}
                             </Link>
                             {lead.isNew ? <NewBadge className="mt-0.5" /> : null}
+                            {canMove ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="-mt-1 -mr-1 size-7 shrink-0 text-muted-foreground"
+                                    aria-label={`Move ${leadDisplayName(lead.contact)} to another stage`}
+                                  >
+                                    <ArrowRightLeftIcon className="size-3.5" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                                  {stages
+                                    .filter((entry) => entry.key !== lead.stage)
+                                    .map((entry) => (
+                                      <DropdownMenuItem
+                                        key={entry.key}
+                                        onSelect={() =>
+                                          void move({
+                                            leadId: lead.id,
+                                            from: lead.stage,
+                                            to: entry.key,
+                                          })
+                                        }
+                                      >
+                                        <span
+                                          aria-hidden="true"
+                                          className={cn(
+                                            'size-2 rounded-full',
+                                            stageDotClass(entry.key),
+                                          )}
+                                        />
+                                        {entry.label}
+                                      </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : null}
                           </div>
                           {!hiddenFields.includes('contact') &&
                           (lead.contact.phone ?? lead.contact.email) ? (

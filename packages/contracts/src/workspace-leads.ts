@@ -19,8 +19,8 @@ import {
  * Staff lead visibility — `GET /workspaces/:id/leads` and the board. Caller:
  * staff session with `workspace.read` (every role); contact details are
  * included only for roles that work leads or money, and only those roles may
- * search, filter by properties, sort by a property or request property columns,
- * since those reveal form details. Leads are created and updated by the website
+ * search, filter by properties, sort by name or a property, or request property
+ * columns, since those reveal contact or form details. Leads are created and updated by the website
  * flow in `leads.ts`; staff work them through `lead-work.ts`.
  */
 

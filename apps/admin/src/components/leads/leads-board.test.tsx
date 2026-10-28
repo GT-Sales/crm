@@ -130,6 +130,28 @@ describe('LeadsBoard', () => {
     });
   });
 
+  it('moves a card through its "Move to" menu, the keyboard and touch path', async () => {
+    mocks.getLeadBoard.mockResolvedValue(board(true));
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...card, stage: 'won', form: null },
+      activities: [],
+      requestId: NOW,
+    });
+    renderBoard();
+    fireEvent.pointerDown(
+      await screen.findByRole('button', { name: 'Move Avery Example to another stage' }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Won' }));
+
+    await waitFor(() =>
+      expect(within(column(/^Won, 5 leads$/)).getByText('Avery Example')).toBeTruthy(),
+    );
+    expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, card.id, {
+      stage: 'won',
+    });
+  });
+
   it('puts the card back and says why when the backend refuses', async () => {
     mocks.getLeadBoard.mockResolvedValue(board(true));
     const { BackendError } = await import('../../lib/api');

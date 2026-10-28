@@ -415,7 +415,12 @@ describe('staff lead work routes', () => {
       JSON.stringify([{ key: 'city', op: 'eq', value: 'Calgary' }]),
     );
 
-    for (const deniedQuery of [`where=${whereParam}`, 'sort=prop.city:asc', 'columns=city']) {
+    for (const deniedQuery of [
+      `where=${whereParam}`,
+      'sort=prop.city:asc',
+      'sort=fullName:asc',
+      'columns=city',
+    ]) {
       const res = await call(`${leadsUrl()}?${deniedQuery}`);
       expect(res.status).toBe(403);
       expect((await errorCode(res)).code).toBe('permission_denied');
@@ -425,6 +430,11 @@ describe('staff lead work routes', () => {
     expect(deniedBoard.status).toBe(403);
     expect((await errorCode(deniedBoard)).code).toBe('permission_denied');
     expect(leadStore.listCalls).toHaveLength(0);
+
+    const allowedRef = await call(`${leadsUrl()}?sort=externalRef:desc`);
+    expect(allowedRef.status).toBe(200);
+    expect(leadStore.listCalls[0]).toMatchObject({ sort: 'externalRef:desc' });
+    leadStore.listCalls.length = 0;
 
     const allowed = await call(`${leadsUrl()}?sort=createdAt:asc`);
     expect(allowed.status).toBe(200);
