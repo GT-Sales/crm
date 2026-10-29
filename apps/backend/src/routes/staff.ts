@@ -375,6 +375,22 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
+      const access = leadAccessOf(decision.access);
+      const parsedSort = query.data.sort ? parseLeadSort(query.data.sort) : undefined;
+      // Searching, filtering, sorting by name or a property, or requesting
+      // property columns reveals contact or form details these roles never see,
+      // whatever the keys: refused before the catalogue is read.
+      if (
+        !access.contacts &&
+        (query.data.q !== undefined ||
+          query.data.where !== undefined ||
+          query.data.columns !== undefined ||
+          parsedSort?.field === 'fullName' ||
+          parsedSort?.propertyKey !== undefined)
+      ) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
       // Filters, sort and columns name the site's properties, as it defines them now.
       const catalog = await siteCatalog(req, workspaceId.data, actor.actorId);
       if (
@@ -386,21 +402,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           !areValidLeadColumns(query.data.columns, query.data.type, catalog))
       ) {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
-        return;
-      }
-      const access = leadAccessOf(decision.access);
-      const parsedSort = query.data.sort ? parseLeadSort(query.data.sort) : undefined;
-      // Searching, filtering, sorting by name or a property, or requesting
-      // property columns reveals contact or form details these roles never see.
-      if (
-        !access.contacts &&
-        (query.data.q !== undefined ||
-          query.data.where !== undefined ||
-          query.data.columns !== undefined ||
-          parsedSort?.field === 'fullName' ||
-          parsedSort?.propertyKey !== undefined)
-      ) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
 
@@ -504,17 +505,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
+      const access = leadAccessOf(decision.access);
+      if (!access.contacts && (query.data.q !== undefined || query.data.where !== undefined)) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
       const catalog = await siteCatalog(req, workspaceId.data, actor.actorId);
       if (
         query.data.where !== undefined &&
         !areValidLeadPropertyFilters(query.data.where, query.data.type, catalog)
       ) {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
-        return;
-      }
-      const access = leadAccessOf(decision.access);
-      if (!access.contacts && (query.data.q !== undefined || query.data.where !== undefined)) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
       const store = leadWork(req, res);

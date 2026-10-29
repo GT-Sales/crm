@@ -517,6 +517,26 @@ describe('staff lead work routes', () => {
     expect(work.board.mock.calls[0]?.[0].catalog).toBe(properties.current);
   });
 
+  it('refuses property queries to a role without contact access before any catalogue read', async () => {
+    store.access = { ...store.access, roles: ['viewer'] };
+    const unknownWhere = encodeURIComponent(
+      JSON.stringify([{ key: 'custom_unknown', op: 'eq', value: 'x' }]),
+    );
+    for (const url of [
+      `${leadsUrl()}?columns=custom_unknown`,
+      `${leadsUrl()}?where=${unknownWhere}`,
+      `${leadsUrl()}?sort=prop.custom_unknown:asc`,
+      `${leadsUrl()}/board?type=internet&where=${unknownWhere}`,
+    ]) {
+      const response = await call(url);
+      expect(response.status).toBe(403);
+      expect((await errorCode(response)).code).toBe('permission_denied');
+    }
+    expect(properties.catalog).not.toHaveBeenCalled();
+    expect(leadStore.listCalls).toHaveLength(0);
+    expect(work.board).not.toHaveBeenCalled();
+  });
+
   it('loads the site catalogue once per request for the list, board, detail and edit', async () => {
     const catalog = buildPropertyCatalog([propertyRow({ key: 'custom_ref' })]);
     properties.current = catalog;
