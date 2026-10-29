@@ -147,7 +147,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -331,7 +337,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -480,7 +492,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -692,7 +710,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -847,7 +871,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1039,7 +1069,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1230,7 +1266,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1416,7 +1458,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1595,7 +1643,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1774,7 +1828,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2208,7 +2268,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2407,7 +2473,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2641,7 +2713,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3039,7 +3117,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3833,7 +3917,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4365,7 +4455,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4973,7 +5069,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5125,7 +5227,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5478,7 +5586,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6020,7 +6134,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6362,7 +6482,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6717,7 +6843,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6955,7 +7087,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7215,7 +7353,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7595,7 +7739,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7773,7 +7923,7 @@
                           },
                           "version": {
                             "type": "integer",
-                            "exclusiveMinimum": 0,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           "updatedAt": {
@@ -7901,7 +8051,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8136,7 +8292,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8432,7 +8594,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8629,7 +8797,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8712,11 +8886,7 @@
                           "required": ["sections"],
                           "additionalProperties": false
                         },
-                        "version": {
-                          "type": "integer",
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991
-                        },
+                        "version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                         "updatedAt": {
                           "anyOf": [
                             {
@@ -8835,7 +9005,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9179,7 +9355,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9463,7 +9645,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9857,7 +10045,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10121,7 +10315,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10333,7 +10533,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10489,7 +10695,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10645,7 +10857,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10836,7 +11054,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11128,7 +11352,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11299,7 +11529,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11516,7 +11752,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11765,7 +12007,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12027,7 +12275,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12207,7 +12461,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12407,7 +12667,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12630,7 +12896,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12897,7 +13169,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13087,7 +13365,13 @@
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
-                            "webhook_rejected"
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key"
                           ]
                         },
                         "message": { "type": "string" },

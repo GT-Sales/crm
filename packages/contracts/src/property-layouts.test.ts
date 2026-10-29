@@ -180,7 +180,10 @@ describe('property model responses', () => {
 
   it('parses layout rows, null updatedAt for the default, and each response', () => {
     expect(propertyLayoutRowSchema.safeParse(layoutRow).success).toBe(true);
-    expect(propertyLayoutRowSchema.safeParse({ ...layoutRow, updatedAt: null }).success).toBe(true);
+    expect(
+      propertyLayoutRowSchema.safeParse({ ...layoutRow, version: 0, updatedAt: null }).success,
+    ).toBe(true);
+    expect(propertyLayoutRowSchema.safeParse({ ...layoutRow, version: -1 }).success).toBe(false);
     expect(
       propertyLayoutResponseSchema.safeParse({ layout: layoutRow, requestId: REQUEST_ID }).success,
     ).toBe(true);

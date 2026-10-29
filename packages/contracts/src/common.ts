@@ -109,6 +109,12 @@ export const domainErrorCodeSchema = z.enum([
   'tracking_expired',
   'tracking_attempts_exceeded',
   'webhook_rejected',
+  'property_not_found',
+  'property_limit',
+  'builtin_property_locked',
+  'property_option_in_use',
+  'property_in_use',
+  'unknown_property_key',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

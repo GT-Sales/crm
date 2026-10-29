@@ -28,6 +28,7 @@ import {
   type LeadListItem,
   type LeadPropertyFilter,
   type LeadPropertyValue,
+  type PropertyCatalog,
   type LeadStatus,
   type LeadTask,
   type LeadTaskStatus,
@@ -242,6 +243,8 @@ export interface LeadFilters {
   sort?: string;
   /** Validated property column keys (at most 6). */
   columns?: readonly string[];
+  /** The site's property catalogue `where`, `sort` and `columns` were validated against. */
+  catalog: PropertyCatalog;
 }
 
 function propertyFilterCondition(filter: LeadPropertyFilter, leadType?: string): SQL {

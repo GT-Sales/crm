@@ -66,12 +66,15 @@ export const propertyLayoutSchema = z
   });
 export type PropertyLayout = z.infer<typeof propertyLayoutSchema>;
 
-/** A site's layout for one lead type; `updatedAt` is null for the default a site has not saved over. */
+/**
+ * A site's layout for one lead type. The default a site has not saved over
+ * has `version` 0 and `updatedAt` null; the first save makes version 1.
+ */
 export const propertyLayoutRowSchema = z.object({
   object: z.enum(PROPERTY_OBJECTS),
   leadType: z.string(),
   layout: propertyLayoutSchema,
-  version: z.number().int().positive(),
+  version: z.number().int().min(0),
   updatedAt: isoDateTimeSchema.nullable(),
 });
 export type PropertyLayoutRow = z.infer<typeof propertyLayoutRowSchema>;

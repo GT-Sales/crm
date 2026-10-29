@@ -24,6 +24,7 @@ import {
   type LeadPropertyFilter,
   type LeadTask,
   type LeadTaskStatus,
+  type PropertyCatalog,
   type TaskAssigneeFilter,
   type LeadTypeCount,
   type WorkspaceTask,
@@ -106,6 +107,8 @@ export interface UpdateLeadWorkInput extends WriteScope {
   contact?: LeadContactEdit;
   /** Corrections to the form's editable fields; null clears one. */
   form?: Record<string, string | number | boolean | null>;
+  /** The site's property catalogue, loaded once for the request. */
+  catalog?: PropertyCatalog;
 }
 
 export interface CreateTaskInput extends WriteScope {
@@ -134,12 +137,17 @@ export interface LeadWorkStore {
       assignee?: LeadAssigneeFilter;
       search?: string;
       where?: readonly LeadPropertyFilter[];
+      /** The site's property catalogue `where` was validated against. */
+      catalog: PropertyCatalog;
     },
     perStage: number,
   ): Promise<LeadBoardColumn[]>;
-  /** `includeWork: false` skips the timeline, tasks, related requests, identities and documents for a caller who may not see them. */
+  /**
+   * `includeWork: false` skips the timeline, tasks, related requests, identities and documents for a caller who may not see them.
+   * `catalog` is the site's property catalogue, loaded once for the request.
+   */
   getLead(
-    input: Scope & { leadId: string; includeWork: boolean },
+    input: Scope & { leadId: string; includeWork: boolean; catalog?: PropertyCatalog },
   ): Promise<LeadWorkResult | undefined>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
   setTrashed(input: WriteScope & { leadId: string; trashed: boolean }): Promise<TrashLeadOutcome>;
@@ -302,6 +310,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       assignee?: LeadAssigneeFilter;
       search?: string;
       where?: readonly LeadPropertyFilter[];
+      catalog: PropertyCatalog;
     },
     perStage: number,
   ) {
@@ -312,11 +321,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       assignee: input.assignee,
       search: input.search,
       where: input.where,
+      catalog: input.catalog,
     };
     return this.database.withTenantTx(input, (tx) => selectLeadBoard(tx, filters, perStage));
   }
 
-  getLead(input: Scope & { leadId: string; includeWork: boolean }) {
+  getLead(input: Scope & { leadId: string; includeWork: boolean; catalog?: PropertyCatalog }) {
     return this.database.withTenantTx(input, async (tx) => {
       if (input.includeWork) return selectLeadWithWork(tx, input.workspaceId, input.leadId);
       const lead = await selectLeadDetail(tx, input.workspaceId, input.leadId);

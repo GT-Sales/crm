@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
@@ -253,6 +254,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const eqRes = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'mobility',
       where: [{ key: 'city', op: 'eq', value: 'CALGARY' }],
     });
@@ -261,6 +263,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const containsRes = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'reference', op: 'contains', value: '100%_' }],
     });
@@ -269,6 +272,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const emptyRes = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'reference', op: 'empty' }],
     });
@@ -277,6 +281,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const notEmptyRes = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'reference', op: 'notEmpty' }],
     });
@@ -287,6 +292,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const choiceEq = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'permitType', op: 'eq', value: 'student' }],
     });
@@ -295,6 +301,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const choiceIn = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'permitType', op: 'in', value: ['student', 'worker'] }],
     });
@@ -303,6 +310,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const dateLte = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'arrivalDate', op: 'lte', value: '2026-11-06' }],
     });
@@ -311,6 +319,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const countGte = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'mobility',
       where: [{ key: 'lineCount', op: 'gte', value: 5 }],
     });
@@ -319,6 +328,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const yesNoFalse = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'gotVisa', op: 'eq', value: false }],
     });
@@ -329,6 +339,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const dateAsc = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       sort: 'prop.arrivalDate:asc',
     });
@@ -342,6 +353,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const dateDesc = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       sort: 'prop.arrivalDate:desc',
     });
@@ -355,6 +367,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const countAsc = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'mobility',
       sort: 'prop.lineCount:asc',
     });
@@ -363,6 +376,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const countDesc = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'mobility',
       sort: 'prop.lineCount:desc',
     });
@@ -371,6 +385,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const textAsc = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       sort: 'prop.canadaAddress:asc',
     });
@@ -386,6 +401,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const page1 = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'permitType', op: 'in', value: ['student', 'worker'] }],
       sort: 'prop.arrivalDate:asc',
@@ -403,6 +419,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const page2 = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'sim_order',
       where: [{ key: 'permitType', op: 'in', value: ['student', 'worker'] }],
       sort: 'prop.arrivalDate:asc',
@@ -416,6 +433,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
     const trashRes = await leadStore.listLeads({
       workspaceId: SITE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       view: 'trash',
       where: [{ key: 'permitType', op: 'eq', value: 'student' }],
     });
@@ -425,6 +443,7 @@ databaseTest('lead property filters, sorting and columns (staff-queries)', () =>
       {
         workspaceId: SITE,
         actorId: ACTOR,
+        catalog: codePropertyCatalog,
         leadType: 'sim_order',
         where: [{ key: 'permitType', op: 'eq', value: 'student' }],
       },
