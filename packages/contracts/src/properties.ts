@@ -224,7 +224,10 @@ export const sitePropertySchema = z.object({
 
 export interface PropertyCatalog {
   readonly object: PropertyObject;
-  /** Every property, hidden and sensitive included, built-ins first in catalogue order then custom by position. */
+  /**
+   * Every property, hidden and sensitive included, built-ins first in catalogue order then custom by position.
+   * `all` and `get` describe the property across types; per-type values (`editable`, `staffOnly`, label) come from `forType`.
+   */
   readonly all: readonly SiteProperty[];
   get(key: string): SiteProperty | undefined;
   /** Visible (not hidden) properties that apply to the type, in the order the record page shows them. */
@@ -635,7 +638,7 @@ export function parsePropertyValue(
 
 const moneyFormat = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
 const dateFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeZone: 'UTC' });
-const dateTimeFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium' });
+const dateTimeFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeZone: 'UTC' });
 
 /** A stored value as staff read it; empty for no value, the value itself when it does not fit the kind. */
 export function formatPropertyValue(

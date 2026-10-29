@@ -49,6 +49,22 @@ import {
   updateWorkspaceLeadRequestSchema,
   updateWorkspaceLeadResponseSchema,
 } from './lead-work';
+import { createCustomPropertySchema, updatePropertySchema } from './properties';
+import {
+  deletePropertyResponseSchema,
+  propertyLayoutResponseSchema,
+  propertyModelResponseSchema,
+  propertyResponseSchema,
+  savePropertyLayoutRequestSchema,
+} from './property-layouts';
+import {
+  createSavedViewRequestSchema,
+  deleteSavedViewResponseSchema,
+  listSavedViewsQuerySchema,
+  listSavedViewsResponseSchema,
+  savedViewResponseSchema,
+  updateSavedViewRequestSchema,
+} from './saved-views';
 import {
   listAssignableMembersResponseSchema,
   updateStaffProfileRequestSchema,
@@ -365,6 +381,97 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: listWorkspaceTasksQuerySchema,
     response: listWorkspaceTasksResponseSchema,
+  },
+
+  // Staff — properties, record layouts and saved views
+  {
+    operationId: 'getPropertyModel',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties',
+    summary: "The site's property catalogue and saved record layouts.",
+    auth: 'staff',
+    successStatus: 200,
+    response: propertyModelResponseSchema,
+  },
+  {
+    operationId: 'createProperty',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties',
+    summary: 'Add a custom property (property management).',
+    auth: 'staff',
+    successStatus: 201,
+    request: createCustomPropertySchema,
+    response: propertyResponseSchema,
+  },
+  {
+    operationId: 'updateProperty',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties/{key}',
+    summary:
+      'Change a property: a custom one fully, a built-in only its label and whether it is hidden (property management).',
+    auth: 'staff',
+    successStatus: 200,
+    request: updatePropertySchema,
+    response: propertyResponseSchema,
+  },
+  {
+    operationId: 'deleteProperty',
+    method: 'DELETE',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties/{key}',
+    summary:
+      'Delete a custom property; its values are removed from every lead (property management).',
+    auth: 'staff',
+    successStatus: 200,
+    response: deletePropertyResponseSchema,
+  },
+  {
+    operationId: 'savePropertyLayout',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/properties/layouts/{leadType}',
+    summary: 'Save the record layout of one lead type (property management).',
+    auth: 'staff',
+    successStatus: 200,
+    request: savePropertyLayoutRequestSchema,
+    response: propertyLayoutResponseSchema,
+  },
+  {
+    operationId: 'listSavedViews',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/views',
+    summary: "List the caller's own saved views of the leads list.",
+    auth: 'staff',
+    successStatus: 200,
+    query: listSavedViewsQuerySchema,
+    response: listSavedViewsResponseSchema,
+  },
+  {
+    operationId: 'createSavedView',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/views',
+    summary: 'Save the current leads list as a private view.',
+    auth: 'staff',
+    successStatus: 201,
+    request: createSavedViewRequestSchema,
+    response: savedViewResponseSchema,
+  },
+  {
+    operationId: 'updateSavedView',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/views/{viewId}',
+    summary: "Rename one of the caller's saved views or replace its state.",
+    auth: 'staff',
+    successStatus: 200,
+    request: updateSavedViewRequestSchema,
+    response: savedViewResponseSchema,
+  },
+  {
+    operationId: 'deleteSavedView',
+    method: 'DELETE',
+    path: '/api/v1/staff/workspaces/{workspaceId}/views/{viewId}',
+    summary: "Delete one of the caller's saved views.",
+    auth: 'staff',
+    successStatus: 200,
+    response: deleteSavedViewResponseSchema,
   },
 
   // Staff — outbox jobs

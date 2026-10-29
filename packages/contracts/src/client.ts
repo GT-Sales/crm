@@ -102,6 +102,36 @@ import {
   type StaffWorkspacesResponse,
 } from './staff-auth';
 import {
+  createCustomPropertySchema,
+  updatePropertySchema,
+  type UpdateProperty,
+} from './properties';
+import {
+  deletePropertyResponseSchema,
+  propertyLayoutResponseSchema,
+  propertyModelResponseSchema,
+  propertyResponseSchema,
+  savePropertyLayoutRequestSchema,
+  type DeletePropertyResponse,
+  type PropertyLayoutResponse,
+  type PropertyModelResponse,
+  type PropertyResponse,
+  type SavePropertyLayoutRequest,
+} from './property-layouts';
+import {
+  createSavedViewRequestSchema,
+  deleteSavedViewResponseSchema,
+  listSavedViewsResponseSchema,
+  savedViewResponseSchema,
+  updateSavedViewRequestSchema,
+  type CreateSavedViewRequestInput,
+  type DeleteSavedViewResponse,
+  type ListSavedViewsQuery,
+  type ListSavedViewsResponse,
+  type SavedViewResponse,
+  type UpdateSavedViewRequest,
+} from './saved-views';
+import {
   createUploadIntentRequestSchema,
   createUploadIntentResponseSchema,
   finalizeUploadRequestSchema,
@@ -301,6 +331,37 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceTasksQuery,
     ): Promise<ListWorkspaceTasksResponse>;
+    getPropertyModel(workspaceId: string): Promise<PropertyModelResponse>;
+    createProperty(
+      workspaceId: string,
+      body: z.input<typeof createCustomPropertySchema>,
+    ): Promise<PropertyResponse>;
+    updateProperty(
+      workspaceId: string,
+      key: string,
+      body: UpdateProperty,
+    ): Promise<PropertyResponse>;
+    deleteProperty(workspaceId: string, key: string): Promise<DeletePropertyResponse>;
+    savePropertyLayout(
+      workspaceId: string,
+      leadType: string,
+      body: SavePropertyLayoutRequest,
+    ): Promise<PropertyLayoutResponse>;
+    /** The caller's own saved views; no one else's are ever returned. */
+    listSavedViews(
+      workspaceId: string,
+      query?: Partial<ListSavedViewsQuery>,
+    ): Promise<ListSavedViewsResponse>;
+    createSavedView(
+      workspaceId: string,
+      body: CreateSavedViewRequestInput,
+    ): Promise<SavedViewResponse>;
+    updateSavedView(
+      workspaceId: string,
+      viewId: string,
+      body: UpdateSavedViewRequest,
+    ): Promise<SavedViewResponse>;
+    deleteSavedView(workspaceId: string, viewId: string): Promise<DeleteSavedViewResponse>;
     listJobs(workspaceId: string): Promise<ListWorkspaceJobsResponse>;
     retryJob(workspaceId: string, jobId: string): Promise<RetryWorkspaceJobResponse>;
     resolveUncertainJob(
@@ -676,6 +737,66 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             pageSize: query?.pageSize,
           },
           responseSchema: listWorkspaceTasksResponseSchema,
+        }),
+      getPropertyModel: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties`,
+          responseSchema: propertyModelResponseSchema,
+        }),
+      createProperty: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties`,
+          body: createCustomPropertySchema.parse(body),
+          responseSchema: propertyResponseSchema,
+        }),
+      updateProperty: (workspaceId, key, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/${encode(key)}`,
+          body: updatePropertySchema.parse(body),
+          responseSchema: propertyResponseSchema,
+        }),
+      deleteProperty: (workspaceId, key) =>
+        call({
+          method: 'DELETE',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/${encode(key)}`,
+          responseSchema: deletePropertyResponseSchema,
+        }),
+      savePropertyLayout: (workspaceId, leadType, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/layouts/${encode(leadType)}`,
+          body: savePropertyLayoutRequestSchema.parse(body),
+          responseSchema: propertyLayoutResponseSchema,
+        }),
+      listSavedViews: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/views`,
+          query: { object: query?.object },
+          responseSchema: listSavedViewsResponseSchema,
+        }),
+      createSavedView: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/views`,
+          body: createSavedViewRequestSchema.parse(body),
+          responseSchema: savedViewResponseSchema,
+        }),
+      updateSavedView: (workspaceId, viewId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/views/${encode(viewId)}`,
+          body: updateSavedViewRequestSchema.parse(body),
+          responseSchema: savedViewResponseSchema,
+        }),
+      deleteSavedView: (workspaceId, viewId) =>
+        call({
+          method: 'DELETE',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/views/${encode(viewId)}`,
+          responseSchema: deleteSavedViewResponseSchema,
         }),
       listJobs: (workspaceId) =>
         call({
