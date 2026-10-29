@@ -145,23 +145,29 @@ export function LeadsBoard({
   accessToken,
   members,
   query,
+  waiting,
 }: {
   workspaceSlug: string;
   workspaceId: string;
   accessToken: string;
   members: readonly AssignableMember[];
   query: InboxQuery & { type: string };
+  /** Hold the load while the site's catalogue is still needed to read the filters. */
+  waiting?: boolean;
 }) {
   const load = useMemo(
-    () => () =>
-      getLeadBoard(accessToken, workspaceId, {
-        type: query.type,
-        assignee: query.assignee,
-        q: query.q,
-        ...(query.where && query.where.length > 0 ? { where: query.where } : {}),
-        perStage: PER_STAGE,
-      }),
-    [accessToken, workspaceId, query.type, query.assignee, query.q, query.where],
+    () =>
+      waiting
+        ? undefined
+        : () =>
+            getLeadBoard(accessToken, workspaceId, {
+              type: query.type,
+              assignee: query.assignee,
+              q: query.q,
+              ...(query.where && query.where.length > 0 ? { where: query.where } : {}),
+              perStage: PER_STAGE,
+            }),
+    [waiting, accessToken, workspaceId, query.type, query.assignee, query.q, query.where],
   );
   const board = useResource(load);
   const [dropTarget, setDropTarget] = useState<string>();

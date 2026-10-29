@@ -103,16 +103,59 @@ function Count({ value }: { value: number | undefined }) {
   );
 }
 
+/** A choice option the site no longer offers for new values (it still finds old leads). */
+function isRetired(option: LeadFieldOption): boolean {
+  return 'hidden' in option && option.hidden === true;
+}
+
+/** The option a new filter starts on: the first one still offered. */
+function firstOfferedOption(prop: FilterableLeadProperty): LeadFieldOption | undefined {
+  return prop.options?.find((option) => !isRetired(option)) ?? prop.options?.[0];
+}
+
 function defaultDraftValueFor(prop: FilterableLeadProperty | undefined): string {
   if (!prop) return '';
-  if (prop.kind === 'choice') return prop.options?.[0]?.value ?? '';
+  if (prop.kind === 'choice') return firstOfferedOption(prop)?.value ?? '';
   if (prop.kind === 'yesNo') return 'true';
   return '';
 }
 
-/** A choice option as the filter offers it; one the site retired still finds old leads. */
+function defaultDraftMultiFor(prop: FilterableLeadProperty): string[] {
+  const first = firstOfferedOption(prop);
+  return first ? [first.value] : [];
+}
+
+/** A choice option as the filter offers it, a retired one marked. */
 function optionLabel(option: LeadFieldOption): string {
-  return 'hidden' in option && option.hidden === true ? `${option.label} (retired)` : option.label;
+  return isRetired(option) ? `${option.label} (retired)` : option.label;
+}
+
+/** The URL params that name properties, with the `InboxQuery` field each one carries. */
+const PROPERTY_PARAMS = [
+  ['where', 'where'],
+  ['cols', 'columns'],
+  ['sort', 'sort'],
+] as const;
+
+/**
+ * While the site's catalogue cannot be read, the built-in one cannot parse a
+ * custom property's filter, column or sort; a change that does not touch
+ * them keeps them as the URL had them, so a shared link loses nothing.
+ */
+function keepUnreadProperties(
+  search: string,
+  currentUrl: string,
+  patch: Partial<InboxQuery>,
+): string {
+  const params = new URLSearchParams(search.slice(1));
+  const current = new URLSearchParams(currentUrl);
+  for (const [param, field] of PROPERTY_PARAMS) {
+    if (field in patch) continue;
+    const raw = current.get(param) ?? (param === 'cols' ? current.get('columns') : null);
+    if (raw !== null) params.set(param, raw);
+  }
+  const kept = params.toString();
+  return kept ? `?${kept}` : '';
 }
 
 const LEGACY_HIDDEN_COLUMNS_KEY = 'gt-table-hidden-cols:';
@@ -231,13 +274,28 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   // they were when it was scheduled: the delayed search below must not undo a
   // tab clicked while it waited.
   const latestQuery = useRef(query);
+  const latestUrl = useRef(urlKey);
   useEffect(() => {
     latestQuery.current = query;
-  }, [query]);
+    latestUrl.current = urlKey;
+  }, [query, urlKey]);
+  // The site's catalogue could not be read and there is no earlier copy:
+  // only the built-in properties are understood.
+  const catalogFailed = properties.error !== undefined && properties.model === undefined;
   function update(patch: Partial<InboxQuery>) {
     const next: InboxQuery = { ...latestQuery.current, page: 1, ...patch };
     latestQuery.current = next;
-    router.replace(`${pathname}${inboxSearch(next)}`, { scroll: false });
+    const search =
+      catalogFailed && !next.trash
+        ? keepUnreadProperties(inboxSearch(next), latestUrl.current, patch)
+        : inboxSearch(next);
+    latestUrl.current = search.slice(1);
+    router.replace(`${pathname}${search}`, { scroll: false });
+  }
+  /** What a switch to `nextType` keeps of the property filters, sort and columns. */
+  function propertiesFor(nextType: string | undefined) {
+    // Without the site's catalogue nothing can be judged; leave them as they are.
+    return catalogFailed ? {} : filterQueryForLeadType(latestQuery.current, nextType, catalog);
   }
 
   // Hidden table columns used to live in this browser; they move into the URL
@@ -297,7 +355,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     const nextOps = leadPropertyOperators(nextProp.kind);
     if (!nextOps.includes(selectedOp)) setSelectedOp(nextOps[0] ?? 'eq');
     setDraftValue(defaultDraftValueFor(nextProp));
-    setDraftMulti(nextProp.options?.[0] ? [nextProp.options[0].value] : []);
+    setDraftMulti(defaultDraftMultiFor(nextProp));
     // Reset draft controls when the active lead type changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query.type]);
@@ -309,7 +367,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     const nextOps = leadPropertyOperators(nextProp.kind);
     setSelectedOp(nextOps[0] ?? 'eq');
     setDraftValue(defaultDraftValueFor(nextProp));
-    setDraftMulti(nextProp.options?.[0] ? [nextProp.options[0].value] : []);
+    setDraftMulti(defaultDraftMultiFor(nextProp));
   }
 
   function onSubmitFilter(event: FormEvent<HTMLFormElement>) {
@@ -819,9 +877,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
                 stage: undefined,
                 trash: false,
                 due: false,
-                ...(boardType
-                  ? filterQueryForLeadType(latestQuery.current, boardType, catalog)
-                  : {}),
+                ...(boardType ? propertiesFor(boardType) : {}),
               })
             }
             className={cn(
@@ -847,7 +903,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
               trash: false,
               stage: undefined,
               layout: 'table',
-              ...filterQueryForLeadType(latestQuery.current, undefined, catalog),
+              ...propertiesFor(undefined),
             })
           }
         >
@@ -862,7 +918,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
                 type: entry.leadType,
                 trash: false,
                 stage: undefined,
-                ...filterQueryForLeadType(latestQuery.current, entry.leadType, catalog),
+                ...propertiesFor(entry.leadType),
               })
             }
           >
@@ -997,6 +1053,12 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           Could not load the lead counts. Reason: {summary.error}.
         </p>
       ) : null}
+      {catalogFailed ? (
+        <p role="alert" className="text-sm text-muted-foreground">
+          Could not load the site&apos;s properties; showing built-in ones. Reason:{' '}
+          {properties.error}.
+        </p>
+      ) : null}
 
       {!accessToken || !workspaceId ? null : onBoard && query.type ? (
         <LeadsBoard
@@ -1005,6 +1067,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           accessToken={accessToken}
           members={members}
           query={{ ...query, type: query.type }}
+          waiting={waitingForCatalog}
         />
       ) : (
         <LeadsTable

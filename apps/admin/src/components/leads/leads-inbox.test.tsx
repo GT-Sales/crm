@@ -87,8 +87,8 @@ const siteModel = propertyModel([
     label: 'Tier',
     kind: 'choice',
     options: [
-      { value: 'gold', label: 'Gold', hidden: false },
       { value: 'bronze', label: 'Bronze', hidden: true },
+      { value: 'gold', label: 'Gold', hidden: false },
     ],
   }),
 ]);
@@ -501,11 +501,13 @@ describe('LeadsInbox', () => {
 
     // A retired option still reads, marked, so old leads can be found.
     fireEvent.change(propertySelect, { target: { value: 'custom_tier' } });
-    expect(
-      Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
-        (opt) => opt.textContent,
-      ),
-    ).toEqual(['Gold', 'Bronze (retired)']);
+    const tierValue = screen.getByLabelText('Value');
+    expect(Array.from(tierValue.querySelectorAll('option')).map((opt) => opt.textContent)).toEqual([
+      'Bronze (retired)',
+      'Gold',
+    ]);
+    // The draft starts on an option still offered, not the retired one.
+    expect(tierValue).toHaveProperty('value', 'gold');
 
     fireEvent.change(propertySelect, { target: { value: 'custom_referral_code' } });
     fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'FRIEND' } });
@@ -595,5 +597,60 @@ describe('LeadsInbox', () => {
       '/w/canadawide/leads?type=internet&sort=createdAt%3Adesc',
       { scroll: false },
     );
+  });
+
+  it('says when the site’s properties cannot be read and keeps what the URL asked for', async () => {
+    mocks.getPropertyModel.mockRejectedValue(new Error('down'));
+    const where = JSON.stringify([{ key: 'custom_referral_code', op: 'eq', value: 'FRIEND' }]);
+    navigation.search = `type=internet&where=${encodeURIComponent(where)}&cols=custom_tier`;
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    expect(
+      await screen.findByText(
+        "Could not load the site's properties; showing built-in ones. Reason: internal_error.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Could not load the site's properties/).getAttribute('role')).toBe(
+      'alert',
+    );
+
+    // Switching tab must not drop the custom filter and column the built-ins cannot read.
+    fireEvent.click(await screen.findByRole('tab', { name: /Mobility/ }));
+    expect(navigation.replace).toHaveBeenLastCalledWith(
+      `/w/canadawide/leads?type=mobility&where=${encodeURIComponent(where)}&cols=custom_tier`,
+      { scroll: false },
+    );
+  });
+
+  it('holds the board until the site catalogue reads a custom filter', async () => {
+    let answer: (value: typeof siteModel) => void = () => undefined;
+    mocks.getPropertyModel.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    mocks.getLeadBoard.mockResolvedValue({
+      leadType: 'internet',
+      columns: [],
+      access: { contacts: true, manage: true },
+    });
+    const where = JSON.stringify([{ key: 'custom_referral_code', op: 'eq', value: 'FRIEND' }]);
+    navigation.search = `type=internet&layout=board&where=${encodeURIComponent(where)}`;
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('tab', { name: /Internet/ });
+    expect(mocks.getLeadBoard).not.toHaveBeenCalled();
+    await act(async () => {
+      answer(siteModel);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(mocks.getLeadBoard).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({
+          where: [{ key: 'custom_referral_code', op: 'eq', value: 'FRIEND' }],
+        }),
+      ),
+    );
+    expect(mocks.getLeadBoard).toHaveBeenCalledTimes(1);
   });
 });
