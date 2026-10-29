@@ -335,7 +335,10 @@ describe('formatPropertyValue', () => {
     ).toBe('Gold');
     expect(formatPropertyValue({ kind: 'choice', options: [] }, 'retired')).toBe('retired');
     expect(formatPropertyValue({ kind: 'date' }, '2026-02-03')).toBe('Feb 3, 2026');
-    expect(formatPropertyValue({ kind: 'dateTime' }, '2026-02-03T12:00:00Z')).toBe('Feb 3, 2026');
+    // A moment reads with its time, in UTC (ICU may space "p.m." with a narrow no-break space).
+    expect(
+      formatPropertyValue({ kind: 'dateTime' }, '2026-02-03T23:05:00Z').replace(/\s/g, ' '),
+    ).toBe('Feb 3, 2026, 11:05 p.m.');
     expect(formatPropertyValue({ kind: 'number' }, 12.5)).toBe('12.5');
     expect(formatPropertyValue({ kind: 'text' }, 'Ottawa')).toBe('Ottawa');
     expect(formatPropertyValue({ kind: 'text' }, null)).toBe('');

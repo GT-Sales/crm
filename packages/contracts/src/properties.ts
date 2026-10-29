@@ -653,7 +653,11 @@ export function parsePropertyValue(
 
 const moneyFormat = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
 const dateFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeZone: 'UTC' });
-const dateTimeFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeZone: 'UTC' });
+const dateTimeFormat = new Intl.DateTimeFormat('en-CA', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  timeZone: 'UTC',
+});
 
 /** A stored value as staff read it; empty for no value, the value itself when it does not fit the kind. */
 export function formatPropertyValue(
