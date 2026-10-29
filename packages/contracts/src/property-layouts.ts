@@ -79,7 +79,11 @@ export const propertyLayoutRowSchema = z.object({
 });
 export type PropertyLayoutRow = z.infer<typeof propertyLayoutRowSchema>;
 
-/** `PATCH /properties/layouts/{leadType}`; `expectedVersion` is absent for the first save. */
+/**
+ * `PATCH /properties/layouts/{leadType}`; `expectedVersion` is absent for the
+ * first save and required after it (a save without one over a saved layout is
+ * 409 `version_conflict`, never an overwrite).
+ */
 export const savePropertyLayoutRequestSchema = z
   .object({
     layout: propertyLayoutSchema,

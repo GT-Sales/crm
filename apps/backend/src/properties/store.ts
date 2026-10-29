@@ -483,8 +483,14 @@ export class DatabasePropertyStore implements PropertyStore {
           ),
         )
         .for('update');
-      // A layout never saved has no version to match.
-      if (expectedVersion !== undefined && existing?.version !== expectedVersion) {
+      // A first save (no version) needs no row yet; any later save names the version it read.
+      // Without a version over a saved layout, the caller never saw that layout: a conflict,
+      // never an overwrite.
+      if (
+        expectedVersion === undefined
+          ? existing !== undefined
+          : existing?.version !== expectedVersion
+      ) {
         return { kind: 'version_conflict' };
       }
 
@@ -506,9 +512,11 @@ export class DatabasePropertyStore implements PropertyStore {
             updatedBy: ctx.actorId,
             updatedAt: new Date(),
           },
-          ...(expectedVersion !== undefined
-            ? { setWhere: eq(propertyLayouts.version, expectedVersion) }
-            : {}),
+          // A row that appeared since the check only matches the version read; a first save matches none.
+          setWhere:
+            expectedVersion === undefined
+              ? sql`false`
+              : eq(propertyLayouts.version, expectedVersion),
         })
         .returning();
       if (!saved) return { kind: 'version_conflict' };

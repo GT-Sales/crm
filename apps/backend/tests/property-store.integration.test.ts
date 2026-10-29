@@ -492,9 +492,15 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
       kind: 'saved',
       layout: { version: 2 },
     });
-    await expect(
-      store.saveLayout(ctx, 'lead', 'sim_order', layout, undefined),
-    ).resolves.toMatchObject({ kind: 'saved', layout: { version: 3 } });
+    // Without a version over a saved layout: a conflict, never an overwrite.
+    const other = { sections: [{ id: 'other', label: 'Other', keys: ['planId'] }] };
+    await expect(store.saveLayout(ctx, 'lead', 'sim_order', other, undefined)).resolves.toEqual({
+      kind: 'version_conflict',
+    });
+    await expect(store.saveLayout(ctx, 'lead', 'sim_order', layout, 2)).resolves.toMatchObject({
+      kind: 'saved',
+      layout: { layout, version: 3 },
+    });
     // The object's default layout is its own row.
     await expect(store.saveLayout(ctx, 'lead', '', layout, undefined)).resolves.toMatchObject({
       kind: 'saved',
