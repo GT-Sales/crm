@@ -136,10 +136,44 @@ export function staffFields(
     }));
 }
 
-/** How a form edit names a field on the timeline ("plan, arrival in canada"). */
-export function fieldLabel(leadType: string, key: string): string {
-  const definition = leadFields(leadType).find((entry) => entry.key === key);
-  return (definition?.label ?? labelFromKey(key)).toLowerCase();
+/**
+ * How an edit names a field on the timeline ("plan, arrival in canada"): the
+ * type's own label, else the site catalogue's (a custom property, or one the
+ * type does not use), else the key as it is.
+ */
+export function fieldLabel(
+  leadType: string,
+  key: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): string {
+  const definition =
+    catalog.forType(leadType).find((entry) => entry.key === key) ?? catalog.get(key);
+  return definition ? definition.label.toLowerCase() : key;
+}
+
+/**
+ * Form answers the site's catalogue does not describe (a field a website
+ * added later), each under a label made from its key. Keys the catalogue
+ * knows are left to the record's sections, which leave out what the site hid
+ * and mask what is sensitive.
+ */
+export function extraFormFields(
+  leadType: string,
+  payload: Readonly<Record<string, unknown>>,
+  catalog: PropertyCatalog,
+): Array<FormField & { key: string }> {
+  const known = new Set<string>();
+  for (const property of catalog.forType(leadType)) {
+    known.add(property.key);
+    if (property.labelKey) known.add(property.labelKey);
+  }
+  const fields: Array<FormField & { key: string }> = [];
+  for (const [key, raw] of Object.entries(payload)) {
+    if (known.has(key) || catalog.get(key)) continue;
+    const value = anyValue(raw);
+    if (value !== undefined) fields.push({ key, label: labelFromKey(key), value });
+  }
+  return fields;
 }
 
 /** A property as a list column or a filter names it: the type's use first, then the site-wide one. */

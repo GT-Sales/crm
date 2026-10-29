@@ -7,6 +7,7 @@ import {
   type AssignableMember,
   type LeadActivity,
   type LeadDetail,
+  type PropertyCatalog,
 } from '@gt-sales/contracts';
 import { Button, Textarea } from '@gt-sales/ui';
 import {
@@ -36,9 +37,13 @@ const CONTACT_LABELS: Record<string, string> = { fullName: 'name', email: 'email
 type SystemActivity = Extract<LeadActivity, { kind: 'system' }>;
 
 /** `asked to change the phone, arrival in canada and sent a new passport (request #12)`. */
-export function changeRequestText(activity: SystemActivity, leadType: string): string {
+export function changeRequestText(
+  activity: SystemActivity,
+  leadType: string,
+  catalog?: PropertyCatalog,
+): string {
   const fields = (activity.fields ?? []).map(
-    (field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field),
+    (field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog),
   );
   const documents = (activity.documents ?? []).map((document) =>
     documentLabel(document).toLowerCase(),
@@ -87,6 +92,7 @@ function describe(
   activity: LeadActivity,
   leadType: string,
   members: readonly AssignableMember[],
+  catalog: PropertyCatalog | undefined,
 ): { icon: ReactNode; text: ReactNode } {
   switch (activity.kind) {
     case 'note':
@@ -118,7 +124,7 @@ function describe(
       return {
         icon: <PencilIcon />,
         text: `corrected the ${activity.fields
-          .map((field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field))
+          .map((field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog))
           .join(', ')}`,
       };
     case 'system':
@@ -127,7 +133,10 @@ function describe(
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
       if (activity.event === 'change_requested') {
-        return { icon: <FilePenLineIcon />, text: changeRequestText(activity, leadType) };
+        return {
+          icon: <FilePenLineIcon />,
+          text: changeRequestText(activity, leadType, catalog),
+        };
       }
       if (activity.event === 'change_approved' || activity.event === 'change_rejected') {
         const approved = activity.event === 'change_approved';
@@ -162,6 +171,7 @@ export function LeadTimeline({
   members,
   canWrite,
   accessToken,
+  catalog,
   onNoteAdded,
 }: {
   lead: LeadDetail;
@@ -169,6 +179,8 @@ export function LeadTimeline({
   members: readonly AssignableMember[];
   canWrite: boolean;
   accessToken: string;
+  /** The site's catalogue, so a correction names custom properties by label. */
+  catalog?: PropertyCatalog;
   onNoteAdded(activity: LeadActivity): void;
 }) {
   const [draft, setDraft] = useState('');
@@ -239,7 +251,7 @@ export function LeadTimeline({
               ),
           )
           .map((activity) => {
-            const { icon, text } = describe(activity, lead.leadType, members);
+            const { icon, text } = describe(activity, lead.leadType, members, catalog);
             return (
               <li key={activity.id} className="relative flex gap-3 pb-5 last:pb-0">
                 <span
