@@ -130,6 +130,7 @@ export function LeadsTable({
   onPage,
   onSort,
   onClearFilters,
+  panel,
 }: {
   workspaceSlug: string;
   workspaceId: string;
@@ -142,6 +143,12 @@ export function LeadsTable({
   onPage(page: number): void;
   onSort?(sort: string | undefined): void;
   onClearFilters?(): void;
+  /**
+   * Rows open in the inbox's side panel instead of the lead page: a row or
+   * its name opens `onOpen`, and the name links to `href` (the list with the
+   * panel open) for a new tab.
+   */
+  panel?: { openId?: string; href(leadId: string): string; onOpen(leadId: string): void };
 }) {
   const router = useRouter();
   const load = useMemo(
@@ -183,7 +190,10 @@ export function LeadsTable({
   const rows = leads.data?.leads ?? [];
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
-  const leadHref = (lead: LeadListItem) => `/w/${workspaceSlug}/leads/${lead.id}`;
+  const leadHref = (lead: LeadListItem) =>
+    panel ? panel.href(lead.id) : `/w/${workspaceSlug}/leads/${lead.id}`;
+  const openLead = (lead: LeadListItem) =>
+    panel ? panel.onOpen(lead.id) : router.push(leadHref(lead));
   const contactsAllowed = leads.data ? leads.data.access.contacts : (canUseProperties ?? false);
   const canSort = contactsAllowed && !query.trash && Boolean(onSort);
 
@@ -342,25 +352,36 @@ export function LeadsTable({
                 return (
                   <tr
                     key={lead.id}
-                    className="group h-8 cursor-pointer transition-colors hover:bg-crm-row-hover [&>td]:border-b [&>td]:border-crm-row-border last:[&>td]:border-b-0"
+                    aria-current={panel?.openId === lead.id ? 'true' : undefined}
+                    className="group h-8 cursor-pointer transition-colors hover:bg-crm-row-hover aria-[current=true]:bg-crm-row-hover [&>td]:border-b [&>td]:border-crm-row-border last:[&>td]:border-b-0"
                     onClick={(event) => {
                       // Let a real link, a modifier-click or a text selection behave natively.
                       if (event.target instanceof HTMLElement && event.target.closest('a')) return;
                       if (window.getSelection()?.toString()) return;
-                      router.push(leadHref(lead));
+                      openLead(lead);
                     }}
                   >
                     <td
                       className={cn(
                         CELL,
                         NAME_CELL,
-                        'max-w-[280px] bg-background group-hover:bg-crm-row-hover',
+                        'max-w-[280px] bg-background group-hover:bg-crm-row-hover group-aria-[current=true]:bg-crm-row-hover',
                       )}
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Link
                           href={leadHref(lead)}
+                          data-lead-id={lead.id}
                           className="min-w-0 shrink-0 truncate font-medium text-foreground hover:underline"
+                          onClick={(event) => {
+                            // A plain click opens the panel; a modifier-click opens a tab.
+                            if (!panel || event.button !== 0) return;
+                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                              return;
+                            }
+                            event.preventDefault();
+                            panel.onOpen(lead.id);
+                          }}
                         >
                           {leadDisplayName(lead.contact)}
                         </Link>

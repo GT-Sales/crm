@@ -49,6 +49,8 @@ export interface InboxQuery {
   /** Only leads with a follow-up due today or earlier (`?due=1`), most overdue first; a table view. */
   due: boolean;
   page: number;
+  /** The lead open in the side panel (`?lead=<id>`), kept while the list changes around it. */
+  lead?: string;
 }
 
 interface ReadableParams {
@@ -118,7 +120,7 @@ export function parseHiddenColumns(raw: string | null | readonly string[]): Lead
   return LEAD_TABLE_COLUMNS.filter((key) => named.has(key));
 }
 
-const VIEW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseInboxQuery(
   params: ReadableParams,
@@ -136,7 +138,9 @@ export function parseInboxQuery(
   const viewParam = params.get('view');
   const legacyLayout = viewParam === 'board' || viewParam === 'table' ? viewParam : undefined;
   const layout = params.get('layout') ?? legacyLayout;
-  const view = viewParam && VIEW_ID.test(viewParam) ? viewParam.toLowerCase() : undefined;
+  const view = viewParam && UUID.test(viewParam) ? viewParam.toLowerCase() : undefined;
+  const leadParam = params.get('lead');
+  const lead = leadParam && UUID.test(leadParam) ? leadParam.toLowerCase() : undefined;
   return {
     type,
     trash,
@@ -151,6 +155,7 @@ export function parseInboxQuery(
     columns,
     hide: parseHiddenColumns(params.get('hide')),
     page: Number.isInteger(page) && page > 0 ? page : 1,
+    ...(lead ? { lead } : {}),
   };
 }
 
@@ -201,6 +206,7 @@ export function inboxSearch(query: InboxQuery): string {
   const hide = parseHiddenColumns(query.hide);
   if (hide.length > 0) params.set('hide', hide.join(','));
   if (query.page > 1) params.set('page', String(query.page));
+  if (query.lead) params.set('lead', query.lead);
   const search = params.toString();
   return search ? `?${search}` : '';
 }
