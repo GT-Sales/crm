@@ -2,7 +2,7 @@
 
 Project: Supabase `gtsales-crm` (`xykrphbgpwisqacpyeiv`, Mumbai). The CRM
 owns the `app` schema. Get Canada Sim's live tables stay in `public` until
-phase 3 (docs/PLAN.md §7); nothing here touches them.
+the cutover (merge design §12); nothing here touches them.
 
 ## How migrations are tracked
 
@@ -124,6 +124,79 @@ pg_proc / pg_policies where schemaname = 'app'`.
   `created_at` `1793082645098`. Verified against the catalog: both functions
   return `boolean`, SECURITY DEFINER, `search_path=""`, `app_runtime` can
   execute and `anon` cannot.
+
+## 0007_backup_reader + 0008_backup_reader_policies
+
+- The backup job's read-only login `backup_reader` (merge design spec §10,
+  [backup.md](backup.md)):
+  `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS`,
+  no password. It dumps with `pg_dump --enable-row-security`, so instead of
+  `BYPASSRLS` or `pg_read_all_data` (both need a superuser, which Supabase's
+  `postgres` is not) it has `USAGE` on `app`, `public` and `drizzle`,
+  `SELECT` on every table and sequence there, default privileges so later
+  `app` and `public` tables and sequences are readable too (`public` because
+  Get Canada Sim's legacy tables live there, all owned by the migration
+  role), and a
+  `PERMISSIVE FOR SELECT TO backup_reader USING (true)` policy named
+  `<table>_backup_reader_read` on every RLS table. No INSERT, UPDATE or
+  DELETE anywhere.
+- Where each policy comes from: the 25 `app` RLS tables (all but
+  `app.workspaces`, which has no RLS) declare `backupReadPolicy(...)` in
+  `packages/db/src/schema.ts`, generated into 0008, so every future table
+  carries one too. The `public` RLS tables the migration role owns get theirs
+  from 0007's loop; a `public` table added later needs one by hand.
+- Best effort on Supabase's own schemas, where they exist: `USAGE` + `SELECT`
+  on `supabase_migrations`, and `USAGE` on `auth` with `SELECT` on exactly
+  `auth.users` and `auth.identities`, never the whole schema: the token,
+  session and MFA tables must never be readable by the backup role, and a
+  restore brings back accounts, never sessions. Neither case fails 0007: where the
+  migration role holds a privilege without grant option, PostgreSQL grants
+  nothing for it and prints its own "no privileges were granted" WARNING;
+  where it holds none at all, 0007's handler turns the error into a WARNING
+  (`auth schema not granted to backup_reader`). Either way the backup cannot
+  read what was not granted (docs/RUNBOOKS/backup.md step 5).
+- **Applied in production 2026-10-29** through the Supabase tool, after the
+  pre-paste check in [backup.md](backup.md) step 5 returned no rows: two
+  migrations, `0007_backup_reader` (tracker version `20261029164941`) and
+  `0008_backup_reader_policies` (`20261029165006`), each verbatim from
+  `packages/db/drizzle/` plus its Drizzle tracker row. Drizzle hashes:
+  0007 `4518ddd1a136f26ccdd848a39799de7a888b70121a4d4ce390b5a88b7d9d3587`,
+  `created_at` `1793273916007`; 0008
+  `6d87bd3afd04885626c3d7d1b656de93a4267bf59ffe98a00de01ee947effcfd`,
+  `created_at` `1793273993722`. The role has **no password yet**: the owner
+  sets it separately (`alter role backup_reader password '<openssl rand -hex 16>'`),
+  stored only in the backup job's secrets. For another deployment the
+  paste file
+  [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
+  does the same from the SQL editor in one transaction.
+- Verified 2026-10-29: role attributes as expected; 25 read policies in
+  `app` and 15 in `public` (one per `public` RLS table); no `public` table
+  the guard would stop on; `supabase_migrations` readable; `auth`: `USAGE`
+  **not** granted (`postgres` holds it without grant option), `SELECT` on
+  `auth.users` and `auth.identities` granted, no other `auth` table
+  readable, and **row security is on** for both tables. So the gt-sales
+  backup runs with `BACKUP_AUTH_DATA=skip` (set in the `backup.yml` matrix;
+  [backup.md](backup.md) "Facts", "Auth data").
+- Verify with the five selects at the end of the manual file, one at a time
+  (the SQL editor shows only the last result): the role's attributes
+  (`rolcanlogin` true, `rolsuper`, `rolbypassrls`, `rolcreaterole` false);
+  25 `_backup_reader_read` policies in `app`; no `public` table the backup's
+  guard would stop on (no `SELECT`, or row security without a PERMISSIVE
+  SELECT/ALL `USING (true)` policy naming `backup_reader`, or with a
+  RESTRICTIVE SELECT/ALL policy for it or `public`); `USAGE` on `auth` and
+  `SELECT` on `auth.users` and `auth.identities` with no other `auth` table
+  readable (a false means the `auth` grant warned); and neither of those two
+  tables with row security on. A false or a row in the last two means
+  `backup_reader` would miss staff accounts (under `--enable-row-security` an
+  RLS table it has no policy on reads as empty, and `postgres` cannot add a
+  policy to a table it does not own): set `BACKUP_AUTH_DATA=skip` for the
+  backup job until that is fixed.
+- Locally and in CI neither `auth` nor `supabase_migrations` exists, so those
+  grants are skipped; `packages/db/tests/backup-reader.integration.test.ts`
+  checks the role, the policies, the privileges, the `public` default
+  privileges, a re-run of 0007 against a stand-in `auth` schema (idempotent,
+  only `users` and `identities` readable) and a real connection as
+  `backup_reader` (password from `setTestBackupReaderPassword`).
 
 ## Historical CanadaWide import (2026-10-27)
 

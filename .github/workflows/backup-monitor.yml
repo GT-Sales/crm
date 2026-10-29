@@ -1,0 +1,63 @@
+# To add a deployment: one matrix entry here and in the two sibling workflows,
+# three GitHub Environments named after it, their secrets per docs/ENV.md.
+#
+# The hourly check that each deployment's last backup is recent: it reads the
+# archive's heartbeat with the reader key (list and read only) and emails the
+# owner when it is older than 26 hours, missing, malformed or names another
+# deployment (docs/RUNBOOKS/backup-alert-response.md). A failed check also
+# fails this run, so GitHub notifies too.
+name: Backup monitor
+on:
+  schedule:
+    # Hourly is well inside the 26-hour alert threshold.
+    - cron: '8 * * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  monitor:
+    strategy:
+      fail-fast: false
+      matrix:
+        deployment: [gt-sales]
+    environment: backup-monitor-${{ matrix.deployment }}
+    concurrency:
+      group: backup-monitor-${{ matrix.deployment }}
+      # A newer check makes an older one pointless.
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check the latest backup's heartbeat
+        env:
+          BACKUP_DEPLOYMENT: ${{ matrix.deployment }}
+          # The reader key: listFiles and readFiles, nothing else.
+          B2_ARCHIVE_ENDPOINT: ${{ secrets.B2_ARCHIVE_ENDPOINT }}
+          B2_ARCHIVE_REGION: ${{ secrets.B2_ARCHIVE_REGION }}
+          B2_ARCHIVE_BUCKET: ${{ secrets.B2_ARCHIVE_BUCKET }}
+          B2_ARCHIVE_READER_KEY_ID: ${{ secrets.B2_ARCHIVE_READER_KEY_ID }}
+          B2_ARCHIVE_READER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_READER_APPLICATION_KEY }}
+          # The owner alert. Unset, an alert is only logged.
+          OWNER_ALERT_EMAIL: ${{ secrets.OWNER_ALERT_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          OWNER_ALERT_WEBHOOK_URL: ${{ secrets.OWNER_ALERT_WEBHOOK_URL }}
+          OWNER_ALERT_WEBHOOK_SECRET: ${{ secrets.OWNER_ALERT_WEBHOOK_SECRET }}
+          # Optional; unset secrets arrive empty and the defaults apply.
+          BACKUP_MONITOR_MAX_AGE_SECONDS: ${{ secrets.BACKUP_MONITOR_MAX_AGE_SECONDS }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          RELEASE_SHA: ${{ github.sha }}
+          DEPLOYMENT_ENV: production
+        run: pnpm --filter @gt-sales/jobs run monitor

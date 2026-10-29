@@ -36,3 +36,6 @@ pnpm-debug.log*
 # Local tool state
 .vitest/
 .claude-tmp/
+
+# Local scratch of the plan-execution tooling (ledger, briefs, review packages)
+.superpowers/

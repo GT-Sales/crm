@@ -49,6 +49,24 @@ jobs:
           node-version: 22.19.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install PostgreSQL 17 client tools (pg_dump, pg_dumpall, psql)
+        # The backup/restore rehearsal (apps/backend/tests/backup-restore-rehearsal.integration.test.ts)
+        # runs the real dump tools, which must be at least the server's major
+        # version (the 17.6 service above); Ubuntu 24.04 ships 16, so the client
+        # comes from the PostgreSQL project's own apt repository.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Install age (the real-age encryptor test)
+        run: sudo apt-get install -y age
+      - name: Record the dump and encryption tool versions
+        run: |
+          pg_dump --version
+          pg_dump --version | grep -q '(PostgreSQL) 17'
+          age --version
       - name: Verify the admin cannot import the database package
         run: pnpm run check:frontend-db-boundary
       - name: Record release metadata (no credentials)
