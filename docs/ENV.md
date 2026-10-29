@@ -168,7 +168,23 @@ than the threshold or names another deployment, or when the check itself fails
 
 ### Backup retention (`backup-retention-<deployment>`)
 
-Added by the retention task.
+`pnpm --filter @gt-sales/jobs run retention`, weekly. It keeps the newest run
+of each of the last `RETENTION_DAILY_POINTS` days and `RETENTION_MONTHLY_POINTS`
+months, deletes the other runs and the attempts that never wrote a manifest
+once they are past the grace period, and never deletes `heartbeat/latest.json`.
+It works from the archive listing alone and never holds the recovery key. It
+exits 1 when a run's age cannot be read (`retention_unreadable_manifests`);
+that run is kept.
+
+| Variable                                                               | Set where                                    | Value / purpose                                                                              |
+| ---------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `B2_ARCHIVE_ENDPOINT` / `B2_ARCHIVE_REGION` / `B2_ARCHIVE_BUCKET`      | GitHub Environment secret                    | Required. The deployment's archive bucket, as for the backup run.                            |
+| `B2_ARCHIVE_RETENTION_KEY_ID` / `B2_ARCHIVE_RETENTION_APPLICATION_KEY` | GitHub Environment secret                    | Required. The retention admin key (`listFiles`, `readFiles`, `deleteFiles`).                 |
+| `RETENTION_DRY_RUN`                                                    | The workflow, from its `dry_run` input       | Reports without deleting unless the value is exactly `false` (any case). Unset is a dry run. |
+| `RETENTION_DAILY_POINTS` / `RETENTION_MONTHLY_POINTS`                  | GitHub Environment secret, normally unset    | Daily and monthly restore points kept; default 30 and 12. Positive whole numbers.            |
+| `RETENTION_GRACE_SECONDS`                                              | GitHub Environment secret, normally unset    | Nothing younger than this is deleted; default 86400 (24 hours). A positive whole number.     |
+| `BACKUP_DEPLOYMENT`                                                    | Workflow matrix (`${{ matrix.deployment }}`) | Optional. Recorded in the log lines.                                                         |
+| `SENTRY_DSN`, `RELEASE_SHA`, `DEPLOYMENT_ENV`                          | GitHub Environment secret / the workflow     | Optional error tracking for a failed run.                                                    |
 
 ### Restore (owner-run, never in GitHub)
 
