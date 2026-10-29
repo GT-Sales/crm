@@ -96,8 +96,17 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   signature verification → attach; staff review and download links).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
   `data_retention`), identities in `src/machines/registry.ts`.
-- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,settings}`;
-  lead screens in `src/components/leads/`; API client `apps/admin/src/lib/api.ts`.
+- Site properties and record layouts: `apps/backend/src/properties/`
+  (`store.ts` for definitions, tombstones and layouts, `catalog.ts` for the
+  per-request catalogue) with routes in `src/routes/properties.ts`; staff
+  private saved views in `src/views/store.ts` with routes in
+  `src/routes/views.ts`.
+- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,settings}`
+  (Settings → Properties at `settings/properties`); lead screens in
+  `src/components/leads/`; the CRM view bar, menus, side panel and page header
+  in `src/components/crm/` (tokens in `src/app/crm-theme.css`); property
+  rendering, editing and the settings screens in `src/components/properties/`;
+  API client `apps/admin/src/lib/api.ts`.
 - Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
   (docs/RUNBOOKS/legacy-import.md).
 
@@ -114,6 +123,25 @@ rules. Form property definitions live once in `leadPropertyCatalog` in
 `packages/contracts/src/lead-properties.ts` (paired with each lead type's field
 list in `leadTypeProperties`), and `leadFieldCatalog` in
 `packages/contracts/src/lead-fields.ts` derives from it.
+
+A **property** is one field of a lead, built-in or custom. Built-in properties
+are the form fields defined in code (`leadPropertyCatalog`); a site may
+relabel or hide one through a row in `app.properties`. A **custom property** is
+a property staff of one site add under Settings → Properties (owner only): its
+key is generated from the label as `custom_<snake>`, its kind is one of
+`text`, `longText`, `number`, `money` (integer cents, CAD), `date`, `yesNo`,
+`choice`, `email`, `phone` or `url`, and its values live in
+`leads.custom_values`. A deleted custom property leaves a tombstone so its key
+is never reused. The **catalogue** is the set of properties one site resolves
+to (code built-ins plus its rows), built by `buildPropertyCatalog` in
+`packages/contracts/src/properties.ts`; `codePropertyCatalog` is the same with
+no rows. Every list, board, filter, sort, column and record screen reads the
+catalogue, never the code list directly. A **layout** orders the sections and
+property keys of the lead record for one site and lead type
+(`app.property_layouts`). A **saved view** is one staff member's private copy
+of the leads inbox state (layout, type, stage, assignee, trash, due today,
+filters, sort, property columns and hidden columns), never the free-text search or the page; `app.saved_views` is
+visible only to its owner, at most 30 per person per site.
 
 ## Git
 
