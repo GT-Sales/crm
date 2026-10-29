@@ -23,6 +23,9 @@ const actionNames = tuple(
   // Opening a sealed value (a customer's SIN). No role but owner has it, and no
   // individual permission grants it.
   'sensitive.reveal',
+  // Defining the site's properties and record layouts (custom properties,
+  // built-in relabels and hides). Owner only; no individual permission grants it.
+  'property.manage',
 );
 
 export type StaffAction = (typeof actionNames)[number];
