@@ -172,8 +172,12 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await expect(page.getByRole('link', { name: 'Priya Sharma' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Columns' }).click();
-  await page.getByRole('checkbox', { name: 'Arrival in Canada' }).check();
+  // The box mirrors the URL, which router.replace updates a moment after the
+  // click, so check() (which reads the box straight after clicking) cannot be used.
+  const arrivalColumn = page.getByRole('checkbox', { name: 'Arrival in Canada' });
+  await arrivalColumn.click();
   await expect(page).toHaveURL(/cols=arrivalDate/);
+  await expect(arrivalColumn).toBeChecked();
 
   await page.getByRole('button', { name: /Arrival in Canada/ }).click();
   await expect(page).toHaveURL(/sort=prop\.arrivalDate%3Aasc/);

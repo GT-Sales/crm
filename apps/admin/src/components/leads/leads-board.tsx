@@ -507,8 +507,12 @@ export function LeadsBoard({
                           )}
                         >
                           <div className="flex items-start gap-2">
+                            {/* The card is what drags, not its link: a link grabbed by the name
+                                would be the drag source, and onDragStart hiding the card's
+                                contents would make Chromium cancel that drag at once. */}
                             <Link
                               href={`/w/${workspaceSlug}/leads/${lead.id}`}
+                              draggable={false}
                               className="min-w-0 flex-1 truncate font-medium hover:underline"
                             >
                               {leadDisplayName(lead.contact)}

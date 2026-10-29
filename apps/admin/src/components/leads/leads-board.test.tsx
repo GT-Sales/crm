@@ -111,6 +111,16 @@ describe('LeadsBoard', () => {
     });
   });
 
+  it('drags the card itself, never its name link', async () => {
+    // A link grabbed by the name would be the drag source, and hiding the card's
+    // contents on dragstart would make Chromium cancel that drag at once.
+    mocks.getLeadBoard.mockResolvedValue(board(true));
+    renderBoard();
+    const link = await screen.findByRole('link', { name: 'Avery Example' });
+    expect(link.getAttribute('draggable')).toBe('false');
+    expect(link.closest('li')?.getAttribute('draggable')).toBe('true');
+  });
+
   it('moves a card at once and keeps it there when the backend agrees', async () => {
     mocks.getLeadBoard.mockResolvedValue(board(true));
     mocks.updateStaffLead.mockResolvedValue({
