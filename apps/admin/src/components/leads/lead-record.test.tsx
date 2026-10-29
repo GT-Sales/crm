@@ -1023,6 +1023,13 @@ describe('LeadRecord from the site layout', () => {
     const request = screen.getByRole('region', { name: 'Request' });
     expect(within(request).getByText('Date of birth')).toBeTruthy();
     expect(within(request).getByText('••••')).toBeTruthy();
+    // A copy of the lead carries no more than the page shows.
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy info' }));
+    await screen.findByRole('button', { name: 'Copied' });
+    expect(writeText).toHaveBeenCalledWith(expect.not.stringContaining('1990'));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('12 Example Street'));
     // A masked value is not offered for editing either.
     expect(within(custom).queryByRole('button', { name: 'Edit' })).toBeNull();
     unmount();

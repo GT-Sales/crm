@@ -307,11 +307,21 @@ export function LeadRecord({
     }
   }
 
+  /** The record as the copy may carry it: no sensitive answer the page masks for this viewer. */
+  function withoutMaskedAnswers(data: GetWorkspaceLeadResponse): GetWorkspaceLeadResponse {
+    const form = data.lead.form;
+    if (data.access.revealSensitive === true || !form) return data;
+    const payload = Object.fromEntries(
+      Object.entries(form.payload).filter(([key]) => catalog.get(key)?.sensitive !== true),
+    );
+    return { ...data, lead: { ...data.lead, form: { ...form, payload } } };
+  }
+
   async function copySummary() {
     if (!record.data) return;
     setMessage(undefined);
     try {
-      await navigator.clipboard.writeText(leadSummaryText(record.data));
+      await navigator.clipboard.writeText(leadSummaryText(withoutMaskedAnswers(record.data)));
       setCopied(true);
     } catch {
       setMessage('The browser did not allow copying. Select the details and copy them instead.');
