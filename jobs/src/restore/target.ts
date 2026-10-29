@@ -62,8 +62,15 @@ const OBJECT_PUT_TIMEOUT_MS = 10 * 60_000;
 
 const QUALIFIED_TABLE = /^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/;
 const OBJECT_ARTIFACT = /^objects\/([^/]+)\/(.+)$/;
-/** `psql: error: …` (connection) or a server `ERROR:`/`FATAL:`/`PANIC:` line. */
-const PSQL_ERROR_LINE = /^\s*psql: error:|\b(?:ERROR|FATAL|PANIC):/;
+/**
+ * psql's own error (`psql: error: …` for a connection failure, or
+ * `psql:<file>:<n>: error: …` while running a `--file` script), or a server
+ * `ERROR:`/`FATAL:`/`PANIC:` line, optionally under the script prefix. Both
+ * are anchored at the start of the line, so a continuation of a multi-line
+ * DETAIL value that merely contains `ERROR:` is not kept.
+ */
+const PSQL_ERROR_LINE =
+  /^\s*psql:(?:\S*:\d+:)?\s*error:|^\s*(?:psql:\S*:\d+:\s*)?(?:ERROR|FATAL|PANIC):/;
 /** Never logged, even when one also mentions an error. */
 const PSQL_DETAIL_LINE = /^\s*(?:psql:\S*:\d+:\s*)?(?:DETAIL|HINT|CONTEXT|LINE \d+):/;
 const COUNT_LINE = /^([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\t(-?\d+)$/;

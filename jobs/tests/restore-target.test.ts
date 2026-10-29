@@ -308,6 +308,43 @@ describe('PsqlAndS3RestoreTarget.applyDatabase', () => {
     }
   });
 
+  it("keeps psql's own script-mode error lines, so a failure reason is never empty", async () => {
+    const lost = [
+      'psql:/tmp/x/data.sql:1234: server closed the connection unexpectedly',
+      '\tThis probably means the server terminated abnormally',
+      '\tbefore or while processing the request.',
+      'psql:/tmp/x/data.sql:1234: error: connection to server was lost',
+    ].join('\n');
+    expect(psqlErrorLines(lost)).toBe(
+      'psql:/tmp/x/data.sql:1234: error: connection to server was lost',
+    );
+    const restrict = 'psql:/tmp/x/data.sql:5: error: invalid command \\restrict';
+    expect(psqlErrorLines(restrict)).toBe(restrict);
+
+    const { run } = recordingRun([{ exitCode: 2, stderr: lost }]);
+    const error: unknown = await target(run)
+      .applyDatabase(dump())
+      .catch((caught: unknown) => caught);
+    expect(error instanceof Error ? error.message : '').toBe(
+      'psql_failed:2:psql:/tmp/x/data.sql:1234: error: connection to server was lost',
+    );
+  });
+
+  it('drops a DETAIL continuation line that merely contains ERROR: mid-text', () => {
+    const stderr = [
+      'psql:/tmp/x/data.sql:12: ERROR:  new row for relation "leads" violates check constraint "leads_note_check"',
+      'DETAIL:  Failing row contains (3, Ada Lovelace, note line one',
+      'customer wrote ERROR: please call a@b.c back).',
+      'CONTEXT:  COPY leads, line 3',
+    ].join('\n');
+    const kept = psqlErrorLines(stderr);
+    expect(kept).toBe(
+      'psql:/tmp/x/data.sql:12: ERROR:  new row for relation "leads" violates check constraint "leads_note_check"',
+    );
+    expect(kept).not.toContain('a@b.c');
+    expect(kept).not.toContain('Ada Lovelace');
+  });
+
   it('psqlErrorLines keeps connection and server error lines, with credentials still redacted', async () => {
     expect(
       psqlErrorLines(
