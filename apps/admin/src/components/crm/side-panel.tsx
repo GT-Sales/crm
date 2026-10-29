@@ -4,10 +4,20 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { XIcon } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, useIsMobile } from '@gt-sales/ui';
 
+/** A field where Escape may be part of typing: the panel must not close (and drop a draft) from it. */
+const EDITING_SELECTOR =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+
+function isEditingTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(EDITING_SELECTOR) !== null;
+}
+
 /**
  * The record side panel: on a computer it opens beside the list and
  * pushes it over, so the list stays visible; on a phone it becomes a
- * full-screen sheet. Escape and the × button close it. Focus moves into the
+ * full-screen sheet. Escape and the × button close it; Escape typed in a
+ * field (input, textarea, select, contenteditable) does not, so a half-written
+ * note or edit is never lost. Focus moves into the
  * panel when it opens; the caller returns focus to the list when it closes.
  */
 export function SidePanel({
@@ -31,12 +41,15 @@ export function SidePanel({
     if (open && !isMobile) panelRef.current?.focus();
   }, [open, isMobile, title]);
 
-  // Escape closes the panel wherever focus is, unless a dialog or menu already
-  // used it (Radix marks the key event handled when it dismisses a layer).
+  // Escape closes the panel wherever focus is, unless focus is in a field or
+  // a dialog or menu already used it (Radix marks the key event handled when
+  // it dismisses a layer).
   useEffect(() => {
     if (!open || isMobile) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !event.defaultPrevented) onClose();
+      if (event.key === 'Escape' && !event.defaultPrevented && !isEditingTarget(event.target)) {
+        onClose();
+      }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -67,6 +80,9 @@ export function SidePanel({
           showCloseButton={false}
           className="w-full gap-0 p-0 sm:max-w-full"
           aria-describedby={undefined}
+          onEscapeKeyDown={(event) => {
+            if (isEditingTarget(event.target)) event.preventDefault();
+          }}
         >
           <SheetTitle className="sr-only">{title}</SheetTitle>
           {header}
