@@ -707,9 +707,12 @@ describe('LeadRecord order details', () => {
     mocks.emailLeadCustomer.mockRejectedValue(new BackendError('conflict', 409, NOW));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Email it to the customer' }));
-    expect((await screen.findByRole('alert')).textContent).toBe(
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(
       'The order needs the customer’s email address and a SIM number first.',
     );
+    // The theme's error colour, readable on the light panel and the dark page alike.
+    expect(alert.className).toContain('text-destructive');
   });
 
   it('says when this site cannot email its customers yet', async () => {
@@ -999,9 +1002,9 @@ describe('LeadRecord from the site layout', () => {
       target: { value: 'SPRING' },
     });
     fireEvent.click(within(custom).getByRole('button', { name: 'Save' }));
-    expect((await within(custom).findByRole('alert')).textContent).toBe(
-      'The change was not saved. Reason: validation_error.',
-    );
+    const alert = await within(custom).findByRole('alert');
+    expect(alert.textContent).toBe('The change was not saved. Reason: validation_error.');
+    expect(alert.className).toContain('text-destructive');
     expect(within(custom).getByLabelText('Referral code')).toBeTruthy();
   });
 

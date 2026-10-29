@@ -519,7 +519,7 @@ export function LeadRecord({
           </p>
         ) : null}
         {message ? (
-          <p role="alert" className="text-sm text-rose-300">
+          <p role="alert" className="text-sm text-destructive">
             {message}
           </p>
         ) : null}
@@ -672,7 +672,7 @@ export function LeadRecord({
                   </p>
                 )}
                 {simEmailMessage ? (
-                  <p role="alert" className="text-sm text-rose-300">
+                  <p role="alert" className="text-sm text-destructive">
                     {simEmailMessage}
                   </p>
                 ) : null}

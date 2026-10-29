@@ -171,7 +171,7 @@ function PropertySection({
             </dl>
           )}
           {message ? (
-            <p role="alert" className="text-sm text-rose-300">
+            <p role="alert" className="text-sm text-destructive">
               {message}
             </p>
           ) : null}
