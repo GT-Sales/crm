@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
@@ -299,6 +300,7 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
 
     const page = await work.getLead({
       workspaceId: WORKSPACE,
+      catalog: codePropertyCatalog,
       actorId: ACTOR,
       leadId: lead,
       includeWork: true,

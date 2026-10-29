@@ -1,120 +1,120 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import type { LeadFieldDefinition, LeadFormEdit } from '@gt-sales/contracts';
-import { Button, Input, NativeSelect, Textarea } from '@gt-sales/ui';
+import { useId, useState, type FormEvent } from 'react';
+import { parsePropertyValue, type PropertyValue, type SiteProperty } from '@gt-sales/contracts';
+import { Button } from '@gt-sales/ui';
 
-type Draft = Record<string, string>;
+import { PropertyValueControl } from '../properties/property-value';
 
-/** The editor's text for a stored value: yes/no as `yes`/`no`, an empty field as ''. */
-function draftValue(definition: LeadFieldDefinition, value: unknown): string {
-  if (definition.kind === 'yesNo') return value === true ? 'yes' : value === false ? 'no' : '';
-  if (typeof value === 'number') return String(value);
-  return typeof value === 'string' ? value : '';
+/** One save of a record section: built-in answers go in `form`, custom ones in `customValues`. */
+export interface PropertyEdits {
+  form?: Record<string, PropertyValue | null>;
+  customValues?: Record<string, PropertyValue | null>;
 }
 
-/** The value the backend stores for the editor's text; null clears the field. */
-function editValue(
-  definition: LeadFieldDefinition,
-  draft: string,
-): string | number | boolean | null {
-  if (draft.trim() === '') return null;
-  if (definition.kind === 'yesNo') return draft === 'yes';
-  if (definition.kind === 'count') return Number(draft);
-  return draft;
+type Draft = Record<string, PropertyValue | null>;
+
+const isPropertyValue = (value: unknown): value is PropertyValue =>
+  typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+
+/** A property's stored value on the lead, where its storage keeps it. */
+export function storedValue(
+  property: Pick<SiteProperty, 'key' | 'storage'>,
+  form: Readonly<Record<string, unknown>>,
+  customValues: Readonly<Record<string, unknown>>,
+): unknown {
+  const source = property.storage === 'custom' ? customValues : form;
+  return Object.hasOwn(source, property.key) ? source[property.key] : undefined;
 }
 
 /**
- * Corrects a lead's form fields in place: one input per editable field, by
- * its kind. Saves only what changed, as the field's new value or null to
- * clear it; the backend checks every value again against the definitions.
+ * Corrects a lead's properties in place: one control per property, by its
+ * kind (`PropertyValueControl`). Saves only what changed, as the new value or
+ * null to clear it, each checked against its property first; built-in answers
+ * and custom values go out together in one change. The backend checks every
+ * value again.
  */
 export function LeadFormEditor({
-  fields,
-  payload,
+  properties,
+  form,
+  customValues,
   saving,
   onSave,
   onCancel,
 }: {
-  fields: readonly LeadFieldDefinition[];
-  payload: Readonly<Record<string, unknown>>;
+  properties: readonly SiteProperty[];
+  form: Readonly<Record<string, unknown>>;
+  customValues: Readonly<Record<string, unknown>>;
   saving: boolean;
-  onSave(edit: LeadFormEdit): void;
+  onSave(edits: PropertyEdits): void;
   onCancel(): void;
 }) {
+  const idPrefix = useId();
+  const stored = (property: SiteProperty): PropertyValue | undefined => {
+    const value = storedValue(property, form, customValues);
+    return isPropertyValue(value) ? value : undefined;
+  };
   const [draft, setDraft] = useState<Draft>(() =>
-    Object.fromEntries(fields.map((field) => [field.key, draftValue(field, payload[field.key])])),
+    Object.fromEntries(properties.map((property) => [property.key, stored(property) ?? null])),
   );
+  const [problem, setProblem] = useState<string>();
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const edit: LeadFormEdit = {};
-    for (const field of fields) {
-      const next = draft[field.key] ?? '';
-      if (next.trim() === draftValue(field, payload[field.key]).trim()) continue;
-      edit[field.key] = editValue(field, next);
+    const formEdits: Record<string, PropertyValue | null> = {};
+    const customEdits: Record<string, PropertyValue | null> = {};
+    for (const property of properties) {
+      const target = property.storage === 'custom' ? customEdits : formEdits;
+      const before = stored(property);
+      const after = draft[property.key] ?? null;
+      if (after === null || (typeof after === 'string' && after.trim() === '')) {
+        if (before !== undefined) target[property.key] = null;
+        continue;
+      }
+      // An option the site has since retired stays as long as nobody changes it.
+      if (after === before) continue;
+      const parsed = parsePropertyValue(property, after);
+      if (!parsed.ok) {
+        setProblem(`Check ${property.label}: that value cannot be saved.`);
+        return;
+      }
+      if (parsed.value !== before) target[property.key] = parsed.value;
     }
-    if (Object.keys(edit).length === 0) onCancel();
-    else onSave(edit);
+    setProblem(undefined);
+    const edits: PropertyEdits = {
+      ...(Object.keys(formEdits).length > 0 ? { form: formEdits } : {}),
+      ...(Object.keys(customEdits).length > 0 ? { customValues: customEdits } : {}),
+    };
+    if (edits.form === undefined && edits.customValues === undefined) onCancel();
+    else onSave(edits);
   }
-
-  const set = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      {fields.map((field) => {
-        const value = draft[field.key] ?? '';
-        const id = `field-${field.key}`;
+      {properties.map((property) => {
+        const id = `${idPrefix}-${property.key}`;
         return (
-          <label key={field.key} htmlFor={id} className="text-xs text-muted-foreground">
-            {field.label}
-            {field.kind === 'choice' ? (
-              <NativeSelect
-                id={id}
-                value={value}
-                onChange={(event) => set(field.key, event.target.value)}
-              >
-                <option value="">—</option>
-                {/* A stored value no longer offered (a retired plan) stays selectable as it is. */}
-                {value && !field.options?.some((option) => option.value === value) ? (
-                  <option value={value}>{value}</option>
-                ) : null}
-                {field.options?.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            ) : field.kind === 'yesNo' ? (
-              <NativeSelect
-                id={id}
-                value={value}
-                onChange={(event) => set(field.key, event.target.value)}
-              >
-                <option value="">Not answered</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </NativeSelect>
-            ) : field.kind === 'longText' ? (
-              <Textarea
-                id={id}
-                value={value}
-                maxLength={field.maxLength}
-                rows={3}
-                onChange={(event) => set(field.key, event.target.value)}
-              />
-            ) : (
-              <Input
-                id={id}
-                type={field.kind === 'date' ? 'date' : field.kind === 'count' ? 'number' : 'text'}
-                value={value}
-                maxLength={field.kind === 'text' ? field.maxLength : undefined}
-                onChange={(event) => set(field.key, event.target.value)}
-              />
-            )}
+          <label
+            key={property.key}
+            htmlFor={id}
+            className="flex flex-col gap-1 text-xs text-muted-foreground"
+          >
+            {property.label}
+            <PropertyValueControl
+              id={id}
+              property={property}
+              value={draft[property.key] ?? undefined}
+              disabled={saving}
+              onChange={(value) => setDraft((current) => ({ ...current, [property.key]: value }))}
+            />
           </label>
         );
       })}
+      {problem ? (
+        <p role="alert" className="text-sm text-destructive">
+          {problem}
+        </p>
+      ) : null}
       <div className="flex gap-2 pt-1">
         <Button type="submit" size="sm" disabled={saving}>
           {saving ? 'Saving…' : 'Save'}

@@ -1,5 +1,6 @@
 'use client';
 
+import { LEAD_TABLE_COLUMNS, type LeadTableColumn } from '@gt-sales/contracts';
 import { useEffect, useState } from 'react';
 
 export const VIEW_PREF_EVENT = 'gt-sales:view-pref';
@@ -13,19 +14,26 @@ export const BOARD_CARD_FIELDS: readonly { key: BoardCardField; label: string }[
   { key: 'timestamp', label: 'Next task / created' },
 ];
 
-export type TableColumnKey =
-  'type' | 'stage' | 'assignee' | 'nextTask' | 'countdown' | 'source' | 'created' | 'activity';
+/**
+ * The optional table columns; the ids live in the contracts so saved views
+ * share them. Which are hidden is in the URL (`?hide=`, `InboxQuery.hide`);
+ * this browser's storage keeps only the board's preferences.
+ */
+export type TableColumnKey = LeadTableColumn;
 
-export const TABLE_COLUMNS: readonly { key: TableColumnKey; label: string }[] = [
-  { key: 'type', label: 'Type' },
-  { key: 'stage', label: 'Stage' },
-  { key: 'assignee', label: 'Assignee' },
-  { key: 'nextTask', label: 'Next task' },
-  { key: 'countdown', label: 'Countdown date' },
-  { key: 'source', label: 'Source' },
-  { key: 'created', label: 'Created' },
-  { key: 'activity', label: 'Last activity' },
-];
+const TABLE_COLUMN_LABELS: Record<TableColumnKey, string> = {
+  type: 'Type',
+  stage: 'Stage',
+  assignee: 'Assignee',
+  nextTask: 'Next task',
+  countdown: 'Countdown date',
+  source: 'Source',
+  created: 'Created',
+  activity: 'Last activity',
+};
+
+export const TABLE_COLUMNS: readonly { key: TableColumnKey; label: string }[] =
+  LEAD_TABLE_COLUMNS.map((key) => ({ key, label: TABLE_COLUMN_LABELS[key] }));
 
 function readStoredList(key: string): string[] {
   if (typeof window === 'undefined') return [];

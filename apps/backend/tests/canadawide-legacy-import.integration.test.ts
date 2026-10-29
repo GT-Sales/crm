@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import {
   LEGACY_IMPORT_ACTOR_ID,
+  codePropertyCatalog,
   leadActivitySchema,
   leadDetailSchema,
   leadTaskSchema,
@@ -223,6 +224,7 @@ databaseTest('CanadaWide historical import', () => {
   test('the note and the reminder arrive as a timeline entry and a task', async () => {
     const won = await work.getLead({
       workspaceId: canadawide,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: WON,
       includeWork: true,
@@ -259,6 +261,7 @@ databaseTest('CanadaWide historical import', () => {
 
     const trashed = await work.getLead({
       workspaceId: canadawide,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: TRASHED,
       includeWork: true,
@@ -371,6 +374,7 @@ databaseTest('CanadaWide historical import', () => {
 
     const page = await work.getLead({
       workspaceId: canadawide,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: FROM_INTAKE,
       includeWork: true,

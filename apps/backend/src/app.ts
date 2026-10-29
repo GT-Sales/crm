@@ -4,6 +4,7 @@ import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters
 import { sendStaffAuthError } from './http/staff-errors.js';
 import { requestLog } from './http/requestLog.js';
 import { requestId } from './requestId.js';
+import { DatabasePropertyStore } from './properties/store.js';
 import { getHealth } from './routes/health.js';
 import {
   createDefaultStaffRouteDependencies,
@@ -112,9 +113,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
     '/api/internal/jobs',
     createJobsRouter(options.jobs ?? createDefaultJobsRouteDependencies()),
   );
+  const staffDependencies = options.staff ?? createDefaultStaffRouteDependencies();
+  const propertyStore = staffDependencies.propertyStore ?? new DatabasePropertyStore();
   app.use(
     '/api/v1/staff',
-    createStaffRouter(options.staff ?? createDefaultStaffRouteDependencies()),
+    createStaffRouter({
+      ...staffDependencies,
+      propertyStore,
+      // Saved views are cleaned against the site's own catalogue.
+      loadPropertyCatalog:
+        staffDependencies.loadPropertyCatalog ?? ((ctx) => propertyStore.catalog(ctx)),
+    }),
   );
   // Website intake surface. Server-to-server, so CORS does not apply and is
   // never treated as authentication; the service credential is the only proof.

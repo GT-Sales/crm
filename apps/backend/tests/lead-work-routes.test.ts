@@ -2,6 +2,8 @@ import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiErrorResponseSchema,
+  buildPropertyCatalog,
+  codePropertyCatalog,
   createLeadNoteResponseSchema,
   getWorkspaceLeadResponseSchema,
   leadStatsResponseSchema,
@@ -20,6 +22,7 @@ import {
   type LeadDocument,
   type LeadIdentity,
   type LeadTask,
+  type PropertyRow,
   type RelatedLead,
   type StaffWorkspace,
 } from '@gt-sales/contracts';
@@ -29,6 +32,7 @@ import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/ses
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { LeadStore, ListLeadsInput } from '../src/leads/store.js';
 import type { LeadWorkStore, UpdateLeadWorkInput } from '../src/leads/work-store.js';
+import type { PropertyStore } from '../src/properties/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 
@@ -68,6 +72,7 @@ const lead: LeadDetail = {
   createdAt: NOW,
   updatedAt: NOW,
   form: { schemaVersion: 1, payload: { planId: 'ab-1gbps', dateOfBirth: '1990-04-12' } },
+  customValues: { custom_ref: 'R-77', custom_paid: true },
 };
 
 const note: LeadActivity = {
@@ -119,7 +124,7 @@ const leadDocument: LeadDocument = {
   createdAt: NOW,
 };
 
-const { form: _form, ...baseListItem } = lead;
+const { form: _form, customValues: _customValues, ...baseListItem } = lead;
 const listItem = { ...baseListItem, properties: { city: 'Calgary' } };
 
 class TokenVerifier implements StaffSessionVerifier {
@@ -249,6 +254,39 @@ function memoryWorkStore() {
   } satisfies LeadWorkStore;
 }
 
+function propertyRow(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key'>): PropertyRow {
+  return {
+    object: 'lead',
+    origin: 'custom',
+    label: 'Reference',
+    kind: 'text',
+    options: [],
+    staffOnly: false,
+    sensitive: false,
+    hidden: false,
+    leadTypes: [],
+    position: 0,
+    version: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...overrides,
+  };
+}
+
+/** Only the site catalogue is read by the lead routes; `current` is what this site's rows resolve to. */
+function catalogPropertyStore() {
+  const unused = () => Promise.reject(new Error('unused'));
+  const site = { current: codePropertyCatalog };
+  return Object.assign(site, {
+    catalog: vi.fn<PropertyStore['catalog']>(async () => site.current),
+    model: unused,
+    create: unused,
+    update: unused,
+    remove: unused,
+    saveLayout: unused,
+  }) satisfies PropertyStore;
+}
+
 const noopCredentialStore: WebsiteCredentialStore = {
   createCredential: async () => {
     throw new Error('unused');
@@ -262,6 +300,7 @@ let baseUrl: string;
 let store: MemoryStaffStore;
 let leadStore: MemoryLeadStore;
 let work: ReturnType<typeof memoryWorkStore>;
+let properties: ReturnType<typeof catalogPropertyStore>;
 // Whether this site can send mail to its customers right now.
 let mailReady: boolean;
 
@@ -269,6 +308,7 @@ beforeEach(async () => {
   store = new MemoryStaffStore();
   leadStore = new MemoryLeadStore();
   work = memoryWorkStore();
+  properties = catalogPropertyStore();
   mailReady = true;
   server = createApp({
     staff: {
@@ -277,6 +317,7 @@ beforeEach(async () => {
       credentialStore: noopCredentialStore,
       leadStore,
       leadWorkStore: work,
+      propertyStore: properties,
       customerEmail: {
         available: (workspaceId) => mailReady && workspaceId === WORKSPACE,
         sender: () => ({
@@ -409,6 +450,117 @@ describe('staff lead work routes', () => {
     expect(leadStore.listCalls).toHaveLength(0);
   });
 
+  it('GET /leads with columns=custom_ref is 400 when the site catalogue does not know it and 200 when it does', async () => {
+    const unknown = await call(`${leadsUrl()}?columns=custom_ref`);
+    expect(unknown.status).toBe(400);
+    expect((await errorCode(unknown)).code).toBe('invalid_request');
+    expect(leadStore.listCalls).toHaveLength(0);
+
+    const catalog = buildPropertyCatalog([propertyRow({ key: 'custom_ref' })]);
+    properties.current = catalog;
+    const known = await call(`${leadsUrl()}?columns=custom_ref,city&sort=prop.custom_ref:asc`);
+    expect(known.status).toBe(200);
+    expect(leadStore.listCalls[0]).toMatchObject({
+      columns: ['custom_ref', 'city'],
+      sort: 'prop.custom_ref:asc',
+    });
+    expect(leadStore.listCalls[0]?.catalog).toBe(catalog);
+    expect(properties.catalog).toHaveBeenLastCalledWith({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      requestId: expect.any(String),
+    });
+  });
+
+  it('GET /leads with columns=city is 400 when the site hides city', async () => {
+    expect((await call(`${leadsUrl()}?columns=city`)).status).toBe(200);
+
+    properties.current = buildPropertyCatalog([
+      propertyRow({ key: 'city', origin: 'builtin', label: 'City', hidden: true, version: 2 }),
+    ]);
+    for (const query of ['columns=city', 'sort=prop.city:desc', 'type=internet&columns=city']) {
+      const response = await call(`${leadsUrl()}?${query}`);
+      expect(response.status).toBe(400);
+      expect((await errorCode(response)).code).toBe('invalid_request');
+    }
+    expect(leadStore.listCalls).toHaveLength(1);
+  });
+
+  it('GET /leads with where on a sensitive custom key is 400', async () => {
+    properties.current = buildPropertyCatalog([
+      propertyRow({ key: 'custom_ref' }),
+      propertyRow({ key: 'custom_passport', label: 'Passport', sensitive: true, position: 1 }),
+    ]);
+    const sensitive = encodeURIComponent(
+      JSON.stringify([{ key: 'custom_passport', op: 'eq', value: 'X123' }]),
+    );
+    for (const url of [
+      `${leadsUrl()}?where=${sensitive}`,
+      `${leadsUrl()}/board?type=internet&where=${sensitive}`,
+      `${leadsUrl()}?columns=custom_passport`,
+    ]) {
+      const response = await call(url);
+      expect(response.status).toBe(400);
+      expect((await errorCode(response)).code).toBe('invalid_request');
+    }
+    expect(leadStore.listCalls).toHaveLength(0);
+    expect(work.board).not.toHaveBeenCalled();
+
+    const plain = encodeURIComponent(
+      JSON.stringify([{ key: 'custom_ref', op: 'contains', value: 'abc' }]),
+    );
+    const board = await call(`${leadsUrl()}/board?type=internet&where=${plain}`);
+    expect(board.status).toBe(200);
+    expect(work.board).toHaveBeenCalledWith(
+      expect.objectContaining({ where: [{ key: 'custom_ref', op: 'contains', value: 'abc' }] }),
+      50,
+    );
+    expect(work.board.mock.calls[0]?.[0].catalog).toBe(properties.current);
+  });
+
+  it('refuses property queries to a role without contact access before any catalogue read', async () => {
+    store.access = { ...store.access, roles: ['viewer'] };
+    const unknownWhere = encodeURIComponent(
+      JSON.stringify([{ key: 'custom_unknown', op: 'eq', value: 'x' }]),
+    );
+    for (const url of [
+      `${leadsUrl()}?columns=custom_unknown`,
+      `${leadsUrl()}?where=${unknownWhere}`,
+      `${leadsUrl()}?sort=prop.custom_unknown:asc`,
+      `${leadsUrl()}/board?type=internet&where=${unknownWhere}`,
+    ]) {
+      const response = await call(url);
+      expect(response.status).toBe(403);
+      expect((await errorCode(response)).code).toBe('permission_denied');
+    }
+    expect(properties.catalog).not.toHaveBeenCalled();
+    expect(leadStore.listCalls).toHaveLength(0);
+    expect(work.board).not.toHaveBeenCalled();
+  });
+
+  it('loads the site catalogue once per request for the list, board, detail and edit', async () => {
+    const catalog = buildPropertyCatalog([propertyRow({ key: 'custom_ref' })]);
+    properties.current = catalog;
+    expect((await call(leadsUrl())).status).toBe(200);
+    expect((await call(`${leadsUrl()}/board?type=internet`)).status).toBe(200);
+    expect((await call(`${leadsUrl()}/${LEAD}`)).status).toBe(200);
+    const edit = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { stage: 'contacted' },
+    });
+    expect(edit.status).toBe(200);
+    expect(properties.catalog).toHaveBeenCalledTimes(4);
+    expect(leadStore.listCalls[0]?.catalog).toBe(catalog);
+    expect(work.board.mock.calls[0]?.[0].catalog).toBe(catalog);
+    expect(work.getLead.mock.calls[0]?.[0].catalog).toBe(catalog);
+    expect(work.updateLead.mock.calls[0]?.[0].catalog).toBe(catalog);
+
+    // A caller who may not read the site never costs a catalogue read.
+    store.access = { ...store.access, status: 'revoked' };
+    expect((await call(`${leadsUrl()}?columns=city`)).status).toBe(403);
+    expect(properties.catalog).toHaveBeenCalledTimes(4);
+  });
+
   it('enforces contact access on where, property sort and columns while allowing built-in sort and stripping properties', async () => {
     store.access = { ...store.access, roles: ['viewer'] };
     const whereParam = encodeURIComponent(
@@ -500,6 +652,8 @@ describe('staff lead work routes', () => {
     const body = getWorkspaceLeadResponseSchema.parse(await response.json());
     expect(body.lead.contact).toEqual({});
     expect(body.lead.form).toBeNull();
+    expect(body.lead.customValues).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('R-77');
     expect(body.lead.countdownDate).toBeNull();
     expect(body.activities).toEqual([]);
     expect(body.tasks).toEqual([]);
@@ -663,6 +817,40 @@ describe('staff lead work routes', () => {
     const error = await errorCode(refused);
     expect(error).toMatchObject({ code: 'validation_error', details: { field: 'arrivalDate' } });
     expect(JSON.stringify(error)).not.toContain('2026-02-30');
+  });
+
+  it('passes custom values through, names a refused custom key, and answers a viewer without them', async () => {
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { customValues: { custom_ref: 'R-78', custom_paid: null } },
+    });
+    expect(response.status).toBe(200);
+    expect(
+      updateWorkspaceLeadResponseSchema.parse(await response.json()).lead.customValues,
+    ).toEqual(lead.customValues);
+    expect(work.updateLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customValues: { custom_ref: 'R-78', custom_paid: null },
+        catalog: properties.current,
+      }),
+    );
+
+    work.updateLead.mockResolvedValueOnce({ status: 'invalid_field', field: 'custom_ref' });
+    const refused = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { customValues: { custom_ref: 'R-79' } },
+    });
+    expect(refused.status).toBe(400);
+    const error = await errorCode(refused);
+    expect(error).toMatchObject({ code: 'validation_error', details: { field: 'custom_ref' } });
+    expect(JSON.stringify(error)).not.toContain('R-79');
+
+    store.access = { ...store.access, roles: ['viewer'] };
+    const viewer = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { customValues: { custom_ref: 'R-80' } },
+    });
+    expect(viewer.status).toBe(403);
   });
 
   it('refuses an update that changes nothing or names an unknown field', async () => {

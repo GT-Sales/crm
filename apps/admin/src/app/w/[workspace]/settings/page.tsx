@@ -22,9 +22,17 @@ export default async function SettingsPage({ params }: { params: Promise<{ works
         <DisplayNameForm workspaceSlug={workspace} />
         <TeamList workspaceSlug={workspace} />
         <StaffInviteForm workspaceSlug={workspace} />
-        <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/jobs`}>
-          View background jobs
-        </Link>
+        <nav aria-label="More settings" className="flex flex-col gap-2">
+          <Link
+            className="text-sm font-medium underline"
+            href={`/w/${workspace}/settings/properties`}
+          >
+            Properties and record layouts
+          </Link>
+          <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/jobs`}>
+            View background jobs
+          </Link>
+        </nav>
         <ServiceCredentialsManager workspaceSlug={workspace} />
       </CardContent>
     </Card>

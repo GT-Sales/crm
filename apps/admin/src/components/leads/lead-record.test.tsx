@@ -1,16 +1,21 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  AssignableMember,
-  GetWorkspaceLeadResponse,
-  LeadDocument,
-  LeadIdentity,
-  LeadActivity,
-  LeadDetail,
+import {
+  codePropertyCatalog,
+  type AssignableMember,
+  type GetWorkspaceLeadResponse,
+  type LeadDocument,
+  type LeadIdentity,
+  type LeadActivity,
+  type LeadDetail,
+  type PropertyLayout,
+  type SiteProperty,
 } from '@gt-sales/contracts';
 
 import { downloadNavigation } from '../../lib/file-links';
+import { catalogFromModel } from '../properties/use-property-model';
 import { REVEAL_SECONDS } from './identity-check';
+import { PropertySections } from '../properties/property-sections';
 import { LeadRecord } from './lead-record';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -31,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   createFileDownloadLink: vi.fn(),
   markLeadOpened: vi.fn(),
   emailLeadCustomer: vi.fn(),
+  getPropertyModel: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -610,7 +616,7 @@ describe('LeadRecord order details', () => {
     fireEvent.change(screen.getByLabelText('Arrival in Canada'), {
       target: { value: '2026-11-09' },
     });
-    fireEvent.change(screen.getByLabelText('Has the visa'), { target: { value: 'yes' } });
+    fireEvent.change(screen.getByLabelText('Has the visa'), { target: { value: 'true' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
       expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
@@ -637,7 +643,8 @@ describe('LeadRecord order details', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
       expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
-        form: { simNumber: ' 4165550104 ' },
+        // Checked against the property before it is sent, so it goes trimmed.
+        form: { simNumber: '4165550104' },
       }),
     );
     expect(await screen.findByText('4165550104')).toBeTruthy();
@@ -700,9 +707,12 @@ describe('LeadRecord order details', () => {
     mocks.emailLeadCustomer.mockRejectedValue(new BackendError('conflict', 409, NOW));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Email it to the customer' }));
-    expect((await screen.findByRole('alert')).textContent).toBe(
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(
       'The order needs the customer’s email address and a SIM number first.',
     );
+    // The theme's error colour, readable on the light panel and the dark page alike.
+    expect(alert.className).toContain('text-destructive');
   });
 
   it('says when this site cannot email its customers yet', async () => {
@@ -788,5 +798,323 @@ describe('LeadRecord New badge', () => {
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const timeline = await screen.findByRole('region', { name: 'Timeline' });
     expect(within(timeline).queryByText('opened this')).toBeNull();
+  });
+});
+
+describe('LeadRecord from the site layout', () => {
+  function customProperty(
+    overrides: Partial<SiteProperty> & Pick<SiteProperty, 'key' | 'label' | 'kind'>,
+  ): SiteProperty {
+    return {
+      origin: 'custom',
+      storage: 'custom',
+      sensitive: false,
+      staffOnly: false,
+      hidden: false,
+      leadTypes: [],
+      editable: true,
+      version: 1,
+      ...overrides,
+    };
+  }
+  const referral = customProperty({
+    key: 'custom_referral_code',
+    label: 'Referral code',
+    kind: 'text',
+  });
+  const vip = customProperty({ key: 'custom_vip', label: 'VIP', kind: 'yesNo' });
+  const passport = customProperty({
+    key: 'custom_passport_number',
+    label: 'Passport number',
+    kind: 'text',
+    sensitive: true,
+  });
+
+  /** `GET /properties`: the code catalogue with the site's changes, and its saved layouts. */
+  function model(
+    options: {
+      properties?: readonly SiteProperty[];
+      layouts?: Record<string, PropertyLayout>;
+    } = {},
+  ) {
+    return {
+      properties: [...(options.properties ?? [...codePropertyCatalog.all, referral, vip])],
+      layouts: Object.fromEntries(
+        Object.entries(options.layouts ?? {}).map(([leadType, layout]) => [
+          leadType,
+          { object: 'lead' as const, leadType, layout, version: 1, updatedAt: NOW },
+        ]),
+      ),
+      capabilities: { canManage: true },
+      requestId: NOW,
+    };
+  }
+
+  const headings = () =>
+    screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+  });
+
+  it('lays the record out in the sections the site saved, with what they leave out last', async () => {
+    mocks.getPropertyModel.mockResolvedValue(
+      model({
+        layouts: {
+          internet: {
+            sections: [
+              { id: 'address', label: 'Address', keys: ['streetAddress', 'city'] },
+              { id: 'plan', label: 'Plan details', keys: ['planLabel'] },
+            ],
+          },
+        },
+      }),
+    );
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: { ...lead, customValues: { custom_referral_code: 'FRIEND' } } }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const address = await screen.findByRole('region', { name: 'Address' });
+    expect(within(address).getByText('12 Example Street')).toBeTruthy();
+    expect(within(address).getByText('Calgary')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Plan details' })).getByText('1Gbps'));
+    // Nothing the site adds is unreachable: unplaced properties close the record.
+    const other = screen.getByRole('region', { name: 'Other' });
+    expect(within(other).getByText('Referral code')).toBeTruthy();
+    expect(within(other).getByText('FRIEND')).toBeTruthy();
+    const order = headings();
+    expect(order.indexOf('Address')).toBeLessThan(order.indexOf('Plan details'));
+    expect(order.indexOf('Plan details')).toBeLessThan(order.indexOf('Other'));
+    expect(order.indexOf('Other')).toBeLessThan(order.indexOf('Source'));
+    expect(screen.queryByRole('heading', { name: 'Request' })).toBeNull();
+  });
+
+  it('uses the default sections while the site has saved no layout for the type', async () => {
+    mocks.getPropertyModel.mockResolvedValue(model());
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: { ...lead, customValues: { custom_referral_code: 'FRIEND' } } }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const custom = await screen.findByRole('region', { name: 'Custom' });
+    expect(within(custom).getByText('FRIEND')).toBeTruthy();
+    expect(
+      within(screen.getByRole('region', { name: 'Request' })).getByText('12 Example Street'),
+    ).toBeTruthy();
+  });
+
+  it('leaves out a built-in property the site hid', async () => {
+    mocks.getPropertyModel.mockResolvedValue(
+      model({
+        properties: codePropertyCatalog.all.map((entry) =>
+          entry.key === 'city' ? { ...entry, hidden: true, version: 2 } : entry,
+        ),
+      }),
+    );
+    mocks.getStaffLead.mockResolvedValue(response());
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    // The address shows once the site's catalogue is in; its hidden city never does.
+    await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalled());
+    expect(await screen.findByText('12 Example Street')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Calgary')).toBeNull());
+  });
+
+  it('saves a custom value as customValues in the same change as the form', async () => {
+    const order: LeadDetail = {
+      ...lead,
+      leadType: 'sim_order',
+      stage: 'pending',
+      form: { schemaVersion: 1, payload: { arrivalDate: '2026-11-02', delivery: 'esim' } },
+      customValues: { custom_referral_code: 'FRIEND', custom_vip: true },
+    };
+    mocks.getPropertyModel.mockResolvedValue(
+      model({
+        layouts: {
+          sim_order: {
+            sections: [
+              {
+                id: 'trip',
+                label: 'Trip',
+                keys: ['arrivalDate', 'custom_referral_code', 'custom_vip'],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    mocks.getStaffLead.mockResolvedValue(response({ lead: order }));
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: {
+        ...order,
+        form: { schemaVersion: 1, payload: { arrivalDate: '2026-11-09', delivery: 'esim' } },
+        customValues: { custom_referral_code: 'SPRING' },
+      },
+      activities: [
+        {
+          id: '92000000-0000-4000-8000-000000000020',
+          actorId: SELF,
+          createdAt: NOW,
+          kind: 'edit',
+          fields: ['arrivalDate', 'custom_referral_code', 'custom_vip'],
+        },
+      ],
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const trip = await screen.findByRole('region', { name: 'Trip' });
+    await within(trip).findByText('FRIEND');
+    fireEvent.click(within(trip).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(trip).getByLabelText('Arrival in Canada'), {
+      target: { value: '2026-11-09' },
+    });
+    fireEvent.change(within(trip).getByLabelText('Referral code'), {
+      target: { value: 'SPRING' },
+    });
+    fireEvent.change(within(trip).getByLabelText('VIP'), { target: { value: '' } });
+    fireEvent.click(within(trip).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        form: { arrivalDate: '2026-11-09' },
+        customValues: { custom_referral_code: 'SPRING', custom_vip: null },
+      }),
+    );
+    expect(mocks.updateStaffLead).toHaveBeenCalledTimes(1);
+    expect(await within(trip).findByText('SPRING')).toBeTruthy();
+    // The timeline names custom keys by their label.
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(
+      within(timeline).getByText('corrected the arrival in canada, referral code, vip'),
+    ).toBeTruthy();
+  });
+
+  it('says why a change was not saved and keeps the edit open', async () => {
+    mocks.getPropertyModel.mockResolvedValue(model());
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: { ...lead, customValues: { custom_referral_code: 'FRIEND' } } }),
+    );
+    const { BackendError } = await import('../../lib/api');
+    mocks.updateStaffLead.mockRejectedValue(new BackendError('validation_error', 400, NOW));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const custom = await screen.findByRole('region', { name: 'Custom' });
+    fireEvent.click(within(custom).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(custom).getByLabelText('Referral code'), {
+      target: { value: 'SPRING' },
+    });
+    fireEvent.click(within(custom).getByRole('button', { name: 'Save' }));
+    const alert = await within(custom).findByRole('alert');
+    expect(alert.textContent).toBe('The change was not saved. Reason: validation_error.');
+    expect(alert.className).toContain('text-destructive');
+    expect(within(custom).getByLabelText('Referral code')).toBeTruthy();
+  });
+
+  it('shows sensitive properties to everyone who sees the customer’s details', async () => {
+    const withSecrets: LeadDetail = {
+      ...lead,
+      form: {
+        schemaVersion: 1,
+        payload: { ...lead.form?.payload, dateOfBirth: '1990-01-31' },
+      },
+      customValues: { custom_passport_number: 'X1234567' },
+    };
+    mocks.getPropertyModel.mockResolvedValue(
+      model({ properties: [...codePropertyCatalog.all, passport] }),
+    );
+    // Contact access without the owner's SIN reveal.
+    mocks.getStaffLead.mockResolvedValue(response({ lead: withSecrets }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const custom = await screen.findByRole('region', { name: 'Custom' });
+    expect(within(custom).getByText('X1234567')).toBeTruthy();
+    const request = screen.getByRole('region', { name: 'Request' });
+    expect(within(request).getByText('Date of birth')).toBeTruthy();
+    expect(within(request).getByText('Jan 31, 1990')).toBeTruthy();
+    expect(screen.queryByText('••••')).toBeNull();
+    expect(within(custom).getByRole('button', { name: 'Edit' })).toBeTruthy();
+  });
+
+  it('names an unknown key on the timeline as it is', async () => {
+    mocks.getPropertyModel.mockResolvedValue(model());
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        activities: [
+          {
+            id: '92000000-0000-4000-8000-000000000021',
+            actorId: SELF,
+            createdAt: NOW,
+            kind: 'edit',
+            fields: ['custom_referral_code', 'custom_gone'],
+          },
+        ],
+      }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const timeline = await screen.findByRole('region', { name: 'Timeline' });
+    expect(
+      await within(timeline).findByText('corrected the referral code, custom_gone'),
+    ).toBeTruthy();
+  });
+
+  it('drops the page chrome in the side panel and keeps the content', async () => {
+    mocks.getPropertyModel.mockResolvedValue(model());
+    mocks.getStaffLead.mockResolvedValue(response());
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Avery Example' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Internet leads/ })).toBeNull();
+    expect(screen.getByLabelText('Stage')).toBeTruthy();
+    expect(screen.getByText('12 Example Street')).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Timeline' })).toBeTruthy();
+  });
+});
+
+describe('PropertySections', () => {
+  const passport: SiteProperty = {
+    key: 'custom_passport_number',
+    label: 'Passport number',
+    kind: 'text',
+    origin: 'custom',
+    storage: 'custom',
+    sensitive: true,
+    staffOnly: false,
+    hidden: false,
+    leadTypes: [],
+    editable: true,
+    version: 1,
+  };
+  const catalog = catalogFromModel([...codePropertyCatalog.all, passport]);
+  const layout: PropertyLayout = {
+    sections: [{ id: 'id', label: 'Identity', keys: ['dateOfBirth', 'custom_passport_number'] }],
+  };
+
+  function sections(canRevealSensitive: boolean) {
+    return (
+      <PropertySections
+        leadType="internet"
+        layout={layout}
+        catalog={catalog}
+        form={{ dateOfBirth: '1990-01-31' }}
+        customValues={{ custom_passport_number: 'X1234567' }}
+        canEdit
+        canRevealSensitive={canRevealSensitive}
+        onSave={vi.fn(async () => undefined)}
+      />
+    );
+  }
+
+  it('masks sensitive values without contact access, and offers no edit of them', () => {
+    render(sections(false));
+    const identity = screen.getByRole('region', { name: 'Identity' });
+    expect(within(identity).getAllByText('••••')).toHaveLength(2);
+    expect(within(identity).queryByText('X1234567')).toBeNull();
+    expect(within(identity).queryByText(/1990/)).toBeNull();
+    expect(within(identity).queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+
+  it('shows them with contact access', () => {
+    render(sections(true));
+    const identity = screen.getByRole('region', { name: 'Identity' });
+    expect(within(identity).getByText('X1234567')).toBeTruthy();
+    expect(within(identity).getByText('Jan 31, 1990')).toBeTruthy();
+    expect(within(identity).queryByText('••••')).toBeNull();
   });
 });

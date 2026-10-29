@@ -16,8 +16,10 @@ import {
   leadAccessSchema,
   leadDueBySchema,
   leadListItemSchema,
+  leadPropertyValueSchema,
   leadStageSchema,
 } from './workspace-leads';
+import { propertyKeySchema } from './properties';
 
 /**
  * Staff working a lead — the lead page, its timeline, notes and tasks, and
@@ -34,7 +36,8 @@ import {
  */
 export const LEGACY_IMPORT_ACTOR_ID = '00000000-0000-4000-8000-00000000a001';
 
-const activityFieldKeySchema = z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/);
+/** A contact, form or custom property key (`custom_referral_code`) an entry names; never a value. */
+const activityFieldKeySchema = propertyKeySchema;
 
 const activityBase = {
   id: z.uuid(),
@@ -74,7 +77,8 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({
     ...activityBase,
     kind: z.literal('edit'),
-    fields: z.array(activityFieldKeySchema).min(1).max(50),
+    // Contact, form and up to PROPERTY_LIMIT custom keys in one correction.
+    fields: z.array(activityFieldKeySchema).min(1).max(200),
   }),
   z.object({
     ...activityBase,
@@ -131,6 +135,8 @@ export type LeadTask = z.infer<typeof leadTaskSchema>;
 /** The lead page's record: the list row plus the submitted form. */
 export const leadDetailSchema = leadListItemSchema.extend({
   form: leadFormSchema.nullable(),
+  /** Values of the site's custom properties (`leads.custom_values`), by property key. */
+  customValues: z.record(propertyKeySchema, leadPropertyValueSchema).optional(),
 });
 export type LeadDetail = z.infer<typeof leadDetailSchema>;
 
@@ -203,6 +209,11 @@ export const updateWorkspaceLeadRequestSchema = z
     assignedActorId: z.uuid().nullable().optional(),
     contact: leadContactEditSchema.optional(),
     form: leadFormEditSchema.optional(),
+    /** New values of custom properties by key, each a value or null to clear it. */
+    customValues: z
+      .record(propertyKeySchema, z.union([z.string().max(4000), z.number(), z.boolean(), z.null()]))
+      .refine((values) => Object.keys(values).length <= 100)
+      .optional(),
   })
   .strict()
   .refine(
@@ -210,7 +221,8 @@ export const updateWorkspaceLeadRequestSchema = z
       value.stage !== undefined ||
       value.assignedActorId !== undefined ||
       value.contact !== undefined ||
-      value.form !== undefined,
+      value.form !== undefined ||
+      value.customValues !== undefined,
     { message: 'nothing to change' },
   );
 export type UpdateWorkspaceLeadRequest = z.infer<typeof updateWorkspaceLeadRequestSchema>;

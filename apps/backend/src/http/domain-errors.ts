@@ -26,7 +26,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   job_not_found: 'The job does not exist in this workspace.',
   job_not_retryable: 'Only definitively failed jobs can be retried.',
   job_not_uncertain: 'Only jobs with an uncertain outcome can be resolved.',
-  version_conflict: 'The order changed. Reload it before applying another transition.',
+  version_conflict: 'It changed since you loaded it. Reload it before changing it again.',
   illegal_transition: 'That order status transition is not allowed.',
   cancellation_reason_required: 'A cancellation reason is required.',
   dispatch_details_required: 'A courier is required to dispatch this order.',
@@ -52,6 +52,17 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   file_not_found: 'The document does not exist in this workspace.',
   file_not_available: 'The document is not available for download.',
   download_denied: 'You do not have permission to download this document.',
+  property_not_found: 'The property does not exist on this site.',
+  property_limit: 'This site already has the most custom properties it may have.',
+  builtin_property_locked: 'A built-in property can only be relabelled or hidden.',
+  property_option_in_use:
+    'Leads still hold this option; `details` names it and how many (active, trashed, restricted).',
+  property_in_use:
+    'Leads still hold a value for this property; `details` says how many (active, trashed, restricted).',
+  unknown_property_key: 'The layout names a property this site does not have; `details` names it.',
+  saved_view_not_found: 'You have no saved view with this id on this site.',
+  saved_view_name_taken: 'You already have a saved view with this name.',
+  saved_view_limit: 'You have reached the most saved views you can keep on this site.',
 };
 
 export function sendDomainError(

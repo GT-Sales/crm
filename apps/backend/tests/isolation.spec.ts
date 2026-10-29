@@ -11,6 +11,7 @@ import { createApp } from '../src/app.js';
 import { SupabaseStaffSessionVerifier, type VerifiedStaffSession } from '../src/auth/session.js';
 import { MachineRegistry, type MachineRegistryConfig } from '../src/machines/registry.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
+import { DatabasePropertyStore } from '../src/properties/store.js';
 import { DatabaseStaffStore } from '../src/staff/store.js';
 import { generateServiceSecret, hashServiceSecret } from '../src/website/credential.js';
 import { DatabaseWebsiteCredentialStore } from '../src/website/store.js';
@@ -173,6 +174,7 @@ databaseTest('Phase A tenant isolation gate', () => {
         store: new DatabaseStaffStore(database),
         credentialStore,
         leadStore: new DatabaseLeadStore(database),
+        propertyStore: new DatabasePropertyStore(database),
       },
       website: {
         auth: {

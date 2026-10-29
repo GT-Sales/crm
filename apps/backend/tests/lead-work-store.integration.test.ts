@@ -1,7 +1,12 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
-import { leadActivitySchema, leadDetailSchema, leadTaskSchema } from '@gt-sales/contracts';
+import {
+  codePropertyCatalog,
+  leadActivitySchema,
+  leadDetailSchema,
+  leadTaskSchema,
+} from '@gt-sales/contracts';
 
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
@@ -44,7 +49,7 @@ const ACTOR_DUE_MEMBERSHIP = '33000000-0000-4000-8000-000000000e04';
 const REQUEST_ID = '43000000-0000-4000-8000-000000000e01';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
-const scope = { workspaceId: WORKSPACE, actorId: ACTOR };
+const scope = { workspaceId: WORKSPACE, actorId: ACTOR, catalog: codePropertyCatalog };
 const writeScope = { ...scope, requestId: REQUEST_ID };
 
 const internetPayload = {
@@ -338,6 +343,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     }
     const unchanged = await work.getLead({
       workspaceId: OTHER_WORKSPACE,
+      catalog: codePropertyCatalog,
       actorId: ACTOR,
       leadId,
       includeWork: false,
@@ -717,6 +723,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     const due = await leadStore.listLeads({
       workspaceId: DUE_WORKSPACE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       dueBy: '2026-11-05',
     });
     // The most overdue first, whatever moved last.
@@ -726,7 +733,11 @@ databaseTest('DatabaseLeadWorkStore', () => {
       '2026-11-01T12:00:00.000Z',
       '2026-11-05T23:30:00.000Z',
     ]);
-    const all = await leadStore.listLeads({ workspaceId: DUE_WORKSPACE, actorId: ACTOR });
+    const all = await leadStore.listLeads({
+      workspaceId: DUE_WORKSPACE,
+      actorId: ACTOR,
+      catalog: codePropertyCatalog,
+    });
     expect(all.leads.map((entry) => entry.id).sort()).toEqual(
       [overdue, order, notYet, undated].sort(),
     );
@@ -742,6 +753,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     const odd = await leadStore.listLeads({
       workspaceId: DUE_WORKSPACE,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       dueBy: '2026-11-05',
     });
     expect(odd.leads.find((entry) => entry.id === order)?.countdownDate).toBeNull();
@@ -864,6 +876,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(JSON.stringify(stored)).not.toContain('778-555');
     const page = await work.getLead({
       workspaceId: OTHER_WORKSPACE,
+      catalog: codePropertyCatalog,
       actorId: ACTOR,
       leadId,
       includeWork: true,
@@ -881,7 +894,11 @@ databaseTest('DatabaseLeadWorkStore', () => {
       email: 'isla.isolated@example.test',
       phone: '403 555 0118',
     });
-    const otherScope = { workspaceId: OTHER_WORKSPACE, actorId: ACTOR };
+    const otherScope = {
+      workspaceId: OTHER_WORKSPACE,
+      actorId: ACTOR,
+      catalog: codePropertyCatalog,
+    };
     expect(await work.getLead({ ...otherScope, leadId, includeWork: true })).toBeUndefined();
     expect(
       await work.updateLead({ ...otherScope, requestId: REQUEST_ID, leadId, stage: 'won' }),

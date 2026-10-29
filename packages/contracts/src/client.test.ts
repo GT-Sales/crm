@@ -124,6 +124,21 @@ describe('createBackendClient transport', () => {
     });
   });
 
+  it('carries the error envelope details on the BackendError', async () => {
+    const { client } = harness(409, {
+      error: {
+        code: 'property_in_use',
+        message: 'in use',
+        requestId: UUID,
+        details: { leadCount: 3 },
+      },
+    });
+    await expect(client.health()).rejects.toMatchObject({
+      code: 'property_in_use',
+      details: { leadCount: 3 },
+    });
+  });
+
   it('rejects a 200 response that does not match the contract', async () => {
     const { client } = harness(200, { ok: 'yes' });
     await expect(client.health()).rejects.toThrow();

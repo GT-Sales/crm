@@ -10,6 +10,7 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  applyCustomValueEdits,
   applyLeadFormEdit,
   isLeadStage,
   leadFormSchema,
@@ -24,6 +25,7 @@ import {
   type LeadPropertyFilter,
   type LeadTask,
   type LeadTaskStatus,
+  type PropertyCatalog,
   type TaskAssigneeFilter,
   type LeadTypeCount,
   type WorkspaceTask,
@@ -106,6 +108,10 @@ export interface UpdateLeadWorkInput extends WriteScope {
   contact?: LeadContactEdit;
   /** Corrections to the form's editable fields; null clears one. */
   form?: Record<string, string | number | boolean | null>;
+  /** New values of the site's custom properties; null clears one. */
+  customValues?: Record<string, string | number | boolean | null>;
+  /** The site's property catalogue, loaded once for the request; custom values are checked against it. */
+  catalog: PropertyCatalog;
 }
 
 export interface CreateTaskInput extends WriteScope {
@@ -134,12 +140,17 @@ export interface LeadWorkStore {
       assignee?: LeadAssigneeFilter;
       search?: string;
       where?: readonly LeadPropertyFilter[];
+      /** The site's property catalogue `where` was validated against. */
+      catalog: PropertyCatalog;
     },
     perStage: number,
   ): Promise<LeadBoardColumn[]>;
-  /** `includeWork: false` skips the timeline, tasks, related requests, identities and documents for a caller who may not see them. */
+  /**
+   * `includeWork: false` skips the timeline, tasks, related requests, identities, documents and custom values for a caller who may not see them.
+   * `catalog` is the site's property catalogue, loaded once for the request.
+   */
   getLead(
-    input: Scope & { leadId: string; includeWork: boolean },
+    input: Scope & { leadId: string; includeWork: boolean; catalog: PropertyCatalog },
   ): Promise<LeadWorkResult | undefined>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
   setTrashed(input: WriteScope & { leadId: string; trashed: boolean }): Promise<TrashLeadOutcome>;
@@ -172,7 +183,11 @@ interface LockedLead {
   externalRef: string | null;
   trashed: boolean;
   payload: unknown;
+  customValues: unknown;
 }
+
+const isStoredObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The stored form, or an empty version-1 one for a lead that has none yet. */
 function storedForm(payload: unknown): LeadForm {
@@ -198,7 +213,8 @@ async function lockLead(
       l.country_code as "countryCode",
       l.external_ref as "externalRef",
       l.deleted_at is not null as trashed,
-      l.payload
+      l.payload,
+      l.custom_values as "customValues"
     from app.leads l
     where l.workspace_id = ${workspaceId}
       and l.id = ${leadId}
@@ -230,8 +246,9 @@ async function requireDetail(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
+  catalog?: PropertyCatalog,
 ): Promise<LeadDetail> {
-  const detail = await selectLeadDetail(tx, workspaceId, leadId);
+  const detail = await selectLeadDetail(tx, workspaceId, leadId, catalog);
   if (!detail) throw new Error('lead vanished inside its own transaction');
   return detail;
 }
@@ -302,6 +319,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       assignee?: LeadAssigneeFilter;
       search?: string;
       where?: readonly LeadPropertyFilter[];
+      catalog: PropertyCatalog;
     },
     perStage: number,
   ) {
@@ -312,17 +330,22 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       assignee: input.assignee,
       search: input.search,
       where: input.where,
+      catalog: input.catalog,
     };
     return this.database.withTenantTx(input, (tx) => selectLeadBoard(tx, filters, perStage));
   }
 
-  getLead(input: Scope & { leadId: string; includeWork: boolean }) {
+  getLead(input: Scope & { leadId: string; includeWork: boolean; catalog: PropertyCatalog }) {
     return this.database.withTenantTx(input, async (tx) => {
-      if (input.includeWork) return selectLeadWithWork(tx, input.workspaceId, input.leadId);
-      const lead = await selectLeadDetail(tx, input.workspaceId, input.leadId);
-      return lead
-        ? { lead, activities: [], tasks: [], related: [], identities: [], documents: [] }
-        : undefined;
+      if (input.includeWork) {
+        return selectLeadWithWork(tx, input.workspaceId, input.leadId, input.catalog);
+      }
+      const detail = await selectLeadDetail(tx, input.workspaceId, input.leadId, input.catalog);
+      if (!detail) return undefined;
+      // Custom values travel with contact visibility, as the form does.
+      const { customValues: _customValues, ...rest } = detail;
+      const lead: LeadDetail = rest;
+      return { lead, activities: [], tasks: [], related: [], identities: [], documents: [] };
     });
   }
 
@@ -399,8 +422,35 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         }
       }
 
-      // One entry for the whole correction, naming the fields and never their values.
-      const changedFields = [...changed, ...changedForm];
+      const changedCustom: string[] = [];
+      if (input.customValues && Object.keys(input.customValues).length > 0) {
+        // Only the custom properties this type shows; a hidden or unknown key is refused.
+        const current = isStoredObject(lead.customValues) ? lead.customValues : {};
+        const edit = applyCustomValueEdits({
+          properties: input.catalog.forType(lead.leadType),
+          current,
+          edits: input.customValues,
+        });
+        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+        if (edit.changedKeys.length > 0) {
+          // Only the changed keys are written; every other stored value stays as it is.
+          const cleared = edit.changedKeys.filter((key) => !Object.hasOwn(edit.values, key));
+          const setValues = Object.fromEntries(
+            edit.changedKeys.flatMap((key) =>
+              Object.hasOwn(edit.values, key) ? [[key, edit.values[key]]] : [],
+            ),
+          );
+          const remaining = cleared.reduce(
+            (expression, key) => sql`(${expression} - ${key}::text)`,
+            sql`${leads.customValues}`,
+          );
+          set.customValues = sql`(${remaining} || ${JSON.stringify(setValues)}::jsonb)`;
+          changedCustom.push(...edit.changedKeys);
+        }
+      }
+
+      // One entry for the whole correction, naming the fields (built-in and custom) and never their values.
+      const changedFields = [...changed, ...changedForm, ...changedCustom];
       if (changedFields.length > 0) {
         entries.push({ kind: 'edit', data: { fields: changedFields } });
         after['changedFields'] = changedFields;
@@ -409,7 +459,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       if (entries.length === 0) {
         return {
           status: 'updated',
-          lead: await requireDetail(tx, input.workspaceId, input.leadId),
+          lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
           activities: [],
         };
       }
@@ -444,7 +494,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
 
       return {
         status: 'updated',
-        lead: await requireDetail(tx, input.workspaceId, input.leadId),
+        lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
         activities: insertedActivities(inserted),
       };
     });

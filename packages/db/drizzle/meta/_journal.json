@@ -64,6 +64,20 @@
       "when": 1793273993722,
       "tag": "0008_backup_reader_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793296569722,
+      "tag": "0009_properties",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793296580888,
+      "tag": "0010_properties_runtime",
+      "breakpoints": true
     }
   ]
 }

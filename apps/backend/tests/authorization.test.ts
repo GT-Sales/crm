@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { staffPermissionNames, staffRoleNames } from '@gt-sales/types';
 
 import {
   createAuthorize,
+  decideAccess,
   type StaffAccessSnapshot,
   type StaffAccessStore,
 } from '../src/staff/authorization.js';
@@ -138,6 +140,20 @@ describe('central staff authorization', () => {
       await expect(
         authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action }),
       ).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+    }
+  });
+
+  it('property.manage is allowed for owner and denied for every other role', () => {
+    const everyPermission = staffPermissionNames.map((name) => ({
+      name,
+      effect: 'allow' as const,
+    }));
+    for (const role of staffRoleNames) {
+      expect(decideAccess(activeAccess([role]), 'property.manage').allowed).toBe(role === 'owner');
+      // No individual permission grants it either.
+      expect(decideAccess(activeAccess([role], everyPermission), 'property.manage').allowed).toBe(
+        role === 'owner',
+      );
     }
   });
 });

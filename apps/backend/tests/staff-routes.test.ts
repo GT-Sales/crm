@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiErrorResponseSchema,
+  codePropertyCatalog,
   inviteStaffResponseSchema,
   listAssignableMembersResponseSchema,
   listWorkspaceJobsResponseSchema,
@@ -19,6 +20,7 @@ import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { ListLeadsInput, LeadStore } from '../src/leads/store.js';
+import type { PropertyStore } from '../src/properties/store.js';
 import type {
   BootstrapStaffInput,
   InviteStaffInput,
@@ -145,6 +147,17 @@ class MemoryLeadStore implements LeadStore {
   }
 }
 
+/** The lead list reads the site's catalogue; these sites have no property rows. */
+const unused = () => Promise.reject(new Error('not used in these staff-route tests'));
+const codeCatalogPropertyStore: PropertyStore = {
+  catalog: async () => codePropertyCatalog,
+  model: unused,
+  create: unused,
+  update: unused,
+  remove: unused,
+  saveLayout: unused,
+};
+
 const workspace: StaffWorkspace = {
   id: WORKSPACE,
   slug: 'getcanadasim',
@@ -203,6 +216,7 @@ beforeEach(async () => {
       credentialStore: noopCredentialStore,
       leadStore,
       jobStore,
+      propertyStore: codeCatalogPropertyStore,
     },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -229,6 +243,7 @@ describe('protected staff routes', () => {
           },
         }),
         errorTracker: { captureException },
+        propertyStore: codeCatalogPropertyStore,
       },
     }).listen(0);
     await new Promise<void>((resolve) => failing.once('listening', resolve));
@@ -364,6 +379,7 @@ describe('protected staff routes', () => {
         workspaceId: WORKSPACE,
         actorId: ACTOR,
         status: 'incomplete',
+        catalog: codePropertyCatalog,
         page: undefined,
         pageSize: undefined,
       },

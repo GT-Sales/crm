@@ -1,3 +1,6 @@
+> Delivered by PR #1 and superseded by
+> [docs/superpowers/plans/2026-10-29-phase-2-properties-layout-views.md](../superpowers/plans/2026-10-29-phase-2-properties-layout-views.md).
+
 # Brief: shared lead properties, with filter, sort and columns on the leads list
 
 You are working in the GT Sales CRM monorepo (GitHub `GT-Sales/crm`). Read
