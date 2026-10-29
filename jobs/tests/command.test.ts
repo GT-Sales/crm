@@ -103,6 +103,22 @@ describe('nodeRunCommand', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it('reports a child that exits before reading all of its stdin instead of crashing on EPIPE', async () => {
+    // Like `age -r <malformed recipient>`: it fails before reading a large dump.
+    const settled = await nodeRunCommand(
+      process.execPath,
+      ['-e', 'process.stderr.write("bad recipient"); process.exit(1)'],
+      { input: new Uint8Array(16 * 1024 * 1024) },
+    ).then(
+      (result) => ({ settled: 'resolved', result }),
+      (error: unknown) => ({ settled: 'rejected', error }),
+    );
+    expect(settled).toEqual({
+      settled: 'resolved',
+      result: { stdout: new Uint8Array(), stderr: 'bad recipient', exitCode: 1 },
+    });
+  });
+
   it('rejects when the binary cannot be started', async () => {
     await expect(nodeRunCommand('gt-sales-no-such-binary', [])).rejects.toThrow(/ENOENT/);
   });

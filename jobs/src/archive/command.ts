@@ -40,6 +40,14 @@ export const nodeRunCommand: RunCommand = (command, args, options = {}) =>
     child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
     child.once('error', reject);
+    // A child may exit before reading all of its input (`age` rejects a
+    // malformed recipient before reading the dump). Writing the rest then
+    // fails with EPIPE; without a listener that is an uncaught exception that
+    // kills the CLI and loses the child's stderr. 'close' still reports the
+    // real exit code, so only a broken-pipe write is ignored here.
+    child.stdin.on('error', (error) => {
+      if (!isBrokenPipe(error)) reject(error);
+    });
     child.once('close', (exitCode) => {
       resolve({
         stdout: new Uint8Array(Buffer.concat(stdoutChunks)),
@@ -50,6 +58,11 @@ export const nodeRunCommand: RunCommand = (command, args, options = {}) =>
     if (options.input) child.stdin.end(Buffer.from(options.input));
     else child.stdin.end();
   });
+
+function isBrokenPipe(error: Error): boolean {
+  const code = 'code' in error ? error.code : undefined;
+  return code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
+}
 
 /** Docker image-pull progress the Supabase CLI prints before its real error. */
 const PULL_PROGRESS =

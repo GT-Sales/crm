@@ -7,23 +7,26 @@ import {
   S3ArchiveReader,
   S3ArchiveRetentionAdmin,
   S3ArchiveWriter,
+  type ArchiveReader,
+  type ArchiveRetentionAdmin,
+  type ArchiveWriter,
 } from '../src/archive/archive-store.js';
 
 describe('InMemoryArchiveBackend role separation', () => {
   it('the writer facade can put and list but get and delete throw credential_denied', async () => {
     const backend = new InMemoryArchiveBackend();
-    const writer = backend.asWriter();
+    // Typed as optional so the test can call what the ArchiveWriter type hides.
+    // If a method were absent at runtime, `?.()` gives undefined and the
+    // `rejects` assertion fails, so the denial is proven on the real facade.
+    const writer: ArchiveWriter & Partial<ArchiveRetentionAdmin> = backend.asWriter();
     expect(
       (await writer.putObject('run-1/manifest.json.age', new Uint8Array([1, 2, 3]))).versionId,
     ).toBeDefined();
     expect(await writer.listObjects('run-1/')).toHaveLength(1);
-    // A facade exposes all four methods at runtime so this test can prove the
-    // denial; only the ArchiveWriter type hides get and delete from callers.
-    const writerCapabilities = backend.scoped(['put', 'list']);
-    await expect(writerCapabilities.getObject('run-1/manifest.json.age')).rejects.toThrow(
+    await expect(writer.getObject?.('run-1/manifest.json.age')).rejects.toThrow(
       new ArchiveCredentialDeniedError('get'),
     );
-    await expect(writerCapabilities.deleteObject('run-1/manifest.json.age')).rejects.toThrow(
+    await expect(writer.deleteObject?.('run-1/manifest.json.age')).rejects.toThrow(
       'credential_denied:delete',
     );
     expect(backend.size()).toBe(1);
@@ -32,17 +35,17 @@ describe('InMemoryArchiveBackend role separation', () => {
   it('the reader facade can list and get but put and delete throw credential_denied', async () => {
     const backend = new InMemoryArchiveBackend();
     await backend.asWriter().putObject('run-1/data.sql.age', new Uint8Array([9]));
-    const reader = backend.asReader();
+    const reader: ArchiveReader & Partial<ArchiveWriter & ArchiveRetentionAdmin> =
+      backend.asReader();
     expect(await reader.listObjects('run-1/')).toHaveLength(1);
     expect(await reader.getObject('run-1/data.sql.age')).toEqual(new Uint8Array([9]));
-    const readerCapabilities = backend.scoped(['list', 'get']);
-    await expect(readerCapabilities.putObject('run-1/x', new Uint8Array())).rejects.toBeInstanceOf(
+    await expect(reader.putObject?.('run-1/x', new Uint8Array())).rejects.toBeInstanceOf(
       ArchiveCredentialDeniedError,
     );
-    await expect(readerCapabilities.putObject('run-1/x', new Uint8Array())).rejects.toThrow(
+    await expect(reader.putObject?.('run-1/x', new Uint8Array())).rejects.toThrow(
       'credential_denied:put',
     );
-    await expect(readerCapabilities.deleteObject('run-1/data.sql.age')).rejects.toThrow(
+    await expect(reader.deleteObject?.('run-1/data.sql.age')).rejects.toThrow(
       'credential_denied:delete',
     );
     expect(backend.size()).toBe(1);
@@ -51,15 +54,16 @@ describe('InMemoryArchiveBackend role separation', () => {
   it('the retention admin can list, get and delete but not put', async () => {
     const backend = new InMemoryArchiveBackend();
     await backend.asWriter().putObject('run-1/x', new Uint8Array([1]));
-    const admin = backend.asRetentionAdmin();
+    const admin: ArchiveRetentionAdmin & Partial<ArchiveWriter> = backend.asRetentionAdmin();
     expect(await admin.listObjects('run-1/')).toHaveLength(1);
     expect(await admin.getObject('run-1/x')).toEqual(new Uint8Array([1]));
     await admin.deleteObject('run-1/x');
     expect(await backend.asReader().getObject('run-1/x')).toBeUndefined();
     expect(backend.size()).toBe(0);
-    await expect(
-      backend.scoped(['list', 'get', 'delete']).putObject('run-2/x', new Uint8Array([1])),
-    ).rejects.toThrow('credential_denied:put');
+    await expect(admin.putObject?.('run-2/x', new Uint8Array([1]))).rejects.toThrow(
+      'credential_denied:put',
+    );
+    expect(backend.size()).toBe(0);
   });
 
   it('lists only the requested prefix and stamps the upload time', async () => {

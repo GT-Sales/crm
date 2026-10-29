@@ -230,7 +230,7 @@ export class InMemoryArchiveBackend {
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
-  scoped(capabilities: readonly Capability[]): ArchiveWriter & ArchiveRetentionAdmin {
+  private scoped(capabilities: readonly Capability[]): ArchiveWriter & ArchiveRetentionAdmin {
     const allowed = new Set(capabilities);
     const require = (capability: Capability): void => {
       if (!allowed.has(capability)) throw new ArchiveCredentialDeniedError(capability);
