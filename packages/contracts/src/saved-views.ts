@@ -125,7 +125,8 @@ export type DeleteSavedViewResponse = z.infer<typeof deleteSavedViewResponseSche
  * whose property the catalogue does not know, hides, or marks sensitive (a
  * property may be hidden or deleted after the view was saved), and a stage the
  * view's lead type does not have. Assignee, due, trash and layout are never
- * touched. Pure; the cleaned state is applied, never persisted.
+ * touched. Pure. The backend stores a view's state cleaned (create and
+ * update) and cleans it again on every read; the admin cleans before applying.
  */
 export function cleanSavedViewState(
   state: SavedViewState,

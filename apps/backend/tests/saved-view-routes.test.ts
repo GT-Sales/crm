@@ -307,11 +307,11 @@ describe('saved view routes', () => {
     expect(response.status).toBe(201);
     const body = savedViewResponseSchema.parse(await response.json());
     expect(body.view).toMatchObject({ name: 'Calgary', version: 1, state: cleanedState });
-    // What the person saved is stored as they saved it.
+    // The state is cleaned before it is stored: the hidden `city` is never written.
     expect(views.create).toHaveBeenCalledWith(scope, {
       object: 'lead',
       name: 'Calgary',
-      state: storedState,
+      state: cleanedState,
     });
 
     views.create.mockResolvedValueOnce({ kind: 'name_taken' });
@@ -345,7 +345,7 @@ describe('saved view routes', () => {
     });
     expect(views.update).toHaveBeenCalledWith(scope, VIEW, {
       expectedVersion: 3,
-      state: storedState,
+      state: cleanedState,
     });
 
     const cases = [
@@ -362,6 +362,59 @@ describe('saved view routes', () => {
       expect(res.status).toBe(status);
       expect(await errorCode(res)).toBe(code);
     }
+  });
+
+  it('stores and returns a state without a filter, column or sort on the sensitive dateOfBirth', async () => {
+    const withBirthDate: SavedViewState = {
+      ...DEFAULT_LEAD_VIEW_STATE,
+      leadType: 'internet',
+      where: [
+        { key: 'dateOfBirth', op: 'eq', value: '1990-04-12' },
+        { key: 'city', op: 'eq', value: 'Calgary' },
+      ],
+      columns: ['dateOfBirth', 'city'],
+      sort: 'prop.dateOfBirth:asc',
+    };
+    const expected: SavedViewState = {
+      ...DEFAULT_LEAD_VIEW_STATE,
+      leadType: 'internet',
+      where: [{ key: 'city', op: 'eq', value: 'Calgary' }],
+      columns: ['city'],
+    };
+
+    const created = await call(viewsUrl(), {
+      method: 'POST',
+      body: { name: 'Birthdays', state: withBirthDate },
+    });
+    expect(created.status).toBe(201);
+    expect(views.create).toHaveBeenCalledWith(scope, {
+      object: 'lead',
+      name: 'Birthdays',
+      state: expected,
+    });
+    expect(savedViewResponseSchema.parse(await created.json()).view.state).toEqual(expected);
+
+    const updated = await call(viewsUrl(`/${VIEW}`), {
+      method: 'PATCH',
+      body: { expectedVersion: 3, name: 'Birthdays', state: withBirthDate },
+    });
+    expect(updated.status).toBe(200);
+    expect(views.update).toHaveBeenCalledWith(scope, VIEW, {
+      expectedVersion: 3,
+      name: 'Birthdays',
+      state: expected,
+    });
+    expect(savedViewResponseSchema.parse(await updated.json()).view.state).toEqual(expected);
+
+    // A rename alone stores no state.
+    await call(viewsUrl(`/${VIEW}`), {
+      method: 'PATCH',
+      body: { expectedVersion: 4, name: 'Renamed' },
+    });
+    expect(views.update).toHaveBeenLastCalledWith(scope, VIEW, {
+      expectedVersion: 4,
+      name: 'Renamed',
+    });
   });
 
   it('deletes with 200 and maps not_found to 404', async () => {
