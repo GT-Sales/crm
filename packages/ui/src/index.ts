@@ -16,6 +16,7 @@ export {
   CardDescription,
   CardContent,
 } from './components/card';
+export { Checkbox } from './components/checkbox';
 export {
   Dialog,
   DialogClose,
@@ -57,6 +58,7 @@ export {
   SelectTrigger,
   SelectValue,
 } from './components/select';
+export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from './components/popover';
 export { Separator } from './components/separator';
 export {
   Sheet,
