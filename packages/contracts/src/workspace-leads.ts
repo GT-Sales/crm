@@ -14,6 +14,7 @@ import {
   leadStatusSchema,
   leadTypeSchema,
 } from './leads';
+import { codePropertyCatalog, propertyKeySchema, type PropertyCatalog } from './properties';
 
 /**
  * Staff lead visibility — `GET /workspaces/:id/leads` and the board. Caller:
@@ -50,11 +51,9 @@ export const leadSearchSchema = z.string().trim().min(1).max(100);
  */
 export const leadDueBySchema = z.iso.date();
 
-const propertyKeySchema = z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/, 'a property key');
-
 export const leadPropertyFilterValueSchema = z.union([
   z.string().max(200),
-  z.number().int().min(0).max(10_000),
+  z.number().finite().min(-1e12).max(1e12),
   z.boolean(),
   z.array(z.string().min(1).max(200)).min(1).max(20),
 ]);
@@ -136,7 +135,7 @@ export type LeadSortField = LeadBuiltinSortField | `prop.${string}`;
 export const leadSortSchema = z
   .string()
   .regex(
-    /^(?:createdAt|updatedAt|fullName|externalRef|prop\.[a-z][A-Za-z0-9]{0,63}):(?:asc|desc)$/,
+    /^(?:createdAt|updatedAt|fullName|externalRef|prop\.[a-z][A-Za-z0-9_]{0,63}):(?:asc|desc)$/,
     'sort must be <field>:<asc|desc>',
   );
 export type LeadSort = z.infer<typeof leadSortSchema>;
@@ -180,11 +179,17 @@ export const leadColumnsSchema = z
   .transform((keys) => [...new Set(keys)]);
 
 /**
- * Checks one parsed filter against the shared property catalogue (and the
- * given lead type, when present).
+ * Checks one parsed filter against the site's property catalogue (the code
+ * catalogue when none is given) and the given lead type, when present.
  */
-export function isValidLeadPropertyFilter(filter: LeadPropertyFilter, leadType?: string): boolean {
-  const property = filterableLeadProperties(leadType).find((entry) => entry.key === filter.key);
+export function isValidLeadPropertyFilter(
+  filter: LeadPropertyFilter,
+  leadType?: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): boolean {
+  const property = filterableLeadProperties(leadType, catalog).find(
+    (entry) => entry.key === filter.key,
+  );
   if (!property) return false;
   if (!leadPropertyOperators(property.kind).includes(filter.op)) return false;
 
@@ -198,6 +203,9 @@ export function isValidLeadPropertyFilter(filter: LeadPropertyFilter, leadType?:
   switch (property.kind) {
     case 'text':
     case 'longText':
+    case 'email':
+    case 'phone':
+    case 'url':
       return typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
     case 'choice': {
       const allowed =
@@ -226,6 +234,10 @@ export function isValidLeadPropertyFilter(filter: LeadPropertyFilter, leadType?:
       return typeof value === 'string' && z.iso.datetime().safeParse(value).success;
     case 'count':
       return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10_000;
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 1e12;
+    case 'money':
+      return typeof value === 'number' && Number.isInteger(value) && Math.abs(value) <= 1e12;
     case 'yesNo':
       return typeof value === 'boolean';
   }
@@ -234,20 +246,31 @@ export function isValidLeadPropertyFilter(filter: LeadPropertyFilter, leadType?:
 export function areValidLeadPropertyFilters(
   filters: readonly LeadPropertyFilter[],
   leadType?: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
 ): boolean {
-  return filters.every((filter) => isValidLeadPropertyFilter(filter, leadType));
+  return filters.every((filter) => isValidLeadPropertyFilter(filter, leadType, catalog));
 }
 
-export function isValidLeadSort(sort: string, leadType?: string): boolean {
+export function isValidLeadSort(
+  sort: string,
+  leadType?: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): boolean {
   const parsed = parseLeadSort(sort);
   if (!parsed) return false;
   if (parsed.propertyKey === undefined) return true;
-  return filterableLeadProperties(leadType).some((entry) => entry.key === parsed.propertyKey);
+  return filterableLeadProperties(leadType, catalog).some(
+    (entry) => entry.key === parsed.propertyKey,
+  );
 }
 
-export function areValidLeadColumns(columns: readonly string[], leadType?: string): boolean {
+export function areValidLeadColumns(
+  columns: readonly string[],
+  leadType?: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): boolean {
   if (columns.length > 6) return false;
-  const allowed = new Set(filterableLeadProperties(leadType).map((entry) => entry.key));
+  const allowed = new Set(filterableLeadProperties(leadType, catalog).map((entry) => entry.key));
   return columns.every((key) => allowed.has(key));
 }
 

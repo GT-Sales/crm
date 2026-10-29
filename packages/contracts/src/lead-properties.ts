@@ -1,4 +1,5 @@
 import type { LeadFieldDefinition, LeadFieldKind, LeadFieldOption } from './lead-fields';
+import { codePropertyCatalog, type PropertyCatalog } from './properties';
 
 /**
  * Shared catalogue of lead form properties across every GT Sales website and
@@ -59,7 +60,12 @@ const OPERATORS_BY_KIND: Readonly<Record<LeadFieldKind, readonly LeadPropertyOpe
   date: ['eq', 'lte', 'gte', 'empty', 'notEmpty'],
   dateTime: ['lte', 'gte', 'empty', 'notEmpty'],
   count: ['eq', 'lte', 'gte', 'empty', 'notEmpty'],
+  number: ['eq', 'lte', 'gte', 'empty', 'notEmpty'],
+  money: ['eq', 'lte', 'gte', 'empty', 'notEmpty'],
   yesNo: ['eq', 'empty'],
+  email: ['eq', 'contains', 'empty', 'notEmpty'],
+  phone: ['eq', 'contains', 'empty', 'notEmpty'],
+  url: ['eq', 'contains', 'empty', 'notEmpty'],
 };
 
 /** Get Canada Sim's plans as its `data.ts` names them (`planLabel`), by slug. */
@@ -273,75 +279,17 @@ export function leadTypePropertyKeys(leadType: string): readonly string[] {
 }
 
 /**
- * Non-sensitive properties used by `leadType`, or by any lead type when omitted,
- * each with the effective kind and options for that scope (when no type is
- * given and kinds differ across types, `text` semantics are used).
+ * Non-sensitive, visible properties used by `leadType`, or by any lead type
+ * when omitted, each with the effective kind and options for that scope (when
+ * no type is given and kinds differ across types, `text` semantics are used).
+ * The site's `catalog` adds its custom properties and hides what it hides;
+ * without one this is the code catalogue.
  */
-export function filterableLeadProperties(leadType?: string): readonly FilterableLeadProperty[] {
-  if (leadType !== undefined) {
-    const uses = Object.hasOwn(leadTypeProperties, leadType)
-      ? leadTypeProperties[leadType]
-      : undefined;
-    if (!uses) return [];
-    const result: FilterableLeadProperty[] = [];
-    for (const use of uses) {
-      const property = leadProperty(use.key);
-      if (!property || property.sensitive) continue;
-      const resolved = resolveLeadTypeProperty(property, use);
-      result.push({
-        key: resolved.key,
-        label: resolved.label,
-        kind: resolved.kind,
-        ...(resolved.options !== undefined ? { options: resolved.options } : {}),
-        ...(resolved.maxLength !== undefined ? { maxLength: resolved.maxLength } : {}),
-      });
-    }
-    return result;
-  }
-
-  const usesByKey = new Map<string, LeadTypePropertyUse[]>();
-  for (const uses of Object.values(leadTypeProperties)) {
-    for (const use of uses) {
-      const list = usesByKey.get(use.key);
-      if (list) list.push(use);
-      else usesByKey.set(use.key, [use]);
-    }
-  }
-
-  const result: FilterableLeadProperty[] = [];
-  for (const [key, uses] of usesByKey.entries()) {
-    const property = leadProperty(key);
-    if (!property || property.sensitive) continue;
-
-    const kinds = new Set<LeadFieldKind>();
-    const options: LeadFieldOption[] = [];
-    const seenOptionValues = new Set<string>();
-
-    for (const use of uses) {
-      const resolved = resolveLeadTypeProperty(property, use);
-      kinds.add(resolved.kind);
-      if (resolved.options) {
-        for (const option of resolved.options) {
-          if (!seenOptionValues.has(option.value)) {
-            seenOptionValues.add(option.value);
-            options.push(option);
-          }
-        }
-      }
-    }
-
-    const firstKind = kinds.values().next().value;
-    const effectiveKind: LeadFieldKind = kinds.size === 1 && firstKind ? firstKind : 'text';
-
-    result.push({
-      key: property.key,
-      label: property.label,
-      kind: effectiveKind,
-      ...(effectiveKind === 'choice' && options.length > 0 ? { options } : {}),
-      ...(property.maxLength !== undefined ? { maxLength: property.maxLength } : {}),
-    });
-  }
-  return result;
+export function filterableLeadProperties(
+  leadType?: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): readonly FilterableLeadProperty[] {
+  return catalog.filterable(leadType);
 }
 
 /** Allowed filter operators for a property kind. */

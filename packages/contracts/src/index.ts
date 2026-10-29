@@ -311,6 +311,36 @@ export {
 } from './lead-properties';
 
 export {
+  BUILTIN_OVERRIDE_FIELDS,
+  CUSTOM_PROPERTY_KEY_PREFIX,
+  CUSTOM_PROPERTY_KINDS,
+  PROPERTY_KINDS,
+  PROPERTY_LIMIT,
+  PROPERTY_OBJECTS,
+  buildPropertyCatalog,
+  codePropertyCatalog,
+  createCustomPropertySchema,
+  formatPropertyValue,
+  generatePropertyKey,
+  parsePropertyValue,
+  propertyKeySchema,
+  propertyOptionSchema,
+  propertyRowSchema,
+  sitePropertySchema,
+  updatePropertySchema,
+  type CreateCustomProperty,
+  type ParsePropertyValueResult,
+  type PropertyCatalog,
+  type PropertyKind,
+  type PropertyObject,
+  type PropertyOption,
+  type PropertyRow,
+  type PropertyValue,
+  type SiteProperty,
+  type UpdateProperty,
+} from './properties';
+
+export {
   MAX_IDENTITIES_PER_LEAD,
   MAX_IDENTITY_FILE_BYTES,
   createIdentityUploadRequestSchema,

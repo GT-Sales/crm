@@ -260,7 +260,10 @@ function propertyFilterCondition(filter: LeadPropertyFilter, leadType?: string):
 
   switch (property.kind) {
     case 'text':
-    case 'longText': {
+    case 'longText':
+    case 'email':
+    case 'phone':
+    case 'url': {
       if (typeof filter.value !== 'string') return sql`false`;
       if (filter.op === 'eq') {
         return sql`lower(btrim(${v})) = lower(btrim(${filter.value}))`;
@@ -306,7 +309,9 @@ function propertyFilterCondition(filter: LeadPropertyFilter, leadType?: string):
       }
       return sql`false`;
     }
-    case 'count': {
+    case 'count':
+    case 'number':
+    case 'money': {
       if (typeof filter.value !== 'number') return sql`false`;
       const guardedNum = sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
       if (filter.op === 'eq') {

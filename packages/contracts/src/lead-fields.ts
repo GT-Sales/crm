@@ -5,6 +5,9 @@ import {
   leadTypeProperties,
   resolveLeadTypeProperty,
 } from './lead-properties';
+import { isCalendarDate, parsePropertyValue, type PropertyKind } from './properties';
+
+export { isCalendarDate };
 
 /**
  * The fields of each lead type's form, in the order staff check them: how
@@ -15,8 +18,7 @@ import {
  * and never sent by the website.
  */
 
-export type LeadFieldKind =
-  'text' | 'longText' | 'date' | 'dateTime' | 'count' | 'yesNo' | 'choice';
+export type LeadFieldKind = PropertyKind;
 
 export interface LeadFieldOption {
   readonly value: string;
@@ -87,74 +89,25 @@ export type LeadFormEdit = z.infer<typeof leadFormEditSchema>;
 export type LeadFormEditResult =
   { ok: true; payload: Record<string, unknown>; changed: string[] } | { ok: false; field: string };
 
-const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-/** Control characters, bidi overrides and line separators; a long text may keep its newlines. */
-function hasControlCharacter(text: string, allowNewline: boolean): boolean {
-  for (const character of text) {
-    const code = character.codePointAt(0) ?? 0;
-    if (code === 0x0a && allowNewline) continue;
-    if (
-      code < 0x20 ||
-      (code >= 0x7f && code <= 0x9f) ||
-      code === 0x2028 ||
-      code === 0x2029 ||
-      (code >= 0x202a && code <= 0x202e) ||
-      (code >= 0x2066 && code <= 0x2069)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export function isCalendarDate(value: string): boolean {
-  const match = DATE.exec(value);
-  if (!match) return false;
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    year >= 1900 &&
-    year <= 2200 &&
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
-}
-
 type Checked = { ok: true; value: unknown } | { ok: false };
 
 /** The stored form of one edited value; `undefined` value means "clear the field". */
 function checkValue(definition: LeadFieldDefinition, raw: unknown): Checked {
   if (raw === null) return { ok: true, value: undefined };
-  switch (definition.kind) {
-    case 'text':
-    case 'longText': {
-      if (typeof raw !== 'string') return { ok: false };
-      const text = raw.replace(/\r\n?/g, '\n').trim();
-      if (text === '') return { ok: true, value: undefined };
-      if (text.length > (definition.maxLength ?? 200)) return { ok: false };
-      if (hasControlCharacter(text, definition.kind === 'longText')) return { ok: false };
-      return { ok: true, value: text };
-    }
-    case 'date':
-      return typeof raw === 'string' && isCalendarDate(raw)
-        ? { ok: true, value: raw }
-        : { ok: false };
-    case 'dateTime':
-      return typeof raw === 'string' && z.iso.datetime().safeParse(raw).success
-        ? { ok: true, value: raw }
-        : { ok: false };
-    case 'count':
-      return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 10_000
-        ? { ok: true, value: raw }
-        : { ok: false };
-    case 'yesNo':
-      return typeof raw === 'boolean' ? { ok: true, value: raw } : { ok: false };
-    case 'choice':
-      return typeof raw === 'string' && definition.options?.some((option) => option.value === raw)
-        ? { ok: true, value: raw }
-        : { ok: false };
+  if (definition.kind === 'text' || definition.kind === 'longText') {
+    if (typeof raw !== 'string') return { ok: false };
+    // An empty text clears the field; a form's long text is capped as a text is.
+    if (raw.trim() === '') return { ok: true, value: undefined };
+    return parsePropertyValue(
+      { kind: definition.kind, maxLength: definition.maxLength ?? 200 },
+      raw,
+    );
   }
+  const options = definition.options?.map((option) => ({ ...option, hidden: false }));
+  return parsePropertyValue(
+    { kind: definition.kind, ...(options !== undefined ? { options } : {}) },
+    raw,
+  );
 }
 
 const isEmpty = (value: unknown) => value === undefined || value === null || value === '';
