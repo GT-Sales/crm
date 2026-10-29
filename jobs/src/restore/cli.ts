@@ -56,17 +56,33 @@ async function readableFile(path: string): Promise<void> {
   await access(path, constants.R_OK);
 }
 
-function targetStorage(env: NodeJS.ProcessEnv): S3SigningConfig | undefined {
-  if (!TARGET_STORAGE_VARIABLES.some((name) => optionalEnv(name, env) !== undefined)) {
-    return undefined;
-  }
-  // All five or none: name the first one missing (properties evaluate in order).
+function anyTargetStorage(env: NodeJS.ProcessEnv): boolean {
+  return TARGET_STORAGE_VARIABLES.some((name) => optionalEnv(name, env) !== undefined);
+}
+
+/**
+ * A database target needs the target bucket too, unless the operator opts out:
+ * the documents stage runs after the database transaction has committed, so
+ * finding the storage missing only then would leave a loaded target that the
+ * next attempt's `restore_target_not_empty` refuses.
+ */
+function targetStorage(env: NodeJS.ProcessEnv): S3SigningConfig {
+  const value = (name: (typeof TARGET_STORAGE_VARIABLES)[number]): string => {
+    const set = optionalEnv(name, env);
+    if (set === undefined) {
+      throw new Error(
+        `${name} is required when TARGET_DATABASE_URL is set (or RESTORE_SKIP_OBJECTS=1)`,
+      );
+    }
+    return set;
+  };
+  // Properties evaluate in order, so the first missing variable is named.
   return {
-    endpoint: requiredEnv('TARGET_STORAGE_ENDPOINT', env),
-    region: requiredEnv('TARGET_STORAGE_REGION', env),
-    bucket: requiredEnv('TARGET_STORAGE_BUCKET', env),
-    accessKeyId: requiredEnv('TARGET_STORAGE_ACCESS_KEY_ID', env),
-    secretAccessKey: requiredEnv('TARGET_STORAGE_SECRET_ACCESS_KEY', env),
+    endpoint: value('TARGET_STORAGE_ENDPOINT'),
+    region: value('TARGET_STORAGE_REGION'),
+    bucket: value('TARGET_STORAGE_BUCKET'),
+    accessKeyId: value('TARGET_STORAGE_ACCESS_KEY_ID'),
+    secretAccessKey: value('TARGET_STORAGE_SECRET_ACCESS_KEY'),
   };
 }
 
@@ -105,10 +121,13 @@ export async function buildRestoreDependencies(
   }
 
   const databaseUrl = optionalEnv('TARGET_DATABASE_URL', env);
-  const storage = targetStorage(env);
-  if (storage && !databaseUrl) {
+  if (!databaseUrl && anyTargetStorage(env)) {
     throw new Error('TARGET_DATABASE_URL is required when TARGET_STORAGE_* is set');
   }
+  // RESTORE_SKIP_OBJECTS: no storage at all; a run that holds documents then
+  // fails at objects_apply, after the database is loaded.
+  const storage =
+    databaseUrl && !envFlag('RESTORE_SKIP_OBJECTS', env) ? targetStorage(env) : undefined;
   const detectedAt = incidentDetectedAt(env);
 
   return {
@@ -132,28 +151,25 @@ export async function buildRestoreDependencies(
   };
 }
 
-/** The report as logged: the manifest summarised, never its artifact list. */
+/**
+ * The report as logged: the whole manifest (deployment, capture time, source
+ * ids, tool versions, row counts, counts and exclusions, which tell the
+ * operator what the restore did not bring back) except its artifact list,
+ * which is replaced by its length.
+ */
 export function restoreReportLine(
   report: RestoreReport,
   mode: 'verify_only' | 'restore',
 ): Record<string, unknown> {
   const { runId, manifest, ...rest } = report;
+  if (!manifest) return { event: 'restore_report', runId, mode, ...rest };
+  const { artifacts, ...manifestWithoutArtifacts } = manifest;
   return {
     event: 'restore_report',
     runId,
     mode,
     ...rest,
-    ...(manifest
-      ? {
-          manifest: {
-            runId: manifest.runId,
-            deployment: manifest.deployment,
-            capturedAt: manifest.capturedAt,
-            artifactCount: manifest.artifacts.length,
-            rowCountTables: Object.keys(manifest.rowCounts).length,
-          },
-        }
-      : {}),
+    manifest: { ...manifestWithoutArtifacts, artifactCount: artifacts.length },
   };
 }
 

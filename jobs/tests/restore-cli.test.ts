@@ -66,7 +66,7 @@ function manifest(): BackupManifest {
     ),
     rowCounts: ROW_COUNTS,
     counts: { referencedObjects: 1 },
-    exclusions: [],
+    exclusions: ['storage_objects_metadata', 'auth_data_skipped_by_operator'],
   });
 }
 
@@ -116,7 +116,7 @@ interface RecordedCall {
 }
 
 /** A fake `age` (identity must be the key path) and `psql` (an empty, RLS-bypassing target). */
-function fakeTools(counts: Record<string, number> = ROW_COUNTS) {
+function fakeTools(counts: Record<string, number> = ROW_COUNTS, applyStderr?: string) {
   const calls: RecordedCall[] = [];
   const run: RunCommand = async (command, args, options) => {
     calls.push({ command, args, options });
@@ -130,7 +130,9 @@ function fakeTools(counts: Record<string, number> = ROW_COUNTS) {
     }
     if (command === 'psql') {
       const sql = args[args.indexOf('--command') + 1] ?? '';
-      if (args.includes('--single-transaction')) return ok();
+      if (args.includes('--single-transaction')) {
+        return applyStderr ? { stdout: new Uint8Array(), stderr: applyStderr, exitCode: 3 } : ok();
+      }
       if (sql === ROLE_BYPASSES_RLS_QUERY) return ok('t\n');
       if (sql.includes('pg_namespace')) return ok('0\n');
       if (sql.includes('query_to_xml')) {
@@ -146,9 +148,9 @@ function fakeTools(counts: Record<string, number> = ROW_COUNTS) {
   return { run, calls };
 }
 
-function cliIo(objects = archiveObjects(), counts?: Record<string, number>) {
+function cliIo(objects = archiveObjects(), counts?: Record<string, number>, applyStderr?: string) {
   const endpoints = fakeEndpoints(objects);
-  const tools = fakeTools(counts);
+  const tools = fakeTools(counts, applyStderr);
   const errorTracker = new FakeErrorTracker();
   let tick = 0;
   const io: RestoreCliIo = {
@@ -314,11 +316,16 @@ describe('restore CLI', () => {
         verified: true,
         restored: false,
         manifest: {
-          runId: RUN_ID,
+          schemaVersion: 1,
           deployment: 'gt-sales',
+          runId: RUN_ID,
           capturedAt: CAPTURED_AT.toISOString(),
+          sourceIds: { supabaseProjectRef: 'sourceref' },
+          toolVersions: { age: '1.2.1', pgDump: '17.6' },
+          rowCounts: ROW_COUNTS,
+          counts: { referencedObjects: 1 },
+          exclusions: ['storage_objects_metadata', 'auth_data_skipped_by_operator'],
           artifactCount: 4,
-          rowCountTables: 2,
         },
         missingArtifacts: [],
         mismatchedArtifacts: [],
@@ -327,6 +334,13 @@ describe('restore CLI', () => {
         restoreDurationMs: 1000,
       },
     ]);
+    const line = String(info.mock.calls[0]?.[0]);
+    expect(line).toContain(
+      '"exclusions":["storage_objects_metadata","auth_data_skipped_by_operator"]',
+    );
+    expect(line).toContain('"rowCounts":{"app.leads":2,"app.workspaces":1}');
+    expect(line).not.toContain('"artifacts"');
+    expect(line).not.toContain('sha256');
     expect(error).not.toHaveBeenCalled();
     expect(requests.every((request) => request.method === 'GET')).toBe(true);
     expect(calls.every((call) => call.command === 'age')).toBe(true);
@@ -422,10 +436,91 @@ describe('restore CLI', () => {
     ]);
   });
 
+  it('a database target requires the target storage unless RESTORE_SKIP_OBJECTS is set', async () => {
+    const { io } = cliIo();
+    await expect(
+      buildRestoreDependencies({ ...required(), TARGET_DATABASE_URL }, io),
+    ).rejects.toThrow(
+      'TARGET_STORAGE_ENDPOINT is required when TARGET_DATABASE_URL is set (or RESTORE_SKIP_OBJECTS=1)',
+    );
+    await expect(
+      buildRestoreDependencies(
+        { ...required(), TARGET_DATABASE_URL, ...TARGET_STORAGE, TARGET_STORAGE_REGION: ' ' },
+        io,
+      ),
+    ).rejects.toThrow(
+      'TARGET_STORAGE_REGION is required when TARGET_DATABASE_URL is set (or RESTORE_SKIP_OBJECTS=1)',
+    );
+    const deps = await buildRestoreDependencies(
+      { ...required(), TARGET_DATABASE_URL, RESTORE_SKIP_OBJECTS: '1' },
+      io,
+    );
+    expect(deps.target).toBeInstanceOf(PsqlAndS3RestoreTarget);
+  });
+
+  it('RESTORE_SKIP_OBJECTS loads the database and then fails at objects_apply when the run holds documents', async () => {
+    const { io, requests, calls } = cliIo();
+    const env = {
+      ...required(),
+      TARGET_DATABASE_URL,
+      ...TARGET_STORAGE,
+      RESTORE_SKIP_OBJECTS: 'true',
+    };
+    expect(await runRestoreCli(env, io)).toBe(1);
+    expect(logLines(info)).toEqual([
+      expect.objectContaining({
+        mode: 'restore',
+        verified: true,
+        restored: false,
+        failedStage: 'objects_apply',
+        failureReason: 'restore_storage_not_configured',
+      }),
+    ]);
+    expect(calls.some((call) => call.args.includes('--single-transaction'))).toBe(true);
+    expect(requests.some((request) => request.method === 'PUT')).toBe(false);
+  });
+
+  it('a failed database load reports the psql ERROR line without row values or credentials', async () => {
+    const stderr = [
+      `psql: error: connection to postgresql://postgres.targetref:${encodeURIComponent(TARGET_PASSWORD)}@host:5432/postgres lost`,
+      'psql:/tmp/gt-sales-restore-x/data.sql:12: ERROR:  duplicate key value violates unique constraint "leads_email_key"',
+      'DETAIL:  Key (email)=(a@b.c) already exists.',
+      'CONTEXT:  COPY leads, line 3: "3\tAda Lovelace\ta@b.c"',
+    ].join('\n');
+    const { io, errorTracker } = cliIo(archiveObjects(), undefined, stderr);
+    expect(await runRestoreCli({ ...required(), TARGET_DATABASE_URL, ...TARGET_STORAGE }, io)).toBe(
+      1,
+    );
+    expect(logLines(info)).toEqual([
+      expect.objectContaining({
+        verified: true,
+        restored: false,
+        failedStage: 'database_apply',
+        failureReason: expect.stringContaining(
+          'ERROR:  duplicate key value violates unique constraint',
+        ),
+      }),
+    ]);
+    const logs = rawLogs(info, error);
+    for (const detail of [
+      'a@b.c',
+      'Ada Lovelace',
+      'DETAIL',
+      'CONTEXT',
+      TARGET_PASSWORD,
+      encodeURIComponent(TARGET_PASSWORD),
+    ]) {
+      expect(logs).not.toContain(detail);
+    }
+    expect(logs).not.toMatch(/[a-z]+:\/\/[^\s"/]*:[^\s"/[]+@/);
+    expect(errorTracker.events).toEqual([]);
+  });
+
   it('never logs the private key contents, a password or a credentialed URL', async () => {
     const failing = cliIo();
     const badTarget = {
       ...required(),
+      ...TARGET_STORAGE,
       TARGET_DATABASE_URL: `mysql://root:${TARGET_PASSWORD}@h/db`,
     };
     expect(await runRestoreCli(badTarget, failing.io)).toBe(1);

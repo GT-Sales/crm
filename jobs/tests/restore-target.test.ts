@@ -8,6 +8,7 @@ import type { RunCommand, RunCommandInput, RunCommandResult } from '../src/archi
 import type { DatabaseDumpArtifacts } from '../src/backup/pg-dump.js';
 import {
   nodeWithTempDir,
+  psqlErrorLines,
   PsqlAndS3RestoreTarget,
   rowCountsQuery,
   type WithTempDir,
@@ -166,7 +167,7 @@ describe('PsqlAndS3RestoreTarget.preflight', () => {
     const { run } = recordingRun([
       {
         exitCode: 2,
-        stderr: `psql: error: connection to postgresql://postgres:${PASSWORD}@host:5432/postgres failed`,
+        stderr: `psql: error: connection to postgresql://postgres:${encodeURIComponent(PASSWORD)}@host:5432/postgres failed`,
       },
     ]);
     const error: unknown = await target(run)
@@ -176,6 +177,7 @@ describe('PsqlAndS3RestoreTarget.preflight', () => {
     const message = error instanceof Error ? error.message : '';
     expect(message).toMatch(/^psql_failed:2:/);
     expect(message).not.toContain(PASSWORD);
+    expect(message).not.toContain('rget-secret');
   });
 
   it('rejects a database URL that is not postgres:// without echoing it', () => {
@@ -274,6 +276,65 @@ describe('PsqlAndS3RestoreTarget.applyDatabase', () => {
       ),
     ).rejects.toThrow(/^psql_failed:3:ERROR: boom$/);
     expect(calls).toHaveLength(1);
+  });
+
+  it('a load failure reports the ERROR line only, never the row values in DETAIL or CONTEXT', async () => {
+    const stderr = [
+      'psql:/tmp/gt-sales-restore-x/data.sql:12: ERROR:  duplicate key value violates unique constraint "leads_email_key"',
+      'DETAIL:  Key (email)=(a@b.c) already exists.',
+      'CONTEXT:  COPY leads, line 3: "3\tAda Lovelace\ta@b.c\t+1 604 555 0100"',
+      'HINT:  Check the row for Ada Lovelace.',
+      "LINE 1: insert into app.leads values ('Ada Lovelace')",
+      '                                      ^',
+    ].join('\n');
+    const { run } = recordingRun([{ exitCode: 3, stderr }]);
+    const error: unknown = await target(run)
+      .applyDatabase(dump())
+      .catch((caught: unknown) => caught);
+    const message = error instanceof Error ? error.message : '';
+    expect(message).toBe(
+      'psql_failed:3:psql:/tmp/gt-sales-restore-x/data.sql:12: ERROR:  duplicate key value violates unique constraint "leads_email_key"',
+    );
+    for (const detail of [
+      'a@b.c',
+      'Ada Lovelace',
+      '555 0100',
+      'DETAIL',
+      'CONTEXT',
+      'HINT',
+      'LINE 1',
+    ]) {
+      expect(message).not.toContain(detail);
+    }
+  });
+
+  it('psqlErrorLines keeps connection and server error lines, with credentials still redacted', async () => {
+    expect(
+      psqlErrorLines(
+        [
+          'psql: error: connection to server at "h" (10.0.0.1), port 5432 failed: FATAL:  password authentication failed for user "postgres"',
+          'DETAIL:  Role "postgres" does not exist.',
+          'NOTICE:  relation exists, skipping',
+        ].join('\n'),
+      ),
+    ).toBe(
+      'psql: error: connection to server at "h" (10.0.0.1), port 5432 failed: FATAL:  password authentication failed for user "postgres"',
+    );
+    const { run } = recordingRun([
+      {
+        exitCode: 2,
+        stderr: `psql: error: connection to postgresql://postgres:${encodeURIComponent(PASSWORD)}@host:5432/postgres failed\nDETAIL:  Key (email)=(a@b.c)`,
+      },
+    ]);
+    const error: unknown = await target(run)
+      .countRows(['app.leads'])
+      .catch((caught: unknown) => caught);
+    const message = error instanceof Error ? error.message : '';
+    expect(message).toMatch(
+      /^psql_failed:2:psql: error: connection to postgresql:\/\/postgres:\[redacted\]@host/,
+    );
+    expect(message).not.toContain('rget-secret');
+    expect(message).not.toContain('a@b.c');
   });
 
   it('removes the temporary directory after success and after a failure', async () => {

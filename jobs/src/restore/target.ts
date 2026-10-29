@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { S3ArchiveWriter } from '../archive/archive-store.js';
-import { runOrThrow, type RunCommand } from '../archive/command.js';
+import { CommandFailedError, type RunCommand } from '../archive/command.js';
 import {
   parseConnectionUrl,
   pgConnectionEnv,
@@ -62,6 +62,10 @@ const OBJECT_PUT_TIMEOUT_MS = 10 * 60_000;
 
 const QUALIFIED_TABLE = /^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/;
 const OBJECT_ARTIFACT = /^objects\/([^/]+)\/(.+)$/;
+/** `psql: error: …` (connection) or a server `ERROR:`/`FATAL:`/`PANIC:` line. */
+const PSQL_ERROR_LINE = /^\s*psql: error:|\b(?:ERROR|FATAL|PANIC):/;
+/** Never logged, even when one also mentions an error. */
+const PSQL_DETAIL_LINE = /^\s*(?:psql:\S*:\d+:\s*)?(?:DETAIL|HINT|CONTEXT|LINE \d+):/;
 const COUNT_LINE = /^([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\t(-?\d+)$/;
 
 /**
@@ -86,6 +90,20 @@ export function rowCountsQuery(tables: readonly string[]): string {
   left join pg_tables t on t.schemaname = r.schema_name and t.tablename = r.table_name
   order by r.name
 `;
+}
+
+/**
+ * The part of psql's stderr a restore may log: its error lines only. A load
+ * error's `DETAIL:` (`Key (email)=(…)`), `CONTEXT:` (`COPY …, line N: "<row>"`),
+ * `HINT:` and `LINE n:` lines (and the caret under a quoted line) carry
+ * customer values, so every line that is not an error line is dropped before
+ * `CommandFailedError` applies the usual credential redaction.
+ */
+export function psqlErrorLines(stderr: string): string {
+  return stderr
+    .split(/\r?\n/)
+    .filter((line) => PSQL_ERROR_LINE.test(line) && !PSQL_DETAIL_LINE.test(line))
+    .join('\n');
 }
 
 export class PsqlAndS3RestoreTarget implements RestoreTarget {
@@ -201,9 +219,12 @@ export class PsqlAndS3RestoreTarget implements RestoreTarget {
   }
 
   private async psql(args: readonly string[]): Promise<string> {
-    const stdout = await runOrThrow(this.run, 'psql', args, {
+    const result = await this.run('psql', args, {
       env: pgConnectionEnv(this.connection, this.baseEnv),
     });
-    return new TextDecoder().decode(stdout);
+    if (result.exitCode !== 0) {
+      throw new CommandFailedError('psql', result.exitCode, psqlErrorLines(result.stderr));
+    }
+    return new TextDecoder().decode(result.stdout);
   }
 }
