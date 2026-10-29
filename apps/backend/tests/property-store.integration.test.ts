@@ -315,6 +315,45 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     ).resolves.toEqual({ kind: 'version_conflict' });
   });
 
+  it('refuses options on a kind without them, a choice left with none, and repeated option values', async () => {
+    const text = keyOf(await store.create(ctx, 'lead', textInput('Plain text')));
+    const choice = keyOf(
+      await store.create(ctx, 'lead', {
+        ...textInput('Tier'),
+        kind: 'choice',
+        options: [{ value: 'gold', label: 'Gold', hidden: false }],
+      }),
+    );
+
+    await expect(
+      store.update(ctx, 'lead', text, {
+        expectedVersion: 1,
+        options: [{ value: 'a', label: 'A', hidden: false }],
+      }),
+    ).resolves.toEqual({ kind: 'invalid_options' });
+    await expect(
+      store.update(ctx, 'lead', choice, { expectedVersion: 1, options: [] }),
+    ).resolves.toEqual({ kind: 'invalid_options' });
+    await expect(
+      store.update(ctx, 'lead', choice, {
+        expectedVersion: 1,
+        options: [
+          { value: 'gold', label: 'Gold', hidden: false },
+          { value: 'gold', label: 'Gold again', hidden: true },
+        ],
+      }),
+    ).resolves.toEqual({ kind: 'invalid_options' });
+
+    // Nothing changed: both rows are still at version 1, and a valid change goes through.
+    expect((await store.model(ctx, 'lead')).rows.map((row) => [row.key, row.version])).toEqual([
+      [text, 1],
+      [choice, 1],
+    ]);
+    await expect(
+      store.update(ctx, 'lead', text, { expectedVersion: 1, options: [] }),
+    ).resolves.toMatchObject({ kind: 'updated', property: { options: [], version: 2 } });
+  });
+
   it('deleting a property with values answers in_use; after clearing them it tombstones and catalog() no longer returns it', async () => {
     const key = keyOf(await store.create(ctx, 'lead', textInput('Gift note')));
     await insertLead(LEAD_1, SITE, { [key]: 'hello' });

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { z } from 'zod';
 import {
   auditEvents,
   properties,
@@ -14,13 +13,16 @@ import {
 import {
   BUILTIN_OVERRIDE_FIELDS,
   PROPERTY_LIMIT,
-  PROPERTY_OBJECTS,
   generatePropertyKey,
   leadPropertyCatalog,
+  propertyLayoutRowSchema,
   type CreateCustomProperty,
   type LeadPropertyDefinition,
   type PropertyCatalog,
+  type PropertyLayout,
+  type PropertyLayoutRow,
   type PropertyObject,
+  type PropertyOption,
   type PropertyRow,
   type UpdateProperty,
 } from '@gt-sales/contracts';
@@ -43,23 +45,6 @@ import {
  * lead's values.
  */
 
-// TODO(task 2): import from @gt-sales/contracts
-export interface PropertyLayout {
-  sections: { id: string; label: string; keys: string[] }[];
-}
-// TODO(task 2): import from @gt-sales/contracts
-export interface PropertyLayoutRow {
-  object: PropertyObject;
-  leadType: string;
-  layout: PropertyLayout;
-  version: number;
-  updatedAt: string | null;
-}
-// TODO(task 2): use propertyLayoutRowSchema from @gt-sales/contracts
-const storedLayoutSchema = z.object({
-  sections: z.array(z.object({ id: z.string(), label: z.string(), keys: z.array(z.string()) })),
-});
-
 export type CreatePropertyOutcome =
   { kind: 'created'; property: PropertyRow } | { kind: 'limit_reached' };
 export type UpdatePropertyOutcome =
@@ -67,6 +52,8 @@ export type UpdatePropertyOutcome =
   | { kind: 'not_found' }
   | { kind: 'version_conflict' }
   | { kind: 'builtin_locked' }
+  /** Options on a kind that has none, a choice left with none, or a repeated option value. */
+  | { kind: 'invalid_options' }
   | { kind: 'option_in_use'; optionValue: string; leadCount: number };
 export type RemovePropertyOutcome =
   | { kind: 'deleted' }
@@ -155,16 +142,22 @@ function definitionOf(row: PropertyRow): Record<string, unknown> {
   };
 }
 
+/** The API form of a stored layout; parsing narrows the object and checks the layout's shape. */
 function toLayoutRow(record: typeof propertyLayouts.$inferSelect): PropertyLayoutRow {
-  const object = PROPERTY_OBJECTS.find((entry) => entry === record.object);
-  if (!object) throw new Error(`property layout ${record.id} has an unknown object`);
-  return {
-    object,
+  return propertyLayoutRowSchema.parse({
+    object: record.object,
     leadType: record.leadType,
-    layout: storedLayoutSchema.parse(record.layout),
+    layout: record.layout,
     version: record.version,
     updatedAt: record.updatedAt.toISOString(),
-  };
+  });
+}
+
+/** The rule `createCustomPropertySchema` applies: only a choice has options, at least one, each value once. */
+function validOptions(kind: string, options: readonly PropertyOption[]): boolean {
+  if (kind !== 'choice') return options.length === 0;
+  const values = new Set(options.map((option) => option.value));
+  return options.length > 0 && values.size === options.length;
 }
 
 /** The row of one key, tombstones included, locked for the rest of the transaction. */
@@ -368,6 +361,7 @@ export class DatabasePropertyStore implements PropertyStore {
         if (record.version !== input.expectedVersion) return { kind: 'version_conflict' };
 
         if (input.options !== undefined) {
+          if (!validOptions(record.kind, input.options)) return { kind: 'invalid_options' };
           // Dropping an option some lead holds would orphan the value; hiding it never does.
           const kept = new Set(input.options.map((option) => option.value));
           for (const option of toPropertyRow(record).options) {
