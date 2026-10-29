@@ -155,12 +155,21 @@ export interface SourceCompletenessGuard {
 const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
 
 /**
- * Every table in `schemas` that the current role cannot fully read: no SELECT
- * privilege, or row security on and no permissive SELECT/ALL policy naming the
- * role (unless the role bypasses RLS). Under `--enable-row-security` such a
- * table would dump silently empty; the guard turns that into a failure. The
- * schema list only ever comes from code, and each name is checked before it
- * is quoted into the query.
+ * Every table in `schemas` that the current role cannot fully read. A table
+ * is unreadable when the role has no SELECT privilege on it, or, unless the
+ * role bypasses RLS, when row security is on and either
+ *  - no permissive SELECT/ALL policy names the role with `USING (true)`, so
+ *    no policy grants it every row (a reader policy recreated with any other
+ *    `USING` would hide rows), or
+ *  - any restrictive SELECT/ALL policy applies to the role, by name or through
+ *    `public` (a policy without a `TO` clause). Postgres ANDs every applicable
+ *    restrictive policy onto the permissive result, so one such policy (say a
+ *    tenant check on `app.workspace_id`) leaves the reader with no rows even
+ *    though its own policy still exists.
+ * Under `--enable-row-security` such a table dumps silently empty or partial,
+ * and the dump's own row counts would agree with it; the guard turns that into
+ * a failure. The schema list only ever comes from code, and each name is
+ * checked before it is quoted into the query.
  */
 export function unreadableTablesQuery(schemas: readonly string[]): string {
   for (const schema of schemas) {
@@ -176,13 +185,24 @@ export function unreadableTablesQuery(schemas: readonly string[]): string {
       or (
         t.rowsecurity
         and not (select rolbypassrls from pg_roles where rolname = current_user)
-        and not exists (
-          select 1 from pg_policies p
-          where p.schemaname = t.schemaname
-            and p.tablename = t.tablename
-            and p.permissive = 'PERMISSIVE'
-            and current_user = any(p.roles)
-            and p.cmd in ('SELECT', 'ALL')
+        and (
+          not exists (
+            select 1 from pg_policies p
+            where p.schemaname = t.schemaname
+              and p.tablename = t.tablename
+              and p.permissive = 'PERMISSIVE'
+              and current_user = any(p.roles)
+              and p.cmd in ('SELECT', 'ALL')
+              and p.qual = 'true'
+          )
+          or exists (
+            select 1 from pg_policies p
+            where p.schemaname = t.schemaname
+              and p.tablename = t.tablename
+              and p.permissive = 'RESTRICTIVE'
+              and (current_user = any(p.roles) or 'public' = any(p.roles))
+              and p.cmd in ('SELECT', 'ALL')
+          )
         )
       )
     )

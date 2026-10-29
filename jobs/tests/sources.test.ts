@@ -246,6 +246,24 @@ describe('PsqlSourceCompletenessGuard', () => {
     );
   });
 
+  it('requires the reader policy to grant every row with USING (true)', () => {
+    const [, afterNotExists = ''] = UNREADABLE_TABLES_QUERY.split('not exists (');
+    const [permissive = ''] = afterNotExists.split('or exists (');
+    expect(permissive).toContain("p.permissive = 'PERMISSIVE'");
+    expect(permissive).toContain('current_user = any(p.roles)');
+    expect(permissive).toContain("p.cmd in ('SELECT', 'ALL')");
+    expect(permissive).toContain("p.qual = 'true'");
+  });
+
+  it('flags a table when any restrictive SELECT/ALL policy applies to the reader or to public', () => {
+    const [, afterOrExists = ''] = UNREADABLE_TABLES_QUERY.split('or exists (');
+    const [restrictive = ''] = afterOrExists.split('order by');
+    expect(restrictive).toContain("p.permissive = 'RESTRICTIVE'");
+    expect(restrictive).toContain("(current_user = any(p.roles) or 'public' = any(p.roles))");
+    expect(restrictive).toContain("p.cmd in ('SELECT', 'ALL')");
+    expect(restrictive).not.toContain('p.qual');
+  });
+
   it('the query names the schemas given', async () => {
     const { run, calls } = recordingRun('');
     await new PsqlSourceCompletenessGuard(DB_URL, run, {
