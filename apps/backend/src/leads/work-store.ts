@@ -21,6 +21,7 @@ import {
   type LeadContactEdit,
   type LeadDetail,
   type LeadForm,
+  type LeadPropertyFilter,
   type LeadTask,
   type LeadTaskStatus,
   type TaskAssigneeFilter,
@@ -128,7 +129,12 @@ export interface LeadWorkStore {
   /** The dashboard's counts for one type, received in the last `days` days or ever. */
   stats(input: Scope & { leadType: string; days?: number }): Promise<LeadStats>;
   board(
-    input: Scope & { leadType: string; assignee?: LeadAssigneeFilter; search?: string },
+    input: Scope & {
+      leadType: string;
+      assignee?: LeadAssigneeFilter;
+      search?: string;
+      where?: readonly LeadPropertyFilter[];
+    },
     perStage: number,
   ): Promise<LeadBoardColumn[]>;
   /** `includeWork: false` skips the timeline, tasks, related requests, identities and documents for a caller who may not see them. */
@@ -291,7 +297,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   board(
-    input: Scope & { leadType: string; assignee?: LeadAssigneeFilter; search?: string },
+    input: Scope & {
+      leadType: string;
+      assignee?: LeadAssigneeFilter;
+      search?: string;
+      where?: readonly LeadPropertyFilter[];
+    },
     perStage: number,
   ) {
     const filters: LeadFilters & { leadType: string } = {
@@ -300,6 +311,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       leadType: input.leadType,
       assignee: input.assignee,
       search: input.search,
+      where: input.where,
     };
     return this.database.withTenantTx(input, (tx) => selectLeadBoard(tx, filters, perStage));
   }

@@ -6,9 +6,10 @@
  * admits one seeded owner for a fixed bearer token, because CI has no Supabase
  * Auth project. Everything past the verifier is the production code path.
  *
- * Each start resets the e2e site and seeds it: two staff (the signed-in owner
- * and a colleague), internet and mobility leads in a few stages, and one open
- * task, all written through the real stores.
+ * Each start resets the e2e sites and seeds them: CanadaWide with two staff
+ * (the signed-in owner and a colleague), internet and mobility leads in a few
+ * stages, and one open task; plus Get Canada Sim with SIM orders for property
+ * filter, sort and column checks, all written through the real stores.
  *
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
@@ -25,6 +26,7 @@ import { createDefaultStaffRouteDependencies } from '../../src/routes/staff.js';
 
 const PORT = Number(process.env['E2E_HARNESS_PORT'] ?? 4100);
 const WORKSPACE_ID = '10000000-0000-4000-8000-0000000e2e01';
+const SIM_WORKSPACE_ID = '10000000-0000-4000-8000-0000000e2e02';
 const OWNER_ID = '20000000-0000-4000-8000-0000000e2e01';
 const COLLEAGUE_ID = '20000000-0000-4000-8000-0000000e2e02';
 const WEBSITE_ACTOR_ID = '20000000-0000-4000-8000-0000000e2e09';
@@ -75,21 +77,28 @@ async function seed(): Promise<void> {
   const admin = postgres(ADMIN_URL ?? '', { max: 1, prepare: false, ssl: false });
   try {
     await setTestRuntimePassword(admin);
-    // The cascade clears the site's leads, tasks, timeline and memberships.
-    await admin`delete from app.workspaces where id = ${WORKSPACE_ID}`;
+    // The cascade clears the sites' leads, tasks, timeline and memberships.
+    await admin`delete from app.workspaces where id in (${WORKSPACE_ID}, ${SIM_WORKSPACE_ID})`;
     await admin`
       insert into app.workspaces (id, slug, name, domain)
-      values (${WORKSPACE_ID}, 'canadawide', 'CanadaWide', 'canadawideinternet.com')
+      values
+        (${WORKSPACE_ID}, 'canadawide', 'CanadaWide', 'canadawideinternet.com'),
+        (${SIM_WORKSPACE_ID}, 'getcanadasim', 'Get Canada Sim', 'getcanadasim.com')
     `;
     await admin`
       insert into app.roles (workspace_id, name)
       select ${WORKSPACE_ID}, r from unnest(enum_range(null::app.role_name)) as r
     `;
     await admin`
+      insert into app.roles (workspace_id, name)
+      select ${SIM_WORKSPACE_ID}, r from unnest(enum_range(null::app.role_name)) as r
+    `;
+    await admin`
       insert into app.memberships (workspace_id, user_id, membership_type, status, accepted_at, display_name)
       values
         (${WORKSPACE_ID}, ${OWNER_ID}, 'staff', 'active', now(), 'Takib'),
-        (${WORKSPACE_ID}, ${COLLEAGUE_ID}, 'staff', 'active', now(), 'Sam')
+        (${WORKSPACE_ID}, ${COLLEAGUE_ID}, 'staff', 'active', now(), 'Sam'),
+        (${SIM_WORKSPACE_ID}, ${OWNER_ID}, 'staff', 'active', now(), 'Takib')
     `;
     await admin`
       insert into app.membership_roles (workspace_id, membership_id, role_id)
@@ -97,7 +106,7 @@ async function seed(): Promise<void> {
       from app.memberships m
       join app.roles r on r.workspace_id = m.workspace_id
         and r.name = case when m.user_id = ${OWNER_ID} then 'owner'::app.role_name else 'leads'::app.role_name end
-      where m.workspace_id = ${WORKSPACE_ID}
+      where m.workspace_id in (${WORKSPACE_ID}, ${SIM_WORKSPACE_ID})
     `;
   } finally {
     await admin.end();
@@ -155,6 +164,41 @@ async function seed(): Promise<void> {
           assignedActorId: OWNER_ID,
         });
       }
+    }
+
+    const simWebsite = {
+      workspaceId: SIM_WORKSPACE_ID,
+      actorId: WEBSITE_ACTOR_ID,
+      requestId: '40000000-0000-4000-8000-0000000e2e02',
+    };
+    const simOwner = { ...simWebsite, actorId: OWNER_ID };
+    const simOrders = [
+      ['Priya Sharma', 'priya@example.test', '647 555 0201', 'student', '2026-11-15'],
+      ['Arjun Patel', 'arjun@example.test', '647 555 0202', 'student', '2026-11-05'],
+      ['Marco Rossi', 'marco@example.test', '647 555 0203', 'worker', '2026-11-01'],
+    ] as const;
+    for (const [fullName, email, phone, permitType, arrivalDate] of simOrders) {
+      const created = await leads.createLead({
+        ...simWebsite,
+        leadType: 'sim_order',
+        contact: { fullName, email, phone, countryCode: 'IN' },
+        form: {
+          schemaVersion: 1,
+          payload: {
+            planId: 'rogers_60gb',
+            planLabel: 'Rogers 60 GB ($40/mo)',
+            permitType,
+            arrivalDate,
+            delivery: 'esim',
+            flightBooked: true,
+            gotVisa: true,
+          },
+        },
+        attribution: { utmSource: 'google', utmMedium: 'cpc' },
+        consentVersion: 'gcs-e2e-2026-10',
+        submit: true,
+      });
+      await work.updateLead({ ...simOwner, leadId: created.lead.id, stage: 'pending' });
     }
   } finally {
     await database.close();

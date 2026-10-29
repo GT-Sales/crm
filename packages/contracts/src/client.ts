@@ -127,12 +127,14 @@ import {
   leadStatsResponseSchema,
   listWorkspaceLeadsResponseSchema,
   type LeadBoardQuery,
+  type LeadBoardQueryInput,
   type LeadBoardResponse,
   type LeadsSummaryQuery,
   type LeadsSummaryResponse,
   type LeadStatsQuery,
   type LeadStatsResponse,
   type ListWorkspaceLeadsQuery,
+  type ListWorkspaceLeadsQueryInput,
   type ListWorkspaceLeadsResponse,
 } from './workspace-leads';
 
@@ -258,11 +260,14 @@ export interface BackendClient {
     ): Promise<RevokeServiceCredentialResponse>;
     listLeads(
       workspaceId: string,
-      query?: ListWorkspaceLeadsQuery,
+      query?: ListWorkspaceLeadsQuery | ListWorkspaceLeadsQueryInput,
     ): Promise<ListWorkspaceLeadsResponse>;
     leadsSummary(workspaceId: string, query?: LeadsSummaryQuery): Promise<LeadsSummaryResponse>;
     leadStats(workspaceId: string, query: LeadStatsQuery): Promise<LeadStatsResponse>;
-    leadBoard(workspaceId: string, query: LeadBoardQuery): Promise<LeadBoardResponse>;
+    leadBoard(
+      workspaceId: string,
+      query: LeadBoardQuery | LeadBoardQueryInput,
+    ): Promise<LeadBoardResponse>;
     getLead(workspaceId: string, leadId: string): Promise<GetWorkspaceLeadResponse>;
     updateLead(
       workspaceId: string,
@@ -550,6 +555,19 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             q: query?.q,
             view: query?.view,
             dueBy: query?.dueBy,
+            where:
+              typeof query?.where === 'string'
+                ? query.where
+                : query?.where && query.where.length > 0
+                  ? JSON.stringify(query.where)
+                  : undefined,
+            sort: query?.sort,
+            columns:
+              typeof query?.columns === 'string'
+                ? query.columns
+                : query?.columns && query.columns.length > 0
+                  ? query.columns.join(',')
+                  : undefined,
             page: query?.page,
             pageSize: query?.pageSize,
           },
@@ -577,6 +595,12 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             type: query.type,
             assignee: query.assignee,
             q: query.q,
+            where:
+              typeof query.where === 'string'
+                ? query.where
+                : query.where && query.where.length > 0
+                  ? JSON.stringify(query.where)
+                  : undefined,
             perStage: query.perStage,
           },
           responseSchema: leadBoardResponseSchema,
