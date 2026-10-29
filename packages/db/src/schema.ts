@@ -31,7 +31,9 @@ import {
  * one website) and a row-level policy that reads the transaction-local
  * `app.workspace_id` / `app.actor_id` settings `withTenantTx` sets. The
  * backend connects as `app_runtime`, a role without BYPASSRLS, so a query
- * that forgets its tenant filter sees nothing rather than everything.
+ * that forgets its tenant filter sees nothing rather than everything. Every
+ * RLS table also carries `backupReadPolicy(...)`, so the backup job's
+ * `backup_reader` login can dump its rows (grants in `drizzle/0007_*.sql`).
  *
  * drizzle-kit generates tables, indexes, checks, policies and ENABLE RLS from
  * this file. Role grants, FORCE RLS, the SECURITY DEFINER bootstrap functions
@@ -46,6 +48,7 @@ export const permissionName = appSchema.enum('permission_name', staffPermissionN
 export const permissionEffect = appSchema.enum('permission_effect', permissionEffects);
 
 const appRuntimeRole = pgRole('app_runtime').existing();
+const backupReaderRole = pgRole('backup_reader').existing();
 
 const actorPresent = sql`nullif(
       (select current_setting('app.actor_id', true)),
@@ -78,6 +81,15 @@ function actorPolicy(name: string) {
     to: appRuntimeRole,
     using: actorPresent,
     withCheck: actorPresent,
+  });
+}
+
+/** The backup job's read-only login reads every row of every tenant table (spec §10). */
+function backupReadPolicy(table: string) {
+  return pgPolicy(`${table}_backup_reader_read`, {
+    for: 'select',
+    to: backupReaderRole,
+    using: sql`true`,
   });
 }
 
@@ -172,6 +184,7 @@ export const memberships = appSchema
         ) or ${table.status} = 'revoked'`,
       ),
       tenantPolicy('memberships_tenant_policy', table.workspaceId),
+      backupReadPolicy('memberships'),
     ],
   )
   .enableRLS();
@@ -191,6 +204,7 @@ export const roles = appSchema
       unique('roles_workspace_id_id_unique').on(table.workspaceId, table.id),
       unique('roles_workspace_id_name_unique').on(table.workspaceId, table.name),
       tenantPolicy('roles_tenant_policy', table.workspaceId),
+      backupReadPolicy('roles'),
     ],
   )
   .enableRLS();
@@ -226,6 +240,7 @@ export const membershipRoles = appSchema
       }).onDelete('cascade'),
       index('membership_roles_workspace_id_role_id_idx').on(table.workspaceId, table.roleId),
       tenantPolicy('membership_roles_tenant_policy', table.workspaceId),
+      backupReadPolicy('membership_roles'),
     ],
   )
   .enableRLS();
@@ -245,6 +260,7 @@ export const permissions = appSchema
       unique('permissions_workspace_id_id_unique').on(table.workspaceId, table.id),
       unique('permissions_workspace_id_name_unique').on(table.workspaceId, table.name),
       tenantPolicy('permissions_tenant_policy', table.workspaceId),
+      backupReadPolicy('permissions'),
     ],
   )
   .enableRLS();
@@ -284,6 +300,7 @@ export const membershipPermissions = appSchema
         table.permissionId,
       ),
       tenantPolicy('membership_permissions_tenant_policy', table.workspaceId),
+      backupReadPolicy('membership_permissions'),
     ],
   )
   .enableRLS();
@@ -322,6 +339,7 @@ export const contacts = appSchema
         sql`${table.email} = lower(btrim(${table.email})) and position('@' in ${table.email}) > 1`,
       ),
       actorPolicy('contacts_actor_policy'),
+      backupReadPolicy('contacts'),
     ],
   )
   .enableRLS();
@@ -400,6 +418,7 @@ export const leads = appSchema
       index('leads_contact_id_idx').on(table.contactId),
       index('leads_workspace_id_assigned_actor_idx').on(table.workspaceId, table.assignedActorId),
       tenantPolicy('leads_tenant_policy', table.workspaceId),
+      backupReadPolicy('leads'),
     ],
   )
   .enableRLS();
@@ -445,6 +464,7 @@ export const leadActivities = appSchema
         table.createdAt,
       ),
       tenantPolicy('lead_activities_tenant_policy', table.workspaceId),
+      backupReadPolicy('lead_activities'),
     ],
   )
   .enableRLS();
@@ -491,6 +511,7 @@ export const leadTasks = appSchema
         table.dueAt,
       ),
       tenantPolicy('lead_tasks_tenant_policy', table.workspaceId),
+      backupReadPolicy('lead_tasks'),
     ],
   )
   .enableRLS();
@@ -523,6 +544,7 @@ export const draftGrants = appSchema
       }).onDelete('cascade'),
       index('draft_grants_workspace_id_lead_id_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('draft_grants_tenant_policy', table.workspaceId),
+      backupReadPolicy('draft_grants'),
     ],
   )
   .enableRLS();
@@ -584,6 +606,7 @@ export const outboxJobs = appSchema
         table.availableAt,
       ),
       tenantPolicy('outbox_jobs_tenant_policy', table.workspaceId),
+      backupReadPolicy('outbox_jobs'),
     ],
   )
   .enableRLS();
@@ -615,6 +638,7 @@ export const outboxJobAlerts = appSchema
       ),
       index('outbox_job_alerts_workspace_job_idx').on(table.workspaceId, table.jobId),
       tenantPolicy('outbox_job_alerts_tenant_policy', table.workspaceId),
+      backupReadPolicy('outbox_job_alerts'),
     ],
   )
   .enableRLS();
@@ -650,6 +674,7 @@ export const serviceCredentials = appSchema
         table.revokedAt,
       ),
       tenantPolicy('service_credentials_tenant_policy', table.workspaceId),
+      backupReadPolicy('service_credentials'),
     ],
   )
   .enableRLS();
@@ -673,6 +698,7 @@ export const rateLimitBuckets = appSchema
     (table) => [
       primaryKey({ columns: [table.bucketKey, table.windowStart] }),
       index('rate_limit_buckets_expires_at_idx').on(table.expiresAt),
+      backupReadPolicy('rate_limit_buckets'),
     ],
   )
   .enableRLS();
@@ -710,6 +736,7 @@ export const auditEvents = appSchema
       ),
       index('audit_events_workspace_id_request_id_idx').on(table.workspaceId, table.requestId),
       tenantPolicy('audit_events_tenant_policy', table.workspaceId),
+      backupReadPolicy('audit_events'),
     ],
   )
   .enableRLS();
@@ -803,6 +830,7 @@ export const files = appSchema
         table.expiresAt,
       ),
       tenantPolicy('files_tenant_policy', table.workspaceId),
+      backupReadPolicy('files'),
     ],
   )
   .enableRLS();
@@ -874,6 +902,7 @@ export const leadIdentities = appSchema
       ),
       index('lead_identities_workspace_file_idx').on(table.workspaceId, table.fileId),
       tenantPolicy('lead_identities_tenant_policy', table.workspaceId),
+      backupReadPolicy('lead_identities'),
     ],
   )
   .enableRLS();
@@ -920,6 +949,7 @@ export const fileRevisions = appSchema
         table.revision,
       ),
       tenantPolicy('file_revisions_tenant_policy', table.workspaceId),
+      backupReadPolicy('file_revisions'),
     ],
   )
   .enableRLS();
@@ -964,6 +994,7 @@ export const fileReviewEvents = appSchema
         table.createdAt,
       ),
       tenantPolicy('file_review_events_tenant_policy', table.workspaceId),
+      backupReadPolicy('file_review_events'),
     ],
   )
   .enableRLS();
@@ -1034,6 +1065,7 @@ export const emailMessages = appSchema
       index('email_messages_workspace_contact_hash_idx').on(table.workspaceId, table.contactHash),
       index('email_messages_workspace_lead_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('email_messages_tenant_policy', table.workspaceId),
+      backupReadPolicy('email_messages'),
     ],
   )
   .enableRLS();
@@ -1064,6 +1096,7 @@ export const deletedEmailMessages = appSchema
         table.providerId,
       ),
       tenantPolicy('deleted_email_messages_tenant_policy', table.workspaceId),
+      backupReadPolicy('deleted_email_messages'),
     ],
   )
   .enableRLS();
@@ -1103,6 +1136,7 @@ export const emailSuppressions = appSchema
         table.contactHash,
       ),
       tenantPolicy('email_suppressions_tenant_policy', table.workspaceId),
+      backupReadPolicy('email_suppressions'),
     ],
   )
   .enableRLS();
@@ -1147,6 +1181,7 @@ export const marketingConsents = appSchema
       ),
       index('marketing_consents_workspace_lead_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('marketing_consents_tenant_policy', table.workspaceId),
+      backupReadPolicy('marketing_consents'),
     ],
   )
   .enableRLS();
@@ -1192,6 +1227,7 @@ export const followUpSchedules = appSchema
       ),
       index('follow_up_schedules_workspace_lead_idx').on(table.workspaceId, table.leadId),
       tenantPolicy('follow_up_schedules_tenant_policy', table.workspaceId),
+      backupReadPolicy('follow_up_schedules'),
     ],
   )
   .enableRLS();
@@ -1233,6 +1269,7 @@ export const emailProviderEvents = appSchema
       ),
       index('email_provider_events_workspace_message_idx').on(table.workspaceId, table.messageId),
       tenantPolicy('email_provider_events_tenant_policy', table.workspaceId),
+      backupReadPolicy('email_provider_events'),
     ],
   )
   .enableRLS();

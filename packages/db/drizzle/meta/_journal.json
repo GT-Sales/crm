@@ -50,6 +50,20 @@
       "when": 1793082645098,
       "tag": "0006_legacy_identity_mirror_result",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793273916007,
+      "tag": "0007_backup_reader",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793273993722,
+      "tag": "0008_backup_reader_policies",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,25 @@
+CREATE POLICY "audit_events_backup_reader_read" ON "app"."audit_events" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "contacts_backup_reader_read" ON "app"."contacts" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "deleted_email_messages_backup_reader_read" ON "app"."deleted_email_messages" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "draft_grants_backup_reader_read" ON "app"."draft_grants" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "email_messages_backup_reader_read" ON "app"."email_messages" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "email_provider_events_backup_reader_read" ON "app"."email_provider_events" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "email_suppressions_backup_reader_read" ON "app"."email_suppressions" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "file_review_events_backup_reader_read" ON "app"."file_review_events" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "file_revisions_backup_reader_read" ON "app"."file_revisions" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "files_backup_reader_read" ON "app"."files" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "follow_up_schedules_backup_reader_read" ON "app"."follow_up_schedules" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "lead_activities_backup_reader_read" ON "app"."lead_activities" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "lead_identities_backup_reader_read" ON "app"."lead_identities" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "lead_tasks_backup_reader_read" ON "app"."lead_tasks" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "leads_backup_reader_read" ON "app"."leads" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "marketing_consents_backup_reader_read" ON "app"."marketing_consents" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "membership_permissions_backup_reader_read" ON "app"."membership_permissions" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "membership_roles_backup_reader_read" ON "app"."membership_roles" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "memberships_backup_reader_read" ON "app"."memberships" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "outbox_job_alerts_backup_reader_read" ON "app"."outbox_job_alerts" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "outbox_jobs_backup_reader_read" ON "app"."outbox_jobs" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "permissions_backup_reader_read" ON "app"."permissions" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "rate_limit_buckets_backup_reader_read" ON "app"."rate_limit_buckets" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "roles_backup_reader_read" ON "app"."roles" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);--> statement-breakpoint
+CREATE POLICY "service_credentials_backup_reader_read" ON "app"."service_credentials" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);

@@ -125,6 +125,52 @@ pg_proc / pg_policies where schemaname = 'app'`.
   return `boolean`, SECURITY DEFINER, `search_path=""`, `app_runtime` can
   execute and `anon` cannot.
 
+## 0007_backup_reader + 0008_backup_reader_policies
+
+- The backup job's read-only login `backup_reader` (merge design spec §10,
+  [backup.md](backup.md)):
+  `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS`,
+  no password. It dumps with `pg_dump --enable-row-security`, so instead of
+  `BYPASSRLS` or `pg_read_all_data` (both need a superuser, which Supabase's
+  `postgres` is not) it has `USAGE` on `app`, `public` and `drizzle`,
+  `SELECT` on every table and sequence there, default privileges so later
+  `app` tables and sequences are readable too, and a
+  `PERMISSIVE FOR SELECT TO backup_reader USING (true)` policy named
+  `<table>_backup_reader_read` on every RLS table. No INSERT, UPDATE or
+  DELETE anywhere.
+- Where each policy comes from: the 25 `app` RLS tables (all but
+  `app.workspaces`, which has no RLS) declare `backupReadPolicy(...)` in
+  `packages/db/src/schema.ts`, generated into 0008, so every future table
+  carries one too. The `public` RLS tables the migration role owns get theirs
+  from 0007's loop; a `public` table added later needs one by hand.
+- Best effort on Supabase's own schemas, where they exist: `USAGE` + `SELECT`
+  on `supabase_migrations` and `auth`. If the migration role may not grant
+  them, 0007 raises a WARNING (`auth schema not granted to backup_reader`)
+  instead of failing; the backup then cannot read `auth.users` until it is
+  granted (docs/RUNBOOKS/backup.md).
+- Apply with [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
+  from the SQL editor: one transaction with both migrations and all four
+  tracker rows. Drizzle hashes:
+  0007 `c18a35b22fc4792aac66a364282f50ed062d7aeb8fa24a3fa5510fcd01548ebb`,
+  `created_at` `1793273916007`; 0008
+  `6d87bd3afd04885626c3d7d1b656de93a4267bf59ffe98a00de01ee947effcfd`,
+  `created_at` `1793273993722`. Then set the password separately
+  (`alter role backup_reader password '<openssl rand -hex 16>'`), stored only
+  in the backup job's secrets.
+- Verify with the selects at the end of the manual file: the role's
+  attributes (`rolcanlogin` true, `rolsuper`, `rolbypassrls`,
+  `rolcreaterole` false); 25 `_backup_reader_read` policies in `app`;
+  `has_table_privilege('backup_reader', 'auth.users', 'SELECT')` true (false
+  means the `auth` grant warned); and `relrowsecurity` on `auth.users` false.
+  If that last one is true, `backup_reader` would read `auth.users` as empty
+  under `--enable-row-security`, since `postgres` cannot add a policy to a
+  table it does not own: set `BACKUP_AUTH_DATA=skip` for the backup job until
+  a policy exists.
+- Locally and in CI neither `auth` nor `supabase_migrations` exists, so those
+  grants are skipped; `packages/db/tests/backup-reader.integration.test.ts`
+  checks the role, the policies, the privileges and a real connection as
+  `backup_reader` (password from `setTestBackupReaderPassword`).
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,
