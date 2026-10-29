@@ -67,7 +67,9 @@ jobs:
           AGE_VERSION: ${{ env.AGE_VERSION }}
           PG_DUMP_VERSION: ${{ env.PG_DUMP_VERSION }}
           # The source: backup_reader through the session pooler, and a
-          # Storage S3 key pair of its own that only reads.
+          # Storage S3 key pair of its own. The job only reads with it;
+          # Supabase S3 keys cannot be limited to reading, so it is a
+          # separate key only so it can be revoked on its own.
           SOURCE_DATABASE_URL: ${{ secrets.SOURCE_DATABASE_URL }}
           SOURCE_STORAGE_ENDPOINT: ${{ secrets.SOURCE_STORAGE_ENDPOINT }}
           SOURCE_STORAGE_REGION: ${{ secrets.SOURCE_STORAGE_REGION }}

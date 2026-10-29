@@ -53,7 +53,7 @@ crm/
   apps/
     backend/          Express + strict TS. The only database client. Long-lived container on Railway.
     admin/            Next.js CRM. API client only.
-    portal/           Phase 3 — partner portal (Next.js), ported from Get Canada Sim.
+    portal/           A later merge phase — partner portal (Next.js), ported from Get Canada Sim.
   packages/
     contracts/        Zod request/response schemas, typed client, OpenAPI generator.
     db/               Drizzle schema, migrations, withTenantTx. Imported only by the backend.

@@ -691,6 +691,27 @@ phases ([spec §12](superpowers/specs/2026-10-28-merge-canadian-plans-design.md#
   `DB_TEST_ALLOW_DESTRUCTIVE=1`, `DATABASE_URL` as `app_runtime`, …).
 - **Plan drift.** PLAN.md §5.7 and §10 are current; §4's copy table still names
   the `aal2` check in one row as historical context.
+- **Backups follow-ups** (from the merge phase 1 review, none blocking):
+  - A CLI smoke step in CI: each of the four CLIs (backup, monitor,
+    retention, restore) run with an empty environment must exit 1.
+  - Scrub inherited `PGHOSTADDR`, `PGSERVICE` and `PGOPTIONS` in
+    `pgConnectionEnv` (`jobs/src/backup/pg-dump.ts`), so a runner's own
+    variables cannot redirect or reconfigure the dump connection.
+  - A guard for tables in schemas the dump does not list (a table created in
+    a new schema is silently outside the backup today).
+  - `--no-psqlrc` and `ON_ERROR_STOP=1` on the sources' `psql` calls
+    (`jobs/src/backup/sources.ts`).
+  - A `baseEnv` parameter on the guard and the referenced-objects sources,
+    as the exporter has, instead of reading `process.env` (the rehearsal
+    stubs `PGSSLMODE` for them).
+  - Retention reports the `deleted` count so far when it fails mid-run.
+  - A SIGINT handler in the restore CLI that removes the decrypted
+    temporary folder.
+  - `requiredEnv` returns the trimmed value (it already rejects blanks).
+  - Lost-key wording: one sentence, the same in backup.md §4, restore.md and
+    the alert response.
+  - Validate `BACKUP_RUN_ID` against the `run-<id>` shape the restore
+    expects.
 
 ### 5.4 Closing the anonymous write paths
 

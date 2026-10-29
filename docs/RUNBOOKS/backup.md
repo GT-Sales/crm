@@ -114,8 +114,8 @@ role but the owner has a grant on it, and staff reach sites through the
 | `public` | `rate_limits`             | `postgres` | yes |
 
 That is 26 tables in `app` (25 with RLS) and 15 in `public` (all with RLS),
-41 in all. This is the inventory the 0007 migration loop must cover.
-`docs/HANDOFF.md` §1 says the `app` schema has 25 tables; the live count is 26.
+41 in all. This is the inventory the 0007 migration loop must cover
+(`docs/HANDOFF.md` §1 gives the same 26 for `app`).
 
 ### Migration history
 
@@ -175,8 +175,11 @@ Every file in it is encrypted to the recovery recipient and stored as
 - `roles.sql`: the database roles, without passwords.
 - `schema.sql` and `data.sql`: the schemas `app` (the CRM), `public` (Get
   Canada Sim's and CanadaWide's own tables) and `drizzle` (the migration
-  record); `data.sql` also holds the `auth` data (staff accounts, password
-  hashes) unless `BACKUP_AUTH_DATA=skip`.
+  record); `data.sql` also holds the rows of `auth.users` and
+  `auth.identities` (staff accounts, password hashes and sign-in identities)
+  unless `BACKUP_AUTH_DATA=skip`. No other `auth` table is read: sessions,
+  refresh tokens and MFA state are never in a backup, and after a restore
+  every member signs in again.
 - `history_schema.sql` and `history_data.sql`: Supabase's migration history
   (`supabase_migrations`), unless `BACKUP_HISTORY=skip`.
 - `objects/<workspace>/<key>`: every document an `app.files` row or a kept
@@ -200,14 +203,24 @@ records these as exclusions on every run. See also "Known gaps" below.
 
 1. Sign in to Backblaze → B2 Cloud Storage → Buckets → Create a Bucket. Name
    `gt-sales-crm-archive`, Files in Bucket **Private**, Default Encryption
-   on, Object Lock off. Bucket names are global; if that one is taken, pick
-   another and use it everywhere below.
+   on, **Object Lock on**. Bucket names are global; if that one is taken, pick
+   another and use it everywhere below. Then on the new bucket open Object
+   Lock and set the default retention: mode **Governance**, **30 days**.
+   Why: the writer key lives in GitHub, and a stolen one can overwrite or
+   hide files, including the heartbeat the monitor reads (it is plaintext, so
+   a forged one would keep the monitor quiet). With Object Lock no key can
+   purge a file version inside its 30 days, so every restore point of the
+   last month survives whatever the writer key does. Turn it on while
+   creating the bucket; do not skip it.
+   None of the three keys below may hold `bypassGovernance`, the capability
+   that lifts governance mode; the retention key especially must not.
 2. On the new bucket, open Lifecycle Settings and choose **Keep prior versions
    for this number of days: 30**. Why: B2 keeps every version of a file, and a
    delete through the S3 API only hides the file. Without a lifecycle rule,
-   retention's deletes free no space at all. Thirty days rather than one so
-   that, if the writer key were ever stolen and used to overwrite old
-   restore points, the originals could still be recovered for a month.
+   retention's deletes free no space at all. Thirty days rather than one, to
+   match the Object Lock window: if the writer key were ever stolen and used
+   to overwrite or hide old restore points, the originals could still be
+   recovered for a month.
 3. Note the bucket's **Endpoint** from the Buckets page, for example
    `s3.us-west-004.backblazeb2.com`. The region is the middle part
    (`us-west-004`). `B2_ARCHIVE_ENDPOINT` is `https://` plus the endpoint.
@@ -222,7 +235,7 @@ records these as exclusions on every run. See also "Known gaps" below.
    b2 key create --bucket gt-sales-crm-archive gt-sales-backup-writer listFiles,writeFiles
    b2 key create --bucket gt-sales-crm-archive gt-sales-backup-reader listFiles,readFiles
    b2 key create --bucket gt-sales-crm-archive gt-sales-backup-retention listFiles,readFiles,deleteFiles
-   b2 key list --long     # check each key's bucket and capabilities
+   b2 key list --long     # check each key's bucket and capabilities; none has bypassGovernance
    b2 account clear       # sign the tool out of the master key
    ```
 
@@ -246,10 +259,15 @@ is public: it becomes the `RECOVERY_AGE_RECIPIENT` secret in step 6.
 
 The file `gt-sales-recovery-key.txt` is the private key. Store its contents
 in the password manager, make one offline copy (printed, or on a USB stick
-kept somewhere safe away from the computer), then delete the file. It is
-never pasted into GitHub, Railway, Vercel, Supabase or any chat, and never
-committed. **Losing it makes every backup unreadable**; there is no reset.
-Check the offline copy can be read before deleting the file.
+kept somewhere safe away from the computer), check the offline copy can be
+read, and only then delete the file. It is never pasted into GitHub,
+Railway, Vercel, Supabase or any chat, and never committed. **Losing it
+makes every backup unreadable**; there is no reset.
+
+If the private key is lost: make a new key pair as above, set the new
+`RECOVERY_AGE_RECIPIENT` in `backup-gt-sales`, and verify the next run
+decrypts ([restore.md](restore.md) §1, verify only). Every earlier restore
+point is unreadable.
 
 ## 5. Supabase: the `backup_reader` role
 
@@ -281,21 +299,29 @@ SEQUENCES IN SCHEMA public`, and a `public` object owned by another role
    what it means.
 3. **Password.** On your computer run `openssl rand -hex 16` (hex, so it
    needs no URL-encoding). In the SQL Editor run
-   `alter role backup_reader password '<that value>';` on its own. Put the
-   value in the password manager; it goes into `SOURCE_DATABASE_URL` in step
-   6 and nowhere else.
+   `alter role backup_reader password '<that value>';` on its own. The SQL
+   Editor keeps a query history: do not save that statement as a snippet,
+   and close its tab afterwards. Put the value in the password manager; it
+   goes into `SOURCE_DATABASE_URL` in step 6 and nowhere else.
 4. **Verify.** The SQL Editor shows only the last result of a run, so run
    the five verification selects at the end of the manual file one at a time:
    1. the role's attributes: `true, false, false, false, false, false, true`;
    2. `25` read policies in `app`;
-   3. no rows: no `public` table with row security lacks a read policy;
-   4. no rows: every `auth` table is readable by `backup_reader`;
-   5. no rows: no `auth` table has row security on.
+   3. no rows: no `public` table the backup's guard would stop on (no
+      `SELECT`, or row security without a `USING (true)` read policy for
+      `backup_reader`, or with a restrictive policy that applies to it);
+   4. `true, true, true, 0`: `backup_reader` has `USAGE` on `auth`, reads
+      `auth.users` and `auth.identities`, and reads no other `auth` table;
+   5. no rows: neither of those two tables has row security on.
 
-   If 4 or 5 return rows, the `auth` grant did not fully work: set the
-   `BACKUP_AUTH_DATA` secret to `skip` in step 6 (staff are then re-invited
-   after a restore) and tell the developer. With `include`, the backup would
-   refuse to run rather than save empty staff tables.
+   If 4 shows a `false` or 5 returns rows, the `auth` grant did not fully
+   work: set the `BACKUP_AUTH_DATA` secret to `skip` in step 6 (staff are
+   then re-invited after a restore) and tell the developer. With `include`,
+   the backup would refuse to run rather than save empty staff tables. If
+   the last column of 4 is not `0`, `backup_reader` can read session or token
+   tables: run
+   `revoke select on all tables in schema auth from backup_reader; grant select on auth.users, auth.identities to backup_reader;`
+   and check again.
 
 5. Record the date applied under 0007 + 0008 in
    [database.md](database.md).
@@ -338,7 +364,10 @@ create `backup-gt-sales`, `backup-monitor-gt-sales` and
 | Optional: `SENTRY_DSN`                                                                              | optional          | optional                  | optional                    | Error tracking for a failed run.                                                                                                                                       |
 
 The repository is public, so its Actions logs are too. The jobs log ids,
-counts and table names only, never a value or a row.
+counts, table names and object keys only, never a value or a row. Object
+keys may appear in a `backup_failed` line; they are opaque server-generated
+ids (`candidate/<workspace id>/<random token>`, `<run id>/<artifact>.enc`),
+never a filename or anything a customer typed.
 
 ## 7. Merge, then the first run
 
@@ -354,15 +383,20 @@ GitHub → Actions (enable the three workflows first if they were disabled):
    [backup-alert-response.md](backup-alert-response.md).
 2. **Backup monitor** → Run workflow. The step's log shows
    `{"event":"monitor_status","deployment":"gt-sales","status":"ok",…}`.
-3. **Backup retention** → Run workflow, leave **Dry run** ticked. The log
+3. **Prove the alert reaches you.** In `backup-monitor-gt-sales` add the
+   secret `BACKUP_MONITOR_MAX_AGE_SECONDS` with the value `1`, run Backup
+   monitor by hand, and confirm the `backup_stale` email arrives at
+   `OWNER_ALERT_EMAIL` (the run itself fails, as it should). Then **delete
+   that secret** and run the monitor once more: it is green again.
+4. **Backup retention** → Run workflow, leave **Dry run** ticked. The log
    shows `retention_completed` with `dryRun: true` and
    `candidateDeletionCount: 0`. Read the report: `retainedRunCount`,
    `candidateRunIds` (empty) and `pendingRunIds` should make sense. Then run
    it once more with **Dry run** unticked; the log shows `dryRun: false`
    and `deletedCount: 0`. From then on the Monday schedule prunes on its own.
-4. The next morning, check that the 06:17 scheduled Backup ran green on its
+5. The next morning, check that the 06:17 scheduled Backup ran green on its
    own and the hourly monitor stays green.
-5. Then practise a restore ([restore.md](restore.md), "Drill").
+6. Then practise a restore ([restore.md](restore.md), "Drill").
 
 ## 8. Deleting customer data by hand
 
@@ -408,6 +442,19 @@ redo every deletion made since that restore point.
   repository after 60 days without a commit, and emails a warning first. The
   monitor stops with the backup, so no alert would come. Re-enable both in
   the Actions tab, or push a commit.
+
+## 11. Ongoing care
+
+- **Every quarter, a verify-only restore** of last night's run
+  ([restore.md](restore.md) §1, no target): it proves the private key in the
+  password manager still opens the archive and every file matches its
+  checksum. Record the date and run id under a `## Verify <date>` heading in
+  restore.md, then delete the key file.
+- **After any restore**, re-run 0007 on the new project and give
+  `backup_reader` a new password before pointing the backups at it
+  ([restore.md](restore.md) §5).
+- **GitHub's 60-day warning email** (§10): push a commit or re-enable the
+  workflows the same week.
 
 ## Known gaps
 

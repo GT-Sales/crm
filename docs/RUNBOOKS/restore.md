@@ -143,9 +143,14 @@ always lists the platform items (project settings, keys, passwords, SMTP,
 - `supabase_migrations_skipped_by_operator`: no Supabase migration history.
   Record the applied migrations by hand ([database.md](database.md)).
 
-Restored documents carry no `Content-Type`. That is fine: the backend sniffs
-a document's type from its first bytes when it serves it. Check it anyway:
-download one document from a lead in the admin (step 4).
+Restored documents carry no stored `Content-Type`. That is fine: nothing
+sniffs a document at serve time; the backend's download link sets
+`response-content-type` itself, from the file row's `detected_mime` for an
+inline view (and `application/octet-stream` for an attachment), and the row
+is restored with the database, so downloads keep their type. Check it anyway:
+download one document from a lead in the admin once the backend points at the
+target (step 5 and "Reopen criteria"; on a drill, from the target's Storage
+page).
 
 ## 4. Checks on the target
 
@@ -154,7 +159,8 @@ In the target's SQL Editor, one at a time:
 ```sql
 select count(*) from app.leads;        -- equals manifest.rowCounts["app.leads"]
 select count(*) from storage.objects;  -- equals manifest.counts.referencedObjects
-select count(*) from auth.users;       -- equals the manifest's count, when auth was included
+select count(*) from auth.users;       -- equals manifest.rowCounts["auth.users"], when auth was included
+select count(*) from auth.identities;  -- equals manifest.rowCounts["auth.identities"], likewise
 alter role app_runtime password '<openssl rand -base64 36>';
 alter role backup_reader password '<openssl rand -hex 16>';
 ```
@@ -188,10 +194,20 @@ Only for a real incident, after steps 1–4 passed:
    passwords; without it, invite them again.
 5. **Redo deletions** made since the restore point ([backup.md](backup.md)
    step 8).
-6. **Point the backups at the target:** in the `backup-gt-sales` environment,
-   update `SOURCE_DATABASE_URL` (the target's `backup_reader` and its new
-   password), the `SOURCE_STORAGE_*` values and `SUPABASE_PROJECT_REF`. Run
-   Backup by hand and check `backup_completed`.
+6. **Point the backups at the target.** First, in the target's SQL Editor,
+   re-run `packages/db/drizzle/0007_backup_reader.sql` (paste the whole
+   file; it is idempotent, and the dump does not carry the grants on `auth`
+   and `supabase_migrations`), then run the verification selects of
+   [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
+   one at a time, and set a new `backup_reader` password (step 4's
+   `alter role` line, if not already run; never production's). Then in the
+   `backup-gt-sales` environment update `SOURCE_DATABASE_URL` (the target's
+   `backup_reader` and its new password), the `SOURCE_STORAGE_*` values and
+   `SUPABASE_PROJECT_REF`. Run Backup by hand and check `backup_completed`.
+7. **Delete the private-key file** from the machine
+   (`rm ~/gt-sales-recovery-key.txt`, or wherever step "What you need" put
+   it) and any leftover `"${TMPDIR:-/tmp}"/gt-sales-restore-*` folder. The
+   key stays in the password manager and the offline copy only.
 
 ## Reopen criteria
 
@@ -230,9 +246,30 @@ Practise on a scratch target, never on production: a second Free project
 named `gtsales-crm-restore-drill` with a private `documents` bucket and S3
 keys, or `supabase start`. Run steps 1–4 with last night's run, then check
 that one document downloads (on a drill project, from its Storage page).
+
+The CI rehearsal (`apps/backend/tests/backup-restore-rehearsal.integration.test.ts`)
+restores without `roles.sql` (the test cluster's roles are shared by every
+suite) and without `auth` and the migration history (neither exists there),
+so the first drill is where these three are first exercised. Check each:
+
+- **`roles.sql`:** `select rolname from pg_roles where rolname in ('app_runtime', 'backup_reader');`
+  returns both, and the step 4 `app_runtime` check passes.
+- **The `auth` tables:** the step 4 counts of `auth.users` and
+  `auth.identities` equal the manifest's, and one staff member signs in to an
+  admin pointed at the drill project (or the account shows under
+  Authentication → Users).
+- **The history:** `select name from supabase_migrations.schema_migrations order by version;`
+  lists the same migrations as the same query on production (the manifest
+  counts only `data.sql`'s tables, not the history).
+
 Record the run id, the durations, the counts and anything that surprised
 under a `## Drill <date>` heading here. Then **delete the drill project**: it
 holds real customer data. Delete the key file too.
+
+**Every quarter, a verify-only drill:** step 1 alone (no target) with last
+night's run, then delete the key file. It proves the private key still opens
+the archive and every file matches its checksum. Record the date and run id
+under a `## Verify <date>` heading here.
 
 ## What a restore never brings back
 
