@@ -65,6 +65,7 @@ jobs:
       - name: Record the dump and encryption tool versions
         run: |
           pg_dump --version
+          pg_dump --version | grep -q '(PostgreSQL) 17'
           age --version
       - name: Verify the admin cannot import the database package
         run: pnpm run check:frontend-db-boundary

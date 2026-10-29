@@ -94,6 +94,11 @@ async function skipReason(migrationUrl: string | undefined): Promise<string | un
 
 const migrationUrl = getDisposableTestDatabaseUrl();
 const reason = await skipReason(migrationUrl);
+// In CI a missing or too-old dump client is a broken pipeline, never a skip;
+// only an unconfigured database (which CI rejects above) skips.
+if (reason && migrationUrl && process.env.CI) {
+  throw new Error(`The backup/restore rehearsal cannot run in CI: ${reason}.`);
+}
 
 const SOURCE_DATABASE = 'gt_sales_crm_backup_src_test';
 const DESTINATION_DATABASE = 'gt_sales_crm_backup_dst_test';
@@ -193,9 +198,11 @@ describe('backup and restore rehearsal on a disposable Postgres', () => {
     await applyMigrations({ connectionString: sourceAdminUrl, ssl: false });
     await seedDatabase({ connectionString: sourceAdminUrl, ssl: false });
     source = postgres(sourceAdminUrl, { max: 1, prepare: false, ssl: false });
-    // Role passwords are cluster-wide: these let both logins reach either database.
-    await setTestRuntimePassword(source);
-    await setTestBackupReaderPassword(source);
+    // Role passwords are cluster-wide, so both logins reach either new database.
+    // Set them on the cluster (migration-database) connection: advisory locks
+    // are per database, and the sibling suites take these keys there.
+    await setTestRuntimePassword(cluster);
+    await setTestBackupReaderPassword(cluster);
 
     await source`
       insert into app.workspaces (id, slug, name)
