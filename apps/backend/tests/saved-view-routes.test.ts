@@ -18,6 +18,7 @@ import {
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { LeadStore } from '../src/leads/store.js';
+import type { PropertyStore } from '../src/properties/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { SavedViewStore } from '../src/views/store.js';
@@ -257,6 +258,44 @@ describe('saved view routes', () => {
     const unknownObject = await call(viewsUrl('?object=deal'));
     expect(unknownObject.status).toBe(400);
     expect(await errorCode(unknownObject)).toBe('invalid_request');
+  });
+
+  it("cleans views against the property store's catalogue when no loader is injected", async () => {
+    const unused = () => Promise.reject(new Error('unused'));
+    const siteCatalog = vi.fn<PropertyStore['catalog']>(async () => cityHidden);
+    const app = createApp({
+      staff: {
+        sessionVerifier: new TokenVerifier(),
+        store: staffStore,
+        credentialStore: noopCredentialStore,
+        leadStore: unusedLeadStore,
+        savedViewStore: views,
+        propertyStore: {
+          catalog: siteCatalog,
+          model: unused,
+          create: unused,
+          update: unused,
+          remove: unused,
+          saveLayout: unused,
+        },
+      },
+    }).listen(0);
+    await new Promise<void>((resolve) => app.once('listening', resolve));
+    try {
+      const address = app.address();
+      if (address === null || typeof address === 'string') throw new Error('expected TCP server');
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/v1/staff/workspaces/${WORKSPACE}/views`,
+        { headers: { authorization: 'Bearer token' } },
+      );
+      expect(response.status).toBe(200);
+      expect(listSavedViewsResponseSchema.parse(await response.json()).views).toEqual([
+        { ...stored, state: cleanedState },
+      ]);
+      expect(siteCatalog).toHaveBeenCalledWith(scope);
+    } finally {
+      await new Promise<void>((resolve) => app.close(() => resolve()));
+    }
   });
 
   it('creates a view with 201 and maps name_taken and limit_reached to 409', async () => {

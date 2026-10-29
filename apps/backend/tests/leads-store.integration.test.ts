@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
+import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 
 import { DatabaseLeadStore } from '../src/leads/store.js';
@@ -330,13 +331,18 @@ databaseTest('DatabaseLeadStore', () => {
     await admin`update app.leads set customer_data_restricted_at = now() where id = ${restricted.lead.id}`;
     await admin`update app.leads set deleted_at = now() where id = ${deleted.lead.id}`;
 
-    const all = await store.listLeads({ workspaceId, actorId: ACTOR });
+    const all = await store.listLeads({
+      workspaceId,
+      actorId: ACTOR,
+      catalog: codePropertyCatalog,
+    });
     expect(all.leads.map((lead) => lead.id).sort()).toEqual([sim.lead.id, internet.lead.id].sort());
     expect(all.page.total).toBe(2);
 
     const onlyInternet = await store.listLeads({
       workspaceId,
       actorId: ACTOR,
+      catalog: codePropertyCatalog,
       leadType: 'internet',
     });
     expect(onlyInternet.leads).toMatchObject([

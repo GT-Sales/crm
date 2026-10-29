@@ -22,6 +22,7 @@ import {
   type LeadStatus,
   type LeadSummary,
   type LeadView,
+  type PropertyCatalog,
   type RawAttribution,
 } from '@gt-sales/contracts';
 
@@ -88,6 +89,8 @@ export interface ListLeadsInput {
   sort?: string;
   /** Validated property keys to include in each row's `properties` map (at most 6). */
   columns?: readonly string[];
+  /** The site's property catalogue the filters, sort and columns were validated against. */
+  catalog: PropertyCatalog;
   page?: number;
   pageSize?: number;
 }
@@ -417,6 +420,7 @@ export class DatabaseLeadStore implements LeadStore {
             where: input.where,
             sort: input.sort,
             columns: input.columns,
+            catalog: input.catalog,
           },
           page,
           pageSize,

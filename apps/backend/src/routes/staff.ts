@@ -53,6 +53,7 @@ import {
   type TaskOutcome,
 } from '../leads/work-store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
+import type { PropertyStore } from '../properties/store.js';
 import {
   createAuthorize,
   decideAccess,
@@ -69,6 +70,8 @@ import {
   type ServiceCredentialRecord,
   type WebsiteCredentialStore,
 } from '../website/store.js';
+
+import { createPropertyRoutes } from './properties.js';
 
 export interface StaffRouteDependencies {
   sessionVerifier: StaffSessionVerifier;
@@ -91,6 +94,12 @@ export interface StaffRouteDependencies {
   loadPropertyCatalog?: (ctx: TenantContext) => Promise<PropertyCatalog>;
   /** Receives every unexpected handler failure; optional so tests can omit it. */
   errorTracker?: ErrorTracker;
+  /**
+   * The site's property definitions and layouts; the lead list, board, detail
+   * and edit read the site's catalogue from it. `createApp` supplies the
+   * database store when this is omitted.
+   */
+  propertyStore?: PropertyStore;
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -119,6 +128,14 @@ function identityStoreFromEnv(): IdentityStore | undefined {
 function notConfigured(what: string): Promise<never> {
   return Promise.reject(new Error(`${what} is not configured`));
 }
+const unconfiguredPropertyStore: PropertyStore = {
+  catalog: () => notConfigured('property store'),
+  model: () => notConfigured('property store'),
+  create: () => notConfigured('property store'),
+  update: () => notConfigured('property store'),
+  remove: () => notConfigured('property store'),
+  saveLayout: () => notConfigured('property store'),
+};
 const unconfiguredSavedViewStore: SavedViewStore = {
   list: () => notConfigured('saved view store'),
   create: () => notConfigured('saved view store'),
@@ -154,6 +171,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.use(requireStaffSession(dependencies.sessionVerifier, dependencies.rateLimit));
 
   const authorize = createAuthorize({ accessStore: dependencies.store });
+  const propertyStore = dependencies.propertyStore ?? unconfiguredPropertyStore;
 
   /**
    * Every handler's last-resort failure path: a scrubbed log record plus the
@@ -201,6 +219,15 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     return (['lead.manage', 'order.manage', 'financial.read'] as const).some(
       (action) => decideAccess(access, action).allowed,
     );
+  }
+
+  /** The site's property catalogue, read once per request after the caller is authorized. */
+  function siteCatalog(
+    req: Request,
+    workspaceId: string,
+    actorId: string,
+  ): Promise<PropertyCatalog> {
+    return propertyStore.catalog({ workspaceId, actorId, requestId: req.id });
   }
 
   function leadAccessOf(access: StaffAccessSnapshot): LeadAccess {
@@ -337,15 +364,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.get('/workspaces/:workspaceId/leads', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const query = listWorkspaceLeadsQuerySchema.safeParse(req.query);
-    if (
-      !workspaceId.success ||
-      !query.success ||
-      (query.data.where !== undefined &&
-        !areValidLeadPropertyFilters(query.data.where, query.data.type)) ||
-      (query.data.sort !== undefined && !isValidLeadSort(query.data.sort, query.data.type)) ||
-      (query.data.columns !== undefined &&
-        !areValidLeadColumns(query.data.columns, query.data.type))
-    ) {
+    if (!workspaceId.success || !query.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -359,7 +378,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       const access = leadAccessOf(decision.access);
       const parsedSort = query.data.sort ? parseLeadSort(query.data.sort) : undefined;
       // Searching, filtering, sorting by name or a property, or requesting
-      // property columns reveals contact or form details these roles never see.
+      // property columns reveals contact or form details these roles never see,
+      // whatever the keys: refused before the catalogue is read.
       if (
         !access.contacts &&
         (query.data.q !== undefined ||
@@ -369,6 +389,19 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           parsedSort?.propertyKey !== undefined)
       ) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      // Filters, sort and columns name the site's properties, as it defines them now.
+      const catalog = await siteCatalog(req, workspaceId.data, actor.actorId);
+      if (
+        (query.data.where !== undefined &&
+          !areValidLeadPropertyFilters(query.data.where, query.data.type, catalog)) ||
+        (query.data.sort !== undefined &&
+          !isValidLeadSort(query.data.sort, query.data.type, catalog)) ||
+        (query.data.columns !== undefined &&
+          !areValidLeadColumns(query.data.columns, query.data.type, catalog))
+      ) {
+        sendStaffAuthError(res, req.id, 'invalid_request', 400);
         return;
       }
 
@@ -385,6 +418,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         where: query.data.where,
         sort: query.data.sort,
         columns: query.data.columns,
+        catalog,
         page: query.data.page,
         pageSize: query.data.pageSize,
       });
@@ -461,12 +495,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.get('/workspaces/:workspaceId/leads/board', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const query = leadBoardQuerySchema.safeParse(req.query);
-    if (
-      !workspaceId.success ||
-      !query.success ||
-      (query.data.where !== undefined &&
-        !areValidLeadPropertyFilters(query.data.where, query.data.type))
-    ) {
+    if (!workspaceId.success || !query.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -481,6 +510,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
+      const catalog = await siteCatalog(req, workspaceId.data, actor.actorId);
+      if (
+        query.data.where !== undefined &&
+        !areValidLeadPropertyFilters(query.data.where, query.data.type, catalog)
+      ) {
+        sendStaffAuthError(res, req.id, 'invalid_request', 400);
+        return;
+      }
       const store = leadWork(req, res);
       if (!store) return;
       const columns = await store.board(
@@ -491,6 +528,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           assignee: query.data.assignee,
           search: query.data.q,
           where: query.data.where,
+          catalog,
         },
         query.data.perStage ?? 50,
       );
@@ -533,6 +571,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         actorId: actor.actorId,
         leadId: params.id,
         includeWork: access.contacts,
+        catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       if (!result) {
         sendDomainError(res, req.id, 'lead_not_found', 404);
@@ -580,6 +619,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         assignedActorId: body.data.assignedActorId,
         contact: body.data.contact,
         form: body.data.form,
+        catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       switch (outcome.status) {
         case 'updated':
@@ -1315,6 +1355,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   });
+
+  router.use(createPropertyRoutes({ store: propertyStore, decide, reportFailure }));
 
   router.use(
     createSavedViewRoutes({
