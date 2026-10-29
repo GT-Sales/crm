@@ -155,17 +155,28 @@ pg_proc / pg_policies where schemaname = 'app'`.
   where it holds none at all, 0007's handler turns the error into a WARNING
   (`auth schema not granted to backup_reader`). Either way the backup cannot
   read what was not granted (docs/RUNBOOKS/backup.md step 5).
-- Not yet applied in production. Apply with
-  [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
-  from the SQL editor, after the pre-paste check in
-  [backup.md](backup.md) step 5: one transaction with both migrations and
-  all four tracker rows. Drizzle hashes:
+- **Applied in production 2026-10-29** through the Supabase tool, after the
+  pre-paste check in [backup.md](backup.md) step 5 returned no rows: two
+  migrations, `0007_backup_reader` (tracker version `20261029164941`) and
+  `0008_backup_reader_policies` (`20261029165006`), each verbatim from
+  `packages/db/drizzle/` plus its Drizzle tracker row. Drizzle hashes:
   0007 `4518ddd1a136f26ccdd848a39799de7a888b70121a4d4ce390b5a88b7d9d3587`,
   `created_at` `1793273916007`; 0008
   `6d87bd3afd04885626c3d7d1b656de93a4267bf59ffe98a00de01ee947effcfd`,
-  `created_at` `1793273993722`. Then set the password separately
-  (`alter role backup_reader password '<openssl rand -hex 16>'`), stored only
-  in the backup job's secrets.
+  `created_at` `1793273993722`. The role has **no password yet**: the owner
+  sets it separately (`alter role backup_reader password '<openssl rand -hex 16>'`),
+  stored only in the backup job's secrets. For another deployment the
+  paste file
+  [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
+  does the same from the SQL editor in one transaction.
+- Verified 2026-10-29: role attributes as expected; 25 read policies in
+  `app` and 15 in `public` (one per `public` RLS table); no `public` table
+  the guard would stop on; `supabase_migrations` readable; `auth`: `USAGE`
+  **not** granted (`postgres` holds it without grant option), `SELECT` on
+  `auth.users` and `auth.identities` granted, no other `auth` table
+  readable, and **row security is on** for both tables. So the gt-sales
+  backup runs with `BACKUP_AUTH_DATA=skip` (set in the `backup.yml` matrix;
+  [backup.md](backup.md) "Facts", "Auth data").
 - Verify with the five selects at the end of the manual file, one at a time
   (the SQL editor shows only the last result): the role's attributes
   (`rolcanlogin` true, `rolsuper`, `rolbypassrls`, `rolcreaterole` false);

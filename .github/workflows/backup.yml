@@ -1,5 +1,7 @@
 # To add a deployment: one matrix entry here and in the two sibling workflows,
-# three GitHub Environments named after it, their secrets per docs/ENV.md.
+# three GitHub Environments named after it, their secrets per docs/ENV.md, and
+# its auth_data below (include, unless its Supabase project keeps row security
+# on auth.users and auth.identities, as gt-sales's does).
 #
 # The nightly backup of each deployment: an encrypted copy of its database and
 # every verified document, written to its Backblaze B2 archive
@@ -22,6 +24,14 @@ jobs:
       fail-fast: false
       matrix:
         deployment: [gt-sales]
+        include:
+          # gt-sales: Supabase keeps row security on auth.users and
+          # auth.identities and postgres cannot grant USAGE on auth, so
+          # backup_reader would read both as empty and the completeness guard
+          # would stop the run (docs/RUNBOOKS/backup.md step 5, check 4 and 5,
+          # 2026-10-29). Staff are re-invited after a restore.
+          - deployment: gt-sales
+            auth_data: skip
     # One GitHub Environment per deployment scopes its secrets to this job.
     # Its secrets are set in the repository settings, never in this file.
     environment: backup-${{ matrix.deployment }}
@@ -86,7 +96,8 @@ jobs:
           B2_ARCHIVE_WRITER_KEY_ID: ${{ secrets.B2_ARCHIVE_WRITER_KEY_ID }}
           B2_ARCHIVE_WRITER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_WRITER_APPLICATION_KEY }}
           # Optional; unset secrets arrive empty and the defaults apply.
-          BACKUP_AUTH_DATA: ${{ secrets.BACKUP_AUTH_DATA }}
+          # BACKUP_AUTH_DATA falls back to the deployment's matrix value.
+          BACKUP_AUTH_DATA: ${{ secrets.BACKUP_AUTH_DATA || matrix.auth_data }}
           BACKUP_HISTORY: ${{ secrets.BACKUP_HISTORY }}
           BACKUP_MAX_SNAPSHOT_BYTES: ${{ secrets.BACKUP_MAX_SNAPSHOT_BYTES }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}

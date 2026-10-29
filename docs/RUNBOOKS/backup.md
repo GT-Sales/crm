@@ -60,6 +60,17 @@ connector. Every query was a `SELECT`; nothing was created, altered or granted.
 - Only `auth.users` was checked for grantability. The other `auth` tables,
   and row security on every `auth` table, are checked after 0007 by
   verification selects 4 and 5 of the manual SQL (step 5 below).
+- **Found when 0007 was applied (2026-10-29):** `postgres` holds `USAGE` on
+  `auth` **without** grant option, so `GRANT USAGE ON SCHEMA auth` granted
+  nothing (select 4: `false, true, true, 0`), and Supabase keeps **row
+  security on** both `auth.users` and `auth.identities`, with no policy
+  `postgres` could add since it owns neither (select 5 returned both
+  tables). `backup_reader` would read both as empty under
+  `--enable-row-security`, and the completeness guard would stop the run.
+  So the gt-sales backup runs with `BACKUP_AUTH_DATA=skip`: the workflow
+  matrix sets it, the secret only overrides it. There is one row in
+  `auth.users`; after a restore the staff are re-invited
+  ([restore.md](restore.md), `auth_data_skipped_by_operator`).
 
 ### Tables in `app` and `public`
 
@@ -148,11 +159,13 @@ documents through the Storage S3 API, never through the table.
   `pg_dump --version` is not 17. The server is 17.6, and the client must be
   the same major or newer; pinning it means a future 18 client never dumps
   without someone choosing it.
-- **`BACKUP_AUTH_DATA`:** keep the default **`include`**. `postgres` holds
-  `SELECT` on `auth.users` with grant option, so the migration can grant it to
-  `backup_reader` and staff accounts can be in the backup. The grant itself has
-  not been tried (this spike was read-only); applying 0007/0008 is where it is
-  proven, and `skip` stays the documented fallback if the grant is refused.
+- **`BACKUP_AUTH_DATA`:** **`skip`** for gt-sales, set in the `backup.yml`
+  matrix (`auth_data: skip`). The spike expected `include` because `postgres`
+  holds `SELECT` on `auth.users` with grant option, but applying 0007 showed
+  the schema `USAGE` is not grantable and both tables have row security on
+  ("Auth data" above). A deployment whose Supabase project lets `postgres`
+  grant `USAGE` on `auth` and has no row security on those two tables sets
+  `auth_data: include` in the matrix instead.
 - **RLS owners:** no `public` table with RLS is owned by a role other than
   `postgres`, so the 0007 policy loop over tables owned by the migration role
   covers all of them and no table needs a manual policy. The pre-paste check
@@ -292,7 +305,10 @@ SEQUENCES IN SCHEMA public`, and a `public` object owned by another role
    security) before going on. The same applies to any future `public` table
    another role creates.
 
-2. **Apply.** Open
+2. **Apply.** _gt-sales: done 2026-10-29 by the developer through the
+   Supabase tool, as two migrations named `0007_backup_reader` and
+   `0008_backup_reader_policies` (the pre-paste check returned no rows; both
+   trackers hold the rows). Go on to 3._ For another deployment: open
    [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql),
    paste everything from `BEGIN;` to `COMMIT;` into the SQL Editor and run it
    once. It is one transaction with all four tracker rows. A WARNING that the
@@ -317,13 +333,19 @@ SEQUENCES IN SCHEMA public`, and a `public` object owned by another role
    5. no rows: neither of those two tables has row security on.
 
    If 4 shows a `false` or 5 returns rows, the `auth` grant did not fully
-   work: set the `BACKUP_AUTH_DATA` secret to `skip` in step 6 (staff are
-   then re-invited after a restore) and tell the developer. With `include`,
-   the backup would refuse to run rather than save empty staff tables. If
-   the last column of 4 is not `0`, `backup_reader` can read session or token
-   tables: run
+   work: set `auth_data: skip` for the deployment in the `backup.yml` matrix
+   (staff are then re-invited after a restore) and tell the developer. With
+   `include`, the backup would refuse to run rather than save empty staff
+   tables. If the last column of 4 is not `0`, `backup_reader` can read
+   session or token tables: run
    `revoke select on all tables in schema auth from backup_reader; grant select on auth.users, auth.identities to backup_reader;`
    and check again.
+
+   _gt-sales, 2026-10-29:_ 1, 2 and 3 as expected (`25` policies in `app`,
+   and 15 `public` read policies, one per `public` RLS table, from the
+   loop); 4 returned `false, true, true, 0` and 5 returned both tables, so
+   the matrix carries `auth_data: skip` for gt-sales ("Facts", "Auth data").
+   The password (3) is still the owner's step.
 
 5. Record the date applied under 0007 + 0008 in
    [database.md](database.md).
@@ -360,7 +382,7 @@ create `backup-gt-sales`, `backup-monitor-gt-sales` and
 | `SOURCE_STORAGE_ACCESS_KEY_ID`, `SOURCE_STORAGE_SECRET_ACCESS_KEY`                                  | yes               |                           |                             | The "backup" Storage S3 key from step 5.                                                                                                                               |
 | `SUPABASE_PROJECT_REF`                                                                              | yes               |                           |                             | `xykrphbgpwisqacpyeiv`.                                                                                                                                                |
 | `OWNER_ALERT_EMAIL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`                      |                   | yes                       |                             | Where the alert goes and who sends it: the owner's address and the Resend key and sender the backend uses (or a key of its own). Without them an alert is only logged. |
-| Optional: `BACKUP_AUTH_DATA`, `BACKUP_HISTORY`, `BACKUP_MAX_SNAPSHOT_BYTES`                         | optional          |                           |                             | ENV.md. `BACKUP_AUTH_DATA=skip` only if step 5's checks 4 or 5 failed.                                                                                                 |
+| Optional: `BACKUP_AUTH_DATA`, `BACKUP_HISTORY`, `BACKUP_MAX_SNAPSHOT_BYTES`                         | optional          |                           |                             | ENV.md. Leave `BACKUP_AUTH_DATA` unset: the matrix already says `skip` for gt-sales (step 5, checks 4 and 5); the secret only overrides the matrix.                    |
 | Optional: `BACKUP_MONITOR_MAX_AGE_SECONDS`, `OWNER_ALERT_WEBHOOK_URL`, `OWNER_ALERT_WEBHOOK_SECRET` |                   | optional                  |                             | ENV.md.                                                                                                                                                                |
 | Optional: `RETENTION_DAILY_POINTS`, `RETENTION_MONTHLY_POINTS`, `RETENTION_GRACE_SECONDS`           |                   |                           | optional                    | ENV.md. Defaults 30, 12 and 24 hours.                                                                                                                                  |
 | Optional: `SENTRY_DSN`                                                                              | optional          | optional                  | optional                    | Error tracking for a failed run.                                                                                                                                       |
