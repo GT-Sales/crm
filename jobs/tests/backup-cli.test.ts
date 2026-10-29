@@ -3,8 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { S3ArchiveWriter } from '../src/archive/archive-store.js';
 import type { RunCommand, RunCommandInput } from '../src/archive/command.js';
 import { AgeCliEncryptor } from '../src/archive/encryptor.js';
-import { buildBackupDependencies } from '../src/backup/cli.js';
+import { backupFailedLogLine, buildBackupDependencies } from '../src/backup/cli.js';
 import { PgDumpDatabaseExporter } from '../src/backup/pg-dump.js';
+import {
+  BackupIncompleteError,
+  BackupSourceUnreadableError,
+  BackupUploadVerificationError,
+} from '../src/backup/run.js';
 import {
   PsqlReferencedObjectManifestSource,
   PsqlSourceCompletenessGuard,
@@ -75,7 +80,7 @@ describe('buildBackupDependencies', () => {
     expect(deps.storageSource).toBeInstanceOf(S3StorageSourceReader);
     expect(deps.guard).toBeInstanceOf(PsqlSourceCompletenessGuard);
 
-    // PgDumpOptions include/include: auth data in the data dump, and both history dumps.
+    // PgDumpOptions include/include: the two auth tables' data, and both history dumps.
     await deps.database.exportAll();
     expect(calls.map((call) => call.command)).toEqual([
       'pg_dumpall',
@@ -83,11 +88,13 @@ describe('buildBackupDependencies', () => {
       'pg_dump',
       'pg_dump',
       'pg_dump',
+      'pg_dump',
     ]);
-    const dataArgs = calls[2]?.args ?? [];
-    expect(dataArgs).toContain('--data-only');
-    expect(hasSchemaFlag(dataArgs, 'auth')).toBe(true);
-    expect(hasSchemaFlag(calls[3]?.args ?? [], 'supabase_migrations')).toBe(true);
+    const authArgs = calls[3]?.args ?? [];
+    expect(authArgs).toContain('--data-only');
+    expect(authArgs).toEqual(expect.arrayContaining(['--table', 'auth.users', 'auth.identities']));
+    expect(hasSchemaFlag(authArgs, 'auth')).toBe(false);
+    expect(hasSchemaFlag(calls[4]?.args ?? [], 'supabase_migrations')).toBe(true);
     // The URL-encoded password reaches the tools decoded, through the environment only.
     expect(calls[0]?.options?.env).toMatchObject({
       PGHOST: 'aws-1-ap-south-1.pooler.supabase.com',
@@ -157,10 +164,10 @@ describe('buildBackupDependencies', () => {
     ]);
     await deps.database.exportAll();
     expect(calls.map((call) => call.command)).toEqual(['pg_dumpall', 'pg_dump', 'pg_dump']);
-    expect(hasSchemaFlag(calls[2]?.args ?? [], 'auth')).toBe(false);
+    for (const call of calls) expect(call.args.join(' ')).not.toContain('auth');
   });
 
-  it('the guard checks the auth schema exactly when auth data is dumped', async () => {
+  it('the guard checks the two auth tables exactly when auth data is dumped, never the auth schema', async () => {
     const guardQuery = async (env: NodeJS.ProcessEnv) => {
       const { io, calls } = recordingIo();
       await buildBackupDependencies(env, NOW, io).guard.unreadableTables();
@@ -171,9 +178,13 @@ describe('buildBackupDependencies', () => {
     const included = await guardQuery({ ...REQUIRED });
     const explicit = await guardQuery({ ...REQUIRED, BACKUP_AUTH_DATA: 'include' });
     const skipped = await guardQuery({ ...REQUIRED, BACKUP_AUTH_DATA: 'skip' });
-    expect(included).toContain(`in ('app', 'public', 'drizzle', 'auth')`);
+    expect(included).toContain(`n.nspname in ('app', 'public', 'drizzle')`);
+    expect(included).toContain(
+      `(n.nspname, c.relname) in (('auth', 'users'), ('auth', 'identities'))`,
+    );
+    expect(included).not.toContain(`'drizzle', 'auth'`);
     expect(explicit).toBe(included);
-    expect(skipped).toContain(`in ('app', 'public', 'drizzle')`);
+    expect(skipped).toContain(`n.nspname in ('app', 'public', 'drizzle')`);
     expect(skipped).not.toContain(`'auth'`);
   });
 
@@ -194,5 +205,58 @@ describe('buildBackupDependencies', () => {
     expect(() =>
       buildBackupDependencies({ ...REQUIRED, BACKUP_HISTORY: 'false' }, NOW, io),
     ).toThrow('BACKUP_HISTORY must be include or skip');
+  });
+});
+
+describe('backupFailedLogLine', () => {
+  it('names the unreadable tables of a guard failure', () => {
+    expect(
+      backupFailedLogLine(new BackupSourceUnreadableError(['app.leads', 'auth.users']), {
+        deployment: 'gt-sales',
+        runId: 'run-1',
+      }),
+    ).toEqual({
+      event: 'backup_failed',
+      deployment: 'gt-sales',
+      runId: 'run-1',
+      errorCode: 'BackupSourceUnreadableError',
+      message: 'backup_source_unreadable:2_tables',
+      tables: ['app.leads', 'auth.users'],
+    });
+  });
+
+  it('names the missing or mismatched document objects of an incomplete backup', () => {
+    const objects = [`documents/candidate/w1/${'a'.repeat(8)}-0123456789abcdef`];
+    expect(backupFailedLogLine(new BackupIncompleteError(objects), { runId: 'run-1' })).toEqual({
+      event: 'backup_failed',
+      runId: 'run-1',
+      errorCode: 'BackupIncompleteError',
+      message: 'backup_incomplete:1_objects',
+      missingOrMismatchedObjects: objects,
+    });
+  });
+
+  it('names the archive keys an upload listing did not show', () => {
+    const keys = ['run-1/data.sql.enc', 'run-1/manifest.json.enc'];
+    expect(backupFailedLogLine(new BackupUploadVerificationError(keys))).toEqual({
+      event: 'backup_failed',
+      errorCode: 'BackupUploadVerificationError',
+      message: 'backup_upload_incomplete:2_keys',
+      missingKeys: keys,
+    });
+  });
+
+  it('logs only the name and message of any other error, and a code for a non-error', () => {
+    expect(backupFailedLogLine(new Error('age_failed'), { deployment: 'gt-sales' })).toEqual({
+      event: 'backup_failed',
+      deployment: 'gt-sales',
+      errorCode: 'Error',
+      message: 'age_failed',
+    });
+    expect(backupFailedLogLine('boom')).toEqual({
+      event: 'backup_failed',
+      errorCode: 'unknown_error',
+      message: 'non_error_thrown',
+    });
   });
 });

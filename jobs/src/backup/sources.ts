@@ -148,16 +148,47 @@ export class FakeStorageSourceReader implements StorageSourceReader {
 // --- Source completeness guard -----------------------------------------------
 
 export interface SourceCompletenessGuard {
-  /** `schema.table` for every table the dump role would miss; empty when complete. */
+  /**
+   * `schema.table` for every table, and `schema.sequence` for every sequence,
+   * the dump role would miss; empty when complete.
+   */
   unreadableTables(): Promise<string[]>;
 }
 
-const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
+export interface SourceCompletenessGuardOptions {
+  /** Every table and sequence in these schemas is checked (default `APP_SCHEMAS`). */
+  schemas?: readonly string[];
+  /**
+   * `schema.table` names checked one by one with the same predicates, for a
+   * schema the dump reads only part of (the `auth` tables, `AUTH_TABLES`).
+   */
+  tables?: readonly string[];
+}
+
+const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
+
+function checkedSchema(schema: string): string {
+  if (!IDENTIFIER.test(schema)) throw new Error(`invalid_guard_schema:${schema}`);
+  return schema;
+}
+
+function checkedTable(name: string): [string, string] {
+  const parts = name.split('.');
+  const [schema = '', table = ''] = parts;
+  if (parts.length !== 2 || !IDENTIFIER.test(schema) || !IDENTIFIER.test(table)) {
+    throw new Error(`invalid_guard_table:${name}`);
+  }
+  return [schema, table];
+}
 
 /**
- * Every table in `schemas` that the current role cannot fully read. A table
- * is unreadable when the role has no SELECT privilege on it, or, unless the
- * role bypasses RLS, when row security is on and either
+ * Every table in `schemas` (and every table named in `tables`) that the
+ * current role cannot fully read, plus every sequence in `schemas` it cannot
+ * read. Relations are resolved through `pg_class` by OID, never by name, so a
+ * schema the role has no USAGE on is reported here instead of failing the
+ * query itself. A table is unreadable when the role has no USAGE on its
+ * schema, or no SELECT privilege on it, or, unless the role bypasses RLS,
+ * when row security is on and either
  *  - no permissive SELECT/ALL policy names the role with `USING (true)`, so
  *    no policy grants it every row (a reader policy recreated with any other
  *    `USING` would hide rows), or
@@ -168,28 +199,37 @@ const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
  *    though its own policy still exists.
  * Under `--enable-row-security` such a table dumps silently empty or partial,
  * and the dump's own row counts would agree with it; the guard turns that into
- * a failure. The schema list only ever comes from code, and each name is
- * checked before it is quoted into the query.
+ * a failure. A sequence the role cannot read would stop pg_dump part-way. The
+ * schema and table lists only ever come from code, and each name is checked
+ * before it is quoted into the query.
  */
-export function unreadableTablesQuery(schemas: readonly string[]): string {
-  for (const schema of schemas) {
-    if (!SCHEMA_NAME.test(schema)) throw new Error(`invalid_guard_schema:${schema}`);
-  }
-  const list = schemas.map((schema) => `'${schema}'`).join(', ');
+export function unreadableTablesQuery(
+  schemas: readonly string[],
+  tables: readonly string[] = [],
+): string {
+  const schemaList = schemas.map((schema) => `'${checkedSchema(schema)}'`).join(', ');
+  const tableList = tables
+    .map(checkedTable)
+    .map(([schema, table]) => `('${schema}', '${table}')`)
+    .join(', ');
+  const inSchemas = schemaList ? `n.nspname in (${schemaList})` : 'false';
+  const inTables = tableList ? `(n.nspname, c.relname) in (${tableList})` : 'false';
   return `
-  select t.schemaname || '.' || t.tablename
-  from pg_tables t
-  where t.schemaname in (${list})
+  select n.nspname || '.' || c.relname
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where c.relkind in ('r', 'p')
+    and (${inSchemas} or ${inTables})
     and (
-      not has_table_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'SELECT')
+      not has_schema_privilege(current_user, n.nspname, 'USAGE')
+      or not has_table_privilege(current_user, c.oid, 'SELECT')
       or (
-        t.rowsecurity
+        c.relrowsecurity
         and not (select rolbypassrls from pg_roles where rolname = current_user)
         and (
           not exists (
             select 1 from pg_policies p
-            where p.schemaname = t.schemaname
-              and p.tablename = t.tablename
+            where p.schemaname = n.nspname
+              and p.tablename = c.relname
               and p.permissive = 'PERMISSIVE'
               and current_user = any(p.roles)
               and p.cmd in ('SELECT', 'ALL')
@@ -197,14 +237,23 @@ export function unreadableTablesQuery(schemas: readonly string[]): string {
           )
           or exists (
             select 1 from pg_policies p
-            where p.schemaname = t.schemaname
-              and p.tablename = t.tablename
+            where p.schemaname = n.nspname
+              and p.tablename = c.relname
               and p.permissive = 'RESTRICTIVE'
               and (current_user = any(p.roles) or 'public' = any(p.roles))
               and p.cmd in ('SELECT', 'ALL')
           )
         )
       )
+    )
+  union all
+  select n.nspname || '.' || c.relname
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where c.relkind = 'S'
+    and ${inSchemas}
+    and (
+      not has_schema_privilege(current_user, n.nspname, 'USAGE')
+      or not has_sequence_privilege(current_user, c.oid, 'SELECT')
     )
   order by 1
 `;
@@ -219,10 +268,10 @@ export class PsqlSourceCompletenessGuard implements SourceCompletenessGuard {
   constructor(
     dbUrl: string,
     private readonly run: RunCommand,
-    options: { schemas?: readonly string[] } = {},
+    options: SourceCompletenessGuardOptions = {},
   ) {
     this.connection = parseConnectionUrl(dbUrl);
-    this.query = unreadableTablesQuery(options.schemas ?? APP_SCHEMAS);
+    this.query = unreadableTablesQuery(options.schemas ?? APP_SCHEMAS, options.tables ?? []);
   }
 
   async unreadableTables(): Promise<string[]> {

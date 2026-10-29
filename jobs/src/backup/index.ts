@@ -3,6 +3,7 @@ export { countCopyRows } from './copy-rows.js';
 export {
   APP_SCHEMAS,
   AUTH_SCHEMA,
+  AUTH_TABLES,
   HISTORY_SCHEMA,
   INTERNAL_SCHEMAS,
   PgDumpDatabaseExporter,
@@ -40,6 +41,7 @@ export {
   UNREADABLE_TABLES_QUERY,
   unreadableTablesQuery,
   type ReferencedObject,
+  type SourceCompletenessGuardOptions,
   type ReferencedObjectManifestSource,
   type SourceCompletenessGuard,
   type StorageSourceReader,

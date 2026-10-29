@@ -7,9 +7,11 @@ import { S3ArchiveWriter } from '../archive/archive-store.js';
 import { nodeRunCommand, type RunCommand } from '../archive/command.js';
 import { AgeCliEncryptor } from '../archive/encryptor.js';
 import { optionalEnv, optionalPositiveInteger, requiredEnv } from '../archive/env.js';
-import { APP_SCHEMAS, AUTH_SCHEMA, PgDumpDatabaseExporter } from './pg-dump.js';
+import { AUTH_TABLES, PgDumpDatabaseExporter } from './pg-dump.js';
 import {
+  BackupIncompleteError,
   BackupSourceUnreadableError,
+  BackupUploadVerificationError,
   createBackupRunId,
   runBackup,
   type BackupRunDependencies,
@@ -90,9 +92,10 @@ export function buildBackupDependencies(
     referencedObjects: new PsqlReferencedObjectManifestSource(sourceDatabaseUrl, run),
     storageSource: new S3StorageSourceReader(storageConfig, fetchImpl, STORAGE_READ_TIMEOUT_MS),
     // An auth table that would dump silently empty under row security fails
-    // the run like an app table, whenever auth data is part of the dump.
+    // the run like an app table, whenever auth data is part of the dump. Only
+    // the two dumped auth tables are checked; the rest of auth is never read.
     guard: new PsqlSourceCompletenessGuard(sourceDatabaseUrl, run, {
-      schemas: authData === 'include' ? [...APP_SCHEMAS, AUTH_SCHEMA] : APP_SCHEMAS,
+      tables: authData === 'include' ? AUTH_TABLES : [],
     }),
     sourceIds: { supabaseProjectRef },
     // Recorded by the workflow from the installed binaries.
@@ -102,6 +105,34 @@ export function buildBackupDependencies(
     },
     exclusions,
     ...(maxSnapshotBytes === undefined ? {} : { maxSnapshotBytes }),
+  };
+}
+
+/**
+ * The `backup_failed` log line. Messages are codes and counts; tool stderr is
+ * already redacted by CommandFailedError. Besides the message, only names
+ * are logged: the unreadable tables' (table names are not personal data),
+ * and the archive and document object keys a run could not copy or verify.
+ * Those keys are opaque server-generated ids (`<bucket>/candidate/<workspace
+ * uuid>/<random token>`, `<runId>/<artifact>.enc`; apps/backend/src/documents/
+ * keys.ts), never a filename and no personal data, which is the only reason
+ * they may appear in a public workflow log.
+ */
+export function backupFailedLogLine(
+  error: unknown,
+  ids: { deployment?: string | undefined; runId?: string | undefined } = {},
+): Record<string, unknown> {
+  return {
+    event: 'backup_failed',
+    ...(ids.deployment ? { deployment: ids.deployment } : {}),
+    ...(ids.runId ? { runId: ids.runId } : {}),
+    errorCode: error instanceof Error ? error.name : 'unknown_error',
+    message: error instanceof Error ? error.message : 'non_error_thrown',
+    ...(error instanceof BackupSourceUnreadableError ? { tables: error.tables } : {}),
+    ...(error instanceof BackupIncompleteError
+      ? { missingOrMismatchedObjects: error.missingOrMismatchedObjects }
+      : {}),
+    ...(error instanceof BackupUploadVerificationError ? { missingKeys: error.missingKeys } : {}),
   };
 }
 
@@ -124,19 +155,7 @@ async function main(): Promise<void> {
       }),
     );
   } catch (error: unknown) {
-    // Messages are codes and counts; tool stderr is already redacted by
-    // CommandFailedError. Besides the message, only the unreadable tables'
-    // names are logged (table names are not personal data).
-    console.error(
-      JSON.stringify({
-        event: 'backup_failed',
-        ...(deployment ? { deployment } : {}),
-        ...(runId ? { runId } : {}),
-        errorCode: error instanceof Error ? error.name : 'unknown_error',
-        message: error instanceof Error ? error.message : 'non_error_thrown',
-        ...(error instanceof BackupSourceUnreadableError ? { tables: error.tables } : {}),
-      }),
-    );
+    console.error(JSON.stringify(backupFailedLogLine(error, { deployment, runId })));
     createErrorTrackerFromEnv().captureException(error, {
       requestId: runId ?? 'backup',
       route: 'jobs:backup',

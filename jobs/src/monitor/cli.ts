@@ -26,14 +26,16 @@ import {
  * owner (`backup_stale`) and exits 1, so the failed workflow run notifies too;
  * a scheduled workflow's own failure mail is easy to miss, hence both. An
  * unconfigured alert channel only logs, so it never becomes a second failure.
+ * On a failure the owner alert goes out first and the error tracker after it,
+ * guarded, so a malformed `SENTRY_DSN` cannot suppress the alert.
  * The log is one JSON line per outcome with ids, times and counts only.
  */
 
-/** The fetch, alert channel, error tracker and clock, replaceable for tests. */
+/** The fetch, alert channel, error tracker factory and clock, replaceable for tests. */
 export interface MonitorCliIo {
   fetchImpl?: typeof fetch;
   alerts?: OwnerAlertChannel;
-  errorTracker?: ErrorTracker;
+  createErrorTracker?: () => ErrorTracker;
   now?: () => Date;
 }
 
@@ -117,13 +119,25 @@ export async function runMonitorCli(
     console.error(
       JSON.stringify({ event: 'monitor_failed', ...context, message: errorMessage(error) }),
     );
-    (io.errorTracker ?? createErrorTrackerFromEnv({ env })).captureException(error, {
-      requestId: deployment ? `monitor-${deployment}` : 'monitor',
-      route: 'jobs:monitor',
-      release: env['RELEASE_SHA'] ?? 'unknown',
-      environment: env['DEPLOYMENT_ENV'] ?? env['NODE_ENV'],
-    });
     await sendAlert('monitor_failed');
+    try {
+      const createErrorTracker =
+        io.createErrorTracker ?? (() => createErrorTrackerFromEnv({ env }));
+      createErrorTracker().captureException(error, {
+        requestId: deployment ? `monitor-${deployment}` : 'monitor',
+        route: 'jobs:monitor',
+        release: env['RELEASE_SHA'] ?? 'unknown',
+        environment: env['DEPLOYMENT_ENV'] ?? env['NODE_ENV'],
+      });
+    } catch (trackerError: unknown) {
+      console.error(
+        JSON.stringify({
+          event: 'monitor_error_tracker_failed',
+          ...context,
+          message: errorMessage(trackerError),
+        }),
+      );
+    }
     return 1;
   }
 }

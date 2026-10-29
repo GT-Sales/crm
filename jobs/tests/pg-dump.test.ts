@@ -8,6 +8,7 @@ import {
 import {
   APP_SCHEMAS,
   AUTH_SCHEMA,
+  AUTH_TABLES,
   HISTORY_SCHEMA,
   INTERNAL_SCHEMAS,
   PgDumpDatabaseExporter,
@@ -38,7 +39,7 @@ function recordingRun(stdout = 'SELECT 1;\n') {
 const text = (bytes: Uint8Array | undefined) => new TextDecoder().decode(bytes);
 
 describe('PgDumpDatabaseExporter', () => {
-  it('runs roles, schema, data and history dumps with explicit schema lists and row security on', async () => {
+  it('runs roles, schema, data, auth-table and history dumps with explicit, strict schema and table lists and row security on', async () => {
     const { run, calls } = recordingRun();
     const artifacts = await new PgDumpDatabaseExporter(
       URL_WITH_SECRET,
@@ -53,6 +54,7 @@ describe('PgDumpDatabaseExporter', () => {
       'pg_dump',
       'pg_dump',
       'pg_dump',
+      'pg_dump',
     ]);
     expect(calls[0]?.args).toEqual([
       '--roles-only',
@@ -63,6 +65,7 @@ describe('PgDumpDatabaseExporter', () => {
     expect(calls[1]?.args).toEqual([
       '--schema-only',
       '--quote-all-identifier',
+      '--strict-names',
       '--schema',
       'app',
       '--schema',
@@ -74,29 +77,44 @@ describe('PgDumpDatabaseExporter', () => {
       '--data-only',
       '--quote-all-identifier',
       '--enable-row-security',
+      '--strict-names',
       '--schema',
       'app',
       '--schema',
       'public',
       '--schema',
       'drizzle',
-      '--schema',
-      'auth',
-      '--exclude-table',
-      'auth.schema_migrations',
     ]);
+    // pg_dump ignores every --schema once a --table is given, so the two auth
+    // tables are their own dump, never added to the schema dump above.
     expect(calls[3]?.args).toEqual([
-      '--schema-only',
-      '--quote-all-identifier',
-      '--schema',
-      'supabase_migrations',
-    ]);
-    expect(calls[4]?.args).toEqual([
       '--data-only',
       '--quote-all-identifier',
+      '--enable-row-security',
+      '--strict-names',
+      '--table',
+      'auth.users',
+      '--table',
+      'auth.identities',
+    ]);
+    expect(calls[4]?.args).toEqual([
+      '--schema-only',
+      '--quote-all-identifier',
+      '--strict-names',
       '--schema',
       'supabase_migrations',
     ]);
+    expect(calls[5]?.args).toEqual([
+      '--data-only',
+      '--quote-all-identifier',
+      '--strict-names',
+      '--schema',
+      'supabase_migrations',
+    ]);
+    for (const call of calls.slice(1)) {
+      expect(call.args).not.toContain('--exclude-table');
+      expect(call.args.filter((arg) => arg === '--table').length > 0).toBe(call === calls[3]);
+    }
     for (const call of calls) expect(call.args).not.toContain('--role');
 
     expect(text(artifacts.roles)).toContain('RESET ALL;');
@@ -115,10 +133,18 @@ describe('PgDumpDatabaseExporter', () => {
       {},
     ).exportAll();
 
+    expect(calls.map((call) => call.command)).toEqual([
+      'pg_dumpall',
+      'pg_dump',
+      'pg_dump',
+      'pg_dump',
+      'pg_dump',
+    ]);
     expect(calls[2]?.args).toEqual([
       '--data-only',
       '--quote-all-identifier',
       '--enable-row-security',
+      '--strict-names',
       '--schema',
       'app',
       '--schema',
@@ -126,7 +152,9 @@ describe('PgDumpDatabaseExporter', () => {
       '--schema',
       'drizzle',
     ]);
-    expect(calls[2]?.args.some((arg) => arg.includes('auth'))).toBe(false);
+    for (const call of calls) {
+      expect(call.args.some((arg) => arg.includes('auth'))).toBe(false);
+    }
   });
 
   it('skips both history dumps when history is skip', async () => {
@@ -138,7 +166,13 @@ describe('PgDumpDatabaseExporter', () => {
       {},
     ).exportAll();
 
-    expect(calls.map((call) => call.command)).toEqual(['pg_dumpall', 'pg_dump', 'pg_dump']);
+    // Roles, schema, app data, auth-table data.
+    expect(calls.map((call) => call.command)).toEqual([
+      'pg_dumpall',
+      'pg_dump',
+      'pg_dump',
+      'pg_dump',
+    ]);
     expect(calls.some((call) => call.args.includes('supabase_migrations'))).toBe(false);
     expect(artifacts.historySchema).toBeUndefined();
     expect(artifacts.historyData).toBeUndefined();
@@ -153,7 +187,7 @@ describe('PgDumpDatabaseExporter', () => {
       { PATH: '/usr/bin' },
     ).exportAll();
 
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
     for (const call of calls) {
       const argv = call.args.join(' ');
       expect(argv).not.toContain('postgres://');
@@ -235,6 +269,35 @@ describe('PgDumpDatabaseExporter', () => {
     expect(APP_SCHEMAS).toEqual(['app', 'public', 'drizzle']);
     expect(HISTORY_SCHEMA).toBe('supabase_migrations');
     expect(AUTH_SCHEMA).toBe('auth');
+    expect(AUTH_TABLES).toEqual(['auth.users', 'auth.identities']);
+  });
+
+  it("appends the auth tables' data to the one data artifact, inside the replica-mode wrapper", async () => {
+    const calls: string[][] = [];
+    const run: RunCommand = async (_command, args) => {
+      calls.push([...args]);
+      const sql = args.includes('--table')
+        ? 'COPY "auth"."users" ("id") FROM stdin;\nu1\n\\.\n'
+        : args.includes('--data-only') && args.includes('app')
+          ? 'COPY "app"."leads" ("id") FROM stdin;\nl1\n\\.\n'
+          : '';
+      return { stdout: new TextEncoder().encode(sql), stderr: '', exitCode: 0 };
+    };
+    const artifacts = await new PgDumpDatabaseExporter(
+      URL_WITH_SECRET,
+      run,
+      { authData: 'include', history: 'skip' },
+      {},
+    ).exportAll();
+
+    const data = text(artifacts.data);
+    expect(data.startsWith('SET session_replication_role = replica;')).toBe(true);
+    expect(data.trimEnd().endsWith('RESET ALL;')).toBe(true);
+    const leads = data.indexOf('COPY "app"."leads"');
+    const users = data.indexOf('COPY "auth"."users"');
+    expect(leads).toBeGreaterThan(0);
+    expect(users).toBeGreaterThan(leads);
+    expect(data.match(/SET session_replication_role = replica;/g)).toHaveLength(1);
   });
 });
 

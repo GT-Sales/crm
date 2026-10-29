@@ -201,7 +201,11 @@ function fakeArchive(heartbeatBody?: string, status = 200) {
 function cliIo(fetchImpl: typeof fetch) {
   const alerts = new FakeOwnerAlertChannel();
   const errorTracker = new FakeErrorTracker();
-  return { io: { fetchImpl, alerts, errorTracker, now: () => NOW }, alerts, errorTracker };
+  return {
+    io: { fetchImpl, alerts, createErrorTracker: () => errorTracker, now: () => NOW },
+    alerts,
+    errorTracker,
+  };
 }
 
 function logLines(spy: { mock: { calls: unknown[][] } }): unknown[] {
@@ -347,6 +351,40 @@ describe('monitor CLI', () => {
     ]);
     expect(errorTracker.events).toHaveLength(1);
     expect(errorTracker.events[0]?.tags).toMatchObject({ route: 'jobs:monitor' });
+  });
+
+  it('alerts the owner before the error tracker, so a tracker that cannot be built cannot suppress the alert', async () => {
+    const { fetchImpl } = fakeArchive(undefined, 403);
+    const order: string[] = [];
+    const alerts = new FakeOwnerAlertChannel();
+    const recordingAlerts = {
+      send: async (alert: OwnerAlert) => {
+        order.push('alert');
+        await alerts.send(alert);
+      },
+    };
+    const createErrorTracker = () => {
+      order.push('tracker');
+      throw new Error('invalid_sentry_dsn');
+    };
+    expect(
+      await runMonitorCli(
+        { ...REQUIRED },
+        { fetchImpl, alerts: recordingAlerts, createErrorTracker, now: () => NOW },
+      ),
+    ).toBe(1);
+    expect(order).toEqual(['alert', 'tracker']);
+    expect(alerts.sent).toEqual([
+      { kind: 'backup_stale', detail: 'monitor_failed', occurredAt: NOW.toISOString() },
+    ]);
+    expect(logLines(error)).toEqual([
+      { event: 'monitor_failed', deployment: 'gt-sales', message: 'archive_get_failed:403' },
+      {
+        event: 'monitor_error_tracker_failed',
+        deployment: 'gt-sales',
+        message: 'invalid_sentry_dsn',
+      },
+    ]);
   });
 
   it('alerts monitor_failed when the archive cannot be read', async () => {

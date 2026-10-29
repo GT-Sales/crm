@@ -233,22 +233,37 @@ describe('PsqlSourceCompletenessGuard', () => {
     expect(await new PsqlSourceCompletenessGuard(DB_URL, run).unreadableTables()).toEqual([]);
   });
 
-  it('checks the privilege, the reader policy and bypassrls in app, public and drizzle by default', () => {
+  it('checks schema USAGE, the privilege, the reader policy and bypassrls in app, public and drizzle by default', () => {
     expect(UNREADABLE_TABLES_QUERY).toBe(unreadableTablesQuery(['app', 'public', 'drizzle']));
-    expect(UNREADABLE_TABLES_QUERY).toContain("t.schemaname in ('app', 'public', 'drizzle')");
-    expect(UNREADABLE_TABLES_QUERY).toContain('has_table_privilege(current_user,');
-    expect(UNREADABLE_TABLES_QUERY).toContain("'SELECT')");
-    expect(UNREADABLE_TABLES_QUERY).toContain('t.rowsecurity');
+    expect(UNREADABLE_TABLES_QUERY).toContain(
+      'from pg_class c join pg_namespace n on n.oid = c.relnamespace',
+    );
+    expect(UNREADABLE_TABLES_QUERY).toContain("c.relkind in ('r', 'p')");
+    expect(UNREADABLE_TABLES_QUERY).toContain("n.nspname in ('app', 'public', 'drizzle')");
+    expect(UNREADABLE_TABLES_QUERY).toContain(
+      "not has_schema_privilege(current_user, n.nspname, 'USAGE')",
+    );
+    expect(UNREADABLE_TABLES_QUERY).toContain(
+      "not has_table_privilege(current_user, c.oid, 'SELECT')",
+    );
+    expect(UNREADABLE_TABLES_QUERY).toContain('c.relrowsecurity');
     expect(UNREADABLE_TABLES_QUERY).toContain('current_user = any(p.roles)');
     expect(UNREADABLE_TABLES_QUERY).toContain("p.cmd in ('SELECT', 'ALL')");
     expect(UNREADABLE_TABLES_QUERY).toContain(
       '(select rolbypassrls from pg_roles where rolname = current_user)',
     );
+    // Never a name lookup, which fails outright on a schema without USAGE.
+    expect(UNREADABLE_TABLES_QUERY).not.toContain('format(');
+    expect(UNREADABLE_TABLES_QUERY).not.toContain('pg_tables');
+    // No individually listed tables by default.
+    expect(UNREADABLE_TABLES_QUERY).not.toContain('(n.nspname, c.relname) in');
   });
 
   it('requires the reader policy to grant every row with USING (true)', () => {
     const [, afterNotExists = ''] = UNREADABLE_TABLES_QUERY.split('not exists (');
     const [permissive = ''] = afterNotExists.split('or exists (');
+    expect(permissive).toContain('p.schemaname = n.nspname');
+    expect(permissive).toContain('p.tablename = c.relname');
     expect(permissive).toContain("p.permissive = 'PERMISSIVE'");
     expect(permissive).toContain('current_user = any(p.roles)');
     expect(permissive).toContain("p.cmd in ('SELECT', 'ALL')");
@@ -257,21 +272,50 @@ describe('PsqlSourceCompletenessGuard', () => {
 
   it('flags a table when any restrictive SELECT/ALL policy applies to the reader or to public', () => {
     const [, afterOrExists = ''] = UNREADABLE_TABLES_QUERY.split('or exists (');
-    const [restrictive = ''] = afterOrExists.split('order by');
+    const [restrictive = ''] = afterOrExists.split('union all');
     expect(restrictive).toContain("p.permissive = 'RESTRICTIVE'");
     expect(restrictive).toContain("(current_user = any(p.roles) or 'public' = any(p.roles))");
     expect(restrictive).toContain("p.cmd in ('SELECT', 'ALL')");
     expect(restrictive).not.toContain('p.qual');
   });
 
+  it('reports every sequence in the schemas the role cannot read', () => {
+    const [, sequences = ''] = UNREADABLE_TABLES_QUERY.split('union all');
+    expect(sequences).toContain("c.relkind = 'S'");
+    expect(sequences).toContain("n.nspname in ('app', 'public', 'drizzle')");
+    expect(sequences).toContain("not has_schema_privilege(current_user, n.nspname, 'USAGE')");
+    expect(sequences).toContain("not has_sequence_privilege(current_user, c.oid, 'SELECT')");
+    expect(sequences.trim().endsWith('order by 1')).toBe(true);
+  });
+
   it('the query names the schemas given', async () => {
     const { run, calls } = recordingRun('');
     await new PsqlSourceCompletenessGuard(DB_URL, run, {
-      schemas: ['app', 'public', 'drizzle', 'auth'],
+      schemas: ['app', 'public'],
     }).unreadableTables();
     const query = calls[0]?.args.at(-1) ?? '';
-    expect(query).toBe(unreadableTablesQuery(['app', 'public', 'drizzle', 'auth']));
-    expect(query).toContain("t.schemaname in ('app', 'public', 'drizzle', 'auth')");
+    expect(query).toBe(unreadableTablesQuery(['app', 'public']));
+    expect(query).toContain("n.nspname in ('app', 'public')");
+  });
+
+  it('checks individually listed tables with the same predicates, whatever the schemas', async () => {
+    const { run, calls } = recordingRun('auth.identities\n');
+    const guard = new PsqlSourceCompletenessGuard(DB_URL, run, {
+      tables: ['auth.users', 'auth.identities'],
+    });
+    expect(await guard.unreadableTables()).toEqual(['auth.identities']);
+    const query = calls[0]?.args.at(-1) ?? '';
+    expect(query).toBe(
+      unreadableTablesQuery(['app', 'public', 'drizzle'], ['auth.users', 'auth.identities']),
+    );
+    const [tablePart = '', sequencePart = ''] = query.split('union all');
+    expect(tablePart).toContain(
+      "(n.nspname in ('app', 'public', 'drizzle') or (n.nspname, c.relname) in (('auth', 'users'), ('auth', 'identities')))",
+    );
+    // A listed table's schema is not swept for other tables or sequences.
+    expect(query).not.toContain("'auth')");
+    expect(sequencePart).not.toContain('auth');
+    expect(sequencePart).toContain("and n.nspname in ('app', 'public', 'drizzle')");
   });
 
   it('refuses a schema name that is not a plain lower-case identifier', () => {
@@ -279,6 +323,15 @@ describe('PsqlSourceCompletenessGuard', () => {
     for (const schema of ["app'; drop table x; --", 'App', '1app', '']) {
       expect(() => new PsqlSourceCompletenessGuard(DB_URL, run, { schemas: [schema] })).toThrow(
         new Error(`invalid_guard_schema:${schema}`),
+      );
+    }
+  });
+
+  it('refuses a table name that is not schema.table of plain lower-case identifiers', () => {
+    const { run } = recordingRun('');
+    for (const table of ['users', 'auth.users.x', "auth.users'; --", 'Auth.users', 'auth.', '']) {
+      expect(() => new PsqlSourceCompletenessGuard(DB_URL, run, { tables: [table] })).toThrow(
+        new Error(`invalid_guard_table:${table}`),
       );
     }
   });

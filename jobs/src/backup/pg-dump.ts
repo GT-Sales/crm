@@ -8,9 +8,10 @@ import { runOrThrow, type RunCommand } from '../archive/command.js';
  * restore loads the same shape of SQL the CLI would have produced.
  *
  * Include lists, not exclude lists. `backup_reader` holds grants only on
- * `app`, `public` and `drizzle` (plus `auth` and `supabase_migrations` when
- * those grants were applied), so every dump names its schemas with `--schema`;
- * a wildcard would reach schemas the role cannot read and fail.
+ * `app`, `public` and `drizzle` (plus `auth.users`, `auth.identities` and
+ * `supabase_migrations` when those grants were applied), so every dump names
+ * its schemas with `--schema` or its tables with `--table`; a wildcard would
+ * reach objects the role cannot read and fail.
  *
  * `--enable-row-security` on the data dump. The role has no `BYPASSRLS`; it
  * reads every row because each RLS table carries a `<table>_backup_reader_read`
@@ -19,11 +20,18 @@ import { runOrThrow, type RunCommand } from '../archive/command.js';
  * why the runner first asks the source completeness guard (sources.ts) to
  * prove no table is unreadable.
  *
+ * `--strict-names` on every `pg_dump`: a `--schema` or `--table` that matches
+ * nothing fails the dump instead of silently dumping nothing for it.
+ *
  * `storage` data is never dumped: the document bytes are archived separately
  * through the S3 API, and the restore recreates `storage.objects` when it
  * uploads them again. `auth` DDL is platform-owned (the target project already
- * has it), so only `auth` data is dumped, and only when `authData` is
- * `include`; its migration-history table stays with the platform.
+ * has it), so only `auth` data is dumped, only when `authData` is `include`,
+ * and only the two tables a restore needs (`AUTH_TABLES`: the accounts and
+ * their sign-in identities). Sessions, refresh tokens and MFA state are never
+ * read; a restored user signs in again. pg_dump ignores every `--schema` once
+ * one `--table` is given, so the auth tables are a second data dump whose SQL
+ * is appended to the first in the one `data.sql` artifact.
  *
  * Needs PostgreSQL 17 client tools on PATH, matching the 17.x server. The
  * connection reaches the tools only through PG* environment variables, so the
@@ -33,9 +41,8 @@ import { runOrThrow, type RunCommand } from '../archive/command.js';
 export const APP_SCHEMAS = ['app', 'public', 'drizzle'] as const;
 export const HISTORY_SCHEMA = 'supabase_migrations';
 export const AUTH_SCHEMA = 'auth';
-
-/** The platform's own record of applied `auth` migrations; never restored. */
-const AUTH_HISTORY_TABLE = 'auth.schema_migrations';
+/** The only `auth` tables dumped (and granted to `backup_reader` in 0007). */
+export const AUTH_TABLES = ['auth.users', 'auth.identities'] as const;
 
 /**
  * CLI `InternalSchemas`: platform-managed schemas. None is dumped; the schema
@@ -244,6 +251,10 @@ function schemaFlags(schemas: readonly string[]): string[] {
   return schemas.flatMap((schema) => ['--schema', schema]);
 }
 
+function tableFlags(tables: readonly string[]): string[] {
+  return tables.flatMap((table) => ['--table', table]);
+}
+
 export class PgDumpDatabaseExporter implements DatabaseExporter {
   private readonly connection: PgConnection;
 
@@ -269,23 +280,22 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
       await this.tool('pg_dump', [
         '--schema-only',
         '--quote-all-identifier',
+        '--strict-names',
         ...schemaFlags(APP_SCHEMAS),
       ]),
       INTERNAL_SCHEMAS,
     );
-    const auth =
-      this.options.authData === 'include'
-        ? [...schemaFlags([AUTH_SCHEMA]), '--exclude-table', AUTH_HISTORY_TABLE]
-        : [];
-    const data = filterData(
-      await this.tool('pg_dump', [
-        '--data-only',
-        '--quote-all-identifier',
-        '--enable-row-security',
-        ...schemaFlags(APP_SCHEMAS),
-        ...auth,
-      ]),
-    );
+    const dataArgs = [
+      '--data-only',
+      '--quote-all-identifier',
+      '--enable-row-security',
+      '--strict-names',
+    ];
+    let dataSql = await this.tool('pg_dump', [...dataArgs, ...schemaFlags(APP_SCHEMAS)]);
+    if (this.options.authData === 'include') {
+      dataSql += `\n${await this.tool('pg_dump', [...dataArgs, ...tableFlags(AUTH_TABLES)])}`;
+    }
+    const data = filterData(dataSql);
     const encode = (sql: string) => new TextEncoder().encode(sql);
     const artifacts: DatabaseDumpArtifacts = {
       roles: encode(roles),
@@ -298,6 +308,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
       await this.tool('pg_dump', [
         '--schema-only',
         '--quote-all-identifier',
+        '--strict-names',
         ...schemaFlags([HISTORY_SCHEMA]),
       ]),
       [],
@@ -306,6 +317,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
       await this.tool('pg_dump', [
         '--data-only',
         '--quote-all-identifier',
+        '--strict-names',
         ...schemaFlags([HISTORY_SCHEMA]),
       ]),
     );

@@ -20,6 +20,7 @@ import {
   TestEnvelopeEncryptor,
 } from '@gt-sales/jobs/archive';
 import {
+  BackupSourceUnreadableError,
   createBackupRunId,
   FakeStorageSourceReader,
   PgDumpDatabaseExporter,
@@ -186,6 +187,34 @@ describe('backup and restore rehearsal on a disposable Postgres', () => {
     };
   }
 
+  function storageSource(): FakeStorageSourceReader {
+    return new FakeStorageSourceReader(
+      new Map([[`${BUCKET}/workspaces/${WORKSPACE_A}/${OBJECT_KEY}`, FIXTURE]]),
+    );
+  }
+
+  /** The backup as the workflow runs it, minus auth and history (absent locally). */
+  function backup(id: string): Promise<BackupRunSummary> {
+    return runBackup({
+      deployment: 'rehearsal',
+      runId: id,
+      encryptor: new TestEnvelopeEncryptor(keys.publicKeyBase64),
+      archiveWriter: archive.asWriter(),
+      database: new PgDumpDatabaseExporter(
+        sourceReaderUrl,
+        nodeRunCommand,
+        { authData: 'skip', history: 'skip' },
+        toolEnv,
+      ),
+      referencedObjects: new PsqlReferencedObjectManifestSource(sourceReaderUrl, nodeRunCommand),
+      storageSource: storageSource(),
+      guard: new PsqlSourceCompletenessGuard(sourceReaderUrl, nodeRunCommand),
+      sourceIds: { database: SOURCE_DATABASE },
+      toolVersions: { pgDump: 'rehearsal' },
+      exclusions: ['auth_data_skipped_by_operator', 'supabase_migrations_skipped_by_operator'],
+    });
+  }
+
   beforeAll(async () => {
     if (reason) return;
     // The psql sources (completeness guard, referenced objects) read PGSSLMODE
@@ -245,6 +274,54 @@ describe('backup and restore rehearsal on a disposable Postgres', () => {
     }
   }, 60_000);
 
+  test('the guard stops the backup before anything is exported when backup_reader would miss rows', async ({
+    skip,
+  }) => {
+    if (reason) skip(`rehearsal skipped: ${reason}`);
+    if (!source) throw new Error('the source database was not set up');
+
+    // (a) a public table with row security and no reader policy, (b) a
+    // restrictive SELECT policy for everyone on an app table, which Postgres
+    // ANDs onto the reader's own permissive policy.
+    await source.unsafe(`
+      create table public.rehearsal_rls_no_policy (id integer primary key);
+      alter table public.rehearsal_rls_no_policy enable row level security;
+      create policy rehearsal_restrictive_select on app.lead_tasks
+        as restrictive for select to public using (false);
+    `);
+    try {
+      const failure = await backup(createBackupRunId(new Date())).catch(
+        (caught: unknown) => caught,
+      );
+      expect(failure).toBeInstanceOf(BackupSourceUnreadableError);
+      if (!(failure instanceof BackupSourceUnreadableError)) return;
+      expect(failure.tables).toEqual(['app.lead_tasks', 'public.rehearsal_rls_no_policy']);
+      expect(await archive.asReader().listObjects('')).toEqual([]);
+    } finally {
+      await source.unsafe(`
+        drop policy if exists rehearsal_restrictive_select on app.lead_tasks;
+        drop table if exists public.rehearsal_rls_no_policy;
+      `);
+    }
+
+    // (c) a schema the reader has no USAGE on: the guard names its table (and
+    // its sequence) instead of failing its own query with psql_failed.
+    await source.unsafe('revoke usage on schema drizzle from backup_reader');
+    try {
+      const guard = new PsqlSourceCompletenessGuard(sourceReaderUrl, nodeRunCommand);
+      expect(await guard.unreadableTables()).toEqual([
+        'drizzle.__drizzle_migrations',
+        'drizzle.__drizzle_migrations_id_seq',
+      ]);
+    } finally {
+      await source.unsafe('grant usage on schema drizzle to backup_reader');
+    }
+    expect(
+      await new PsqlSourceCompletenessGuard(sourceReaderUrl, nodeRunCommand).unreadableTables(),
+    ).toEqual([]);
+    expect(await archive.asReader().listObjects('')).toEqual([]);
+  }, 120_000);
+
   test('a backup taken with the real dump tools restores every row, document, policy and grant', async ({
     skip,
   }) => {
@@ -253,27 +330,7 @@ describe('backup and restore rehearsal on a disposable Postgres', () => {
     runId = createBackupRunId(new Date());
     const leadsAtDump = await count(source, 'select count(*) from app.leads');
 
-    const storage = new FakeStorageSourceReader(
-      new Map([[`${BUCKET}/workspaces/${WORKSPACE_A}/${OBJECT_KEY}`, FIXTURE]]),
-    );
-    const summary: BackupRunSummary = await runBackup({
-      deployment: 'rehearsal',
-      runId,
-      encryptor: new TestEnvelopeEncryptor(keys.publicKeyBase64),
-      archiveWriter: archive.asWriter(),
-      database: new PgDumpDatabaseExporter(
-        sourceReaderUrl,
-        nodeRunCommand,
-        { authData: 'skip', history: 'skip' },
-        toolEnv,
-      ),
-      referencedObjects: new PsqlReferencedObjectManifestSource(sourceReaderUrl, nodeRunCommand),
-      storageSource: storage,
-      guard: new PsqlSourceCompletenessGuard(sourceReaderUrl, nodeRunCommand),
-      sourceIds: { database: SOURCE_DATABASE },
-      toolVersions: { pgDump: 'rehearsal' },
-      exclusions: ['auth_data_skipped_by_operator', 'supabase_migrations_skipped_by_operator'],
-    });
+    const summary = await backup(runId);
     expect(summary).toMatchObject({ runId, referencedObjectCount: 1, artifactCount: 4 });
 
     // A write after the dump is not in this restore point (Review Focus 2).
