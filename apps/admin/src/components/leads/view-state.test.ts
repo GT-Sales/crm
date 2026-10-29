@@ -1,5 +1,7 @@
 import {
+  buildPropertyCatalog,
   DEFAULT_LEAD_VIEW_STATE,
+  propertyRowSchema,
   savedViewStateSchema,
   type SavedViewState,
 } from '@gt-sales/contracts';
@@ -8,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { inboxSearch, parseInboxQuery, type InboxQuery } from './inbox-query';
 import {
   allLeadsQuery,
+  appliedViewState,
   inboxQueryToViewState,
   isViewDirty,
   viewStateToInboxQuery,
@@ -195,5 +198,87 @@ describe('isViewDirty', () => {
         where: [{ key: 'permitType', op: 'in', value: ['student'] }],
       }),
     ).toBe(true);
+  });
+});
+
+describe('appliedViewState', () => {
+  const STAMP = '2026-10-29T12:00:00.000Z';
+  /** The site has hidden the built-in `city`. */
+  const cityHidden = buildPropertyCatalog([
+    propertyRowSchema.parse({
+      object: 'lead',
+      key: 'city',
+      origin: 'builtin',
+      label: 'City',
+      kind: 'text',
+      options: [],
+      staffOnly: false,
+      sensitive: false,
+      hidden: true,
+      leadTypes: [],
+      position: 0,
+      version: 2,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    }),
+  ]);
+  const internetView: SavedViewState = {
+    ...DEFAULT_LEAD_VIEW_STATE,
+    leadType: 'internet',
+    stage: 'contacted',
+    where: [
+      { key: 'city', op: 'eq', value: 'Calgary' },
+      { key: 'planId', op: 'notEmpty' },
+    ],
+    sort: 'prop.city:desc',
+    columns: ['city', 'planId'],
+    hiddenColumns: ['source'],
+  };
+
+  it('leaves a state the site can still apply as it is', () => {
+    expect(appliedViewState(FULL_STATE)).toEqual(FULL_STATE);
+    expect(appliedViewState(internetView)).toEqual(internetView);
+  });
+
+  it('drops the filter, column and sort on a property the site hides, and keeps the rest', () => {
+    expect(appliedViewState(internetView, cityHidden)).toEqual({
+      ...DEFAULT_LEAD_VIEW_STATE,
+      leadType: 'internet',
+      stage: 'contacted',
+      where: [{ key: 'planId', op: 'notEmpty' }],
+      columns: ['planId'],
+      hiddenColumns: ['source'],
+    });
+  });
+
+  it('drops a sensitive property, a stage the type lacks, and reads a board without a type as a table', () => {
+    expect(
+      appliedViewState({
+        ...internetView,
+        stage: 'not_a_stage',
+        where: [{ key: 'dateOfBirth', op: 'notEmpty' }],
+        columns: ['dateOfBirth'],
+        sort: 'prop.dateOfBirth:asc',
+      }),
+    ).toEqual({
+      ...DEFAULT_LEAD_VIEW_STATE,
+      leadType: 'internet',
+      hiddenColumns: ['source'],
+    });
+    expect(appliedViewState({ ...DEFAULT_LEAD_VIEW_STATE, layout: 'board' })).toEqual(
+      DEFAULT_LEAD_VIEW_STATE,
+    );
+  });
+
+  it('is what isViewDirty compares against: a stale view opens clean', () => {
+    const applied = appliedViewState(internetView, cityHidden);
+    const opened = inboxQueryToViewState(
+      parseInboxQuery(
+        new URLSearchParams(inboxSearch(viewStateToInboxQuery(applied, VIEW_ID)).slice(1)),
+        cityHidden,
+      ),
+    );
+    expect(isViewDirty(applied, opened)).toBe(false);
+    expect(isViewDirty(internetView, opened)).toBe(true);
   });
 });
