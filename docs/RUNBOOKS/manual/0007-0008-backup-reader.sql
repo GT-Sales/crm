@@ -48,6 +48,10 @@ GRANT SELECT ON ALL SEQUENCES IN SCHEMA "app", "public", "drizzle" TO backup_rea
 -- a grant of their own (their read policy still comes from schema.ts).
 ALTER DEFAULT PRIVILEGES IN SCHEMA "app" GRANT SELECT ON TABLES TO backup_reader;
 ALTER DEFAULT PRIVILEGES IN SCHEMA "app" GRANT SELECT ON SEQUENCES TO backup_reader;
+-- The same in `public`: Get Canada Sim's legacy tables live there and are all
+-- owned by the migration role, so a table it adds later is readable too.
+ALTER DEFAULT PRIVILEGES IN SCHEMA "public" GRANT SELECT ON TABLES TO backup_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO backup_reader;
 -- The website's own tables in `public` (Get Canada Sim, the CanadaWide legacy
 -- tables): a read policy on each RLS table the migration role owns. A table
 -- added there later needs one by hand before the backup can see its rows.
@@ -93,10 +97,14 @@ BEGIN
 			RAISE WARNING 'supabase_migrations schema not granted to backup_reader; see docs/RUNBOOKS/backup.md';
 		END;
 	END IF;
+	-- Only the two auth tables a restore needs: the accounts and their sign-in
+	-- identities. The token, session and MFA tables must never be readable by
+	-- the backup role; a restore brings back accounts, never sessions, and
+	-- every restored user signs in again.
 	BEGIN
 		IF to_regnamespace('auth') IS NOT NULL THEN
 			GRANT USAGE ON SCHEMA auth TO backup_reader;
-			GRANT SELECT ON ALL TABLES IN SCHEMA auth TO backup_reader;
+			GRANT SELECT ON auth.users, auth.identities TO backup_reader;
 		END IF;
 	EXCEPTION WHEN insufficient_privilege THEN
 		RAISE WARNING 'auth schema not granted to backup_reader; see docs/RUNBOOKS/backup.md';
@@ -134,7 +142,7 @@ CREATE POLICY "roles_backup_reader_read" ON "app"."roles" AS PERMISSIVE FOR SELE
 CREATE POLICY "service_credentials_backup_reader_read" ON "app"."service_credentials" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
 
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT '0cd9da24e726cfa5e2d8aab26d84c5c7016bfd8a97696b23b7f0be38c3a20053', 1793273916007
+SELECT '4518ddd1a136f26ccdd848a39799de7a888b70121a4d4ce390b5a88b7d9d3587', 1793273916007
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793273916007);
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
 SELECT '6d87bd3afd04885626c3d7d1b656de93a4267bf59ffe98a00de01ee947effcfd', 1793273993722
@@ -172,21 +180,53 @@ FROM pg_roles WHERE rolname = 'backup_reader';
 SELECT count(*) FROM pg_policies
 WHERE schemaname = 'app' AND policyname LIKE '%\_backup\_reader\_read' AND 'backup_reader' = ANY (roles);
 
--- 3. Expect no rows: a public table with row security and no read policy
--- that applies to backup_reader. Such a table would dump empty, so the backup
--- stops on it (backup_source_unreadable) until a policy is added by hand.
-select tablename from pg_tables t where schemaname = 'public' and rowsecurity and not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = t.tablename and p.cmd in ('SELECT','ALL') and ('backup_reader' = any(p.roles) or 'public' = any(p.roles)));
+-- 3. Expect no rows: a public table backup_reader cannot read in full, by
+-- the backup's own guard (jobs/src/backup/sources.ts). A table needs SELECT,
+-- and with row security on it needs a PERMISSIVE SELECT/ALL policy naming
+-- backup_reader with USING (true) and no RESTRICTIVE SELECT/ALL policy that
+-- applies to backup_reader or to public. The backup stops on such a table
+-- (backup_source_unreadable) until it is fixed by hand
+-- (docs/RUNBOOKS/backup-alert-response.md).
+SELECT t.tablename FROM pg_tables t
+WHERE t.schemaname = 'public'
+  AND (
+    NOT has_table_privilege('backup_reader', format('public.%I', t.tablename), 'SELECT')
+    OR (
+      t.rowsecurity
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM pg_policies p
+          WHERE p.schemaname = 'public' AND p.tablename = t.tablename
+            AND p.permissive = 'PERMISSIVE' AND p.cmd IN ('SELECT', 'ALL')
+            AND 'backup_reader' = ANY (p.roles) AND p.qual = 'true'
+        )
+        OR EXISTS (
+          SELECT 1 FROM pg_policies p
+          WHERE p.schemaname = 'public' AND p.tablename = t.tablename
+            AND p.permissive = 'RESTRICTIVE' AND p.cmd IN ('SELECT', 'ALL')
+            AND ('backup_reader' = ANY (p.roles) OR 'public' = ANY (p.roles))
+        )
+      )
+    )
+  );
 
--- 4. Expect no rows: an auth table backup_reader cannot read. Rows mean the
--- auth grant warned for them: set BACKUP_AUTH_DATA=skip for the backup job
--- until they are granted (docs/RUNBOOKS/backup.md).
-SELECT c.relname FROM pg_class c
-WHERE c.relnamespace = 'auth'::regnamespace AND c.relkind IN ('r', 'p')
-  AND NOT has_table_privilege('backup_reader', c.oid, 'SELECT');
+-- 4. Expect: true, true, true, 0. backup_reader reads exactly auth.users and
+-- auth.identities: a false means the auth grant warned (set
+-- BACKUP_AUTH_DATA=skip for the backup job until they are granted,
+-- docs/RUNBOOKS/backup.md), and the last column counts the other auth tables
+-- (sessions, tokens, MFA) it can read, which must be none.
+SELECT has_schema_privilege('backup_reader', 'auth', 'USAGE') AS auth_usage,
+       has_table_privilege('backup_reader', 'auth.users', 'SELECT') AS users,
+       has_table_privilege('backup_reader', 'auth.identities', 'SELECT') AS identities,
+       (SELECT count(*) FROM pg_class c
+        WHERE c.relnamespace = 'auth'::regnamespace AND c.relkind IN ('r', 'p')
+          AND c.relname NOT IN ('users', 'identities')
+          AND has_table_privilege('backup_reader', c.oid, 'SELECT')) AS other_auth_tables;
 
--- 5. Expect no rows: an auth table with row security on. backup_reader would
--- read it as empty under pg_dump --enable-row-security, and postgres cannot
--- add a policy to a table it does not own; set BACKUP_AUTH_DATA=skip for the
--- backup job until a policy exists.
+-- 5. Expect no rows: auth.users or auth.identities with row security on.
+-- backup_reader would read it as empty under pg_dump --enable-row-security,
+-- and postgres cannot add a policy to a table it does not own; set
+-- BACKUP_AUTH_DATA=skip for the backup job until a policy exists.
 SELECT c.relname FROM pg_class c
-WHERE c.relnamespace = 'auth'::regnamespace AND c.relkind IN ('r', 'p') AND c.relrowsecurity;
+WHERE c.relnamespace = 'auth'::regnamespace AND c.relname IN ('users', 'identities')
+  AND c.relkind IN ('r', 'p') AND c.relrowsecurity;

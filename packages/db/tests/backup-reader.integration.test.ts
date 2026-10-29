@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -21,6 +23,35 @@ function getDisposableTestDatabaseUrl(): string | undefined {
   }
 
   return migrationUrl;
+}
+
+class RolledBack extends Error {}
+
+/**
+ * Runs `body` in a transaction that is always rolled back, so DDL a test makes
+ * (a stand-in `auth` schema, a re-run migration) is never seen by the suites
+ * sharing this database.
+ */
+async function inRolledBackTransaction(
+  sql: ReturnType<typeof postgres>,
+  body: (tx: postgres.TransactionSql) => Promise<void>,
+): Promise<void> {
+  const outcome = await sql
+    .begin(async (tx) => {
+      await body(tx);
+      throw new RolledBack();
+    })
+    .catch((caught: unknown) => caught);
+  if (!(outcome instanceof RolledBack)) throw outcome;
+}
+
+/** 0007's statements as the migrator runs them, one per breakpoint. */
+function migration0007Statements(): string[] {
+  const text = readFileSync(new URL('../drizzle/0007_backup_reader.sql', import.meta.url), 'utf8');
+  return text
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement !== '');
 }
 
 const migrationUrl = getDisposableTestDatabaseUrl();
@@ -158,6 +189,72 @@ databaseTest('backup_reader role, grants and read policies', () => {
       select count(*)::int as count from app.leads where id in (${LEAD_A}, ${LEAD_B})
     `;
     expect(row?.count).toBe(2);
+  });
+
+  it('a table or sequence created later in public is readable without a grant of its own', async () => {
+    await inRolledBackTransaction(admin, async (tx) => {
+      await tx.unsafe(
+        'create table public.ci_backup_reader_later (id integer generated always as identity)',
+      );
+      const [row] = await tx<{ table: boolean; sequence: boolean }[]>`
+        select
+          has_table_privilege('backup_reader', 'public.ci_backup_reader_later', 'SELECT')
+            as "table",
+          has_sequence_privilege('backup_reader', 'public.ci_backup_reader_later_id_seq', 'SELECT')
+            as "sequence"
+      `;
+      expect(row).toEqual({ table: true, sequence: true });
+    });
+  });
+
+  it('re-running 0007 is idempotent and grants exactly auth.users and auth.identities', async () => {
+    await inRolledBackTransaction(admin, async (tx) => {
+      // A stand-in for Supabase's auth schema (absent locally and in CI).
+      await tx.unsafe(`
+        create schema auth;
+        create table auth.users (id uuid primary key);
+        create table auth.identities (id uuid primary key);
+        create table auth.sessions (id uuid primary key);
+        create table auth.refresh_tokens (id bigint primary key);
+        create table auth.mfa_factors (id uuid primary key);
+        create table auth.one_time_tokens (id uuid primary key);
+      `);
+      for (const statement of migration0007Statements()) await tx.unsafe(statement);
+
+      const readable = await tx<{ relname: string; canSelect: boolean }[]>`
+        select c.relname, has_table_privilege('backup_reader', c.oid, 'SELECT') as "canSelect"
+        from pg_class c
+        where c.relnamespace = 'auth'::regnamespace and c.relkind = 'r'
+        order by c.relname
+      `;
+      expect(readable).toEqual([
+        { relname: 'identities', canSelect: true },
+        { relname: 'mfa_factors', canSelect: false },
+        { relname: 'one_time_tokens', canSelect: false },
+        { relname: 'refresh_tokens', canSelect: false },
+        { relname: 'sessions', canSelect: false },
+        { relname: 'users', canSelect: true },
+      ]);
+      const [usage] = await tx<{ usage: boolean }[]>`
+        select has_schema_privilege('backup_reader', 'auth', 'USAGE') as usage
+      `;
+      expect(usage).toEqual({ usage: true });
+
+      // The second run changed nothing else: one reader policy per RLS table
+      // in app, and the role's attributes as before.
+      const [policies] = await tx<{ count: number }[]>`
+        select count(*)::int as count from pg_policies
+        where schemaname = 'app' and policyname like '%\_backup\_reader\_read'
+      `;
+      const [rlsTables] = await tx<{ count: number }[]>`
+        select count(*)::int as count from pg_tables where schemaname = 'app' and rowsecurity
+      `;
+      expect(policies?.count).toBe(rlsTables?.count);
+      const [role] = await tx<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
+        select rolsuper, rolbypassrls from pg_roles where rolname = 'backup_reader'
+      `;
+      expect(role).toEqual({ rolsuper: false, rolbypassrls: false });
+    });
   });
 
   it('an insert as backup_reader is refused with permission denied', async () => {

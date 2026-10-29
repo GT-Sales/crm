@@ -37,6 +37,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA "app" GRANT SELECT ON TABLES TO backup_reader
 --> statement-breakpoint
 ALTER DEFAULT PRIVILEGES IN SCHEMA "app" GRANT SELECT ON SEQUENCES TO backup_reader;
 --> statement-breakpoint
+-- The same in `public`: Get Canada Sim's legacy tables live there and are all
+-- owned by the migration role, so a table it adds later is readable too.
+ALTER DEFAULT PRIVILEGES IN SCHEMA "public" GRANT SELECT ON TABLES TO backup_reader;
+--> statement-breakpoint
+ALTER DEFAULT PRIVILEGES IN SCHEMA "public" GRANT SELECT ON SEQUENCES TO backup_reader;
+--> statement-breakpoint
 -- The website's own tables in `public` (Get Canada Sim, the CanadaWide legacy
 -- tables): a read policy on each RLS table the migration role owns. A table
 -- added there later needs one by hand before the backup can see its rows.
@@ -83,10 +89,14 @@ BEGIN
 			RAISE WARNING 'supabase_migrations schema not granted to backup_reader; see docs/RUNBOOKS/backup.md';
 		END;
 	END IF;
+	-- Only the two auth tables a restore needs: the accounts and their sign-in
+	-- identities. The token, session and MFA tables must never be readable by
+	-- the backup role; a restore brings back accounts, never sessions, and
+	-- every restored user signs in again.
 	BEGIN
 		IF to_regnamespace('auth') IS NOT NULL THEN
 			GRANT USAGE ON SCHEMA auth TO backup_reader;
-			GRANT SELECT ON ALL TABLES IN SCHEMA auth TO backup_reader;
+			GRANT SELECT ON auth.users, auth.identities TO backup_reader;
 		END IF;
 	EXCEPTION WHEN insufficient_privilege THEN
 		RAISE WARNING 'auth schema not granted to backup_reader; see docs/RUNBOOKS/backup.md';
