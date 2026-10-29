@@ -3,7 +3,6 @@ import { contextWorkspaceId, type TenantTransaction } from '@gt-sales/db';
 import {
   RELATED_LEADS_LIMIT,
   attributionSchema,
-  filterableLeadProperties,
   leadActivitySchema,
   leadContactSchema,
   leadCountdownField,
@@ -11,7 +10,6 @@ import {
   leadFieldCatalog,
   leadFormSchema,
   leadIdentitySchema,
-  leadProperty,
   leadStageSchema,
   leadStatusSchema,
   leadTaskSchema,
@@ -29,6 +27,7 @@ import {
   type LeadPropertyFilter,
   type LeadPropertyValue,
   type PropertyCatalog,
+  type SiteProperty,
   type LeadStatus,
   type LeadTask,
   type LeadTaskStatus,
@@ -78,6 +77,7 @@ export interface LeadRow {
   isNew: boolean;
   countdownDate: unknown;
   formPayload?: unknown;
+  customValues?: unknown;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -149,18 +149,23 @@ const OPEN_TASK_SUMMARY = sql.raw(`
   ) t on true
 `);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The requested columns' values, each read from the form or the custom values its property names; never a sensitive one. */
 function extractRequestedProperties(
   formPayload: unknown,
+  customValues: unknown,
   columns: readonly string[],
+  catalog: PropertyCatalog,
 ): Record<string, LeadPropertyValue> {
   const properties: Record<string, LeadPropertyValue> = {};
-  if (typeof formPayload !== 'object' || formPayload === null || Array.isArray(formPayload)) {
-    return properties;
-  }
   for (const key of columns) {
-    const property = leadProperty(key);
+    const property = catalog.get(key);
     if (!property || property.sensitive) continue;
-    const raw: unknown = Reflect.get(formPayload, key);
+    const source = property.storage === 'custom' ? customValues : formPayload;
+    if (!isRecord(source) || !Object.hasOwn(source, key)) continue;
+    const raw = source[key];
     if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
       properties[key] = raw;
     }
@@ -168,9 +173,34 @@ function extractRequestedProperties(
   return properties;
 }
 
-export function toLeadListItem(row: LeadRow, requestedColumns?: readonly string[]): LeadListItem {
+/**
+ * A lead's stored custom values; anything but a plain value is left out.
+ * With the site's catalogue, only its custom properties' values (a write that
+ * loads no catalogue, such as a trash, returns every stored value: the
+ * property store refuses to delete a property a lead still holds, so the two
+ * agree).
+ */
+function toCustomValues(
+  stored: unknown,
+  catalog: PropertyCatalog | undefined,
+): Record<string, LeadPropertyValue> {
+  const values: Record<string, LeadPropertyValue> = {};
+  if (!isRecord(stored)) return values;
+  for (const [key, value] of Object.entries(stored)) {
+    if (catalog && catalog.get(key)?.storage !== 'custom') continue;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      values[key] = value;
+    }
+  }
+  return values;
+}
+
+export function toLeadListItem(
+  row: LeadRow,
+  requested?: { columns: readonly string[]; catalog: PropertyCatalog },
+): LeadListItem {
   const attribution = attributionSchema.parse(row.attribution ?? {});
-  const hasRequestedColumns = requestedColumns !== undefined && requestedColumns.length > 0;
+  const hasRequestedColumns = requested !== undefined && requested.columns.length > 0;
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -195,7 +225,14 @@ export function toLeadListItem(row: LeadRow, requestedColumns?: readonly string[
     // Whatever the form holds; only a real calendar day counts down.
     countdownDate: calendarDay(row.countdownDate),
     ...(hasRequestedColumns
-      ? { properties: extractRequestedProperties(row.formPayload, requestedColumns) }
+      ? {
+          properties: extractRequestedProperties(
+            row.formPayload,
+            row.customValues,
+            requested.columns,
+            requested.catalog,
+          ),
+        }
       : {}),
     deletedAt: row.deletedAt,
     createdAt: row.createdAt,
@@ -247,10 +284,120 @@ export interface LeadFilters {
   catalog: PropertyCatalog;
 }
 
-function propertyFilterCondition(filter: LeadPropertyFilter, leadType?: string): SQL {
-  const property = filterableLeadProperties(leadType).find((entry) => entry.key === filter.key);
-  if (!property) return sql`false`;
+/**
+ * The property a filter or sort names, as the site's catalogue resolves it
+ * for the list's type (visible, not sensitive), with the kind it is filtered
+ * by there (`text` when a built-in's kind differs across types).
+ */
+function resolvePropertyFor(
+  catalog: PropertyCatalog,
+  key: string,
+  leadType: string | undefined,
+): SiteProperty | undefined {
+  const filterable = catalog.filterable(leadType).find((entry) => entry.key === key);
+  const property = catalog.get(key);
+  if (!filterable || !property) return undefined;
+  return { ...property, kind: filterable.kind };
+}
 
+/**
+ * A custom value as its kind reads it, or null when there is none or the
+ * stored value does not fit the kind (a number where text belongs, a string
+ * where a number does): so a malformed value matches no condition and sorts
+ * last. `v` is the value as text, `j` as JSON.
+ */
+function customTyped(kind: SiteProperty['kind'], v: SQL, j: SQL): SQL {
+  switch (kind) {
+    case 'number':
+    case 'money':
+    case 'count':
+      return sql`(case when jsonb_typeof(${j}) = 'number' then (${v})::numeric end)`;
+    case 'yesNo':
+      return sql`(case when jsonb_typeof(${j}) = 'boolean' then (${v})::boolean end)`;
+    case 'date':
+      return sql`(case when jsonb_typeof(${j}) = 'string' and ${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' then ${v} end)`;
+    case 'text':
+    case 'longText':
+    case 'choice':
+    case 'email':
+    case 'phone':
+    case 'url':
+    case 'dateTime':
+      return sql`(case when jsonb_typeof(${j}) = 'string' then ${v} end)`;
+  }
+}
+
+/** A custom property's condition: PR #1's per-kind rules over the kind-checked value. */
+function customFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
+  const v = sql`(l.custom_values ->> ${filter.key})`;
+  const j = sql`(l.custom_values -> ${filter.key})`;
+  const typed = customTyped(property.kind, v, j);
+  const isText =
+    property.kind !== 'number' &&
+    property.kind !== 'money' &&
+    property.kind !== 'count' &&
+    property.kind !== 'yesNo';
+
+  if (filter.op === 'empty') {
+    // No value at all, or a blank text; a malformed value is not empty either.
+    return sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
+  }
+  if (filter.op === 'notEmpty') {
+    return isText ? sql`coalesce(btrim(${typed}), '') <> ''` : sql`${typed} is not null`;
+  }
+
+  switch (property.kind) {
+    case 'text':
+    case 'longText':
+    case 'email':
+    case 'phone':
+    case 'url': {
+      if (typeof filter.value !== 'string') return sql`false`;
+      if (filter.op === 'eq') return sql`lower(btrim(${typed})) = lower(btrim(${filter.value}))`;
+      if (filter.op === 'contains') return sql`${typed} ilike ${likePattern(filter.value)}`;
+      return sql`false`;
+    }
+    case 'choice': {
+      if (filter.op === 'eq' && typeof filter.value === 'string') {
+        return sql`${typed} = ${filter.value}`;
+      }
+      if (filter.op === 'in' && Array.isArray(filter.value) && filter.value.length > 0) {
+        return sql`${typed} in (${sql.join(
+          filter.value.map((item) => sql`${item}`),
+          sql`, `,
+        )})`;
+      }
+      return sql`false`;
+    }
+    case 'date': {
+      if (typeof filter.value !== 'string') return sql`false`;
+      if (filter.op === 'eq') return sql`${typed} = ${filter.value}`;
+      if (filter.op === 'lte') return sql`${typed} <= ${filter.value}`;
+      if (filter.op === 'gte') return sql`${typed} >= ${filter.value}`;
+      return sql`false`;
+    }
+    case 'number':
+    case 'money':
+    case 'count': {
+      if (typeof filter.value !== 'number') return sql`false`;
+      if (filter.op === 'eq') return sql`${typed} = ${filter.value}`;
+      if (filter.op === 'lte') return sql`${typed} <= ${filter.value}`;
+      if (filter.op === 'gte') return sql`${typed} >= ${filter.value}`;
+      return sql`false`;
+    }
+    case 'yesNo': {
+      if (typeof filter.value !== 'boolean') return sql`false`;
+      if (filter.op === 'eq') return sql`${typed} = ${filter.value}`;
+      return sql`false`;
+    }
+    case 'dateTime':
+      // Not a custom kind: a custom property never has it.
+      return sql`false`;
+  }
+}
+
+/** A built-in property's condition over the lead's form, as PR #1 defined it. */
+function formFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
   const v = sql`(l.payload -> 'payload' ->> ${filter.key})`;
   const jsonVal = sql`(l.payload -> 'payload' -> ${filter.key})`;
 
@@ -338,6 +485,12 @@ function propertyFilterCondition(filter: LeadPropertyFilter, leadType?: string):
   }
 }
 
+function propertyFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
+  return property.storage === 'custom'
+    ? customFilterCondition(filter, property)
+    : formFilterCondition(filter, property);
+}
+
 /** The WHERE conditions for lead `l`. Restricted leads are never listed, whatever the view. */
 function leadConditions(filters: LeadFilters): SQL {
   const conditions: SQL[] = [
@@ -380,7 +533,8 @@ function leadConditions(filters: LeadFilters): SQL {
   }
   if (filters.where && filters.where.length > 0) {
     for (const filter of filters.where) {
-      conditions.push(propertyFilterCondition(filter, filters.leadType));
+      const property = resolvePropertyFor(filters.catalog, filter.key, filters.leadType);
+      conditions.push(property ? propertyFilterCondition(filter, property) : sql`false`);
     }
   }
   return sql.join(conditions, sql` and `);
@@ -396,6 +550,38 @@ const NEXT_DUE = sql.raw(`(
   select min(task.due_at) from app.lead_tasks task
   where task.workspace_id = l.workspace_id and task.lead_id = l.id and task.status = 'open'
 )`);
+
+/** A property's sort key: its value as its kind orders it, null (last) when absent or malformed. */
+function propertySortExpression(key: string, property: SiteProperty): SQL {
+  if (property.storage === 'custom') {
+    const typed = customTyped(
+      property.kind,
+      sql`(l.custom_values ->> ${key})`,
+      sql`(l.custom_values -> ${key})`,
+    );
+    return property.kind === 'number' ||
+      property.kind === 'money' ||
+      property.kind === 'count' ||
+      property.kind === 'yesNo' ||
+      property.kind === 'date'
+      ? typed
+      : sql`nullif(btrim(${typed}), '')`;
+  }
+  const v = sql`(l.payload -> 'payload' ->> ${key})`;
+  const jsonVal = sql`(l.payload -> 'payload' -> ${key})`;
+  switch (property.kind) {
+    case 'count':
+    case 'number':
+    case 'money':
+      return sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
+    case 'yesNo':
+      return sql`(case when jsonb_typeof(${jsonVal}) = 'boolean' then (${v})::boolean end)`;
+    case 'date':
+      return sql`(case when ${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' then ${v} end)`;
+    default:
+      return sql`nullif(btrim(${v}), '')`;
+  }
+}
 
 function sortOrderOf(filters: LeadFilters): { pageOrder: SQL; rowOrder: SQL } {
   if (filters.sort) {
@@ -413,21 +599,8 @@ function sortOrderOf(filters: LeadFilters): { pageOrder: SQL; rowOrder: SQL } {
       } else if (parsed.field === 'externalRef') {
         expr = sql`nullif(btrim(l.external_ref), '')`;
       } else if (parsed.propertyKey !== undefined) {
-        const key = parsed.propertyKey;
-        const property = filterableLeadProperties(filters.leadType).find(
-          (entry) => entry.key === key,
-        );
-        const v = sql`(l.payload -> 'payload' ->> ${key})`;
-        const jsonVal = sql`(l.payload -> 'payload' -> ${key})`;
-        if (property?.kind === 'count') {
-          expr = sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
-        } else if (property?.kind === 'yesNo') {
-          expr = sql`(case when jsonb_typeof(${jsonVal}) = 'boolean' then (${v})::boolean end)`;
-        } else if (property?.kind === 'date') {
-          expr = sql`(case when ${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' then ${v} end)`;
-        } else {
-          expr = sql`nullif(btrim(${v}), '')`;
-        }
+        const property = resolvePropertyFor(filters.catalog, parsed.propertyKey, filters.leadType);
+        expr = property ? propertySortExpression(parsed.propertyKey, property) : sql`null`;
       } else {
         expr = sql`l.updated_at`;
       }
@@ -464,12 +637,17 @@ export async function selectLeadPage(
 ): Promise<LeadPage> {
   const offset = (page - 1) * pageSize;
   const { pageOrder, rowOrder } = sortOrderOf(filters);
-  const requestedColumns = (filters.columns ?? []).filter((key) => {
-    const property = leadProperty(key);
-    return property !== undefined && !property.sensitive;
+  const requestedProperties = (filters.columns ?? []).flatMap((key) => {
+    const property = filters.catalog.get(key);
+    return property !== undefined && !property.sensitive ? [property] : [];
   });
-  const formPayloadColumn =
-    requestedColumns.length > 0 ? sql`, l.payload -> 'payload' as "formPayload"` : sql``;
+  const requestedColumns = requestedProperties.map((property) => property.key);
+  const formPayloadColumn = requestedProperties.some((property) => property.storage === 'form')
+    ? sql`, l.payload -> 'payload' as "formPayload"`
+    : sql``;
+  const customValuesColumn = requestedProperties.some((property) => property.storage === 'custom')
+    ? sql`, l.custom_values as "customValues"`
+    : sql``;
 
   const rows = await tx.execute<LeadRow & { total: number }>(sql`
     with page as (
@@ -479,7 +657,7 @@ export async function selectLeadPage(
       order by ${pageOrder}
       limit ${pageSize} offset ${offset}
     )
-    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total${formPayloadColumn}
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total${formPayloadColumn}${customValuesColumn}
     from page l
     ${OPEN_TASK_SUMMARY}
     order by ${rowOrder}
@@ -495,7 +673,9 @@ export async function selectLeadPage(
     total = count?.total ?? 0;
   }
   return {
-    leads: rows.map((row) => toLeadListItem(row, requestedColumns)),
+    leads: rows.map((row) =>
+      toLeadListItem(row, { columns: requestedColumns, catalog: filters.catalog }),
+    ),
     total,
   };
 }
@@ -707,14 +887,15 @@ export async function selectLeadStats(
   return statsRowSchema.parse(row);
 }
 
-/** One lead with its form, for the lead page. Trashed leads are readable; restricted ones are not. */
+/** One lead with its form and custom values, for the lead page. Trashed leads are readable; restricted ones are not. */
 export async function selectLeadDetail(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
+  catalog?: PropertyCatalog,
 ): Promise<LeadDetail | undefined> {
-  const [row] = await tx.execute<LeadRow & { payload: unknown }>(sql`
-    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.payload
+  const [row] = await tx.execute<LeadRow & { payload: unknown; customValues: unknown }>(sql`
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.payload, l.custom_values as "customValues"
     from app.leads l
     ${OPEN_TASK_SUMMARY}
     where l.workspace_id = ${workspaceId}
@@ -723,7 +904,11 @@ export async function selectLeadDetail(
   `);
   if (!row) return undefined;
   const form = leadFormSchema.safeParse(row.payload);
-  return { ...toLeadListItem(row), form: form.success ? form.data : null };
+  return {
+    ...toLeadListItem(row),
+    form: form.success ? form.data : null,
+    customValues: toCustomValues(row.customValues, catalog),
+  };
 }
 
 export interface ActivityRow {
@@ -830,10 +1015,12 @@ export async function selectLeadWithWork(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
+  catalog: PropertyCatalog,
 ): Promise<LeadWithWork | undefined> {
   const [row] = await tx.execute<
     LeadRow & {
       payload: unknown;
+      customValues: unknown;
       activities: ActivityRow[];
       tasks: TaskRow[];
       related: unknown[];
@@ -844,6 +1031,7 @@ export async function selectLeadWithWork(
     select
       ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS},
       l.payload,
+      l.custom_values as "customValues",
       (
         select coalesce(json_agg(json_build_object(
           'id', a.id,
@@ -945,7 +1133,11 @@ export async function selectLeadWithWork(
   if (!row) return undefined;
   const form = leadFormSchema.safeParse(row.payload);
   return {
-    lead: { ...toLeadListItem(row), form: form.success ? form.data : null },
+    lead: {
+      ...toLeadListItem(row),
+      form: form.success ? form.data : null,
+      customValues: toCustomValues(row.customValues, catalog),
+    },
     activities: row.activities.map(toLeadActivity),
     tasks: row.tasks.map(toLeadTask),
     // A request this version cannot show (say, a newer lead type) is left

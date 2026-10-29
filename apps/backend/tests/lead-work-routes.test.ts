@@ -72,6 +72,7 @@ const lead: LeadDetail = {
   createdAt: NOW,
   updatedAt: NOW,
   form: { schemaVersion: 1, payload: { planId: 'ab-1gbps', dateOfBirth: '1990-04-12' } },
+  customValues: { custom_ref: 'R-77', custom_paid: true },
 };
 
 const note: LeadActivity = {
@@ -123,7 +124,7 @@ const leadDocument: LeadDocument = {
   createdAt: NOW,
 };
 
-const { form: _form, ...baseListItem } = lead;
+const { form: _form, customValues: _customValues, ...baseListItem } = lead;
 const listItem = { ...baseListItem, properties: { city: 'Calgary' } };
 
 class TokenVerifier implements StaffSessionVerifier {
@@ -651,6 +652,8 @@ describe('staff lead work routes', () => {
     const body = getWorkspaceLeadResponseSchema.parse(await response.json());
     expect(body.lead.contact).toEqual({});
     expect(body.lead.form).toBeNull();
+    expect(body.lead.customValues).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('R-77');
     expect(body.lead.countdownDate).toBeNull();
     expect(body.activities).toEqual([]);
     expect(body.tasks).toEqual([]);
@@ -814,6 +817,40 @@ describe('staff lead work routes', () => {
     const error = await errorCode(refused);
     expect(error).toMatchObject({ code: 'validation_error', details: { field: 'arrivalDate' } });
     expect(JSON.stringify(error)).not.toContain('2026-02-30');
+  });
+
+  it('passes custom values through, names a refused custom key, and answers a viewer without them', async () => {
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { customValues: { custom_ref: 'R-78', custom_paid: null } },
+    });
+    expect(response.status).toBe(200);
+    expect(
+      updateWorkspaceLeadResponseSchema.parse(await response.json()).lead.customValues,
+    ).toEqual(lead.customValues);
+    expect(work.updateLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customValues: { custom_ref: 'R-78', custom_paid: null },
+        catalog: properties.current,
+      }),
+    );
+
+    work.updateLead.mockResolvedValueOnce({ status: 'invalid_field', field: 'custom_ref' });
+    const refused = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { customValues: { custom_ref: 'R-79' } },
+    });
+    expect(refused.status).toBe(400);
+    const error = await errorCode(refused);
+    expect(error).toMatchObject({ code: 'validation_error', details: { field: 'custom_ref' } });
+    expect(JSON.stringify(error)).not.toContain('R-79');
+
+    store.access = { ...store.access, roles: ['viewer'] };
+    const viewer = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { customValues: { custom_ref: 'R-80' } },
+    });
+    expect(viewer.status).toBe(403);
   });
 
   it('refuses an update that changes nothing or names an unknown field', async () => {

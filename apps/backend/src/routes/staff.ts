@@ -238,14 +238,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     };
   }
 
-  // The countdown date comes from the form, which these roles never see.
+  // The countdown date comes from the form, which these roles never see; a
+  // row's property columns carry form and custom values alike.
   function withoutContact(lead: LeadListItem): LeadListItem {
     const { properties: _properties, ...rest } = lead;
     return { ...rest, contact: {}, countdownDate: null };
   }
 
+  // Custom values travel with contact visibility, as the form does.
   function withoutPersonalDetails(lead: LeadDetail): LeadDetail {
-    return { ...lead, contact: {}, form: null, countdownDate: null };
+    const { customValues: _customValues, ...rest } = lead;
+    return { ...withoutContact(rest), form: null };
   }
 
   /** The lead work store, or a logged 500 when this deployment was built without it. */
@@ -619,6 +622,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         assignedActorId: body.data.assignedActorId,
         contact: body.data.contact,
         form: body.data.form,
+        customValues: body.data.customValues,
         catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       switch (outcome.status) {

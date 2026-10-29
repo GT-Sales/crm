@@ -14,6 +14,7 @@
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
 import postgres from 'postgres';
+import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 import { assertDisposableDatabaseUrl, setTestRuntimePassword } from '@gt-sales/db/test-helpers';
@@ -125,7 +126,7 @@ async function seed(): Promise<void> {
       actorId: WEBSITE_ACTOR_ID,
       requestId: '40000000-0000-4000-8000-0000000e2e01',
     };
-    const owner = { ...website, actorId: OWNER_ID };
+    const owner = { ...website, actorId: OWNER_ID, catalog: codePropertyCatalog };
 
     const people = [
       ['Avery Example', 'avery@example.test', '403 555 0101', 'internet', 'new'],
@@ -171,7 +172,7 @@ async function seed(): Promise<void> {
       actorId: WEBSITE_ACTOR_ID,
       requestId: '40000000-0000-4000-8000-0000000e2e02',
     };
-    const simOwner = { ...simWebsite, actorId: OWNER_ID };
+    const simOwner = { ...simWebsite, actorId: OWNER_ID, catalog: codePropertyCatalog };
     const simOrders = [
       ['Priya Sharma', 'priya@example.test', '647 555 0201', 'student', '2026-11-15'],
       ['Arjun Patel', 'arjun@example.test', '647 555 0202', 'student', '2026-11-05'],

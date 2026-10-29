@@ -3527,9 +3527,12 @@
                               "kind": { "type": "string", "const": "edit" },
                               "fields": {
                                 "minItems": 1,
-                                "maxItems": 50,
+                                "maxItems": 200,
                                 "type": "array",
-                                "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
                               }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "fields"],
@@ -3576,7 +3579,10 @@
                               "fields": {
                                 "maxItems": 50,
                                 "type": "array",
-                                "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
                               },
                               "documents": {
                                 "maxItems": 10,
@@ -4328,9 +4334,12 @@
                               "kind": { "type": "string", "const": "edit" },
                               "fields": {
                                 "minItems": 1,
-                                "maxItems": 50,
+                                "maxItems": 200,
                                 "type": "array",
-                                "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
                               }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "fields"],
@@ -4377,7 +4386,10 @@
                               "fields": {
                                 "maxItems": 50,
                                 "type": "array",
-                                "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                }
                               },
                               "documents": {
                                 "maxItems": 10,
@@ -4937,11 +4949,11 @@
                                 "kind": { "type": "string", "const": "edit" },
                                 "fields": {
                                   "minItems": 1,
-                                  "maxItems": 50,
+                                  "maxItems": 200,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                                   }
                                 }
                               },
@@ -4991,7 +5003,7 @@
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                                   }
                                 },
                                 "documents": {
@@ -5460,11 +5472,11 @@
                                 "kind": { "type": "string", "const": "edit" },
                                 "fields": {
                                   "minItems": 1,
-                                  "maxItems": 50,
+                                  "maxItems": 200,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                                   }
                                 }
                               },
@@ -5514,7 +5526,7 @@
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                                   }
                                 },
                                 "documents": {
@@ -6011,11 +6023,11 @@
                                 "kind": { "type": "string", "const": "edit" },
                                 "fields": {
                                   "minItems": 1,
-                                  "maxItems": 50,
+                                  "maxItems": 200,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                                   }
                                 }
                               },
@@ -6065,7 +6077,7 @@
                                   "type": "array",
                                   "items": {
                                     "type": "string",
-                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                                   }
                                 },
                                 "documents": {
@@ -6371,9 +6383,9 @@
                             "kind": { "type": "string", "const": "edit" },
                             "fields": {
                               "minItems": 1,
-                              "maxItems": 50,
+                              "maxItems": 200,
                               "type": "array",
-                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
                             }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "fields"],
@@ -6420,7 +6432,7 @@
                             "fields": {
                               "maxItems": 50,
                               "type": "array",
-                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
                             },
                             "documents": {
                               "maxItems": 10,
@@ -6735,9 +6747,9 @@
                             "kind": { "type": "string", "const": "edit" },
                             "fields": {
                               "minItems": 1,
-                              "maxItems": 50,
+                              "maxItems": 200,
                               "type": "array",
-                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
                             }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "fields"],
@@ -6784,7 +6796,7 @@
                             "fields": {
                               "maxItems": 50,
                               "type": "array",
-                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" }
+                              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" }
                             },
                             "documents": {
                               "maxItems": 10,

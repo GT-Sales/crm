@@ -36,7 +36,8 @@ import { propertyKeySchema } from './properties';
  */
 export const LEGACY_IMPORT_ACTOR_ID = '00000000-0000-4000-8000-00000000a001';
 
-const activityFieldKeySchema = z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/);
+/** A contact, form or custom property key (`custom_referral_code`) an entry names; never a value. */
+const activityFieldKeySchema = propertyKeySchema;
 
 const activityBase = {
   id: z.uuid(),
@@ -76,7 +77,8 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({
     ...activityBase,
     kind: z.literal('edit'),
-    fields: z.array(activityFieldKeySchema).min(1).max(50),
+    // Contact, form and up to PROPERTY_LIMIT custom keys in one correction.
+    fields: z.array(activityFieldKeySchema).min(1).max(200),
   }),
   z.object({
     ...activityBase,

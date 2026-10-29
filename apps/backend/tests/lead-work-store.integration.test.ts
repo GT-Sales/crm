@@ -343,6 +343,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     }
     const unchanged = await work.getLead({
       workspaceId: OTHER_WORKSPACE,
+      catalog: codePropertyCatalog,
       actorId: ACTOR,
       leadId,
       includeWork: false,
@@ -875,6 +876,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(JSON.stringify(stored)).not.toContain('778-555');
     const page = await work.getLead({
       workspaceId: OTHER_WORKSPACE,
+      catalog: codePropertyCatalog,
       actorId: ACTOR,
       leadId,
       includeWork: true,
@@ -892,7 +894,11 @@ databaseTest('DatabaseLeadWorkStore', () => {
       email: 'isla.isolated@example.test',
       phone: '403 555 0118',
     });
-    const otherScope = { workspaceId: OTHER_WORKSPACE, actorId: ACTOR };
+    const otherScope = {
+      workspaceId: OTHER_WORKSPACE,
+      actorId: ACTOR,
+      catalog: codePropertyCatalog,
+    };
     expect(await work.getLead({ ...otherScope, leadId, includeWork: true })).toBeUndefined();
     expect(
       await work.updateLead({ ...otherScope, requestId: REQUEST_ID, leadId, stage: 'won' }),
