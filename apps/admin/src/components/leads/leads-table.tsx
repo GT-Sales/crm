@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   leadCountdownField,
   leadTypeLabel,
@@ -131,6 +131,7 @@ export function LeadsTable({
   onSort,
   onClearFilters,
   panel,
+  reloadToken,
 }: {
   workspaceSlug: string;
   workspaceId: string;
@@ -149,6 +150,8 @@ export function LeadsTable({
    * panel open) for a new tab.
    */
   panel?: { openId?: string; href(leadId: string): string; onOpen(leadId: string): void };
+  /** A new value asks for the same page again (a lead changed in the side panel). */
+  reloadToken?: number;
 }) {
   const router = useRouter();
   const load = useMemo(
@@ -187,6 +190,14 @@ export function LeadsTable({
     ],
   );
   const leads = useResource(load);
+  // Asked again in place, keeping the rows on screen while it loads.
+  const seenToken = useRef(reloadToken);
+  const { reload } = leads;
+  useEffect(() => {
+    if (seenToken.current === reloadToken) return;
+    seenToken.current = reloadToken;
+    void reload();
+  }, [reloadToken, reload]);
   const rows = leads.data?.leads ?? [];
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));

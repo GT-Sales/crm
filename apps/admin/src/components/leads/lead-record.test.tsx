@@ -13,7 +13,9 @@ import {
 } from '@gt-sales/contracts';
 
 import { downloadNavigation } from '../../lib/file-links';
+import { catalogFromModel } from '../properties/use-property-model';
 import { REVEAL_SECONDS } from './identity-check';
+import { PropertySections } from '../properties/property-sections';
 import { LeadRecord } from './lead-record';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -1003,7 +1005,7 @@ describe('LeadRecord from the site layout', () => {
     expect(within(custom).getByLabelText('Referral code')).toBeTruthy();
   });
 
-  it('masks sensitive properties unless the viewer may reveal them', async () => {
+  it('shows sensitive properties to everyone who sees the customer’s details', async () => {
     const withSecrets: LeadDetail = {
       ...lead,
       form: {
@@ -1015,34 +1017,16 @@ describe('LeadRecord from the site layout', () => {
     mocks.getPropertyModel.mockResolvedValue(
       model({ properties: [...codePropertyCatalog.all, passport] }),
     );
+    // Contact access without the owner's SIN reveal.
     mocks.getStaffLead.mockResolvedValue(response({ lead: withSecrets }));
-    const { unmount } = render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const custom = await screen.findByRole('region', { name: 'Custom' });
-    expect(within(custom).getByText('••••')).toBeTruthy();
-    expect(screen.queryByText('X1234567')).toBeNull();
+    expect(within(custom).getByText('X1234567')).toBeTruthy();
     const request = screen.getByRole('region', { name: 'Request' });
     expect(within(request).getByText('Date of birth')).toBeTruthy();
-    expect(within(request).getByText('••••')).toBeTruthy();
-    // A copy of the lead carries no more than the page shows.
-    const writeText = vi.fn(async () => undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    fireEvent.click(screen.getByRole('button', { name: 'Copy info' }));
-    await screen.findByRole('button', { name: 'Copied' });
-    expect(writeText).toHaveBeenCalledWith(expect.not.stringContaining('1990'));
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('12 Example Street'));
-    // A masked value is not offered for editing either.
-    expect(within(custom).queryByRole('button', { name: 'Edit' })).toBeNull();
-    unmount();
-
-    mocks.getStaffLead.mockResolvedValue(
-      response({
-        lead: withSecrets,
-        access: { contacts: true, manage: true, revealSensitive: true },
-      }),
-    );
-    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
-    expect(await screen.findByText('X1234567')).toBeTruthy();
+    expect(within(request).getByText('Jan 31, 1990')).toBeTruthy();
     expect(screen.queryByText('••••')).toBeNull();
+    expect(within(custom).getByRole('button', { name: 'Edit' })).toBeTruthy();
   });
 
   it('names an unknown key on the timeline as it is', async () => {
@@ -1077,5 +1061,57 @@ describe('LeadRecord from the site layout', () => {
     expect(screen.getByLabelText('Stage')).toBeTruthy();
     expect(screen.getByText('12 Example Street')).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Timeline' })).toBeTruthy();
+  });
+});
+
+describe('PropertySections', () => {
+  const passport: SiteProperty = {
+    key: 'custom_passport_number',
+    label: 'Passport number',
+    kind: 'text',
+    origin: 'custom',
+    storage: 'custom',
+    sensitive: true,
+    staffOnly: false,
+    hidden: false,
+    leadTypes: [],
+    editable: true,
+    version: 1,
+  };
+  const catalog = catalogFromModel([...codePropertyCatalog.all, passport]);
+  const layout: PropertyLayout = {
+    sections: [{ id: 'id', label: 'Identity', keys: ['dateOfBirth', 'custom_passport_number'] }],
+  };
+
+  function sections(canRevealSensitive: boolean) {
+    return (
+      <PropertySections
+        leadType="internet"
+        layout={layout}
+        catalog={catalog}
+        form={{ dateOfBirth: '1990-01-31' }}
+        customValues={{ custom_passport_number: 'X1234567' }}
+        canEdit
+        canRevealSensitive={canRevealSensitive}
+        onSave={vi.fn(async () => undefined)}
+      />
+    );
+  }
+
+  it('masks sensitive values without contact access, and offers no edit of them', () => {
+    render(sections(false));
+    const identity = screen.getByRole('region', { name: 'Identity' });
+    expect(within(identity).getAllByText('••••')).toHaveLength(2);
+    expect(within(identity).queryByText('X1234567')).toBeNull();
+    expect(within(identity).queryByText(/1990/)).toBeNull();
+    expect(within(identity).queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+
+  it('shows them with contact access', () => {
+    render(sections(true));
+    const identity = screen.getByRole('region', { name: 'Identity' });
+    expect(within(identity).getByText('X1234567')).toBeTruthy();
+    expect(within(identity).getByText('Jan 31, 1990')).toBeTruthy();
+    expect(within(identity).queryByText('••••')).toBeNull();
   });
 });

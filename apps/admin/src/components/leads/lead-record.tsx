@@ -135,10 +135,13 @@ export function LeadRecord({
   workspaceSlug,
   leadId,
   variant = 'page',
+  onChange,
 }: {
   workspaceSlug: string;
   leadId: string;
   variant?: 'page' | 'panel';
+  /** After any change saved here (stage, owner, properties, notes, tasks, trash, opened). */
+  onChange?(): void;
 }) {
   const { workspaceId, accessToken, members } = useLeadWorkspace(workspaceSlug);
   const properties = usePropertyModel(workspaceId);
@@ -151,6 +154,11 @@ export function LeadRecord({
   const record = useResource(load);
   const [saving, setSaving] = useState(false);
   const opening = useRef<string>(undefined);
+  // The caller hears of each saved change; its callback may change every render.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   // The first open by someone who works leads clears the "New" badge for the
   // whole team. Best effort: a failure leaves the badge for the next open.
@@ -161,15 +169,16 @@ export function LeadRecord({
     if (!shouldMarkOpened || !accessToken || !workspaceId || opening.current === leadId) return;
     opening.current = leadId;
     markLeadOpened(accessToken, workspaceId, leadId)
-      .then((result) =>
+      .then((result) => {
         mutate((current) => ({
           ...current,
           lead: { ...current.lead, isNew: false },
           activities: result.activity
             ? [result.activity, ...current.activities]
             : current.activities,
-        })),
-      )
+        }));
+        onChangeRef.current?.();
+      })
       .catch(() => undefined);
   }, [shouldMarkOpened, accessToken, workspaceId, leadId, mutate]);
   // Get Canada Sim's "email the customer this number?" after a SIM number is saved.
@@ -236,8 +245,14 @@ export function LeadRecord({
   );
   const self = members.find((member) => member.isSelf);
 
+  /** A change the backend confirmed: shown here, and told to the caller. */
+  function changeRecord(update: (current: GetWorkspaceLeadResponse) => GetWorkspaceLeadResponse) {
+    record.mutate(update);
+    onChangeRef.current?.();
+  }
+
   function addActivities(entries: readonly LeadActivity[]) {
-    record.mutate((current) => ({
+    changeRecord((current) => ({
       ...current,
       activities: [...entries, ...current.activities],
     }));
@@ -251,7 +266,7 @@ export function LeadRecord({
     setMessage(undefined);
     try {
       const result = await updateStaffLead(accessToken, workspaceId, leadId, body);
-      record.mutate((current) => ({
+      changeRecord((current) => ({
         ...current,
         lead: result.lead,
         activities: [...result.activities, ...current.activities],
@@ -271,7 +286,7 @@ export function LeadRecord({
     if (!accessToken || !workspaceId) return 'The change was not saved. Sign in again.';
     try {
       const result = await updateStaffLead(accessToken, workspaceId, leadId, edits);
-      record.mutate((current) => ({
+      changeRecord((current) => ({
         ...current,
         lead: result.lead,
         activities: [...result.activities, ...current.activities],
@@ -307,21 +322,11 @@ export function LeadRecord({
     }
   }
 
-  /** The record as the copy may carry it: no sensitive answer the page masks for this viewer. */
-  function withoutMaskedAnswers(data: GetWorkspaceLeadResponse): GetWorkspaceLeadResponse {
-    const form = data.lead.form;
-    if (data.access.revealSensitive === true || !form) return data;
-    const payload = Object.fromEntries(
-      Object.entries(form.payload).filter(([key]) => catalog.get(key)?.sensitive !== true),
-    );
-    return { ...data, lead: { ...data.lead, form: { ...form, payload } } };
-  }
-
   async function copySummary() {
     if (!record.data) return;
     setMessage(undefined);
     try {
-      await navigator.clipboard.writeText(leadSummaryText(withoutMaskedAnswers(record.data)));
+      await navigator.clipboard.writeText(leadSummaryText(record.data));
       setCopied(true);
     } catch {
       setMessage('The browser did not allow copying. Select the details and copy them instead.');
@@ -334,7 +339,7 @@ export function LeadRecord({
     setMessage(undefined);
     try {
       const result = await setLeadTrashed(accessToken, workspaceId, leadId, trashed);
-      record.mutate((current) => ({
+      changeRecord((current) => ({
         ...current,
         lead: result.lead,
         activities: result.activity ? [result.activity, ...current.activities] : current.activities,
@@ -349,7 +354,7 @@ export function LeadRecord({
   }
 
   function upsertTask(task: LeadTask) {
-    record.mutate((current) => {
+    changeRecord((current) => {
       const exists = current.tasks.some((entry) => entry.id === task.id);
       const nextTasks = exists
         ? current.tasks.map((entry) => (entry.id === task.id ? task : entry))
@@ -604,7 +609,8 @@ export function LeadRecord({
               form={payload}
               customValues={customValues}
               canEdit={canWrite}
-              canRevealSensitive={access.revealSensitive === true}
+              // Everyone who sees the customer's details sees these (the SIN keeps its own reveal).
+              canRevealSensitive={access.contacts}
               onSave={saveProperties}
             />
           ) : null}
@@ -713,7 +719,7 @@ export function LeadRecord({
                   catalog={catalog}
                   onNoteAdded={(activity) => {
                     addActivities([activity]);
-                    record.mutate((current) => ({
+                    changeRecord((current) => ({
                       ...current,
                       lead: { ...current.lead, updatedAt: activity.createdAt },
                     }));

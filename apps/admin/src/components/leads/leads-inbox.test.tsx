@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
   deleteSavedView: vi.fn(),
   getStaffLead: vi.fn(),
   markLeadOpened: vi.fn(),
+  updateStaffLead: vi.fn(),
 }));
 
 const backend = vi.hoisted(() => ({
@@ -1067,5 +1068,39 @@ describe('LeadsInbox side panel', () => {
     expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=internet', {
       scroll: false,
     });
+  });
+  it('asks for the list again once, on close, after a change saved in the panel', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...row, stage: 'contacted', form: null, customValues: {} },
+      activities: [],
+      requestId: 'req_test',
+    });
+    navigation.search = `type=internet&page=2&lead=${LEAD_ID}`;
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    const panel = await screen.findByRole('complementary', { name: 'Lead' });
+    await waitFor(() => expect(mocks.getStaffLeads).toHaveBeenCalledTimes(1));
+    const [listCall] = mocks.getStaffLeads.mock.calls;
+
+    fireEvent.change(await within(panel).findByLabelText('Stage'), {
+      target: { value: 'contacted' },
+    });
+    await waitFor(() => expect(mocks.updateStaffLead).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(within(panel).getByLabelText<HTMLSelectElement>('Stage').value).toBe('contacted'),
+    );
+    expect(mocks.getStaffLeads).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(mocks.getStaffLeads).toHaveBeenCalledTimes(2));
+    expect(mocks.getStaffLeads.mock.calls[1]).toEqual(listCall);
+
+    // Closing a panel where nothing changed asks for nothing.
+    navigation.search = `type=internet&page=2&lead=${LEAD_ID}`;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
+    expect(mocks.getStaffLeads).toHaveBeenCalledTimes(2);
   });
 });

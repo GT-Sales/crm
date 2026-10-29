@@ -366,10 +366,17 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         : inboxSearch(next),
     );
   }
-  // Closing the panel hands focus back to the lead's row in the list.
+  // Closing the panel hands focus back to the lead's row in the list, and
+  // asks for the list again when something was saved in the panel.
   const closedLead = useRef<string | undefined>(undefined);
+  const panelChanged = useRef(false);
+  const [listVersion, setListVersion] = useState(0);
   function closePanel() {
     closedLead.current = latestQuery.current.lead;
+    if (panelChanged.current) {
+      panelChanged.current = false;
+      setListVersion((current) => current + 1);
+    }
     setPanelLead(undefined);
   }
   useEffect(() => {
@@ -1263,6 +1270,8 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         <div className="min-w-0 flex-1">
           {!accessToken || !workspaceId ? null : onBoard && query.type ? (
             <LeadsBoard
+              // The board loads once per mount; a new key asks again.
+              key={listVersion}
               workspaceSlug={workspaceSlug}
               workspaceId={workspaceId}
               accessToken={accessToken}
@@ -1283,6 +1292,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
               onPage={(page) => update({ page })}
               onSort={(next) => update({ sort: next })}
               onClearFilters={clearAllFilters}
+              reloadToken={listVersion}
               panel={{
                 openId: query.lead,
                 href: (leadId) => `${pathname}${inboxSearch({ ...query, lead: leadId })}`,
@@ -1321,6 +1331,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
                 workspaceSlug={workspaceSlug}
                 leadId={query.lead}
                 variant="panel"
+                onChange={() => {
+                  panelChanged.current = true;
+                }}
               />
             ) : null}
           </SidePanel>
