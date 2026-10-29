@@ -26,7 +26,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   job_not_found: 'The job does not exist in this workspace.',
   job_not_retryable: 'Only definitively failed jobs can be retried.',
   job_not_uncertain: 'Only jobs with an uncertain outcome can be resolved.',
-  version_conflict: 'The order changed. Reload it before applying another transition.',
+  version_conflict: 'It changed since you loaded it. Reload it before changing it again.',
   illegal_transition: 'That order status transition is not allowed.',
   cancellation_reason_required: 'A cancellation reason is required.',
   dispatch_details_required: 'A courier is required to dispatch this order.',
@@ -52,6 +52,9 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   file_not_found: 'The document does not exist in this workspace.',
   file_not_available: 'The document is not available for download.',
   download_denied: 'You do not have permission to download this document.',
+  saved_view_not_found: 'You have no saved view with this id on this site.',
+  saved_view_name_taken: 'You already have a saved view with this name.',
+  saved_view_limit: 'You have reached the most saved views you can keep on this site.',
 };
 
 export function sendDomainError(

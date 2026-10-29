@@ -1,5 +1,6 @@
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
+import { codePropertyCatalog } from '@gt-sales/contracts';
 
 import { sendStaffAuthError } from './http/staff-errors.js';
 import { requestLog } from './http/requestLog.js';
@@ -112,9 +113,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
     '/api/internal/jobs',
     createJobsRouter(options.jobs ?? createDefaultJobsRouteDependencies()),
   );
+  const staffDependencies = options.staff ?? createDefaultStaffRouteDependencies();
   app.use(
     '/api/v1/staff',
-    createStaffRouter(options.staff ?? createDefaultStaffRouteDependencies()),
+    createStaffRouter({
+      ...staffDependencies,
+      // TODO(task 5): wire propertyStore.catalog
+      loadPropertyCatalog:
+        staffDependencies.loadPropertyCatalog ?? (async () => codePropertyCatalog),
+    }),
   );
   // Website intake surface. Server-to-server, so CORS does not apply and is
   // never treated as authentication; the service credential is the only proof.
