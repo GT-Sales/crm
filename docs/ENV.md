@@ -149,7 +149,22 @@ the run with `<NAME> is required`, before anything is read or written.
 
 ### Backup monitor (`backup-monitor-<deployment>`)
 
-Added by the monitor task.
+`pnpm --filter @gt-sales/jobs run monitor`, hourly. It reads
+`heartbeat/latest.json` with the reader key and emails the owner
+(`backup_stale`) and exits 1 when the heartbeat is missing, malformed, older
+than the threshold or names another deployment, or when the check itself fails
+(alert detail `stale:age_seconds:<n>`, `missing`, `malformed`,
+`wrong_deployment:<deployment>` or `monitor_failed`).
+
+| Variable                                                                       | Set where                                    | Value / purpose                                                                              |
+| ------------------------------------------------------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `BACKUP_DEPLOYMENT`                                                            | Workflow matrix (`${{ matrix.deployment }}`) | Required. A heartbeat naming any other deployment alerts.                                    |
+| `B2_ARCHIVE_ENDPOINT` / `B2_ARCHIVE_REGION` / `B2_ARCHIVE_BUCKET`              | GitHub Environment secret                    | Required. The deployment's archive bucket, as for the backup run.                            |
+| `B2_ARCHIVE_READER_KEY_ID` / `B2_ARCHIVE_READER_APPLICATION_KEY`               | GitHub Environment secret                    | Required. The reader key (`listFiles`, `readFiles` only).                                    |
+| `BACKUP_MONITOR_MAX_AGE_SECONDS`                                               | GitHub Environment secret, normally unset    | The alert threshold in seconds; default 93600 (26 hours). Must be a positive whole number.   |
+| `OWNER_ALERT_EMAIL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | GitHub Environment secret                    | The owner alert email. Unset, the alert is only logged (`owner_alert_channel_unconfigured`). |
+| `OWNER_ALERT_WEBHOOK_URL` / `OWNER_ALERT_WEBHOOK_SECRET`                       | GitHub Environment secret, optional          | An optional chat webhook that receives the same alert.                                       |
+| `SENTRY_DSN`, `RELEASE_SHA`, `DEPLOYMENT_ENV`                                  | GitHub Environment secret / the workflow     | Optional error tracking when the check itself fails.                                         |
 
 ### Backup retention (`backup-retention-<deployment>`)
 
