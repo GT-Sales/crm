@@ -1,4 +1,5 @@
 import type { S3SigningConfig } from '@gt-sales/adapters';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -180,6 +181,24 @@ describe('S3ArchiveWriter / S3ArchiveReader / S3ArchiveRetentionAdmin', () => {
     expect(new URL(requests[0]?.url ?? '').pathname).toBe(
       '/gt-sales-backup-archive/run-1/data.sql.age',
     );
+  });
+
+  it('every PUT carries a signed Content-MD5 of the body, so S3 verifies the bytes it stores', async () => {
+    const puts: Headers[] = [];
+    const fakeFetch: typeof fetch = async (_url, init) => {
+      puts.push(new Headers(init?.headers));
+      return new Response(null, { status: 200 });
+    };
+    const body = new TextEncoder().encode('encrypted artifact bytes');
+    await new S3ArchiveWriter(config, fakeFetch).putObject('run-1/data.sql.enc', body);
+    await new S3ArchiveWriter(config, fakeFetch).putObject('run-1/empty.enc', new Uint8Array());
+
+    expect(puts[0]?.get('content-md5')).toBe(createHash('md5').update(body).digest('base64'));
+    expect(puts[1]?.get('content-md5')).toBe('1B2M2Y8AsgTpgAmY7PhCfg==');
+    for (const headers of puts) {
+      const signed = /SignedHeaders=([^,]+)/.exec(headers.get('authorization') ?? '')?.[1];
+      expect(signed?.split(';')).toContain('content-md5');
+    }
   });
 
   it('the writer throws archive_put_failed:<status> when the upload is refused', async () => {

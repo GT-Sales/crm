@@ -1,4 +1,5 @@
 import { presignS3Url, signS3Request, type S3SigningConfig } from '@gt-sales/adapters';
+import { createHash } from 'node:crypto';
 
 /**
  * The encrypted backup archive, a Backblaze B2 bucket reached over its S3
@@ -119,10 +120,16 @@ export class S3ArchiveWriter implements ArchiveWriter {
     private readonly timeoutMs = 30_000,
   ) {}
 
+  /**
+   * Every PUT carries `Content-MD5`, which the signature covers: the S3 side
+   * rejects a body that does not match it, and buckets with Object Lock
+   * require it (docs/RUNBOOKS/backup.md §3).
+   */
   async putObject(key: string, body: Uint8Array): Promise<{ versionId?: string }> {
+    const contentMd5 = createHash('md5').update(body).digest('base64');
     const response = await s3Send(
       this.config,
-      { method: 'PUT', key, headers: {}, body },
+      { method: 'PUT', key, headers: { 'content-md5': contentMd5 }, body },
       this.fetchImpl,
       this.timeoutMs,
     );

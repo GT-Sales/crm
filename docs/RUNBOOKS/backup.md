@@ -214,6 +214,8 @@ records these as exclusions on every run. See also "Known gaps" below.
    creating the bucket; do not skip it.
    None of the three keys below may hold `bypassGovernance`, the capability
    that lifts governance mode; the retention key especially must not.
+   Every upload carries a `Content-MD5` header, as Object Lock buckets
+   require.
 2. On the new bucket, open Lifecycle Settings and choose **Keep prior versions
    for this number of days: 30**. Why: B2 keeps every version of a file, and a
    delete through the S3 API only hides the file. Without a lifecycle rule,
