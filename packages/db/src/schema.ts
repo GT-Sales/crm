@@ -71,6 +71,28 @@ function tenantPolicy(name: string, workspaceId: AnyPgColumn) {
 }
 
 /**
+ * Row visible and writable only to its own actor inside the matching tenant
+ * transaction: `tenantPolicy` plus the actor equality, for private rows
+ * (a person's saved views).
+ */
+function ownerPolicy(name: string, workspaceId: AnyPgColumn, actorId: AnyPgColumn) {
+  const predicate = sql`${workspaceId} = nullif(
+      (select current_setting('app.workspace_id', true)),
+      ''
+    )::uuid and ${actorId} = nullif(
+      (select current_setting('app.actor_id', true)),
+      ''
+    )::uuid`;
+
+  return pgPolicy(name, {
+    for: 'all',
+    to: appRuntimeRole,
+    using: predicate,
+    withCheck: predicate,
+  });
+}
+
+/**
  * For the one deliberately global table (`contacts`): any verified actor in a
  * tenant transaction. Tenant scoping is enforced by the backend, which only
  * ever reaches a contact through a lead of the current workspace.
@@ -378,6 +400,12 @@ export const leads = appSchema
       externalRef: text('external_ref'),
       payload: jsonb('payload'),
       attribution: jsonb('attribution').notNull().default({}),
+      /**
+       * Values of the site's custom properties (`app.properties`, origin
+       * `custom`), keyed by property key. Staff-written only; the backend
+       * parses each value by its property's kind before it is stored.
+       */
+      customValues: jsonb('custom_values').notNull().default({}),
       consentVersion: text('consent_version').notNull(),
       customerDataRestrictedAt: timestamp('customer_data_restricted_at', {
         withTimezone: true,
@@ -392,6 +420,7 @@ export const leads = appSchema
       check('leads_status_check', sql`${table.status} in (${leadStatusList})`),
       check('leads_stage_check', sql`${table.stage} ~ '^[a-z0-9_]{1,64}$'`),
       check('leads_lead_type_check', sql`${table.leadType} ~ '^[a-z0-9_]{1,64}$'`),
+      check('leads_custom_values_check', sql`jsonb_typeof(${table.customValues}) = 'object'`),
       check(
         'leads_external_ref_check',
         sql`${table.externalRef} is null or char_length(${table.externalRef}) between 1 and 128`,
@@ -1280,6 +1309,169 @@ export type MarketingConsentRow = typeof marketingConsents.$inferSelect;
 export type FollowUpScheduleRow = typeof followUpSchedules.$inferSelect;
 export type EmailProviderEventRow = typeof emailProviderEvents.$inferSelect;
 
+// ---------------------------------------------------------------------------
+// Properties, layouts and saved views (phase 2)
+// ---------------------------------------------------------------------------
+
+const propertyObjectList = sql.raw(['lead', 'plan'].map((object) => `'${object}'`).join(', '));
+const propertyKindList = sql.raw(
+  [
+    'text',
+    'longText',
+    'number',
+    'money',
+    'date',
+    'dateTime',
+    'count',
+    'yesNo',
+    'choice',
+    'email',
+    'phone',
+    'url',
+  ]
+    .map((kind) => `'${kind}'`)
+    .join(', '),
+);
+
+/**
+ * A site's property definitions per object (`lead` now, `plan` later): a
+ * custom property (`origin = 'custom'`, its values in `leads.custom_values`)
+ * or an override of a built-in from the code catalogue (`origin =
+ * 'builtin'`: a relabel or a hide). The runtime role cannot DELETE: a custom
+ * property is tombstoned with `deleted_at`, and the unique key includes
+ * tombstones, so a deleted key is reserved forever. `drizzle/0010_*.sql`
+ * keeps a row's site, object, key, kind and origin fixed, a tombstone
+ * permanent, and built-ins un-deletable.
+ */
+export const properties = appSchema
+  .table(
+    'properties',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      object: text('object').notNull(),
+      key: text('key').notNull(),
+      origin: text('origin').notNull(),
+      label: text('label').notNull(),
+      kind: text('kind').notNull(),
+      options: jsonb('options').notNull().default([]),
+      staffOnly: boolean('staff_only').default(false).notNull(),
+      sensitive: boolean('sensitive').default(false).notNull(),
+      hidden: boolean('hidden').default(false).notNull(),
+      /** The lead types the property applies to; empty means every type. */
+      leadTypes: text('lead_types')
+        .array()
+        .default(sql`'{}'::text[]`)
+        .notNull(),
+      position: integer('position').default(0).notNull(),
+      version: integer('version').default(1).notNull(),
+      createdBy: uuid('created_by'),
+      updatedBy: uuid('updated_by'),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+      deletedAt: timestamp('deleted_at', { withTimezone: true, mode: 'date' }),
+    },
+    (table) => [
+      unique('properties_workspace_id_id_unique').on(table.workspaceId, table.id),
+      // Tombstones included on purpose: a deleted key is never reused.
+      unique('properties_workspace_object_key_unique').on(
+        table.workspaceId,
+        table.object,
+        table.key,
+      ),
+      check('properties_object_check', sql`${table.object} in (${propertyObjectList})`),
+      check('properties_key_check', sql`${table.key} ~ '^[a-z][A-Za-z0-9_]{0,63}$'`),
+      check('properties_origin_check', sql`${table.origin} in ('builtin', 'custom')`),
+      check('properties_label_check', sql`length(${table.label}) between 1 and 80`),
+      check('properties_kind_check', sql`${table.kind} in (${propertyKindList})`),
+      check('properties_options_check', sql`jsonb_typeof(${table.options}) = 'array'`),
+      tenantPolicy('properties_tenant_policy', table.workspaceId),
+      backupReadPolicy('properties'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A site's record layout per object and lead type (`''` = the object's
+ * default): ordered sections of property keys. One row per
+ * `(site, object, lead type)`, replaced in place with `version`.
+ */
+export const propertyLayouts = appSchema
+  .table(
+    'property_layouts',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      object: text('object').notNull(),
+      leadType: text('lead_type').default('').notNull(),
+      layout: jsonb('layout').notNull(),
+      version: integer('version').default(1).notNull(),
+      updatedBy: uuid('updated_by'),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('property_layouts_workspace_object_lead_type_unique').on(
+        table.workspaceId,
+        table.object,
+        table.leadType,
+      ),
+      check('property_layouts_object_check', sql`${table.object} in (${propertyObjectList})`),
+      check('property_layouts_lead_type_check', sql`${table.leadType} ~ '^[a-z0-9_]{0,64}$'`),
+      check('property_layouts_layout_check', sql`jsonb_typeof(${table.layout}) = 'object'`),
+      tenantPolicy('property_layouts_tenant_policy', table.workspaceId),
+      backupReadPolicy('property_layouts'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A person's private saved view of a list (the inbox state minus the
+ * free-text search). The owner policy shows a row only to its own actor in
+ * its own site, so a colleague's view id reads as missing; removing the
+ * membership removes its views.
+ */
+export const savedViews = appSchema
+  .table(
+    'saved_views',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      actorId: uuid('actor_id').notNull(),
+      object: text('object').notNull(),
+      name: text('name').notNull(),
+      state: jsonb('state').notNull(),
+      version: integer('version').default(1).notNull(),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      foreignKey({
+        name: 'saved_views_workspace_actor_fk',
+        columns: [table.workspaceId, table.actorId],
+        foreignColumns: [memberships.workspaceId, memberships.userId],
+      }).onDelete('cascade'),
+      uniqueIndex('saved_views_owner_name_unique').on(
+        table.workspaceId,
+        table.actorId,
+        table.object,
+        sql`lower(${table.name})`,
+      ),
+      check('saved_views_object_check', sql`${table.object} in ('lead')`),
+      check('saved_views_name_check', sql`length(btrim(${table.name})) between 1 and 60`),
+      check('saved_views_state_check', sql`jsonb_typeof(${table.state}) = 'object'`),
+      ownerPolicy('saved_views_owner_policy', table.workspaceId, table.actorId),
+      backupReadPolicy('saved_views'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
   workspaces,
   memberships,
@@ -1307,4 +1499,7 @@ export const schema = {
   marketingConsents,
   followUpSchedules,
   emailProviderEvents,
+  properties,
+  propertyLayouts,
+  savedViews,
 };
