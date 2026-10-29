@@ -340,6 +340,8 @@ export {
   type UpdateProperty,
 } from './properties';
 
+export { applyCustomValueEdits, type CustomValueEditsResult } from './custom-values';
+
 export {
   LAYOUT_MAX_KEYS,
   LAYOUT_MAX_SECTIONS,

@@ -5,7 +5,12 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { InMemoryR2DocumentStore, sha256Hex } from '@gt-sales/adapters';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
-import { LEGACY_IMPORT_ACTOR_ID, leadDetailSchema, leadTaskSchema } from '@gt-sales/contracts';
+import {
+  LEGACY_IMPORT_ACTOR_ID,
+  codePropertyCatalog,
+  leadDetailSchema,
+  leadTaskSchema,
+} from '@gt-sales/contracts';
 import { OutboxRunner } from '@gt-sales/jobs';
 
 import { createLegacyDocumentImportHandler } from '../src/documents/import-job.js';
@@ -343,6 +348,7 @@ databaseTest('Get Canada Sim historical import', () => {
 
     const page = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PENDING,
       includeWork: true,
@@ -407,6 +413,7 @@ databaseTest('Get Canada Sim historical import', () => {
     // Nobody opened it in the old admin: New here until someone does.
     const page = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: OLD_CHECKOUT,
       includeWork: true,
@@ -421,6 +428,7 @@ databaseTest('Get Canada Sim historical import', () => {
   test('a partner application keeps its company, its stage and its number', async () => {
     const page = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PARTNER,
       includeWork: false,
@@ -494,6 +502,7 @@ databaseTest('Get Canada Sim historical import', () => {
     expect(await lead(PENDING)).toMatchObject({ stage: 'activated', phone: '+91 99999 00002' });
     const page = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PENDING,
       includeWork: true,
@@ -587,6 +596,7 @@ databaseTest('Get Canada Sim historical import', () => {
 
     const page = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PENDING,
       includeWork: true,
@@ -621,6 +631,7 @@ databaseTest('Get Canada Sim historical import', () => {
     });
     const replaced = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PENDING,
       includeWork: true,
@@ -638,6 +649,7 @@ databaseTest('Get Canada Sim historical import', () => {
   test('a customer’s change requests become the order’s history, values left out', async () => {
     const page = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PAID,
       includeWork: true,
@@ -679,6 +691,7 @@ databaseTest('Get Canada Sim historical import', () => {
     await runImport();
     const decided = await work.getLead({
       workspaceId: site,
+      catalog: codePropertyCatalog,
       actorId: STAFF,
       leadId: PAID,
       includeWork: true,
