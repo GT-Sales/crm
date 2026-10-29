@@ -252,6 +252,21 @@ describe('property routes', () => {
     expect(simKeys).not.toContain('city');
   });
 
+  it('GET /properties parses for every lead type when the site has no rows, contact_message included', async () => {
+    properties.model.mockResolvedValueOnce({ rows: [], layouts: [] });
+    const response = await call(propertiesUrl());
+    expect(response.status).toBe(200);
+    const body = propertyModelResponseSchema.parse(await response.json());
+    expect(Object.keys(body.layouts).sort()).toEqual(Object.keys(leadTypeCatalog).sort());
+    for (const leadType of Object.keys(leadTypeCatalog)) {
+      expect(body.layouts[leadType]?.layout.sections.length, leadType).toBeGreaterThan(0);
+    }
+    // A type with no properties gets the one empty Request section.
+    expect(body.layouts['contact_message']?.layout).toEqual({
+      sections: [{ id: 'request', label: 'Request', keys: [] }],
+    });
+  });
+
   it('GET /properties is 403 for someone outside the site and 400 for a bad site id', async () => {
     store.access = { ...store.access, status: 'revoked' };
     expect((await call(propertiesUrl())).status).toBe(403);

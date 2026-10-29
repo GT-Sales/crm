@@ -91,7 +91,9 @@ export type SavePropertyLayoutRequest = z.infer<typeof savePropertyLayoutRequest
 /**
  * The layout a site gets before it saves one: Request (built-in, not
  * staff-only), Staff details (built-in, staff-only) and Custom (custom
- * properties of the type). Empty sections are dropped.
+ * properties of the type). Empty sections are dropped; a type with no
+ * properties at all (`contact_message`) gets one empty Request section, since
+ * a layout holds at least one section.
  */
 export function defaultPropertyLayout(leadType: string, catalog: PropertyCatalog): PropertyLayout {
   const request: string[] = [];
@@ -107,6 +109,7 @@ export function defaultPropertyLayout(leadType: string, catalog: PropertyCatalog
     { id: 'staff', label: 'Staff details', keys: staff },
     { id: 'custom', label: 'Custom', keys: custom },
   ].filter((section) => section.keys.length > 0);
+  if (sections.length === 0) return { sections: [{ id: 'request', label: 'Request', keys: [] }] };
   return { sections };
 }
 
