@@ -326,7 +326,14 @@ export function LeadRecord({
     if (!record.data) return;
     setMessage(undefined);
     try {
-      await navigator.clipboard.writeText(leadSummaryText(record.data));
+      await navigator.clipboard.writeText(
+        leadSummaryText(record.data, {
+          layout,
+          catalog,
+          // As the record shows them: everyone who sees the customer's details sees these.
+          canRevealSensitive: record.data.access.contacts,
+        }),
+      );
       setCopied(true);
     } catch {
       setMessage('The browser did not allow copying. Select the details and copy them instead.');

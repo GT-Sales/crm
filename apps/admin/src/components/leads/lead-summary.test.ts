@@ -1,7 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import type { GetWorkspaceLeadResponse, LeadDetail } from '@gt-sales/contracts';
+import {
+  buildPropertyCatalog,
+  codePropertyCatalog,
+  defaultPropertyLayout,
+  propertyRowSchema,
+  type GetWorkspaceLeadResponse,
+  type LeadDetail,
+  type PropertyCatalog,
+  type PropertyRow,
+} from '@gt-sales/contracts';
 
-import { deliveryLetterUrl, leadSummaryText } from './lead-summary';
+import { deliveryLetterUrl, leadSummaryText, type LeadSummaryView } from './lead-summary';
+
+const STAMP = '2026-10-29T12:00:00.000Z';
+
+function propertyRow(
+  overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'origin' | 'label'>,
+): PropertyRow {
+  return propertyRowSchema.parse({
+    object: 'lead',
+    kind: 'text',
+    options: [],
+    staffOnly: false,
+    sensitive: false,
+    hidden: false,
+    leadTypes: [],
+    position: 0,
+    version: 1,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+    ...overrides,
+  });
+}
+
+/** The page's view of a SIM order on a site with `catalog`, in its default layout. */
+function viewOf(catalog: PropertyCatalog = codePropertyCatalog): LeadSummaryView {
+  return {
+    layout: defaultPropertyLayout('sim_order', catalog),
+    catalog,
+    canRevealSensitive: true,
+  };
+}
 
 const order: LeadDetail = {
   id: '90000000-0000-4000-8000-000000000101',
@@ -53,6 +92,7 @@ describe('leadSummaryText', () => {
           createdAt: '2026-10-20T09:00:00.000Z',
         },
       ]),
+      viewOf(),
     );
     const lines = text.split('\n');
     expect(lines[0]).toBe('MS-101 · SIM order');
@@ -69,9 +109,77 @@ describe('leadSummaryText', () => {
   });
 
   it('leaves out what the reader was not shown', () => {
-    const text = leadSummaryText(record({ ...order, contact: {}, form: null }));
+    const text = leadSummaryText(record({ ...order, contact: {}, form: null }), viewOf());
     expect(text).not.toContain('Customer:');
     expect(text).not.toContain('Plan:');
+  });
+
+  it('reads the site catalogue and layout: its labels, no hidden built-in, custom values included', () => {
+    const catalog = buildPropertyCatalog([
+      // The site renamed one built-in and hid another.
+      propertyRow({ key: 'simNumber', origin: 'builtin', label: 'SIM card number', version: 2 }),
+      propertyRow({
+        key: 'canadaAddress',
+        origin: 'builtin',
+        label: 'Address in Canada',
+        hidden: true,
+        version: 2,
+      }),
+      propertyRow({ key: 'custom_referral_code', origin: 'custom', label: 'Referral code' }),
+      propertyRow({
+        key: 'custom_budget',
+        origin: 'custom',
+        label: 'Budget',
+        kind: 'money',
+        position: 1,
+      }),
+      propertyRow({ key: 'custom_empty', origin: 'custom', label: 'Left blank', position: 2 }),
+    ]);
+    const layout = {
+      sections: [
+        { id: 'main', label: 'Main', keys: ['custom_referral_code', 'simNumber', 'planId'] },
+      ],
+    };
+    const text = leadSummaryText(
+      record({
+        ...order,
+        customValues: { custom_referral_code: 'FRIEND-7', custom_budget: 4500 },
+      }),
+      { layout, catalog, canRevealSensitive: true },
+    );
+    const lines = text.split('\n');
+
+    expect(lines).toContain('SIM card number: 4165550104');
+    expect(text).not.toContain('SIM number:');
+    expect(lines).toContain('Referral code: FRIEND-7');
+    expect(lines).toContain('Budget: $45.00');
+    // A hidden built-in is not on the page, so not in the copy.
+    expect(lines).not.toContain('Address in Canada: Toronto');
+    expect(lines).not.toContain('Canada address: Toronto');
+    expect(text).not.toContain('Left blank');
+    // The layout's order first; what it does not place follows, as under "Other".
+    expect(lines.indexOf('Referral code: FRIEND-7')).toBeLessThan(
+      lines.indexOf('SIM card number: 4165550104'),
+    );
+    expect(lines.indexOf('SIM card number: 4165550104')).toBeLessThan(
+      lines.indexOf('Budget: $45.00'),
+    );
+  });
+
+  it('copies a sensitive value only for a reader the page shows it to', () => {
+    const catalog = buildPropertyCatalog([
+      propertyRow({
+        key: 'custom_passport',
+        origin: 'custom',
+        label: 'Passport no.',
+        sensitive: true,
+      }),
+    ]);
+    const lead = { ...order, customValues: { custom_passport: 'X1234567' } };
+    expect(leadSummaryText(record(lead), viewOf(catalog))).toContain('Passport no.: X1234567');
+    expect(
+      leadSummaryText(record(lead), { ...viewOf(catalog), canRevealSensitive: false }),
+    ).not.toContain('X1234567');
   });
 });
 
