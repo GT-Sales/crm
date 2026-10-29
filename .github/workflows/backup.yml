@@ -1,0 +1,94 @@
+# To add a deployment: one matrix entry here and in the two sibling workflows,
+# three GitHub Environments named after it, their secrets per docs/ENV.md.
+#
+# The nightly backup of each deployment: an encrypted copy of its database and
+# every verified document, written to its Backblaze B2 archive
+# (docs/RUNBOOKS/backup.md). It holds the archive writer key only (list and
+# write, no read, no delete) and the public recovery recipient, never the
+# private key. Retention runs from a separate workflow with a separate key
+# (backup-retention.yml).
+name: Backup
+on:
+  schedule:
+    # 06:17 UTC daily: an off-peak, non-round minute so the run does not queue
+    # behind every other project's on-the-hour schedule.
+    - cron: '17 6 * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  backup:
+    strategy:
+      fail-fast: false
+      matrix:
+        deployment: [gt-sales]
+    # One GitHub Environment per deployment scopes its secrets to this job.
+    # Its secrets are set in the repository settings, never in this file.
+    environment: backup-${{ matrix.deployment }}
+    concurrency:
+      group: backup-${{ matrix.deployment }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install PostgreSQL 17 client tools (pg_dump, pg_dumpall, psql)
+        # The dump runs pg_dump/pg_dumpall directly (jobs/src/backup/pg-dump.ts)
+        # as the read-only backup_reader login. pg_dump must be at least the
+        # server's major version (Postgres 17.6, docs/RUNBOOKS/backup.md
+        # "Facts"), and Ubuntu 24.04 ships 16, so the client comes from the
+        # PostgreSQL project's own apt repository.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Install age (encrypts every artifact and the manifest before upload)
+        run: sudo apt-get install -y age
+      - name: Record the tool versions this run is taken with (for the manifest)
+        run: |
+          pg_dump --version | grep -q '(PostgreSQL) 17'
+          echo "AGE_VERSION=$(age --version 2>&1 | head -n 1)" >> "$GITHUB_ENV"
+          echo "PG_DUMP_VERSION=$(pg_dump --version 2>&1 | head -n 1)" >> "$GITHUB_ENV"
+      - name: Run the backup
+        env:
+          BACKUP_DEPLOYMENT: ${{ matrix.deployment }}
+          AGE_VERSION: ${{ env.AGE_VERSION }}
+          PG_DUMP_VERSION: ${{ env.PG_DUMP_VERSION }}
+          # The source: backup_reader through the session pooler, and a
+          # Storage S3 key pair of its own that only reads.
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_DATABASE_URL }}
+          SOURCE_STORAGE_ENDPOINT: ${{ secrets.SOURCE_STORAGE_ENDPOINT }}
+          SOURCE_STORAGE_REGION: ${{ secrets.SOURCE_STORAGE_REGION }}
+          SOURCE_STORAGE_BUCKET: ${{ secrets.SOURCE_STORAGE_BUCKET }}
+          SOURCE_STORAGE_ACCESS_KEY_ID: ${{ secrets.SOURCE_STORAGE_ACCESS_KEY_ID }}
+          SOURCE_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_STORAGE_SECRET_ACCESS_KEY }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          # The public recovery recipient only, never the private key.
+          RECOVERY_AGE_RECIPIENT: ${{ secrets.RECOVERY_AGE_RECIPIENT }}
+          # The archive writer key: listFiles and writeFiles, nothing else.
+          B2_ARCHIVE_ENDPOINT: ${{ secrets.B2_ARCHIVE_ENDPOINT }}
+          B2_ARCHIVE_REGION: ${{ secrets.B2_ARCHIVE_REGION }}
+          B2_ARCHIVE_BUCKET: ${{ secrets.B2_ARCHIVE_BUCKET }}
+          B2_ARCHIVE_WRITER_KEY_ID: ${{ secrets.B2_ARCHIVE_WRITER_KEY_ID }}
+          B2_ARCHIVE_WRITER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_WRITER_APPLICATION_KEY }}
+          # Optional; unset secrets arrive empty and the defaults apply.
+          BACKUP_AUTH_DATA: ${{ secrets.BACKUP_AUTH_DATA }}
+          BACKUP_HISTORY: ${{ secrets.BACKUP_HISTORY }}
+          BACKUP_MAX_SNAPSHOT_BYTES: ${{ secrets.BACKUP_MAX_SNAPSHOT_BYTES }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          RELEASE_SHA: ${{ github.sha }}
+          DEPLOYMENT_ENV: production
+        run: pnpm --filter @gt-sales/jobs run backup
+# No delete-capable credential is ever present in this workflow.
