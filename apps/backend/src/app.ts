@@ -114,11 +114,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
     createJobsRouter(options.jobs ?? createDefaultJobsRouteDependencies()),
   );
   const staffDependencies = options.staff ?? createDefaultStaffRouteDependencies();
+  const propertyStore = staffDependencies.propertyStore ?? new DatabasePropertyStore();
   app.use(
     '/api/v1/staff',
     createStaffRouter({
       ...staffDependencies,
-      propertyStore: staffDependencies.propertyStore ?? new DatabasePropertyStore(),
+      propertyStore,
+      // Saved views are cleaned against the site's own catalogue.
+      loadPropertyCatalog:
+        staffDependencies.loadPropertyCatalog ?? ((ctx) => propertyStore.catalog(ctx)),
     }),
   );
   // Website intake surface. Server-to-server, so CORS does not apply and is

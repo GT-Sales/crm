@@ -26,7 +26,7 @@ import {
   type LeadListItem,
   type PropertyCatalog,
 } from '@gt-sales/contracts';
-import { rateLimitHit } from '@gt-sales/db';
+import { rateLimitHit, type TenantContext } from '@gt-sales/db';
 import { z } from 'zod';
 
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
@@ -62,7 +62,9 @@ import {
   type StaffAction,
 } from '../staff/authorization.js';
 import { DatabaseStaffStore, type StaffStore } from '../staff/store.js';
+import { DatabaseSavedViewStore, type SavedViewStore } from '../views/store.js';
 import { generateServiceSecret } from '../website/credential.js';
+import { createSavedViewRoutes } from './views.js';
 import {
   DatabaseWebsiteCredentialStore,
   type ServiceCredentialRecord,
@@ -86,6 +88,10 @@ export interface StaffRouteDependencies {
   identityStore?: Pick<IdentityStore, 'revealSin'>;
   /** Mail to a lead's customer; absent, no site can send. */
   customerEmail?: CustomerEmail;
+  /** Each staff member's private saved views; omitted in route tests that do not reach them. */
+  savedViewStore?: SavedViewStore;
+  /** The site's property catalogue; `createApp` supplies the default. */
+  loadPropertyCatalog?: (ctx: TenantContext) => Promise<PropertyCatalog>;
   /** Receives every unexpected handler failure; optional so tests can omit it. */
   errorTracker?: ErrorTracker;
   /**
@@ -108,6 +114,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     documentService: createDocumentServiceFromEnv(),
     identityStore: identityStoreFromEnv(),
     customerEmail: customerEmailFromEnv(),
+    savedViewStore: new DatabaseSavedViewStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -129,6 +136,13 @@ const unconfiguredPropertyStore: PropertyStore = {
   remove: () => notConfigured('property store'),
   saveLayout: () => notConfigured('property store'),
 };
+const unconfiguredSavedViewStore: SavedViewStore = {
+  list: () => notConfigured('saved view store'),
+  create: () => notConfigured('saved view store'),
+  update: () => notConfigured('saved view store'),
+  delete: () => notConfigured('saved view store'),
+};
+const unconfiguredCatalog = () => notConfigured('property catalogue');
 
 function credentialSummary(record: ServiceCredentialRecord) {
   return {
@@ -1342,6 +1356,16 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   });
 
   router.use(createPropertyRoutes({ store: propertyStore, decide, reportFailure }));
+
+  router.use(
+    createSavedViewRoutes({
+      store: dependencies.savedViewStore ?? unconfiguredSavedViewStore,
+      loadCatalog: dependencies.loadPropertyCatalog ?? unconfiguredCatalog,
+      decide,
+      canSeeContacts,
+      reportFailure,
+    }),
+  );
 
   return router;
 }

@@ -115,6 +115,9 @@ export const domainErrorCodeSchema = z.enum([
   'property_option_in_use',
   'property_in_use',
   'unknown_property_key',
+  'saved_view_not_found',
+  'saved_view_name_taken',
+  'saved_view_limit',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 
