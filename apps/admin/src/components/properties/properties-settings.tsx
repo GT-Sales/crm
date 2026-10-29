@@ -109,31 +109,43 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
   const [deleteError, setDeleteError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [pending, setPending] = useState(false);
+  // A save refused because someone else got there first: the editor is rebuilt from the reloaded model
+  // (its epoch changes), so the draft is replaced by the latest saved version and a retry sends its version.
+  const [dialogEpoch, setDialogEpoch] = useState(0);
+  const [dialogNotice, setDialogNotice] = useState<string>();
+  const [layoutEpoch, setLayoutEpoch] = useState(0);
+  const [layoutNotice, setLayoutNotice] = useState<string>();
 
   const canManage = model?.capabilities.canManage ?? false;
   const builtins = model?.properties.filter((property) => property.origin === 'builtin') ?? [];
   const customs = model?.properties.filter((property) => property.origin === 'custom') ?? [];
 
-  /** One write, then a reload so the inbox and record read the change; the reason it failed, if it did. */
+  /**
+   * One write, then a reload so the inbox and record read the change. Says why it failed, if it did;
+   * `conflict` means someone else changed it first and the model has been reloaded.
+   */
   async function write(
     action: (token: string, id: string) => Promise<unknown>,
     subject: 'property' | 'layout',
-  ): Promise<string | undefined> {
-    if (!accessToken || !workspaceId) return 'You are signed out. Sign in again to continue.';
+  ): Promise<{ reason?: string; conflict: boolean }> {
+    if (!accessToken || !workspaceId) {
+      return { reason: 'You are signed out. Sign in again to continue.', conflict: false };
+    }
     try {
       await action(accessToken, workspaceId);
     } catch (caught) {
-      if (caught instanceof BackendError && caught.code === 'version_conflict') await reload();
-      return writeError(caught, subject);
+      const conflict = caught instanceof BackendError && caught.code === 'version_conflict';
+      if (conflict) await reload();
+      return { reason: writeError(caught, subject), conflict };
     }
     await reload();
-    return undefined;
+    return { conflict: false };
   }
 
   async function change(property: SiteProperty, body: Omit<UpdateProperty, 'expectedVersion'>) {
     setNotice(undefined);
     setPending(true);
-    const reason = await write(
+    const { reason } = await write(
       (token, id) =>
         updateProperty(token, id, property.key, {
           ...body,
@@ -164,10 +176,16 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
 
   async function saveEditor(input: CreateCustomProperty | UpdateProperty) {
     const target = dialog?.property;
-    const reason = await write(async (token, id) => {
+    setDialogNotice(undefined);
+    const { reason, conflict } = await write(async (token, id) => {
       if ('kind' in input) await createProperty(token, id, input);
       else if (target) await updateProperty(token, id, target.key, input);
     }, 'property');
+    if (conflict) {
+      setDialogNotice(reason);
+      setDialogEpoch((epoch) => epoch + 1);
+      return undefined;
+    }
     if (!reason) setDialog(undefined);
     return reason;
   }
@@ -177,7 +195,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
     setDeleteError(undefined);
     setPending(true);
     const key = deleting.key;
-    const reason = await write((token, id) => deleteProperty(token, id, key), 'property');
+    const { reason } = await write((token, id) => deleteProperty(token, id, key), 'property');
     setPending(false);
     if (reason) setDeleteError(reason);
     else setDeleting(undefined);
@@ -204,6 +222,11 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
       </p>
     );
   }
+
+  // The dialog edits the property as the model has it now, not as it was when the dialog opened.
+  const editing = dialog?.property
+    ? (customs.find((entry) => entry.key === dialog.property?.key) ?? dialog.property)
+    : undefined;
 
   const layoutRow = model.layouts[leadType];
   const seeded = defaultPropertyLayout(leadType, catalog);
@@ -356,6 +379,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                   disabled={customs.length >= PROPERTY_LIMIT}
                   onClick={() => {
                     setNotice(undefined);
+                    setDialogNotice(undefined);
                     setDialog({});
                   }}
                 >
@@ -412,6 +436,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                           aria-label={`Edit ${property.label}`}
                           onClick={() => {
                             setNotice(undefined);
+                            setDialogNotice(undefined);
                             setDialog({ property });
                           }}
                         >
@@ -460,7 +485,13 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
           </p>
           <div className="max-w-xs">
             <FormField id="layout-lead-type" label="Lead type">
-              <NativeSelect value={leadType} onChange={(event) => setLeadType(event.target.value)}>
+              <NativeSelect
+                value={leadType}
+                onChange={(event) => {
+                  setLeadType(event.target.value);
+                  setLayoutNotice(undefined);
+                }}
+              >
                 {LEAD_TYPES.map((entry) => (
                   <option key={entry.key} value={entry.key}>
                     {entry.label}
@@ -469,14 +500,20 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
               </NativeSelect>
             </FormField>
           </div>
+          {layoutNotice ? (
+            <p role="alert" className="text-sm text-destructive">
+              {layoutNotice}
+            </p>
+          ) : null}
           {canManage ? (
             <LayoutEditor
-              key={leadType}
+              key={`${leadType}:${layoutEpoch}`}
               leadType={leadType}
               initial={layoutStart}
               catalog={catalog}
-              onSave={(layout) =>
-                write(
+              onSave={async (layout) => {
+                setLayoutNotice(undefined);
+                const { reason, conflict } = await write(
                   (token, id) =>
                     savePropertyLayout(token, id, leadType, {
                       layout,
@@ -485,8 +522,14 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                         : {}),
                     }),
                   'layout',
-                )
-              }
+                );
+                if (conflict) {
+                  setLayoutNotice(reason);
+                  setLayoutEpoch((epoch) => epoch + 1);
+                  return undefined;
+                }
+                return reason;
+              }}
             />
           ) : (
             <div className="flex flex-col gap-3">
@@ -519,10 +562,15 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                 : 'A custom property adds a detail staff can fill in on a lead.'}
             </DialogDescription>
           </DialogHeader>
+          {dialogNotice ? (
+            <p role="alert" className="text-sm text-destructive">
+              {dialogNotice}
+            </p>
+          ) : null}
           {dialog ? (
             <PropertyEditor
-              key={dialog.property?.key ?? 'new'}
-              {...(dialog.property ? { initial: dialog.property } : {})}
+              key={`${dialog.property?.key ?? 'new'}:${dialogEpoch}`}
+              {...(editing ? { initial: editing } : {})}
               leadTypes={LEAD_TYPES}
               onSave={saveEditor}
             />

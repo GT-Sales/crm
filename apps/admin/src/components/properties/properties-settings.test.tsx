@@ -83,14 +83,20 @@ const tier = custom({
 });
 
 /** `GET /properties` as the backend answers it. */
-function model(options: { canManage?: boolean; layouts?: Record<string, PropertyLayoutRow> } = {}) {
+function model(
+  options: {
+    canManage?: boolean;
+    layouts?: Record<string, PropertyLayoutRow>;
+    referral?: SiteProperty;
+  } = {},
+) {
   return {
     properties: [
       // City was hidden before, so the site has a row (version 3); every other built-in has none.
       ...codePropertyCatalog.all.map((entry) =>
         entry.key === 'city' ? { ...entry, hidden: true, version: 3 } : entry,
       ),
-      referral,
+      options.referral ?? referral,
       tier,
     ],
     layouts: options.layouts ?? {},
@@ -294,6 +300,41 @@ describe('PropertiesSettings properties', () => {
     await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalledTimes(2));
   });
 
+  it('rebuilds the edit dialog from the reloaded property after a conflict, so a retry sends the new version', async () => {
+    mocks.getPropertyModel
+      .mockResolvedValueOnce(model())
+      .mockResolvedValue(model({ referral: { ...referral, label: 'Partner ref', version: 5 } }));
+    mocks.updateProperty
+      .mockRejectedValueOnce(new mocks.FakeBackendError('version_conflict'))
+      .mockResolvedValue({ property: referral, requestId: 'r' });
+    render(<PropertiesSettings workspaceSlug="canadawide" />);
+    await screen.findByRole('list', { name: 'Custom properties' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Referral code' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Label'), { target: { value: 'My draft' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save property' }));
+
+    expect(
+      await within(dialog).findByText(
+        'Someone else changed this property. The latest version is loaded.',
+      ),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText<HTMLInputElement>('Label').value).toBe('Partner ref'),
+    );
+
+    fireEvent.change(within(dialog).getByLabelText('Label'), { target: { value: 'Retry' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save property' }));
+    await waitFor(() => expect(mocks.updateProperty).toHaveBeenCalledTimes(2));
+    expect(mocks.updateProperty).toHaveBeenLastCalledWith(
+      'staff-token',
+      WORKSPACE,
+      'custom_referral_code',
+      expect.objectContaining({ expectedVersion: 5, label: 'Retry' }),
+    );
+  });
+
   it('deletes a custom property only after confirming', async () => {
     mocks.deleteProperty.mockResolvedValue({ key: 'custom_referral_code', requestId: 'r' });
     render(<PropertiesSettings workspaceSlug="canadawide" />);
@@ -392,6 +433,48 @@ describe('PropertiesSettings layouts', () => {
     expect(
       await screen.findByText('Someone else changed this layout. The latest version is loaded.'),
     ).toBeTruthy();
+  });
+
+  it('replaces the draft with the reloaded layout after a conflict, so the next save sends its version', async () => {
+    const newer = {
+      partner_application: {
+        object: 'lead' as const,
+        leadType: 'partner_application',
+        layout: { sections: [{ id: 'main', label: 'Main', keys: ['company'] }] },
+        version: 4,
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      },
+    };
+    mocks.getPropertyModel
+      .mockResolvedValueOnce(model())
+      .mockResolvedValue(model({ layouts: newer }));
+    mocks.savePropertyLayout
+      .mockRejectedValueOnce(new mocks.FakeBackendError('version_conflict'))
+      .mockResolvedValue({ layout: {}, requestId: 'r' });
+    await openLayouts();
+
+    fireEvent.change(screen.getByLabelText('Section 1 name'), { target: { value: 'My draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+
+    expect(
+      await screen.findByText('Someone else changed this layout. The latest version is loaded.'),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLInputElement>('Section 1 name').value).toBe('Main'),
+    );
+    expect(mocks.savePropertyLayout.mock.calls[0]?.[3]).not.toHaveProperty('expectedVersion');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+    await waitFor(() => expect(mocks.savePropertyLayout).toHaveBeenCalledTimes(2));
+    expect(mocks.savePropertyLayout).toHaveBeenLastCalledWith(
+      'staff-token',
+      WORKSPACE,
+      'partner_application',
+      {
+        layout: { sections: [{ id: 'main', label: 'Main', keys: ['company'] }] },
+        expectedVersion: 4,
+      },
+    );
   });
 
   it('shows a read-only layout to a member who cannot manage', async () => {

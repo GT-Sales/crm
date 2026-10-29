@@ -298,10 +298,9 @@ export function LayoutEditor({
                     type="button"
                     variant="outline"
                     size="sm"
-                    aria-label={`Add ${property.label} to ${section.label}`}
                     onClick={() => place(property.key, section.id)}
                   >
-                    Add to {section.label}
+                    Add {property.label} to {section.label}
                   </Button>
                 ))}
               </li>
