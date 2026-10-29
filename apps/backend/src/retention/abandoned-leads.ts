@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { auditEvents, draftGrants, leads, withTenantTx } from '@gt-sales/db';
 
 /**
  * SEC-12, owner decision (22 Oct 2026, docs/OPEN_INPUTS.md): an order form
  * that is still `incomplete` 90 days after its last change has the visitor's
- * name, email, phone, country and answers erased and its resume links revoked.
+ * name, email, phone, country, answers and custom property values erased and
+ * its resume links revoked.
  * The row stays, restricted, as an anonymous count (source and offer kept).
  * Submitted leads are never touched; they belong to an order.
  */
@@ -65,6 +66,7 @@ export class DatabaseAbandonedLeadPruner {
             phone: null,
             countryCode: null,
             payload: null,
+            customValues: sql`'{}'::jsonb`,
             customerDataRestrictedAt: input.now,
             updatedAt: input.now,
           })
