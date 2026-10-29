@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
@@ -37,6 +38,7 @@ import {
   ArrowUpDownIcon,
   BellRingIcon,
   Columns3Icon,
+  ExternalLinkIcon,
   FilterIcon,
   KanbanSquareIcon,
   RotateCcwIcon,
@@ -57,6 +59,7 @@ import { todayDay } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
 import { BarButton, MenuItem, MenuLabel, MenuPanel, MenuSeparator } from '../crm/menu';
+import { SidePanel } from '../crm/side-panel';
 import { FilterChip, ViewBar } from '../crm/view-bar';
 import { dollarsToCents } from '../properties/property-value';
 import { usePropertyModel } from '../properties/use-property-model';
@@ -69,6 +72,7 @@ import {
 } from './inbox-query';
 import { stageDotClass } from './lead-display';
 import { propertyFilterParts, propertyOperatorLabel } from './lead-fields';
+import { LeadRecord } from './lead-record';
 import { LeadsBoard } from './leads-board';
 import { LeadsTable } from './leads-table';
 import { SavedViewSwitcher } from './saved-view-switcher';
@@ -352,6 +356,37 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         : inboxSearch(next),
     );
   }
+  /** Opens a lead in the side panel (`?lead=`), or closes it, leaving the list as it is. */
+  function setPanelLead(lead: string | undefined) {
+    const next: InboxQuery = { ...latestQuery.current, lead };
+    openQuery(
+      next,
+      catalogFailed && !next.trash
+        ? keepUnreadProperties(inboxSearch(next), latestUrl.current, {})
+        : inboxSearch(next),
+    );
+  }
+  // Closing the panel hands focus back to the lead's row in the list, and
+  // asks for the list again when something was saved in the panel.
+  const closedLead = useRef<string | undefined>(undefined);
+  const panelChanged = useRef(false);
+  const [listVersion, setListVersion] = useState(0);
+  function closePanel() {
+    closedLead.current = latestQuery.current.lead;
+    if (panelChanged.current) {
+      panelChanged.current = false;
+      setListVersion((current) => current + 1);
+    }
+    setPanelLead(undefined);
+  }
+  useEffect(() => {
+    const id = closedLead.current;
+    if (query.lead || !id) return;
+    closedLead.current = undefined;
+    // `?lead=` only ever holds a uuid, so it is safe in a selector as it is.
+    document.querySelector<HTMLElement>(`a[data-lead-id="${id}"]`)?.focus();
+  }, [query.lead]);
+
   /** What a switch to `nextType` keeps of the property filters, sort and columns. */
   function propertiesFor(nextType: string | undefined) {
     // Without the site's catalogue nothing can be judged; leave them as they are.
@@ -403,7 +438,11 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     if (viewId && !target) return;
     // The search is not part of a view.
     setSearchText('');
-    const next = target ? viewStateToInboxQuery(openedState(target), target.id) : allLeadsQuery();
+    const next: InboxQuery = {
+      ...(target ? viewStateToInboxQuery(openedState(target), target.id) : allLeadsQuery()),
+      // The lead open in the side panel stays open.
+      lead: latestQuery.current.lead,
+    };
     openQuery(next, inboxSearch(next));
   }
   async function saveView(): Promise<string | undefined> {
@@ -1227,30 +1266,79 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         </p>
       ) : null}
 
-      {!accessToken || !workspaceId ? null : onBoard && query.type ? (
-        <LeadsBoard
-          workspaceSlug={workspaceSlug}
-          workspaceId={workspaceId}
-          accessToken={accessToken}
-          members={members}
-          query={{ ...query, type: query.type }}
-          waiting={waitingForCatalog}
-        />
-      ) : (
-        <LeadsTable
-          workspaceSlug={workspaceSlug}
-          workspaceId={workspaceId}
-          accessToken={accessToken}
-          members={members}
-          query={query}
-          catalog={catalog}
-          waiting={waitingForCatalog}
-          canUseProperties={canUseProperties}
-          onPage={(page) => update({ page })}
-          onSort={(next) => update({ sort: next })}
-          onClearFilters={clearAllFilters}
-        />
-      )}
+      <div className="flex min-w-0 items-start">
+        <div className="min-w-0 flex-1">
+          {!accessToken || !workspaceId ? null : onBoard && query.type ? (
+            <LeadsBoard
+              // The board loads once per mount; a new key asks again.
+              key={listVersion}
+              workspaceSlug={workspaceSlug}
+              workspaceId={workspaceId}
+              accessToken={accessToken}
+              members={members}
+              query={{ ...query, type: query.type }}
+              waiting={waitingForCatalog}
+            />
+          ) : (
+            <LeadsTable
+              workspaceSlug={workspaceSlug}
+              workspaceId={workspaceId}
+              accessToken={accessToken}
+              members={members}
+              query={query}
+              catalog={catalog}
+              waiting={waitingForCatalog}
+              canUseProperties={canUseProperties}
+              onPage={(page) => update({ page })}
+              onSort={(next) => update({ sort: next })}
+              onClearFilters={clearAllFilters}
+              reloadToken={listVersion}
+              panel={{
+                openId: query.lead,
+                href: (leadId) => `${pathname}${inboxSearch({ ...query, lead: leadId })}`,
+                onOpen: setPanelLead,
+              }}
+            />
+          )}
+        </div>
+        {/* Beside the list the panel stays in view while the list scrolls; a phone gets a sheet. */}
+        <div
+          className={cn(
+            'sticky top-4 flex self-start',
+            query.lead !== undefined && 'md:h-[calc(100dvh-2rem)]',
+          )}
+        >
+          <SidePanel
+            open={query.lead !== undefined}
+            // A stable title: the panel keeps focus while one lead replaces another.
+            title="Lead"
+            onClose={closePanel}
+            actions={
+              query.lead ? (
+                <Link
+                  href={`/w/${workspaceSlug}/leads/${query.lead}`}
+                  className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ExternalLinkIcon aria-hidden="true" className="size-3.5" />
+                  Open full page
+                </Link>
+              ) : undefined
+            }
+          >
+            {query.lead ? (
+              <LeadRecord
+                key={query.lead}
+                workspaceSlug={workspaceSlug}
+                leadId={query.lead}
+                variant="panel"
+                onChange={() => {
+                  panelChanged.current = true;
+                }}
+              />
+            ) : null}
+          </SidePanel>
+        </div>
+      </div>
     </div>
   );
 }
