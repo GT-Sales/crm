@@ -41,9 +41,10 @@ export interface SavedViewRouteDependencies {
  * A staff member's private saved views of the leads list, under
  * `/workspaces/:workspaceId/views`. A view holds filters, sort and property
  * columns, so only roles that may see contact and form details use them.
- * Every view returned is cleaned against the site's current catalogue (a
- * property hidden since the view was saved drops out); the stored row keeps
- * what the person saved.
+ * A create or update stores the state cleaned against the site's current
+ * catalogue, so no filter, column or sort on a sensitive, hidden or unknown
+ * key is ever written; every view returned is cleaned again, so a property
+ * hidden since the view was saved drops out of what is applied.
  */
 export function createSavedViewRoutes(dependencies: SavedViewRouteDependencies): Router {
   const router = Router();
@@ -66,9 +67,8 @@ export function createSavedViewRoutes(dependencies: SavedViewRouteDependencies):
     return { workspaceId, actorId: actor.actorId };
   }
 
-  async function cleaned(ctx: TenantContext, views: readonly SavedView[]): Promise<SavedView[]> {
-    const catalog = await dependencies.loadCatalog(ctx);
-    return views.map((view) => ({ ...view, state: cleanSavedViewState(view.state, catalog) }));
+  function cleaned(catalog: PropertyCatalog, view: SavedView): SavedView {
+    return { ...view, state: cleanSavedViewState(view.state, catalog) };
   }
 
   function failed(req: Request, res: Response, error: unknown): void {
@@ -98,7 +98,8 @@ export function createSavedViewRoutes(dependencies: SavedViewRouteDependencies):
       const ctx = await allowedContext(req, res, workspaceId);
       if (!ctx) return;
       const views = await dependencies.store.list(ctx, query.data.object);
-      res.json({ views: await cleaned(ctx, views), requestId: req.id });
+      const catalog = await dependencies.loadCatalog(ctx);
+      res.json({ views: views.map((view) => cleaned(catalog, view)), requestId: req.id });
     } catch (error) {
       failed(req, res, error);
     }
@@ -114,13 +115,15 @@ export function createSavedViewRoutes(dependencies: SavedViewRouteDependencies):
     try {
       const ctx = await allowedContext(req, res, workspaceId);
       if (!ctx) return;
-      const outcome = await dependencies.store.create(ctx, body.data);
+      const catalog = await dependencies.loadCatalog(ctx);
+      const outcome = await dependencies.store.create(ctx, {
+        ...body.data,
+        state: cleanSavedViewState(body.data.state, catalog),
+      });
       switch (outcome.kind) {
-        case 'created': {
-          const [view] = await cleaned(ctx, [outcome.view]);
-          res.status(201).json({ view, requestId: req.id });
+        case 'created':
+          res.status(201).json({ view: cleaned(catalog, outcome.view), requestId: req.id });
           return;
-        }
         case 'name_taken':
           sendDomainError(res, req.id, 'saved_view_name_taken', 409);
           return;
@@ -143,13 +146,16 @@ export function createSavedViewRoutes(dependencies: SavedViewRouteDependencies):
     try {
       const ctx = await allowedContext(req, res, params.workspaceId);
       if (!ctx) return;
-      const outcome = await dependencies.store.update(ctx, params.viewId, body.data);
+      const catalog = await dependencies.loadCatalog(ctx);
+      const { state, ...change } = body.data;
+      const outcome = await dependencies.store.update(ctx, params.viewId, {
+        ...change,
+        ...(state === undefined ? {} : { state: cleanSavedViewState(state, catalog) }),
+      });
       switch (outcome.kind) {
-        case 'updated': {
-          const [view] = await cleaned(ctx, [outcome.view]);
-          res.json({ view, requestId: req.id });
+        case 'updated':
+          res.json({ view: cleaned(catalog, outcome.view), requestId: req.id });
           return;
-        }
         case 'not_found':
           sendDomainError(res, req.id, 'saved_view_not_found', 404);
           return;

@@ -6,9 +6,11 @@ import {
   defaultPropertyLayout,
   leadTypeCatalog,
   leadTypeLabel,
+  propertyUsageSchema,
   renderPropertyLayout,
   type CreateCustomProperty,
   type PropertyLayout,
+  type PropertyUsage,
   type SiteProperty,
   type UpdateProperty,
 } from '@gt-sales/contracts';
@@ -52,28 +54,47 @@ const TABS: readonly { id: Tab; label: string }[] = [
 
 const leadsText = (count: number) => `${count} ${count === 1 ? 'lead' : 'leads'}`;
 
-function detailCount(error: BackendError): number | undefined {
-  const count = error.details?.leadCount;
-  return typeof count === 'number' ? count : undefined;
+function detailUsage(error: BackendError): PropertyUsage | undefined {
+  const usage = propertyUsageSchema.safeParse(error.details);
+  return usage.success ? usage.data : undefined;
+}
+
+/**
+ * Where the leads holding a value are, and what each group needs, e.g.
+ * "Used on 5 leads: 2 active, 2 in the trash (restore, clear the value, trash
+ * again), 1 restricted (cannot be edited)". Groups with no lead are left out.
+ */
+function usageText(usage: PropertyUsage): string {
+  const parts: string[] = [];
+  if (usage.active > 0) parts.push(`${usage.active} active`);
+  if (usage.trashed > 0) {
+    parts.push(`${usage.trashed} in the trash (restore, clear the value, trash again)`);
+  }
+  if (usage.restricted > 0) parts.push(`${usage.restricted} restricted (cannot be edited)`);
+  return `${leadsText(usage.leadCount)}: ${parts.join(', ')}`;
 }
 
 /** What went wrong with a write, in words staff can act on. */
 function writeError(error: unknown, subject: 'property' | 'layout'): string {
   if (error instanceof BackendError) {
-    const count = detailCount(error);
+    const usage = detailUsage(error);
     switch (error.code) {
       case 'version_conflict':
         return `Someone else changed this ${subject}. The latest version is loaded.`;
       case 'property_in_use':
-        return count === undefined
-          ? 'Leads still hold a value for this property. Clear the value on those leads first.'
-          : `Used on ${leadsText(count)}. Clear the value on those leads first.`;
+        if (usage === undefined) {
+          return 'Leads still hold a value for this property. Clear the value on those leads first, or hide the property instead.';
+        }
+        // A restricted lead can never be cleared, so hiding is then the only way out.
+        return usage.restricted > 0
+          ? `Used on ${usageText(usage)}. Hide the property instead.`
+          : `Used on ${usageText(usage)}. Clear the value on ${usage.leadCount === 1 ? 'that lead' : 'those leads'} first, or hide the property instead.`;
       case 'property_option_in_use': {
         const option = error.details?.optionValue;
         const name = typeof option === 'string' ? option : 'This option';
-        return count === undefined
+        return usage === undefined
           ? `${name} is used on leads. Hide it instead of removing it.`
-          : `Option ${name} is used on ${leadsText(count)}. Hide it instead of removing it.`;
+          : `Option ${name} is used on ${usageText(usage)}. Hide it instead of removing it.`;
       }
       case 'builtin_property_locked':
         return 'A built-in property can only be renamed or hidden.';

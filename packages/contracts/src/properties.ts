@@ -180,6 +180,21 @@ export const BUILTIN_OVERRIDE_FIELDS = ['label', 'hidden', 'expectedVersion'] as
 /** Custom properties per object per site. */
 export const PROPERTY_LIMIT = 100;
 
+/**
+ * The `details` of `property_in_use` (and, with `optionValue`, of
+ * `property_option_in_use`): every lead of the site holding the value, split
+ * by what the owner can do about it. `active` leads can be edited; `trashed`
+ * ones must be restored first; `restricted` ones (personal data restricted)
+ * can never be edited. `leadCount` is their sum.
+ */
+export const propertyUsageSchema = z.object({
+  leadCount: z.number().int().min(0),
+  active: z.number().int().min(0),
+  trashed: z.number().int().min(0),
+  restricted: z.number().int().min(0),
+});
+export type PropertyUsage = z.infer<typeof propertyUsageSchema>;
+
 export interface SiteProperty {
   readonly key: string;
   readonly label: string;
@@ -638,7 +653,11 @@ export function parsePropertyValue(
 
 const moneyFormat = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
 const dateFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeZone: 'UTC' });
-const dateTimeFormat = new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeZone: 'UTC' });
+const dateTimeFormat = new Intl.DateTimeFormat('en-CA', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  timeZone: 'UTC',
+});
 
 /** A stored value as staff read it; empty for no value, the value itself when it does not fit the kind. */
 export function formatPropertyValue(

@@ -938,6 +938,67 @@ describe('LeadsInbox', () => {
       view.unmount();
     });
 
+    it('opens a view naming a property the site hides without it: clean, and never asks for it', async () => {
+      const CITY: SavedView = {
+        id: '40000000-0000-4000-8000-000000000003',
+        object: 'lead',
+        name: 'Calgary installs',
+        state: {
+          ...DEFAULT_LEAD_VIEW_STATE,
+          leadType: 'internet',
+          where: [
+            { key: 'city', op: 'eq', value: 'Calgary' },
+            { key: 'planId', op: 'notEmpty' },
+          ],
+          sort: 'prop.city:desc',
+          columns: ['city', 'planId'],
+        },
+        version: 1,
+        updatedAt: '2026-10-28T10:00:00.000Z',
+      };
+      mocks.listSavedViews.mockResolvedValue({ views: [CITY], requestId: 'req_test' });
+      // The site hid the built-in City since the view was saved.
+      mocks.getPropertyModel.mockResolvedValue(siteModel);
+      // As the backend answers a list that filters, sorts or shows a hidden property.
+      mocks.getStaffLeads.mockImplementation(
+        async (_token: string, _site: string, query: unknown) => {
+          if (JSON.stringify(query).includes('city'))
+            throw new backend.BackendError('invalid_request');
+          return { ...emptyPage, access: { contacts: true, manage: true } };
+        },
+      );
+
+      const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger('All leads'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Calgary installs' }));
+
+      const url = navigation.replace.mock.lastCall?.[0];
+      expect(typeof url).toBe('string');
+      expect(String(url)).not.toContain('city');
+      const params = new URLSearchParams(String(url).split('?')[1]);
+      expect(params.get('view')).toBe(CITY.id);
+      expect(params.get('type')).toBe('internet');
+      expect(params.get('cols')).toBe('planId');
+      expect(JSON.parse(params.get('where') ?? '[]')).toEqual([{ key: 'planId', op: 'notEmpty' }]);
+      expect(params.get('sort')).toBeNull();
+
+      view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+      expect((await trigger(/Calgary installs/)).textContent).not.toContain('Unsaved changes');
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+      await waitFor(() =>
+        expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+          'staff-token',
+          WORKSPACE,
+          expect.objectContaining({ columns: ['planId'] }),
+        ),
+      );
+      // No list request named the hidden property, so none was refused with a 400.
+      for (const [, , query] of mocks.getStaffLeads.mock.calls) {
+        expect(JSON.stringify(query)).not.toContain('city');
+      }
+      expect(screen.queryByText(/invalid_request/)).toBeNull();
+    });
+
     it('says when the views could not be loaded and still works as All leads', async () => {
       mocks.listSavedViews.mockRejectedValue(new backend.BackendError('internal_error'));
       render(<LeadsInbox workspaceSlug="canadawide" />);

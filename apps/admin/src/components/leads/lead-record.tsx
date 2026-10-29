@@ -326,7 +326,14 @@ export function LeadRecord({
     if (!record.data) return;
     setMessage(undefined);
     try {
-      await navigator.clipboard.writeText(leadSummaryText(record.data));
+      await navigator.clipboard.writeText(
+        leadSummaryText(record.data, {
+          layout,
+          catalog,
+          // As the record shows them: everyone who sees the customer's details sees these.
+          canRevealSensitive: record.data.access.contacts,
+        }),
+      );
       setCopied(true);
     } catch {
       setMessage('The browser did not allow copying. Select the details and copy them instead.');
@@ -512,7 +519,7 @@ export function LeadRecord({
           </p>
         ) : null}
         {message ? (
-          <p role="alert" className="text-sm text-rose-300">
+          <p role="alert" className="text-sm text-destructive">
             {message}
           </p>
         ) : null}
@@ -665,7 +672,7 @@ export function LeadRecord({
                   </p>
                 )}
                 {simEmailMessage ? (
-                  <p role="alert" className="text-sm text-rose-300">
+                  <p role="alert" className="text-sm text-destructive">
                     {simEmailMessage}
                   </p>
                 ) : null}

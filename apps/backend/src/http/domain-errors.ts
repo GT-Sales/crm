@@ -55,8 +55,10 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   property_not_found: 'The property does not exist on this site.',
   property_limit: 'This site already has the most custom properties it may have.',
   builtin_property_locked: 'A built-in property can only be relabelled or hidden.',
-  property_option_in_use: 'Leads still hold this option; `details` names it and how many.',
-  property_in_use: 'Leads still hold a value for this property; `details` says how many.',
+  property_option_in_use:
+    'Leads still hold this option; `details` names it and how many (active, trashed, restricted).',
+  property_in_use:
+    'Leads still hold a value for this property; `details` says how many (active, trashed, restricted).',
   unknown_property_key: 'The layout names a property this site does not have; `details` names it.',
   saved_view_not_found: 'You have no saved view with this id on this site.',
   saved_view_name_taken: 'You already have a saved view with this name.',

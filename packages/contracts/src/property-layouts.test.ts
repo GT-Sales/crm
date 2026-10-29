@@ -5,6 +5,7 @@ import {
   codePropertyCatalog,
   defaultPropertyLayout,
   deletePropertyResponseSchema,
+  leadTypeCatalog,
   propertyLayoutResponseSchema,
   propertyLayoutRowSchema,
   propertyLayoutSchema,
@@ -126,6 +127,20 @@ describe('defaultPropertyLayout', () => {
     const keys = layout.sections.flatMap((s) => s.keys);
     expect(new Set(keys).size).toBe(keys.length);
     expect(layout.sections.find((s) => s.id === 'custom')?.keys).toEqual(['custom_internal']);
+  });
+
+  it('gives a type with no properties one empty Request section that the schema accepts', () => {
+    expect(codePropertyCatalog.forType('contact_message')).toEqual([]);
+    const layout = defaultPropertyLayout('contact_message', codePropertyCatalog);
+    expect(layout).toEqual({ sections: [{ id: 'request', label: 'Request', keys: [] }] });
+    expect(propertyLayoutSchema.safeParse(layout).success).toBe(true);
+  });
+
+  it('gives every lead type a default layout the schema accepts', () => {
+    for (const leadType of Object.keys(leadTypeCatalog)) {
+      const layout = defaultPropertyLayout(leadType, codePropertyCatalog);
+      expect(propertyLayoutSchema.safeParse(layout).success, leadType).toBe(true);
+    }
   });
 });
 

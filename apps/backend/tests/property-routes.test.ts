@@ -8,6 +8,7 @@ import {
   propertyLayoutResponseSchema,
   propertyModelResponseSchema,
   propertyResponseSchema,
+  propertyUsageSchema,
   type PropertyLayoutRow,
   type PropertyRow,
   type StaffWorkspace,
@@ -252,6 +253,21 @@ describe('property routes', () => {
     expect(simKeys).not.toContain('city');
   });
 
+  it('GET /properties parses for every lead type when the site has no rows, contact_message included', async () => {
+    properties.model.mockResolvedValueOnce({ rows: [], layouts: [] });
+    const response = await call(propertiesUrl());
+    expect(response.status).toBe(200);
+    const body = propertyModelResponseSchema.parse(await response.json());
+    expect(Object.keys(body.layouts).sort()).toEqual(Object.keys(leadTypeCatalog).sort());
+    for (const leadType of Object.keys(leadTypeCatalog)) {
+      expect(body.layouts[leadType]?.layout.sections.length, leadType).toBeGreaterThan(0);
+    }
+    // A type with no properties gets the one empty Request section.
+    expect(body.layouts['contact_message']?.layout).toEqual({
+      sections: [{ id: 'request', label: 'Request', keys: [] }],
+    });
+  });
+
   it('GET /properties is 403 for someone outside the site and 400 for a bad site id', async () => {
     store.access = { ...store.access, status: 'revoked' };
     expect((await call(propertiesUrl())).status).toBe(403);
@@ -320,10 +336,17 @@ describe('property routes', () => {
     const cases = [
       [{ kind: 'builtin_locked' }, 400, 'builtin_property_locked', undefined],
       [
-        { kind: 'option_in_use', optionValue: 'gold', leadCount: 3 },
+        {
+          kind: 'option_in_use',
+          optionValue: 'gold',
+          leadCount: 3,
+          active: 1,
+          trashed: 1,
+          restricted: 1,
+        },
         409,
         'property_option_in_use',
-        { optionValue: 'gold', leadCount: 3 },
+        { optionValue: 'gold', leadCount: 3, active: 1, trashed: 1, restricted: 1 },
       ],
       [{ kind: 'not_found' }, 404, 'property_not_found', undefined],
       [{ kind: 'version_conflict' }, 409, 'version_conflict', undefined],
@@ -356,14 +379,26 @@ describe('property routes', () => {
     expect(properties.update).toHaveBeenCalledTimes(6);
   });
 
-  it('DELETE maps in_use to 409 with leadCount', async () => {
+  it('DELETE maps in_use to 409 with the lead count and its split', async () => {
     const url = `${propertiesUrl()}/custom_referral_code`;
-    properties.remove.mockResolvedValueOnce({ kind: 'in_use', leadCount: 4 });
+    properties.remove.mockResolvedValueOnce({
+      kind: 'in_use',
+      leadCount: 4,
+      active: 1,
+      trashed: 2,
+      restricted: 1,
+    });
     const inUse = await call(url, { method: 'DELETE' });
     expect(inUse.status).toBe(409);
     const error = await errorOf(inUse);
     expect(error.code).toBe('property_in_use');
-    expect(error.details).toEqual({ leadCount: 4 });
+    expect(propertyUsageSchema.parse(error.details)).toEqual({
+      leadCount: 4,
+      active: 1,
+      trashed: 2,
+      restricted: 1,
+    });
+    expect(error.details).toEqual({ leadCount: 4, active: 1, trashed: 2, restricted: 1 });
 
     const deleted = await call(url, { method: 'DELETE' });
     expect(deleted.status).toBe(200);

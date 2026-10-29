@@ -11,6 +11,7 @@ import {
   type PropertyCatalog,
   type PropertyLayoutRow,
   type PropertyRow,
+  type PropertyUsage,
   type SiteProperty,
 } from '@gt-sales/contracts';
 import { z } from 'zod';
@@ -41,6 +42,16 @@ export interface PropertyRouteDependencies {
 
 /** Leads are the only object with properties staff manage today. */
 const OBJECT = 'lead';
+
+/** The `details` of an in-use refusal: the lead count and its split (`propertyUsageSchema`). */
+function usageDetails(usage: PropertyUsage): PropertyUsage {
+  return {
+    leadCount: usage.leadCount,
+    active: usage.active,
+    trashed: usage.trashed,
+    restricted: usage.restricted,
+  };
+}
 
 /** The wire form of a row the store just wrote: the row resolved as the catalogue resolves it. */
 function siteProperty(row: PropertyRow): SiteProperty {
@@ -248,7 +259,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
         case 'option_in_use':
           sendDomainError(res, req.id, 'property_option_in_use', 409, {
             optionValue: outcome.optionValue,
-            leadCount: outcome.leadCount,
+            ...usageDetails(outcome),
           });
           return;
       }
@@ -278,7 +289,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
           sendDomainError(res, req.id, 'builtin_property_locked', 400);
           return;
         case 'in_use':
-          sendDomainError(res, req.id, 'property_in_use', 409, { leadCount: outcome.leadCount });
+          sendDomainError(res, req.id, 'property_in_use', 409, usageDetails(outcome));
           return;
       }
     } catch (error) {
