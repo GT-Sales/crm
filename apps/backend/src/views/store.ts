@@ -124,8 +124,15 @@ export class DatabaseSavedViewStore implements SavedViewStore {
       // A failed insert aborts the transaction, so its unique violation is
       // answered here, after the rollback.
       return await this.database.withTenantTx(ctx, async (tx) => {
-        // Locking the owner's rows serialises their concurrent creates
-        // against the count (an aggregate cannot be locked, so the rows are).
+        // One owner's creates run one at a time from here to commit, so the
+        // count below always includes a concurrent create's row. Locking the
+        // rows alone would not: a row inserted after this statement's
+        // snapshot is never seen, and with no rows there is nothing to lock.
+        await tx.execute(sql`
+          select pg_advisory_xact_lock(
+            hashtextextended('saved_views:' || ${ctx.workspaceId}::text || ':' || ${ctx.actorId}::text, 0)
+          )
+        `);
         const owned = await tx
           .select({ id: savedViews.id })
           .from(savedViews)

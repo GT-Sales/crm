@@ -163,9 +163,10 @@ databaseTest('DatabaseSavedViewStore', () => {
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
     runtimeUrl.password = TEST_RUNTIME_PASSWORD;
+    // More than one connection, so concurrent writes really run side by side.
     database = createDatabaseClient({
       connectionString: runtimeUrl.toString(),
-      maxConnections: 1,
+      maxConnections: 4,
       ssl: false,
     });
     unrestricted = createDatabaseClient({
@@ -246,6 +247,26 @@ databaseTest('DatabaseSavedViewStore', () => {
     // The limit is per person and site.
     expect((await created(store, colleagues, 'Still room')).name).toBe('Still room');
     expect((await created(store, mineElsewhere, 'Still room')).name).toBe('Still room');
+  });
+
+  it('two concurrent creates at 29 views give exactly one created and one limit_reached', async () => {
+    await admin`
+      insert into app.saved_views (workspace_id, actor_id, object, name, state)
+      select ${WORKSPACE}, ${ACTOR}, 'lead', 'Bulk ' || n, '{}'::jsonb
+      from generate_series(1, ${SAVED_VIEW_LIMIT - 1}) as n
+    `;
+    // Open every pool connection first, so the creates start together.
+    await Promise.all([1, 2, 3, 4].map(() => store.list(mine, 'lead')));
+    const outcomes = await Promise.all([
+      store.create(mine, { object: 'lead', name: 'Racer A', state: cityView }),
+      store.create(mine, { object: 'lead', name: 'Racer B', state: cityView }),
+    ]);
+    expect(outcomes.map((outcome) => outcome.kind).sort()).toEqual(['created', 'limit_reached']);
+    const [{ count } = { count: -1 }] = await admin<{ count: number }[]>`
+      select count(*)::int as count from app.saved_views
+      where workspace_id = ${WORKSPACE} and actor_id = ${ACTOR}
+    `;
+    expect(count).toBe(SAVED_VIEW_LIMIT);
   });
 
   it("update needs the current version; delete of another person's id is not_found", async () => {
