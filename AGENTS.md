@@ -139,8 +139,8 @@ no rows. Every list, board, filter, sort, column and record screen reads the
 catalogue, never the code list directly. A **layout** orders the sections and
 property keys of the lead record for one site and lead type
 (`app.property_layouts`). A **saved view** is one staff member's private copy
-of the leads inbox state (layout, type, stage, assignee, filters, sort,
-columns), never the free-text search or the page; `app.saved_views` is
+of the leads inbox state (layout, type, stage, assignee, trash, due today,
+filters, sort, property columns and hidden columns), never the free-text search or the page; `app.saved_views` is
 visible only to its owner, at most 30 per person per site.
 
 ## Git
