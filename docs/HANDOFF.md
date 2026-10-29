@@ -614,15 +614,15 @@ logs.
 | B5  | Merge the pull request, then the first run: Backup (`backup_completed`, `referencedObjectCount` 122 or today's count), Backup monitor (`status` `ok`), Backup retention as a dry run, read, then once for real; then one scheduled night stays green (step 7). | Merged 2026-10-29 (#2); the first run waits on B1–B4.                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | B6  | Restore drill on a scratch project ([RUNBOOKS/restore.md](RUNBOOKS/restore.md), "Drill"). Merge phase 1 is done when this is recorded.                                                                                                                         | To do                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
-**Properties migrations (merge phase 2).** Apply `0009_properties` and
-`0010_properties_runtime` **before deploying this branch's backend**: its lead
-queries select `leads.custom_values`, which does not exist until 0009 is in.
-Both are additive, so they can go in first and the old backend keeps working.
-Paste [`RUNBOOKS/manual/0009-0010-properties.sql`](RUNBOOKS/manual/0009-0010-properties.sql)
-into Supabase → SQL Editor as `postgres`, once (it is one transaction with both
-files and all four tracker rows), then run its six verification selects one at
-a time and record the date in
-[RUNBOOKS/database.md](RUNBOOKS/database.md#0009_properties). Status: **to do**.
+**Properties migrations (merge phase 2).** `0009_properties` and
+`0010_properties_runtime` were applied to the hosted project on 2026-10-29 by
+the developer through the Supabase tool (two migrations, both trackers), before
+the branch's backend deploys (its lead queries select `leads.custom_values`).
+The six verification selects of
+[`RUNBOOKS/manual/0009-0010-properties.sql`](RUNBOOKS/manual/0009-0010-properties.sql)
+all matched; the record is in
+[RUNBOOKS/database.md](RUNBOOKS/database.md#0009_properties). Status: **done**.
+For another deployment, paste that file into the SQL Editor as `postgres`, once.
 
 Then the CRM's own owner items:
 

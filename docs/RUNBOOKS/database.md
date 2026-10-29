@@ -230,7 +230,9 @@ lower(name))`. The **owner policy** `saved_views_owner_policy` (helper
   `_backup_reader_read` policies; `backup_reader` needs no new grant (0007's
   default privileges).
 - Drizzle hash `fc29a234e9726f0af4aa523a011d67f148203fed528de8794e8a81a4c7c18aaf`,
-  `created_at` `1793296569722`. Not yet applied in production.
+  `created_at` `1793296569722`. Applied in production 2026-10-29 through the
+  Supabase tool as migration `0009_properties` (tracker version
+  `20261029215922`), verbatim plus its Drizzle tracker row.
 
 ## 0010_properties_runtime
 
@@ -247,7 +249,11 @@ DELETE` on `saved_views`.
   (`property_tombstone_permanent`), or when a built-in row gets a
   `deleted_at` (`builtin_property_not_deletable`).
 - Drizzle hash `2ae0e451305f7110cb3262f086535e09f484fb844da2b020c9d090321544815f`,
-  `created_at` `1793296580888`. Not yet applied in production.
+  `created_at` `1793296580888`. Applied in production 2026-10-29 as
+  `0010_properties_runtime` (tracker version `20261029215938`); the six
+  verification selects matched (three tables forced, six policies, 28
+  backup read policies, grants, the trigger, `custom_values` `'{}'` on all
+  912 leads).
 - To apply both (the Supabase tool holds ALTER and GRANT statements for a
   confirm prompt): paste
   [`manual/0009-0010-properties.sql`](manual/0009-0010-properties.sql) into
