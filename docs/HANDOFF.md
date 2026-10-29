@@ -539,10 +539,11 @@ applied to the hosted project yet** (§5.1), so this is not deployed.
    request and validate `where`, `sort` and `columns` against it; custom
    values are filtered, sorted and returned like form values, and a stored
    value of the wrong type never matches and never throws. The new action
-   `property.manage` is granted to the `owner` role only. Saved views are
-   returned cleaned against the current catalogue (a property hidden or
-   deleted since the view was saved drops out of that response; the stored
-   row is untouched).
+   `property.manage` is granted to the `owner` role only. A saved view's
+   state is stored cleaned against the catalogue (no filter, column or sort
+   on a sensitive, hidden or unknown key is ever written) and returned
+   cleaned again (a property hidden or deleted since the view was saved drops
+   out of that response; the stored row is untouched).
 4. **Admin.** `components/crm/` holds the view bar, menus, side panel and page
    header, with light tokens in `app/crm-theme.css` and a 220 px sidebar.
    The leads inbox is a compact table or board on that view bar, with the
@@ -558,7 +559,12 @@ applied to the hosted project yet** (§5.1), so this is not deployed.
    controls need `property.manage`) lists built-in and custom properties, adds,
    edits, hides and deletes them, and edits each lead type's layout. The lead
    record is rendered from the site's layout, and custom values are saved in
-   the same PATCH as the form (`customValues`).
+   the same PATCH as the form (`customValues`); the inbox opens it in the
+   side panel (`lead=`, with "Open full page"), and "Copy info" copies what
+   the layout shows (site labels, custom values, hidden properties left
+   out). Date of birth and sensitive custom values show to every role with
+   contact access; `access.revealSensitive` (`sensitive.reveal`, owners)
+   gates only the sealed SIN reveal.
 
 ## 4. What is verified, and how
 
