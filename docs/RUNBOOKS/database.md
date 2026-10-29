@@ -198,6 +198,73 @@ pg_proc / pg_policies where schemaname = 'app'`.
   only `users` and `identities` readable) and a real connection as
   `backup_reader` (password from `setTestBackupReaderPassword`).
 
+## 0009_properties
+
+- Phase 2's property engine (docs/superpowers/plans/2026-10-29-phase-2-properties-layout-views.md),
+  generated from `packages/db/src/schema.ts`. Additive only: three new tables
+  and one new column with a default, so it can go in before the code that
+  reads them.
+- `app.properties`: a site's property definitions per `object` (`lead` now,
+  `plan` later), either a custom property (`origin = 'custom'`) or an
+  override of a code built-in (`origin = 'builtin'`: relabel or hide). Checks
+  on `object`, `key` (`^[a-z][A-Za-z0-9_]{0,63}$`), `origin`, `label`
+  (1–80), `kind` (the 12 kinds of `PROPERTY_KINDS`) and `options` (a JSON
+  array). Unique `(workspace_id, id)` and `(workspace_id, object, key)`; the
+  second includes tombstones on purpose, so a deleted key is reserved
+  forever. Tenant policy.
+- `app.property_layouts`: one layout per `(workspace_id, object, lead_type)`,
+  `lead_type` `''` for the object's default, `layout` a JSON object. Tenant
+  policy.
+- `app.saved_views`: a person's private views. `actor_id` with the FK
+  `(workspace_id, actor_id) → memberships(workspace_id, user_id)` on delete
+  cascade, `name` 1–60 characters once trimmed, `state` a JSON object, unique
+  index `saved_views_owner_name_unique (workspace_id, actor_id, object,
+lower(name))`. The **owner policy** `saved_views_owner_policy` (helper
+  `ownerPolicy` in schema.ts): the tenant predicate plus
+  `actor_id = app.actor_id`, so a colleague's view reads as missing and
+  nobody can save one for someone else.
+- `app.leads.custom_values`: `jsonb not null default '{}'`, check
+  `leads_custom_values_check` (`jsonb_typeof = 'object'`). Adding it rewrites
+  no rows (constant default); the check scans `leads` once.
+- Each new table declares `backupReadPolicy(...)`, so `app` now has 28
+  `_backup_reader_read` policies; `backup_reader` needs no new grant (0007's
+  default privileges).
+- Drizzle hash `fc29a234e9726f0af4aa523a011d67f148203fed528de8794e8a81a4c7c18aaf`,
+  `created_at` `1793296569722`. Not yet applied in production.
+
+## 0010_properties_runtime
+
+- Hand-written companion to 0009: `FORCE ROW LEVEL SECURITY` on the three
+  tables; `app_runtime` gets `SELECT, INSERT, UPDATE` on `properties` (no
+  DELETE: a custom property is tombstoned with `deleted_at`) and on
+  `property_layouts` (replaced in place), and `SELECT, INSERT, UPDATE,
+DELETE` on `saved_views`.
+- Trigger `properties_identity_guard` (BEFORE UPDATE on `app.properties`,
+  function `app.guard_property_identity()`, invoker, `search_path`
+  `pg_catalog, app`) raises `restrict_violation` (SQLSTATE 23001) when
+  `workspace_id`, `object`, `key`, `kind` or `origin` changes
+  (`property_identity_locked`), when a set `deleted_at` changes at all
+  (`property_tombstone_permanent`), or when a built-in row gets a
+  `deleted_at` (`builtin_property_not_deletable`).
+- Drizzle hash `2ae0e451305f7110cb3262f086535e09f484fb844da2b020c9d090321544815f`,
+  `created_at` `1793296580888`. Not yet applied in production.
+- To apply both (the Supabase tool holds ALTER and GRANT statements for a
+  confirm prompt): paste
+  [`manual/0009-0010-properties.sql`](manual/0009-0010-properties.sql) into
+  the SQL editor once, as `postgres`. It is one transaction with both files
+  verbatim and all four tracker rows; the migrator then finds nothing to do.
+  Then run its six verification selects one at a time: the three tables with
+  RLS enabled and forced; their six policies; 28 backup read policies in
+  `app`; the runtime grants above and `backup_reader` `SELECT` on all three;
+  the trigger enabled; and `leads.custom_values` with its default, `NOT
+NULL` and its check. Record the date and the Supabase tracker versions
+  here afterwards.
+- `packages/db/tests/properties.integration.test.ts` covers the owner policy
+  (two people's views named "Mine", a colleague's select, update and delete
+  touching nothing, no view saved for someone else), the reserved key, the
+  guard, the shape checks, `custom_values`, FORCE RLS, the policies and the
+  grants.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,
