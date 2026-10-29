@@ -5,7 +5,7 @@ import {
   type CreateLeadNoteResponse,
   type CreateLeadTaskRequest,
   type GetWorkspaceLeadResponse,
-  type LeadBoardQuery,
+  type LeadBoardQueryInput,
   type LeadBoardResponse,
   type LeadsSummaryQuery,
   type LeadsSummaryResponse,
@@ -30,7 +30,7 @@ import {
   type ListAssignableMembersResponse,
   type ListServiceCredentialsResponse,
   type ListWorkspaceJobsResponse,
-  type ListWorkspaceLeadsQuery,
+  type ListWorkspaceLeadsQueryInput,
   type ListWorkspaceLeadsResponse,
   type ResolveUncertainJobResponse,
   type RetryWorkspaceJobResponse,
@@ -123,7 +123,7 @@ export async function revokeServiceCredential(
 export async function getStaffLeads(
   accessToken: string,
   workspaceId: string,
-  query?: ListWorkspaceLeadsQuery,
+  query?: ListWorkspaceLeadsQueryInput,
 ): Promise<ListWorkspaceLeadsResponse> {
   return client(accessToken).staff.listLeads(workspaceId, query);
 }
@@ -148,7 +148,7 @@ export async function getLeadStats(
 export async function getLeadBoard(
   accessToken: string,
   workspaceId: string,
-  query: LeadBoardQuery,
+  query: LeadBoardQueryInput,
 ): Promise<LeadBoardResponse> {
   return client(accessToken).staff.leadBoard(workspaceId, query);
 }

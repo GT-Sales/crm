@@ -3,6 +3,7 @@ import { contextWorkspaceId, type TenantTransaction } from '@gt-sales/db';
 import {
   RELATED_LEADS_LIMIT,
   attributionSchema,
+  filterableLeadProperties,
   leadActivitySchema,
   leadContactSchema,
   leadCountdownField,
@@ -10,11 +11,13 @@ import {
   leadFieldCatalog,
   leadFormSchema,
   leadIdentitySchema,
+  leadProperty,
   leadStageSchema,
   leadStatusSchema,
   leadTaskSchema,
   leadTypeEntry,
   leadTypeSchema,
+  parseLeadSort,
   relatedLeadSchema,
   type LeadActivity,
   type LeadAssigneeFilter,
@@ -23,6 +26,8 @@ import {
   type LeadDocument,
   type LeadIdentity,
   type LeadListItem,
+  type LeadPropertyFilter,
+  type LeadPropertyValue,
   type LeadStatus,
   type LeadTask,
   type LeadTaskStatus,
@@ -71,6 +76,7 @@ export interface LeadRow {
   nextTaskDueAt: string | null;
   isNew: boolean;
   countdownDate: unknown;
+  formPayload?: unknown;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -142,8 +148,28 @@ const OPEN_TASK_SUMMARY = sql.raw(`
   ) t on true
 `);
 
-export function toLeadListItem(row: LeadRow): LeadListItem {
+function extractRequestedProperties(
+  formPayload: unknown,
+  columns: readonly string[],
+): Record<string, LeadPropertyValue> {
+  const properties: Record<string, LeadPropertyValue> = {};
+  if (typeof formPayload !== 'object' || formPayload === null || Array.isArray(formPayload)) {
+    return properties;
+  }
+  for (const key of columns) {
+    const property = leadProperty(key);
+    if (!property || property.sensitive) continue;
+    const raw: unknown = Reflect.get(formPayload, key);
+    if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
+      properties[key] = raw;
+    }
+  }
+  return properties;
+}
+
+export function toLeadListItem(row: LeadRow, requestedColumns?: readonly string[]): LeadListItem {
   const attribution = attributionSchema.parse(row.attribution ?? {});
+  const hasRequestedColumns = requestedColumns !== undefined && requestedColumns.length > 0;
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -167,6 +193,9 @@ export function toLeadListItem(row: LeadRow): LeadListItem {
     isNew: row.isNew === true,
     // Whatever the form holds; only a real calendar day counts down.
     countdownDate: calendarDay(row.countdownDate),
+    ...(hasRequestedColumns
+      ? { properties: extractRequestedProperties(row.formPayload, requestedColumns) }
+      : {}),
     deletedAt: row.deletedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -207,6 +236,98 @@ export interface LeadFilters {
   view?: LeadView;
   /** Only leads with an open task due on or before this calendar day. */
   dueBy?: string;
+  /** Validated property filters combined with AND. */
+  where?: readonly LeadPropertyFilter[];
+  /** Validated sort string (`<field>:<asc|desc>`). */
+  sort?: string;
+  /** Validated property column keys (at most 6). */
+  columns?: readonly string[];
+}
+
+function propertyFilterCondition(filter: LeadPropertyFilter, leadType?: string): SQL {
+  const property = filterableLeadProperties(leadType).find((entry) => entry.key === filter.key);
+  if (!property) return sql`false`;
+
+  const v = sql`(l.payload -> 'payload' ->> ${filter.key})`;
+  const jsonVal = sql`(l.payload -> 'payload' -> ${filter.key})`;
+
+  if (filter.op === 'empty') {
+    return sql`coalesce(btrim(${v}), '') = ''`;
+  }
+  if (filter.op === 'notEmpty') {
+    return sql`coalesce(btrim(${v}), '') <> ''`;
+  }
+
+  switch (property.kind) {
+    case 'text':
+    case 'longText': {
+      if (typeof filter.value !== 'string') return sql`false`;
+      if (filter.op === 'eq') {
+        return sql`lower(btrim(${v})) = lower(btrim(${filter.value}))`;
+      }
+      if (filter.op === 'contains') {
+        return sql`${v} ilike ${likePattern(filter.value)}`;
+      }
+      return sql`false`;
+    }
+    case 'choice': {
+      if (filter.op === 'eq' && typeof filter.value === 'string') {
+        return sql`${v} = ${filter.value}`;
+      }
+      if (filter.op === 'in' && Array.isArray(filter.value) && filter.value.length > 0) {
+        return sql`${v} in (${sql.join(
+          filter.value.map((item) => sql`${item}`),
+          sql`, `,
+        )})`;
+      }
+      return sql`false`;
+    }
+    case 'date': {
+      if (typeof filter.value !== 'string') return sql`false`;
+      if (filter.op === 'eq') {
+        return sql`(${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${v} = ${filter.value})`;
+      }
+      if (filter.op === 'lte') {
+        return sql`(${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${v} <= ${filter.value})`;
+      }
+      if (filter.op === 'gte') {
+        return sql`(${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${v} >= ${filter.value})`;
+      }
+      return sql`false`;
+    }
+    case 'dateTime': {
+      if (typeof filter.value !== 'string') return sql`false`;
+      const guardedTs = sql`(case when ${v} ~ '^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)$' then (${v})::timestamptz end)`;
+      if (filter.op === 'lte') {
+        return sql`${guardedTs} <= ${filter.value}::timestamptz`;
+      }
+      if (filter.op === 'gte') {
+        return sql`${guardedTs} >= ${filter.value}::timestamptz`;
+      }
+      return sql`false`;
+    }
+    case 'count': {
+      if (typeof filter.value !== 'number') return sql`false`;
+      const guardedNum = sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
+      if (filter.op === 'eq') {
+        return sql`${guardedNum} = ${filter.value}`;
+      }
+      if (filter.op === 'lte') {
+        return sql`${guardedNum} <= ${filter.value}`;
+      }
+      if (filter.op === 'gte') {
+        return sql`${guardedNum} >= ${filter.value}`;
+      }
+      return sql`false`;
+    }
+    case 'yesNo': {
+      if (typeof filter.value !== 'boolean') return sql`false`;
+      if (filter.op === 'eq') {
+        return sql`${jsonVal} = to_jsonb(${filter.value}::boolean)`;
+      }
+      return sql`false`;
+    }
+  }
 }
 
 /** The WHERE conditions for lead `l`. Restricted leads are never listed, whatever the view. */
@@ -249,6 +370,11 @@ function leadConditions(filters: LeadFilters): SQL {
     }
     conditions.push(sql`(${sql.join(matches, sql` or `)})`);
   }
+  if (filters.where && filters.where.length > 0) {
+    for (const filter of filters.where) {
+      conditions.push(propertyFilterCondition(filter, filters.leadType));
+    }
+  }
   return sql.join(conditions, sql` and `);
 }
 
@@ -263,22 +389,45 @@ const NEXT_DUE = sql.raw(`(
   where task.workspace_id = l.workspace_id and task.lead_id = l.id and task.status = 'open'
 )`);
 
-/**
- * One page of leads, newest activity first (the trash: most recently deleted
- * first; follow-ups due: the most overdue first). The page's total rides on
- * each row as a window count taken before the limit; the task summary is
- * joined after it, so only the page pays.
- */
-export async function selectLeadPage(
-  tx: TenantTransaction,
-  filters: LeadFilters,
-  page: number,
-  pageSize: number,
-): Promise<LeadPage> {
-  const offset = (page - 1) * pageSize;
-  // Follow-ups due: the page is cut on the lead's own next due date, and the
-  // rows come back in the same order from the summary joined after it
-  // (`t.next_due`, the same minimum).
+function sortOrderOf(filters: LeadFilters): { pageOrder: SQL; rowOrder: SQL } {
+  if (filters.sort) {
+    const parsed = parseLeadSort(filters.sort);
+    if (parsed) {
+      const dir =
+        parsed.direction === 'asc' ? sql.raw('asc nulls last') : sql.raw('desc nulls last');
+      let expr: SQL;
+      if (parsed.field === 'createdAt') {
+        expr = sql`l.created_at`;
+      } else if (parsed.field === 'updatedAt') {
+        expr = sql`l.updated_at`;
+      } else if (parsed.field === 'fullName') {
+        expr = sql`nullif(btrim(l.full_name), '')`;
+      } else if (parsed.field === 'externalRef') {
+        expr = sql`nullif(btrim(l.external_ref), '')`;
+      } else if (parsed.propertyKey !== undefined) {
+        const key = parsed.propertyKey;
+        const property = filterableLeadProperties(filters.leadType).find(
+          (entry) => entry.key === key,
+        );
+        const v = sql`(l.payload -> 'payload' ->> ${key})`;
+        const jsonVal = sql`(l.payload -> 'payload' -> ${key})`;
+        if (property?.kind === 'count') {
+          expr = sql`(case when jsonb_typeof(${jsonVal}) = 'number' then (${v})::numeric end)`;
+        } else if (property?.kind === 'yesNo') {
+          expr = sql`(case when jsonb_typeof(${jsonVal}) = 'boolean' then (${v})::boolean end)`;
+        } else if (property?.kind === 'date') {
+          expr = sql`(case when ${v} ~ '^\\d{4}-\\d{2}-\\d{2}$' then ${v} end)`;
+        } else {
+          expr = sql`nullif(btrim(${v}), '')`;
+        }
+      } else {
+        expr = sql`l.updated_at`;
+      }
+      const order = sql`${expr} ${dir}, l.id`;
+      return { pageOrder: order, rowOrder: order };
+    }
+  }
+
   const trash = filters.view === 'trash';
   const pageOrder = trash
     ? sql.raw('l.deleted_at desc, l.id')
@@ -290,6 +439,30 @@ export async function selectLeadPage(
     : filters.dueBy
       ? sql.raw('t.next_due asc, l.id')
       : sql.raw('l.updated_at desc, l.id');
+  return { pageOrder, rowOrder };
+}
+
+/**
+ * One page of leads, newest activity first (the trash: most recently deleted
+ * first; follow-ups due: the most overdue first; or an explicit `sort`). The
+ * page's total rides on each row as a window count taken before the limit; the
+ * task summary is joined after it, so only the page pays.
+ */
+export async function selectLeadPage(
+  tx: TenantTransaction,
+  filters: LeadFilters,
+  page: number,
+  pageSize: number,
+): Promise<LeadPage> {
+  const offset = (page - 1) * pageSize;
+  const { pageOrder, rowOrder } = sortOrderOf(filters);
+  const requestedColumns = (filters.columns ?? []).filter((key) => {
+    const property = leadProperty(key);
+    return property !== undefined && !property.sensitive;
+  });
+  const formPayloadColumn =
+    requestedColumns.length > 0 ? sql`, l.payload -> 'payload' as "formPayload"` : sql``;
+
   const rows = await tx.execute<LeadRow & { total: number }>(sql`
     with page as (
       select l.*, count(*) over ()::int as total
@@ -298,7 +471,7 @@ export async function selectLeadPage(
       order by ${pageOrder}
       limit ${pageSize} offset ${offset}
     )
-    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total${formPayloadColumn}
     from page l
     ${OPEN_TASK_SUMMARY}
     order by ${rowOrder}
@@ -313,7 +486,10 @@ export async function selectLeadPage(
     `);
     total = count?.total ?? 0;
   }
-  return { leads: rows.map(toLeadListItem), total };
+  return {
+    leads: rows.map((row) => toLeadListItem(row, requestedColumns)),
+    total,
+  };
 }
 
 /**

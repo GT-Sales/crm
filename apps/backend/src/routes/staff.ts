@@ -1,7 +1,11 @@
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
 import {
+  areValidLeadColumns,
+  areValidLeadPropertyFilters,
   createDownloadLinkRequestSchema,
+  isValidLeadSort,
+  parseLeadSort,
   createLeadNoteRequestSchema,
   createLeadTaskRequestSchema,
   createServiceCredentialRequestSchema,
@@ -189,7 +193,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
 
   // The countdown date comes from the form, which these roles never see.
   function withoutContact(lead: LeadListItem): LeadListItem {
-    return { ...lead, contact: {}, countdownDate: null };
+    const { properties: _properties, ...rest } = lead;
+    return { ...rest, contact: {}, countdownDate: null };
   }
 
   function withoutPersonalDetails(lead: LeadDetail): LeadDetail {
@@ -312,7 +317,15 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.get('/workspaces/:workspaceId/leads', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const query = listWorkspaceLeadsQuerySchema.safeParse(req.query);
-    if (!workspaceId.success || !query.success) {
+    if (
+      !workspaceId.success ||
+      !query.success ||
+      (query.data.where !== undefined &&
+        !areValidLeadPropertyFilters(query.data.where, query.data.type)) ||
+      (query.data.sort !== undefined && !isValidLeadSort(query.data.sort, query.data.type)) ||
+      (query.data.columns !== undefined &&
+        !areValidLeadColumns(query.data.columns, query.data.type))
+    ) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -324,8 +337,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       const access = leadAccessOf(decision.access);
-      // A search by name or email would reveal who is a lead.
-      if (query.data.q !== undefined && !access.contacts) {
+      const parsedSort = query.data.sort ? parseLeadSort(query.data.sort) : undefined;
+      // Searching, filtering, sorting by name or a property, or requesting
+      // property columns reveals contact or form details these roles never see.
+      if (
+        !access.contacts &&
+        (query.data.q !== undefined ||
+          query.data.where !== undefined ||
+          query.data.columns !== undefined ||
+          parsedSort?.field === 'fullName' ||
+          parsedSort?.propertyKey !== undefined)
+      ) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
@@ -340,6 +362,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         search: query.data.q,
         view: query.data.view,
         dueBy: query.data.dueBy,
+        where: query.data.where,
+        sort: query.data.sort,
+        columns: query.data.columns,
         page: query.data.page,
         pageSize: query.data.pageSize,
       });
@@ -416,7 +441,12 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.get('/workspaces/:workspaceId/leads/board', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const query = leadBoardQuerySchema.safeParse(req.query);
-    if (!workspaceId.success || !query.success) {
+    if (
+      !workspaceId.success ||
+      !query.success ||
+      (query.data.where !== undefined &&
+        !areValidLeadPropertyFilters(query.data.where, query.data.type))
+    ) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -427,7 +457,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       const access = leadAccessOf(decision.access);
-      if (query.data.q !== undefined && !access.contacts) {
+      if (!access.contacts && (query.data.q !== undefined || query.data.where !== undefined)) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
@@ -440,6 +470,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           leadType: query.data.type,
           assignee: query.data.assignee,
           search: query.data.q,
+          where: query.data.where,
         },
         query.data.perStage ?? 50,
       );

@@ -24,6 +24,8 @@ import { assigneeName } from '../../lib/people';
 import { useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
 import { CountdownLabel, leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
+import { propertyColumnLabel, propertyColumnValue } from './lead-fields';
+import { useStoredList } from './view-preferences';
 
 const PAGE_SIZE = 50;
 
@@ -40,6 +42,67 @@ function secondaryLine(lead: LeadListItem): string | undefined {
   return undefined;
 }
 
+function ariaSortFor(
+  currentSort: string | undefined,
+  field: string,
+): 'ascending' | 'descending' | 'none' {
+  if (currentSort === `${field}:asc`) return 'ascending';
+  if (currentSort === `${field}:desc`) return 'descending';
+  return 'none';
+}
+
+export function cycleLeadSort(currentSort: string | undefined, field: string): string | undefined {
+  if (currentSort === `${field}:asc`) return `${field}:desc`;
+  if (currentSort === `${field}:desc`) return undefined;
+  return `${field}:asc`;
+}
+
+function SortableHeader({
+  label,
+  field,
+  currentSort,
+  canSort,
+  onSort,
+}: {
+  label: string;
+  field: string;
+  currentSort: string | undefined;
+  canSort: boolean;
+  onSort?(next: string | undefined): void;
+}) {
+  if (!canSort || !onSort) {
+    return (
+      <th scope="col" className="px-3 py-2 font-medium">
+        {label}
+      </th>
+    );
+  }
+  const direction = ariaSortFor(currentSort, field);
+  return (
+    <th
+      scope="col"
+      aria-sort={direction}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onSort(cycleLeadSort(currentSort, field));
+        }
+      }}
+      className="px-3 py-2 font-medium"
+    >
+      <button
+        type="button"
+        onClick={() => onSort(cycleLeadSort(currentSort, field))}
+        className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground"
+      >
+        <span>{label}</span>
+        <span aria-hidden="true" className="text-[10px]">
+          {direction === 'ascending' ? '↑' : direction === 'descending' ? '↓' : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 /** The inbox as a table: one row per lead, newest activity first (follow-ups due: most overdue first). */
 export function LeadsTable({
   workspaceSlug,
@@ -47,14 +110,20 @@ export function LeadsTable({
   accessToken,
   members,
   query,
+  canUseProperties,
   onPage,
+  onSort,
+  onClearFilters,
 }: {
   workspaceSlug: string;
   workspaceId: string;
   accessToken: string;
   members: readonly AssignableMember[];
   query: InboxQuery;
+  canUseProperties?: boolean;
   onPage(page: number): void;
+  onSort?(sort: string | undefined): void;
+  onClearFilters?(): void;
 }) {
   const router = useRouter();
   const load = useMemo(
@@ -67,6 +136,9 @@ export function LeadsTable({
         view: query.trash ? 'trash' : 'active',
         // Due by the viewer's own today: due dates are calendar days.
         dueBy: query.due ? todayDay() : undefined,
+        ...(query.where && query.where.length > 0 ? { where: query.where } : {}),
+        ...(query.sort ? { sort: query.sort } : {}),
+        ...(query.columns && query.columns.length > 0 ? { columns: query.columns } : {}),
         page: query.page,
         pageSize: PAGE_SIZE,
       }),
@@ -79,6 +151,9 @@ export function LeadsTable({
       query.q,
       query.trash,
       query.due,
+      query.where,
+      query.sort,
+      query.columns,
       query.page,
     ],
   );
@@ -87,10 +162,22 @@ export function LeadsTable({
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
   const leadHref = (lead: LeadListItem) => `/w/${workspaceSlug}/leads/${lead.id}`;
+  const contactsAllowed = leads.data ? leads.data.access.contacts : (canUseProperties ?? false);
+  const canSort = contactsAllowed && !query.trash && Boolean(onSort);
+
   // The type's countdown (a SIM order's arrival) gets a column; on every type's
   // tab, when this page holds a lead that has one.
   const countdownType = query.type ?? rows.find((lead) => lead.countdownDate)?.leadType;
   const countdownField = countdownType ? leadCountdownField(countdownType) : undefined;
+  const [hiddenCols] = useStoredList(`gt-table-hidden-cols:${workspaceId}`);
+  const showCol = (key: string) => !hiddenCols.includes(key);
+  const showingCountdown = Boolean(countdownField && showCol('countdown'));
+  const propertyColumns = contactsAllowed
+    ? (query.columns ?? []).filter((key) => !(showingCountdown && countdownField?.key === key))
+    : [];
+  const hasFilters = Boolean(
+    query.q || query.stage || query.assignee || (query.where && query.where.length > 0),
+  );
 
   if (leads.error) {
     return (
@@ -109,52 +196,115 @@ export function LeadsTable({
         <table className="w-full min-w-[880px] text-sm" aria-busy={leads.loading}>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-medium">
-                Lead
-              </th>
-              {query.type ? null : (
+              <SortableHeader
+                label="Lead"
+                field="fullName"
+                currentSort={query.sort}
+                canSort={canSort}
+                onSort={onSort}
+              />
+              {query.type || !showCol('type') ? null : (
                 <th scope="col" className="px-3 py-2 font-medium">
                   Type
                 </th>
               )}
-              <th scope="col" className="px-3 py-2 font-medium">
-                Stage
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Assignee
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Next task
-              </th>
-              {countdownField ? (
+              {showCol('stage') ? (
                 <th scope="col" className="px-3 py-2 font-medium">
-                  {countdownField.label}
+                  Stage
                 </th>
               ) : null}
-              <th scope="col" className="px-3 py-2 font-medium">
-                Source
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Created
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                {query.trash ? 'Deleted' : 'Last activity'}
-              </th>
+              {showCol('assignee') ? (
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Assignee
+                </th>
+              ) : null}
+              {showCol('nextTask') ? (
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Next task
+                </th>
+              ) : null}
+              {countdownField && showCol('countdown') ? (
+                <SortableHeader
+                  label={countdownField.label}
+                  field={`prop.${countdownField.key}`}
+                  currentSort={query.sort}
+                  canSort={canSort}
+                  onSort={onSort}
+                />
+              ) : null}
+              {propertyColumns.map((key) => (
+                <SortableHeader
+                  key={key}
+                  label={propertyColumnLabel(query.type, key)}
+                  field={`prop.${key}`}
+                  currentSort={query.sort}
+                  canSort={canSort}
+                  onSort={onSort}
+                />
+              ))}
+              {showCol('source') ? (
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Source
+                </th>
+              ) : null}
+              {showCol('created') ? (
+                <SortableHeader
+                  label="Created"
+                  field="createdAt"
+                  currentSort={query.sort}
+                  canSort={canSort}
+                  onSort={onSort}
+                />
+              ) : null}
+              {showCol('activity') ? (
+                query.trash ? (
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Deleted
+                  </th>
+                ) : (
+                  <SortableHeader
+                    label="Last activity"
+                    field="updatedAt"
+                    currentSort={query.sort}
+                    canSort={canSort}
+                    onSort={onSort}
+                  />
+                )
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">
-                  {leads.loading
-                    ? 'Loading…'
-                    : query.trash
-                      ? 'The trash is empty.'
-                      : query.due
-                        ? 'No follow-ups due today or earlier.'
-                        : query.q || query.stage || query.assignee
-                          ? 'No leads match these filters.'
-                          : 'No leads yet.'}
+                <td
+                  colSpan={9 + propertyColumns.length}
+                  className="px-3 py-10 text-center text-muted-foreground"
+                >
+                  {leads.loading ? (
+                    'Loading…'
+                  ) : query.trash ? (
+                    'The trash is empty.'
+                  ) : query.due ? (
+                    'No follow-ups due today or earlier.'
+                  ) : hasFilters ? (
+                    <>
+                      <span>No leads match these filters.</span>
+                      {onClearFilters ? (
+                        <>
+                          {' '}
+                          <button
+                            type="button"
+                            className="font-medium text-foreground underline"
+                            onClick={onClearFilters}
+                          >
+                            Clear filters
+                          </button>
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    'No leads yet.'
+                  )}
                 </td>
               </tr>
             ) : (
@@ -191,34 +341,40 @@ export function LeadsTable({
                         </span>
                       ) : null}
                     </td>
-                    {query.type ? null : (
+                    {query.type || !showCol('type') ? null : (
                       <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
                         {leadTypeLabel(lead.leadType)}
                       </td>
                     )}
-                    <td className="px-3 py-2">
-                      <StageBadge leadType={lead.leadType} stage={lead.stage} />
-                    </td>
-                    <td className="max-w-[180px] px-3 py-2">
-                      {assignee ? (
-                        <PersonChip name={assignee} size="xs" />
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {lead.nextTaskDueAt ? (
-                        <span className={DUE_TONE_CLASS[dueTone(lead.nextTaskDueAt)]}>
-                          {dueLabel(lead.nextTaskDueAt)}
-                          {lead.openTaskCount > 1 ? ` · ${lead.openTaskCount} open` : ''}
-                        </span>
-                      ) : lead.openTaskCount > 0 ? (
-                        <span className="text-muted-foreground">{lead.openTaskCount} open</span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    {countdownField ? (
+                    {showCol('stage') ? (
+                      <td className="px-3 py-2">
+                        <StageBadge leadType={lead.leadType} stage={lead.stage} />
+                      </td>
+                    ) : null}
+                    {showCol('assignee') ? (
+                      <td className="max-w-[180px] px-3 py-2">
+                        {assignee ? (
+                          <PersonChip name={assignee} size="xs" />
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    ) : null}
+                    {showCol('nextTask') ? (
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {lead.nextTaskDueAt ? (
+                          <span className={DUE_TONE_CLASS[dueTone(lead.nextTaskDueAt)]}>
+                            {dueLabel(lead.nextTaskDueAt)}
+                            {lead.openTaskCount > 1 ? ` · ${lead.openTaskCount} open` : ''}
+                          </span>
+                        ) : lead.openTaskCount > 0 ? (
+                          <span className="text-muted-foreground">{lead.openTaskCount} open</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    ) : null}
+                    {countdownField && showCol('countdown') ? (
                       <td className="px-3 py-2 whitespace-nowrap">
                         {lead.countdownDate ? (
                           <>
@@ -230,21 +386,39 @@ export function LeadsTable({
                         )}
                       </td>
                     ) : null}
-                    <td className="max-w-[180px] truncate px-3 py-2">
-                      <code className="text-xs text-muted-foreground">{lead.source}</code>
-                    </td>
-                    <td
-                      className="px-3 py-2 whitespace-nowrap text-muted-foreground"
-                      title={dateTimeLabel(lead.createdAt)}
-                    >
-                      {relativeTime(lead.createdAt)}
-                    </td>
-                    <td
-                      className="px-3 py-2 whitespace-nowrap text-muted-foreground"
-                      title={dateTimeLabel(lastChange)}
-                    >
-                      {relativeTime(lastChange)}
-                    </td>
+                    {propertyColumns.map((key) => {
+                      const formatted = propertyColumnValue(lead.leadType, key, lead.properties);
+                      return (
+                        <td key={key} className="max-w-[200px] truncate px-3 py-2">
+                          {formatted !== undefined ? (
+                            <span>{formatted}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    {showCol('source') ? (
+                      <td className="max-w-[180px] truncate px-3 py-2">
+                        <code className="text-xs text-muted-foreground">{lead.source}</code>
+                      </td>
+                    ) : null}
+                    {showCol('created') ? (
+                      <td
+                        className="px-3 py-2 whitespace-nowrap text-muted-foreground"
+                        title={dateTimeLabel(lead.createdAt)}
+                      >
+                        {relativeTime(lead.createdAt)}
+                      </td>
+                    ) : null}
+                    {showCol('activity') ? (
+                      <td
+                        className="px-3 py-2 whitespace-nowrap text-muted-foreground"
+                        title={dateTimeLabel(lastChange)}
+                      >
+                        {relativeTime(lastChange)}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })

@@ -110,7 +110,10 @@ lifecycle (`incomplete` → `submitted`); its `stage` is where staff are working
 it (`new`, `contacted`, `won`…). Labels and stages per type live in one place,
 `leadTypeCatalog` in `packages/contracts/src/lead-types.ts`; the backend
 registry (`apps/backend/src/leads/types.ts`) adds payload schemas and intake
-rules.
+rules. Form property definitions live once in `leadPropertyCatalog` in
+`packages/contracts/src/lead-properties.ts` (paired with each lead type's field
+list in `leadTypeProperties`), and `leadFieldCatalog` in
+`packages/contracts/src/lead-fields.ts` derives from it.
 
 ## Git
 
