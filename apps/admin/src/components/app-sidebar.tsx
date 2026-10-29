@@ -4,13 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
-  FileTextIcon,
-  LayoutDashboardIcon,
-  ListTodoIcon,
-  SettingsIcon,
-  UsersIcon,
-} from 'lucide-react';
-import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -24,20 +17,8 @@ import {
 } from '@gt-sales/ui';
 
 import { getLeadsSummary } from '../lib/api';
+import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
-
-/**
- * Only sections that exist. Orders, partners, finance and reports arrive with
- * the phases that port them (docs/PLAN.md §7); a link to a missing page is a
- * 404, not a placeholder.
- */
-const NAV_ITEMS = [
-  { section: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
-  { section: 'leads', label: 'Leads', icon: UsersIcon },
-  { section: 'tasks', label: 'My tasks', icon: ListTodoIcon },
-  { section: 'documents', label: 'Documents', icon: FileTextIcon },
-  { section: 'settings', label: 'Settings', icon: SettingsIcon },
-] as const;
 
 /**
  * Leads no one who works leads has opened yet, across the site's types,

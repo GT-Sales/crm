@@ -1,0 +1,28 @@
+/**
+ * CRM surface tokens for the admin: the quiet greys and the red-tinted
+ * selection/chip colours used by the list, view bar and side panel. Light theme
+ * only. Imported after the shared tokens so the 220 px sidebar width overrides
+ * the shared default.
+ */
+
+:root {
+  --crm-header: oklch(0.985 0 0);
+  --crm-row-border: oklch(0.94 0 0);
+  --crm-row-hover: oklch(0.975 0 0);
+  --crm-selected: oklch(0.97 0.02 27);
+  --crm-chip: oklch(0.96 0.03 27);
+  --crm-chip-border: oklch(0.88 0.06 27);
+  --crm-chip-foreground: var(--primary);
+
+  --sidebar-width: 13.75rem;
+}
+
+@theme inline {
+  --color-crm-header: var(--crm-header);
+  --color-crm-row-border: var(--crm-row-border);
+  --color-crm-row-hover: var(--crm-row-hover);
+  --color-crm-selected: var(--crm-selected);
+  --color-crm-chip: var(--crm-chip);
+  --color-crm-chip-border: var(--crm-chip-border);
+  --color-crm-chip-foreground: var(--crm-chip-foreground);
+}
