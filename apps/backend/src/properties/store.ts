@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import {
   auditEvents,
   properties,
@@ -24,6 +24,7 @@ import {
   type PropertyObject,
   type PropertyOption,
   type PropertyRow,
+  type PropertyUsage,
   type UpdateProperty,
 } from '@gt-sales/contracts';
 
@@ -54,12 +55,12 @@ export type UpdatePropertyOutcome =
   | { kind: 'builtin_locked' }
   /** Options on a kind that has none, a choice left with none, or a repeated option value. */
   | { kind: 'invalid_options' }
-  | { kind: 'option_in_use'; optionValue: string; leadCount: number };
+  | ({ kind: 'option_in_use'; optionValue: string } & PropertyUsage);
 export type RemovePropertyOutcome =
   | { kind: 'deleted' }
   | { kind: 'not_found' }
   | { kind: 'builtin' }
-  | { kind: 'in_use'; leadCount: number };
+  | ({ kind: 'in_use' } & PropertyUsage);
 export type SaveLayoutOutcome =
   | { kind: 'saved'; layout: PropertyLayoutRow }
   | { kind: 'version_conflict' }
@@ -181,36 +182,50 @@ async function lockPropertyRecord(
   return record;
 }
 
+/**
+ * Every lead of the site matching `holds`, trashed and restricted ones
+ * included (a value there still exists), split so the owner knows what to do:
+ * active leads can be cleared, trashed ones restored first, restricted ones
+ * never edited. A restricted lead counts as restricted whether trashed or not.
+ */
+async function countUsage(
+  tx: TenantTransaction,
+  workspaceId: string,
+  holds: SQL,
+): Promise<PropertyUsage> {
+  const [row] = await tx.execute<PropertyUsage>(sql`
+    select
+      count(*)::int as "leadCount",
+      count(*) filter (where customer_data_restricted_at is null and deleted_at is null)::int as active,
+      count(*) filter (where customer_data_restricted_at is null and deleted_at is not null)::int as trashed,
+      count(*) filter (where customer_data_restricted_at is not null)::int as restricted
+    from app.leads
+    where workspace_id = ${workspaceId} and ${holds}
+  `);
+  return row ?? { leadCount: 0, active: 0, trashed: 0, restricted: 0 };
+}
+
 /** Leads of the site whose custom value for `key` is exactly the option `value`. */
-async function countLeadsWithOption(
+function countLeadsWithOption(
   tx: TenantTransaction,
   workspaceId: string,
   key: string,
   value: string,
-): Promise<number> {
-  const [row] = await tx.execute<{ count: number }>(sql`
-    select count(*)::int as count
-    from app.leads
-    where workspace_id = ${workspaceId}
-      and custom_values -> ${key}::text = to_jsonb(${value}::text)
-  `);
-  return row?.count ?? 0;
+): Promise<PropertyUsage> {
+  return countUsage(tx, workspaceId, sql`custom_values -> ${key}::text = to_jsonb(${value}::text)`);
 }
 
 /** Leads of the site holding any value (not null) for `key`. */
-async function countLeadsWithValue(
+function countLeadsWithValue(
   tx: TenantTransaction,
   workspaceId: string,
   key: string,
-): Promise<number> {
-  const [row] = await tx.execute<{ count: number }>(sql`
-    select count(*)::int as count
-    from app.leads
-    where workspace_id = ${workspaceId}
-      and custom_values ? ${key}::text
-      and custom_values -> ${key}::text <> 'null'::jsonb
-  `);
-  return row?.count ?? 0;
+): Promise<PropertyUsage> {
+  return countUsage(
+    tx,
+    workspaceId,
+    sql`custom_values ? ${key}::text and custom_values -> ${key}::text <> 'null'::jsonb`,
+  );
 }
 
 async function auditProperty(
@@ -366,9 +381,10 @@ export class DatabasePropertyStore implements PropertyStore {
           const kept = new Set(input.options.map((option) => option.value));
           for (const option of toPropertyRow(record).options) {
             if (kept.has(option.value)) continue;
-            const leadCount = await countLeadsWithOption(tx, ctx.workspaceId, key, option.value);
-            if (leadCount > 0)
-              return { kind: 'option_in_use', optionValue: option.value, leadCount };
+            const usage = await countLeadsWithOption(tx, ctx.workspaceId, key, option.value);
+            if (usage.leadCount > 0) {
+              return { kind: 'option_in_use', optionValue: option.value, ...usage };
+            }
           }
           set.options = input.options;
         }
@@ -422,8 +438,8 @@ export class DatabasePropertyStore implements PropertyStore {
         return { kind: 'not_found' };
       }
 
-      const leadCount = await countLeadsWithValue(tx, ctx.workspaceId, key);
-      if (leadCount > 0) return { kind: 'in_use', leadCount };
+      const usage = await countLeadsWithValue(tx, ctx.workspaceId, key);
+      if (usage.leadCount > 0) return { kind: 'in_use', ...usage };
 
       await tx
         .update(properties)

@@ -259,7 +259,13 @@ describe('PropertiesSettings properties', () => {
 
   it('says which option is in use when removing it is refused', async () => {
     mocks.updateProperty.mockRejectedValue(
-      new mocks.FakeBackendError('property_option_in_use', { optionValue: 'bronze', leadCount: 4 }),
+      new mocks.FakeBackendError('property_option_in_use', {
+        optionValue: 'bronze',
+        leadCount: 4,
+        active: 3,
+        trashed: 1,
+        restricted: 0,
+      }),
     );
     render(<PropertiesSettings workspaceSlug="canadawide" />);
     await screen.findByRole('list', { name: 'Custom properties' });
@@ -270,7 +276,7 @@ describe('PropertiesSettings properties', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save property' }));
 
     expect((await within(dialog).findByRole('alert')).textContent).toBe(
-      'Option bronze is used on 4 leads. Hide it instead of removing it.',
+      'Option bronze is used on 4 leads: 3 active, 1 in the trash (restore, clear the value, trash again). Hide it instead of removing it.',
     );
   });
 
@@ -354,9 +360,14 @@ describe('PropertiesSettings properties', () => {
     await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalledTimes(2));
   });
 
-  it('shows how many leads use a property when deleting it is refused', async () => {
+  it('says where the leads holding a value are when deleting a property is refused', async () => {
     mocks.deleteProperty.mockRejectedValue(
-      new mocks.FakeBackendError('property_in_use', { leadCount: 12 }),
+      new mocks.FakeBackendError('property_in_use', {
+        leadCount: 5,
+        active: 2,
+        trashed: 2,
+        restricted: 1,
+      }),
     );
     render(<PropertiesSettings workspaceSlug="canadawide" />);
     await screen.findByRole('list', { name: 'Custom properties' });
@@ -365,9 +376,33 @@ describe('PropertiesSettings properties', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Delete property' }));
 
     expect(
-      await screen.findByText('Used on 12 leads. Clear the value on those leads first.'),
+      await screen.findByText(
+        'Used on 5 leads: 2 active, 2 in the trash (restore, clear the value, trash again), 1 restricted (cannot be edited). Hide the property instead.',
+      ),
     ).toBeTruthy();
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('suggests clearing the value when every lead holding it can be edited', async () => {
+    mocks.deleteProperty.mockRejectedValue(
+      new mocks.FakeBackendError('property_in_use', {
+        leadCount: 1,
+        active: 1,
+        trashed: 0,
+        restricted: 0,
+      }),
+    );
+    render(<PropertiesSettings workspaceSlug="canadawide" />);
+    await screen.findByRole('list', { name: 'Custom properties' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Referral code' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete property' }));
+
+    expect(
+      await screen.findByText(
+        'Used on 1 lead: 1 active. Clear the value on that lead first, or hide the property instead.',
+      ),
+    ).toBeTruthy();
   });
 });
 

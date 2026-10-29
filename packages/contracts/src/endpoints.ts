@@ -419,7 +419,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'DELETE',
     path: '/api/v1/staff/workspaces/{workspaceId}/properties/{key}',
     summary:
-      'Delete a custom property; its values are removed from every lead (property management).',
+      'Delete a custom property, leaving a tombstone so its key is never reused; refused with 409 `property_in_use` while any lead (trashed and restricted included) holds a value (property management).',
     auth: 'staff',
     successStatus: 200,
     response: deletePropertyResponseSchema,

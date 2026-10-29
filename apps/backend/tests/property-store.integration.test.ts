@@ -34,6 +34,8 @@ const REQUEST = '38000000-0000-4000-8000-000000000f01';
 const LEAD_1 = '98000000-0000-4000-8000-000000000001';
 const LEAD_2 = '98000000-0000-4000-8000-000000000002';
 const LEAD_3 = '98000000-0000-4000-8000-000000000003';
+const LEAD_4 = '98000000-0000-4000-8000-000000000004';
+const LEAD_5 = '98000000-0000-4000-8000-000000000005';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ctx = { workspaceId: SITE, actorId: ACTOR, requestId: REQUEST };
@@ -62,13 +64,16 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     id: string,
     workspaceId: string,
     customValues: Record<string, string | number | boolean | null>,
+    state: { trashed?: boolean; restricted?: boolean } = {},
   ) => {
     await admin`
       insert into app.leads (
-        id, workspace_id, lead_type, status, stage, consent_version, attribution, payload, custom_values
+        id, workspace_id, lead_type, status, stage, consent_version, attribution, payload,
+        custom_values, deleted_at, customer_data_restricted_at
       ) values (
         ${id}, ${workspaceId}, 'sim_order', 'submitted', 'pending', 'ci', '{}'::jsonb,
-        ${admin.json({ schemaVersion: 1, payload: {} })}, ${admin.json(customValues)}
+        ${admin.json({ schemaVersion: 1, payload: {} })}, ${admin.json(customValues)},
+        ${state.trashed ? new Date() : null}, ${state.restricted ? new Date() : null}
       )
     `;
   };
@@ -287,7 +292,14 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
         expectedVersion: 1,
         options: [{ value: 'phone', label: 'Phone', hidden: false }],
       }),
-    ).resolves.toEqual({ kind: 'option_in_use', optionValue: 'web', leadCount: 2 });
+    ).resolves.toEqual({
+      kind: 'option_in_use',
+      optionValue: 'web',
+      leadCount: 2,
+      active: 2,
+      trashed: 0,
+      restricted: 0,
+    });
 
     const hidden = await store.update(ctx, 'lead', key, {
       expectedVersion: 1,
@@ -362,6 +374,9 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     await expect(store.remove(ctx, 'lead', key)).resolves.toEqual({
       kind: 'in_use',
       leadCount: 1,
+      active: 1,
+      trashed: 0,
+      restricted: 0,
     });
 
     await admin`
@@ -389,6 +404,49 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
       entity: 'property',
       before: { key, label: 'Gift note' },
       after: null,
+    });
+  });
+
+  it('in-use counts include trashed and restricted leads, split by what the owner can do', async () => {
+    const note = keyOf(await store.create(ctx, 'lead', textInput('Gift note')));
+    const tier = keyOf(
+      await store.create(ctx, 'lead', {
+        ...textInput('Tier'),
+        kind: 'choice',
+        options: [
+          { value: 'gold', label: 'Gold', hidden: false },
+          { value: 'silver', label: 'Silver', hidden: false },
+        ],
+      }),
+    );
+    const values = { [note]: 'hello', [tier]: 'gold' };
+    await insertLead(LEAD_1, SITE, values);
+    await insertLead(LEAD_2, SITE, values, { trashed: true });
+    await insertLead(LEAD_3, SITE, values, { trashed: true });
+    await insertLead(LEAD_4, SITE, values, { restricted: true });
+    // Trashed and restricted: it can never be edited, so it counts as restricted.
+    await insertLead(LEAD_5, SITE, values, { trashed: true, restricted: true });
+
+    const usage = { leadCount: 5, active: 1, trashed: 2, restricted: 2 };
+    await expect(store.remove(ctx, 'lead', note)).resolves.toEqual({ kind: 'in_use', ...usage });
+    await expect(
+      store.update(ctx, 'lead', tier, {
+        expectedVersion: 1,
+        options: [{ value: 'silver', label: 'Silver', hidden: false }],
+      }),
+    ).resolves.toEqual({ kind: 'option_in_use', optionValue: 'gold', ...usage });
+
+    // Only trashed and restricted leads left: still refused, nothing active.
+    await admin`
+      update app.leads set custom_values = custom_values - ${note}::text
+      where workspace_id = ${SITE} and id = ${LEAD_1}
+    `;
+    await expect(store.remove(ctx, 'lead', note)).resolves.toEqual({
+      kind: 'in_use',
+      leadCount: 4,
+      active: 0,
+      trashed: 2,
+      restricted: 2,
     });
   });
 
