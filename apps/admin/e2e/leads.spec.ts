@@ -72,7 +72,7 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
 
 test('a card moved on the board stays moved', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/w/canadawide/leads?type=internet&view=board');
+  await page.goto('/w/canadawide/leads?type=internet&layout=board');
   await expect(page.getByRole('region', { name: 'New, 2 leads' })).toBeVisible();
 
   await page
@@ -158,14 +158,15 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Marco Rossi' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
   await page.getByLabel('Property').selectOption('permitType');
   await page.getByLabel('Operator').selectOption('eq');
   await page.getByLabel('Value').selectOption('student');
   await page.getByRole('button', { name: 'Apply filter' }).click();
 
+  await expect(page.getByText('is Study permit')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Visa \/ permit type is Study permit/ }),
+    page.getByRole('button', { name: 'Remove filter Visa / permit type' }),
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Marco Rossi' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
@@ -190,8 +191,9 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await expect(rowsBeforeReload.nth(1)).toContainText('Priya Sharma');
 
   await page.reload();
+  await expect(page.getByText('is Study permit')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Visa \/ permit type is Study permit/ }),
+    page.getByRole('button', { name: 'Remove filter Visa / permit type' }),
   ).toBeVisible();
   await expect(page.getByRole('columnheader', { name: /Arrival in Canada/ })).toHaveAttribute(
     'aria-sort',

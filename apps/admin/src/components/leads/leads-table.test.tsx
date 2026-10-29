@@ -1,0 +1,130 @@
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildPropertyCatalog, type PropertyRow } from '@gt-sales/contracts';
+
+import type { InboxQuery } from './inbox-query';
+import { LeadsTable } from './leads-table';
+
+const WORKSPACE = '10000000-0000-4000-8000-000000000001';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+
+const mocks = vi.hoisted(() => ({ getStaffLeads: vi.fn() }));
+
+vi.mock('../../lib/api', () => ({
+  ...mocks,
+  BackendError: class extends Error {},
+}));
+
+function row(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'label' | 'kind'>) {
+  return {
+    object: 'lead',
+    origin: 'custom',
+    options: [],
+    staffOnly: false,
+    sensitive: false,
+    hidden: false,
+    leadTypes: [],
+    position: 0,
+    version: 1,
+    createdAt: '2026-10-29T09:00:00.000Z',
+    updatedAt: '2026-10-29T09:00:00.000Z',
+    ...overrides,
+  } satisfies PropertyRow;
+}
+
+const catalog = buildPropertyCatalog([
+  row({ key: 'custom_deposit', label: 'Deposit', kind: 'money', position: 0 }),
+  row({ key: 'custom_website', label: 'Website', kind: 'url', position: 1 }),
+]);
+
+const query: InboxQuery = {
+  type: 'internet',
+  trash: false,
+  due: false,
+  layout: 'table',
+  hide: ['source'],
+  columns: ['custom_deposit', 'custom_website'],
+  page: 1,
+};
+
+describe('LeadsTable', () => {
+  beforeEach(() => {
+    mocks.getStaffLeads.mockReset();
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [
+        {
+          id: '90000000-0000-4000-8000-000000000001',
+          workspaceId: WORKSPACE,
+          leadType: 'internet',
+          status: 'submitted',
+          stage: 'new',
+          contact: { fullName: 'Avery Example', email: 'avery@example.com' },
+          contactId: null,
+          assignedActorId: null,
+          externalRef: null,
+          source: 'direct',
+          attribution: {},
+          consentVersion: null,
+          openTaskCount: 0,
+          nextTaskDueAt: null,
+          countdownDate: null,
+          deletedAt: null,
+          createdAt: '2026-10-20T09:00:00.000Z',
+          updatedAt: '2026-10-21T10:00:00.000Z',
+          properties: { custom_deposit: 1999, custom_website: 'https://shop.example/avery' },
+        },
+      ],
+      page: { page: 1, pageSize: 50, total: 1 },
+      access: { contacts: true, manage: true },
+    });
+  });
+
+  it('renders site property columns by kind: money in dollars, a url as a safe link', async () => {
+    render(
+      <LeadsTable
+        workspaceSlug="canadawide"
+        workspaceId={WORKSPACE}
+        accessToken="staff-token"
+        members={[]}
+        query={query}
+        catalog={catalog}
+        canUseProperties
+        onPage={vi.fn()}
+        onSort={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText('$19.99')).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /Deposit/ })).toBeTruthy();
+    const link = screen.getByRole('link', { name: 'https://shop.example/avery' });
+    expect(link.getAttribute('rel')).toContain('noreferrer');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      expect.objectContaining({ columns: ['custom_deposit', 'custom_website'] }),
+    );
+  });
+
+  it('leaves out the columns hidden in the URL and keeps rows compact', async () => {
+    render(
+      <LeadsTable
+        workspaceSlug="canadawide"
+        workspaceId={WORKSPACE}
+        accessToken="staff-token"
+        members={[]}
+        query={query}
+        catalog={catalog}
+        canUseProperties
+        onPage={vi.fn()}
+      />,
+    );
+    const name = await screen.findByRole('link', { name: 'Avery Example' });
+    expect(screen.queryByRole('columnheader', { name: 'Source' })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'Stage' })).toBeTruthy();
+    expect(name.closest('tr')?.className).toContain('h-8');
+    expect(name.closest('td')?.className).toContain('sticky');
+  });
+});

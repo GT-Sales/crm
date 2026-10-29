@@ -2,6 +2,17 @@ import {
   BackendError,
   createBackendClient,
   type CreateDownloadLinkResponse,
+  type CreateSavedViewRequestInput,
+  type DeletePropertyResponse,
+  type DeleteSavedViewResponse,
+  type ListSavedViewsResponse,
+  type PropertyLayoutResponse,
+  type PropertyModelResponse,
+  type PropertyResponse,
+  type SavePropertyLayoutRequest,
+  type SavedViewResponse,
+  type UpdateProperty,
+  type UpdateSavedViewRequest,
   type CreateLeadNoteResponse,
   type CreateLeadTaskRequest,
   type GetWorkspaceLeadResponse,
@@ -57,6 +68,8 @@ export { BackendError };
 function client(accessToken: string) {
   return createBackendClient({ baseUrl: API_BASE_URL, credential: accessToken });
 }
+
+type StaffClient = ReturnType<typeof client>['staff'];
 
 /** Public liveness check; no session required. */
 export async function getHealth(): Promise<HealthResponse> {
@@ -263,6 +276,85 @@ export async function resolveUncertainWorkspaceJob(
   delivered: boolean,
 ): Promise<ResolveUncertainJobResponse> {
   return client(accessToken).staff.resolveUncertainJob(workspaceId, jobId, { delivered });
+}
+
+// ---- Site properties and their record layouts; who may change them is
+// checked server-side. ----
+
+/** The site's property catalogue (hidden and sensitive included) and its saved layouts. */
+export async function getPropertyModel(
+  accessToken: string,
+  workspaceId: string,
+): Promise<PropertyModelResponse> {
+  return client(accessToken).staff.getPropertyModel(workspaceId);
+}
+
+export async function createProperty(
+  accessToken: string,
+  workspaceId: string,
+  body: Parameters<StaffClient['createProperty']>[1],
+): Promise<PropertyResponse> {
+  return client(accessToken).staff.createProperty(workspaceId, body);
+}
+
+export async function updateProperty(
+  accessToken: string,
+  workspaceId: string,
+  key: string,
+  body: UpdateProperty,
+): Promise<PropertyResponse> {
+  return client(accessToken).staff.updateProperty(workspaceId, key, body);
+}
+
+export async function deleteProperty(
+  accessToken: string,
+  workspaceId: string,
+  key: string,
+): Promise<DeletePropertyResponse> {
+  return client(accessToken).staff.deleteProperty(workspaceId, key);
+}
+
+export async function savePropertyLayout(
+  accessToken: string,
+  workspaceId: string,
+  leadType: string,
+  body: SavePropertyLayoutRequest,
+): Promise<PropertyLayoutResponse> {
+  return client(accessToken).staff.savePropertyLayout(workspaceId, leadType, body);
+}
+
+// ---- Private saved views: the caller's own, never anyone else's. ----
+
+export async function listSavedViews(
+  accessToken: string,
+  workspaceId: string,
+): Promise<ListSavedViewsResponse> {
+  return client(accessToken).staff.listSavedViews(workspaceId, { object: 'lead' });
+}
+
+export async function createSavedView(
+  accessToken: string,
+  workspaceId: string,
+  body: CreateSavedViewRequestInput,
+): Promise<SavedViewResponse> {
+  return client(accessToken).staff.createSavedView(workspaceId, body);
+}
+
+export async function updateSavedView(
+  accessToken: string,
+  workspaceId: string,
+  viewId: string,
+  body: UpdateSavedViewRequest,
+): Promise<SavedViewResponse> {
+  return client(accessToken).staff.updateSavedView(workspaceId, viewId, body);
+}
+
+export async function deleteSavedView(
+  accessToken: string,
+  workspaceId: string,
+  viewId: string,
+): Promise<DeleteSavedViewResponse> {
+  return client(accessToken).staff.deleteSavedView(workspaceId, viewId);
 }
 
 // ---- Documents. Downloading an original requires the document.download

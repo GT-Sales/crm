@@ -1,11 +1,13 @@
 import {
-  filterableLeadProperties,
+  codePropertyCatalog,
+  formatPropertyValue,
   leadFields,
-  leadProperty,
   type LeadFieldDefinition,
   type LeadFieldKind,
   type LeadPropertyFilter,
   type LeadPropertyOperator,
+  type PropertyCatalog,
+  type SiteProperty,
 } from '@gt-sales/contracts';
 
 /**
@@ -140,51 +142,38 @@ export function fieldLabel(leadType: string, key: string): string {
   return (definition?.label ?? labelFromKey(key)).toLowerCase();
 }
 
+/** A property as a list column or a filter names it: the type's use first, then the site-wide one. */
 function propertyFieldDefinition(
   leadType: string | undefined,
   key: string,
+  catalog: PropertyCatalog,
 ): LeadFieldDefinition | undefined {
   if (leadType) {
-    const byType = leadFields(leadType).find((entry) => entry.key === key);
+    const byType = catalog.forType(leadType).find((entry) => entry.key === key);
     if (byType) return byType;
   }
-  const filterable = filterableLeadProperties(leadType).find((entry) => entry.key === key);
-  if (filterable) {
-    return {
-      key: filterable.key,
-      label: filterable.label,
-      kind: filterable.kind,
-      ...(filterable.options ? { options: filterable.options } : {}),
-    };
-  }
-  const shared = leadProperty(key);
-  if (shared) {
-    return {
-      key: shared.key,
-      label: shared.label,
-      kind: shared.kind,
-      ...(shared.options ? { options: shared.options } : {}),
-    };
-  }
-  return undefined;
+  return catalog.filterable(leadType).find((entry) => entry.key === key) ?? catalog.get(key);
 }
 
 /** Column header label for an optional property column on the leads table. */
-export function propertyColumnLabel(leadType: string | undefined, key: string): string {
-  return propertyFieldDefinition(leadType, key)?.label ?? labelFromKey(key);
+export function propertyColumnLabel(
+  leadType: string | undefined,
+  key: string,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): string {
+  return propertyFieldDefinition(leadType, key, catalog)?.label ?? labelFromKey(key);
 }
 
-/** Formats one optional property column cell using `fieldValue`. */
-export function propertyColumnValue(
+/** The property a lead's column cell renders with (`PropertyValueText`), by the lead's own type. */
+export function propertyColumnProperty(
   leadType: string,
   key: string,
-  properties?: Readonly<Record<string, unknown>>,
-): string | undefined {
-  if (!properties) return undefined;
-  const definition = propertyFieldDefinition(leadType, key);
-  if (!definition) return anyValue(properties[key]);
-  return fieldValue(definition, properties);
+  catalog: PropertyCatalog = codePropertyCatalog,
+): Pick<SiteProperty, 'kind' | 'options'> | undefined {
+  return catalog.forType(leadType).find((entry) => entry.key === key) ?? catalog.get(key);
 }
+
+const NUMERIC_KINDS: ReadonlySet<LeadFieldKind> = new Set(['count', 'number', 'money']);
 
 /** Plain-English label for a filter operator given the property's kind. */
 export function propertyOperatorLabel(kind: LeadFieldKind, op: LeadPropertyOperator): string {
@@ -196,9 +185,9 @@ export function propertyOperatorLabel(kind: LeadFieldKind, op: LeadPropertyOpera
     case 'in':
       return 'is any of';
     case 'lte':
-      return kind === 'count' ? 'at most' : 'on or before';
+      return NUMERIC_KINDS.has(kind) ? 'at most' : 'on or before';
     case 'gte':
-      return kind === 'count' ? 'at least' : 'on or after';
+      return NUMERIC_KINDS.has(kind) ? 'at least' : 'on or after';
     case 'empty':
       return 'is empty';
     case 'notEmpty':
@@ -206,27 +195,42 @@ export function propertyOperatorLabel(kind: LeadFieldKind, op: LeadPropertyOpera
   }
 }
 
-/** Human-readable text for an active filter chip (e.g. `Visa / permit type is Study permit`). */
+function filterValueText(definition: LeadFieldDefinition | undefined, key: string, value: unknown) {
+  if (!definition) return String(value ?? '');
+  return (
+    fieldValue(definition, { [key]: value }) ??
+    formatPropertyValue({ kind: definition.kind }, value)
+  );
+}
+
+/** An active filter as a chip shows it: the property, then the condition (`is Study permit`). */
+export function propertyFilterParts(
+  leadType: string | undefined,
+  filter: LeadPropertyFilter,
+  catalog: PropertyCatalog = codePropertyCatalog,
+): { label: string; condition: string } {
+  const definition = propertyFieldDefinition(leadType, filter.key, catalog);
+  const label = definition?.label ?? labelFromKey(filter.key);
+  const opLabel = propertyOperatorLabel(definition?.kind ?? 'text', filter.op);
+  if (filter.op === 'empty' || filter.op === 'notEmpty') {
+    return { label, condition: opLabel };
+  }
+  if (filter.op === 'in' && Array.isArray(filter.value)) {
+    const items = filter.value.map((item) => filterValueText(definition, filter.key, item));
+    return { label, condition: `${opLabel} ${items.join(', ')}` };
+  }
+  return {
+    label,
+    condition: `${opLabel} ${filterValueText(definition, filter.key, filter.value)}`,
+  };
+}
+
+/** Human-readable text for an active filter (e.g. `Visa / permit type is Study permit`). */
 export function propertyFilterSummary(
   leadType: string | undefined,
   filter: LeadPropertyFilter,
+  catalog: PropertyCatalog = codePropertyCatalog,
 ): string {
-  const definition = propertyFieldDefinition(leadType, filter.key);
-  const label = definition?.label ?? labelFromKey(filter.key);
-  const kind = definition?.kind ?? 'text';
-  const opLabel = propertyOperatorLabel(kind, filter.op);
-  if (filter.op === 'empty' || filter.op === 'notEmpty') {
-    return `${label} ${opLabel}`;
-  }
-  if (filter.op === 'in' && Array.isArray(filter.value)) {
-    const items = filter.value.map(
-      (item) =>
-        (definition ? fieldValue(definition, { [filter.key]: item }) : undefined) ?? String(item),
-    );
-    return `${label} ${opLabel} ${items.join(', ')}`;
-  }
-  const formatted =
-    (definition ? fieldValue(definition, { [filter.key]: filter.value }) : undefined) ??
-    String(filter.value ?? '');
-  return `${label} ${opLabel} ${formatted}`;
+  const { label, condition } = propertyFilterParts(leadType, filter, catalog);
+  return `${label} ${condition}`;
 }
