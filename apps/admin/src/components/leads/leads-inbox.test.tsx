@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { codePropertyCatalog, type SiteProperty } from '@gt-sales/contracts';
+import {
+  codePropertyCatalog,
+  DEFAULT_LEAD_VIEW_STATE,
+  type SavedView,
+  type SiteProperty,
+} from '@gt-sales/contracts';
 
 import { todayDay } from '../../lib/dates';
 import { catalogFromModel } from '../properties/use-property-model';
@@ -34,11 +39,25 @@ const mocks = vi.hoisted(() => ({
   getLeadBoard: vi.fn(),
   getPropertyModel: vi.fn(),
   listWorkspaceMembers: vi.fn(),
+  listSavedViews: vi.fn(),
+  createSavedView: vi.fn(),
+  updateSavedView: vi.fn(),
+  deleteSavedView: vi.fn(),
+}));
+
+const backend = vi.hoisted(() => ({
+  BackendError: class BackendError extends Error {
+    readonly code: string;
+    constructor(code: string) {
+      super(code);
+      this.code = code;
+    }
+  },
 }));
 
 vi.mock('../../lib/api', () => ({
   ...mocks,
-  BackendError: class extends Error {},
+  BackendError: backend.BackendError,
 }));
 
 vi.mock('../staff-session-provider', () => ({
@@ -187,6 +206,7 @@ describe('LeadsInbox', () => {
     window.localStorage.clear();
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.listWorkspaceMembers.mockResolvedValue({ members: [] });
+    mocks.listSavedViews.mockResolvedValue({ views: [], requestId: 'req_test' });
     mocks.getPropertyModel.mockResolvedValue(propertyModel());
     mocks.getLeadsSummary.mockResolvedValue({
       types: [
@@ -652,5 +672,260 @@ describe('LeadsInbox', () => {
       ),
     );
     expect(mocks.getLeadBoard).toHaveBeenCalledTimes(1);
+  });
+
+  describe('saved views', () => {
+    const READY: SavedView = {
+      id: '40000000-0000-4000-8000-000000000001',
+      object: 'lead',
+      name: 'Ready to call',
+      state: {
+        ...DEFAULT_LEAD_VIEW_STATE,
+        leadType: 'internet',
+        assignee: 'me',
+        hiddenColumns: ['source'],
+      },
+      version: 2,
+      updatedAt: '2026-10-28T10:00:00.000Z',
+    };
+    const STUDENTS: SavedView = {
+      id: '40000000-0000-4000-8000-000000000002',
+      object: 'lead',
+      name: 'Students',
+      state: { ...DEFAULT_LEAD_VIEW_STATE, leadType: 'mobility' },
+      version: 1,
+      updatedAt: '2026-10-27T10:00:00.000Z',
+    };
+    const READY_URL = `type=internet&view=${READY.id}&assignee=me&hide=source`;
+
+    beforeEach(() => {
+      mocks.listSavedViews.mockResolvedValue({ views: [READY, STUDENTS], requestId: 'req_test' });
+    });
+
+    /** The switcher's trigger, found by the name it currently shows. */
+    function trigger(name: string | RegExp) {
+      return screen.findByRole('button', { name });
+    }
+
+    it('loads the staff member’s views once for the site', async () => {
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      await trigger('All leads');
+      await waitFor(() =>
+        expect(mocks.listSavedViews).toHaveBeenCalledWith('staff-token', WORKSPACE),
+      );
+      expect(mocks.listSavedViews).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens a view by rewriting the URL with its state and clearing the search box', async () => {
+      navigation.search = 'q=blake';
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger('All leads'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Ready to call' }));
+      expect(navigation.replace).toHaveBeenLastCalledWith(
+        `/w/canadawide/leads?type=internet&view=${READY.id}&assignee=me&hide=source`,
+        { scroll: false },
+      );
+      expect(screen.getByRole('searchbox')).toHaveProperty('value', '');
+    });
+
+    it('goes back to All leads with the default state and no view id', async () => {
+      navigation.search = `${READY_URL}&sort=createdAt%3Adesc&page=2`;
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger(/Ready to call/));
+      fireEvent.click(await screen.findByRole('button', { name: 'All leads' }));
+      expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads', {
+        scroll: false,
+      });
+    });
+
+    it('names the view the URL points at and starts clean', async () => {
+      navigation.search = READY_URL;
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      const name = await trigger(/Ready to call/);
+      expect(name.textContent).not.toContain('Unsaved changes');
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+      expect(navigation.replace).not.toHaveBeenCalled();
+    });
+
+    it('marks the view changed when a filter is edited and keeps its id in the URL', async () => {
+      navigation.search = READY_URL;
+      const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+      await trigger(/Ready to call/);
+      fireEvent.change(screen.getByLabelText('Assignee'), { target: { value: 'none' } });
+      expect(navigation.replace).toHaveBeenLastCalledWith(
+        `/w/canadawide/leads?type=internet&view=${READY.id}&assignee=none&hide=source`,
+        { scroll: false },
+      );
+      view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+      expect((await trigger(/Ready to call/)).textContent).toContain('Unsaved changes');
+      expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Save as new view' })).toBeTruthy();
+    });
+
+    it('does not count the search text or the page as a change', async () => {
+      navigation.search = `${READY_URL}&q=blake&page=3`;
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      expect((await trigger(/Ready to call/)).textContent).not.toContain('Unsaved changes');
+    });
+
+    it('saves the current state over the view with its version', async () => {
+      navigation.search = READY_URL;
+      const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+      await trigger(/Ready to call/);
+      fireEvent.change(screen.getByLabelText('Assignee'), { target: { value: 'none' } });
+      view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+      const state = { ...READY.state, assignee: 'none' };
+      mocks.updateSavedView.mockResolvedValue({
+        view: { ...READY, state, version: 3 },
+        requestId: 'req_test',
+      });
+      fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+      await waitFor(() =>
+        expect(mocks.updateSavedView).toHaveBeenCalledWith('staff-token', WORKSPACE, READY.id, {
+          expectedVersion: 2,
+          state,
+        }),
+      );
+      // The saved copy is now what the list is compared with.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /Ready to call/ }).textContent).not.toContain(
+          'Unsaved changes',
+        ),
+      );
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    });
+
+    it('says when another tab changed the view first', async () => {
+      navigation.search = `${READY_URL}&stage=contacted`;
+      mocks.updateSavedView.mockRejectedValue(new backend.BackendError('version_conflict'));
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+      expect((await screen.findByRole('alert')).textContent).toBe(
+        'This view changed elsewhere. Reload and try again.',
+      );
+    });
+
+    it('saves the list as a new view and moves onto it', async () => {
+      navigation.search = 'type=internet&assignee=me';
+      mocks.createSavedView.mockResolvedValue({
+        view: {
+          ...READY,
+          id: '40000000-0000-4000-8000-000000000003',
+          name: 'Internet mine',
+          version: 1,
+          state: { ...DEFAULT_LEAD_VIEW_STATE, leadType: 'internet', assignee: 'me' },
+        },
+        requestId: 'req_test',
+      });
+      const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Save as new view' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Save as new view' });
+      fireEvent.change(within(dialog).getByLabelText('View name'), {
+        target: { value: 'Internet mine' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save view' }));
+      await waitFor(() =>
+        expect(mocks.createSavedView).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+          object: 'lead',
+          name: 'Internet mine',
+          state: { ...DEFAULT_LEAD_VIEW_STATE, leadType: 'internet', assignee: 'me' },
+        }),
+      );
+      await waitFor(() =>
+        expect(navigation.replace).toHaveBeenLastCalledWith(
+          '/w/canadawide/leads?type=internet&view=40000000-0000-4000-8000-000000000003&assignee=me',
+          { scroll: false },
+        ),
+      );
+      view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+      const name = await trigger(/Internet mine/);
+      expect(name.textContent).not.toContain('Unsaved changes');
+    });
+
+    it.each([
+      ['saved_view_name_taken', 'A view with that name already exists.'],
+      ['saved_view_limit', 'You already have 30 views. Delete one first.'],
+    ])('shows %s in the dialog and keeps it open', async (code, message) => {
+      navigation.search = 'type=internet';
+      mocks.createSavedView.mockRejectedValue(new backend.BackendError(code));
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Save as new view' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.change(within(dialog).getByLabelText('View name'), {
+        target: { value: 'Students' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save view' }));
+      expect((await within(dialog).findByRole('alert')).textContent).toBe(message);
+      expect(navigation.replace).not.toHaveBeenCalled();
+    });
+
+    it('renames a view with its version', async () => {
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger('All leads'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Rename Students' }));
+      mocks.updateSavedView.mockResolvedValue({
+        view: { ...STUDENTS, name: 'Mobility', version: 2 },
+        requestId: 'req_test',
+      });
+      const dialog = await screen.findByRole('dialog', { name: 'Rename view' });
+      fireEvent.change(within(dialog).getByLabelText('View name'), {
+        target: { value: 'Mobility' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }));
+      await waitFor(() =>
+        expect(mocks.updateSavedView).toHaveBeenCalledWith('staff-token', WORKSPACE, STUDENTS.id, {
+          expectedVersion: 1,
+          name: 'Mobility',
+        }),
+      );
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      fireEvent.click(screen.getByRole('button', { name: 'All leads' }));
+      expect(await screen.findByRole('button', { name: 'Mobility' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Students' })).toBeNull();
+    });
+
+    it('deletes the open view and drops its id, keeping the filters', async () => {
+      navigation.search = READY_URL;
+      mocks.deleteSavedView.mockResolvedValue({ viewId: READY.id, requestId: 'req_test' });
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger(/Ready to call/));
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete Ready to call' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Delete view' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete view' }));
+      await waitFor(() =>
+        expect(mocks.deleteSavedView).toHaveBeenCalledWith('staff-token', WORKSPACE, READY.id),
+      );
+      await waitFor(() =>
+        expect(navigation.replace).toHaveBeenLastCalledWith(
+          '/w/canadawide/leads?type=internet&assignee=me&hide=source',
+          { scroll: false },
+        ),
+      );
+    });
+
+    it('shows All leads for a view id the list does not have, leaving the URL alone', async () => {
+      navigation.search = 'type=internet&view=40000000-0000-4000-8000-0000000000ff';
+      const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger(/All leads/));
+      // The list is here once it names the views.
+      await screen.findByRole('button', { name: 'Ready to call' });
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Ready to call' }), { key: 'Escape' });
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+      expect(navigation.replace).not.toHaveBeenCalled();
+      // Until the user acts: the next change drops the dead id.
+      fireEvent.change(screen.getByLabelText('Assignee'), { target: { value: 'me' } });
+      expect(navigation.replace).toHaveBeenLastCalledWith(
+        '/w/canadawide/leads?type=internet&assignee=me',
+        { scroll: false },
+      );
+      view.unmount();
+    });
+
+    it('says when the views could not be loaded and still works as All leads', async () => {
+      mocks.listSavedViews.mockRejectedValue(new backend.BackendError('internal_error'));
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      expect(await screen.findByText(/Could not load your saved views/)).toBeTruthy();
+      expect(await trigger(/All leads/)).toBeTruthy();
+    });
   });
 });
