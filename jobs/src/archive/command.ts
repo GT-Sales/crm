@@ -64,15 +64,18 @@ function isBrokenPipe(error: Error): boolean {
   return code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
 }
 
-/** Docker image-pull progress the Supabase CLI prints before its real error. */
+/**
+ * Progress noise that can precede a tool's real error: docker image-pull lines
+ * when a client tool runs from a container, and retry/progress chatter. Dropped
+ * so the excerpt keeps the error itself.
+ */
 const PULL_PROGRESS =
   /^(?:[0-9a-f]{12}: |Digest: |Status: |[\w.-]+: Pulling from |Retrying after |Dumping roles from )/;
 
 /**
- * The part of a tool's stderr worth logging: progress lines dropped, any
- * connection string's password blanked, and the END kept, because the cause
- * comes last (the first 200 characters of a `supabase db dump` failure were
- * only image-pull progress on 23 Oct 2026).
+ * The part of a tool's stderr (`pg_dump`, `pg_dumpall`, `psql`, `age`) worth
+ * logging: progress lines dropped, any connection string's password blanked,
+ * and the END kept, because the cause comes last.
  */
 export function stderrExcerpt(stderr: string, max = 400): string {
   const meaningful = stderr
