@@ -2,7 +2,7 @@
 
 Project: Supabase `gtsales-crm` (`xykrphbgpwisqacpyeiv`, Mumbai). The CRM
 owns the `app` schema. Get Canada Sim's live tables stay in `public` until
-phase 3 (docs/PLAN.md §7); nothing here touches them.
+the cutover (merge design §12); nothing here touches them.
 
 ## How migrations are tracked
 
@@ -144,28 +144,34 @@ pg_proc / pg_policies where schemaname = 'app'`.
   carries one too. The `public` RLS tables the migration role owns get theirs
   from 0007's loop; a `public` table added later needs one by hand.
 - Best effort on Supabase's own schemas, where they exist: `USAGE` + `SELECT`
-  on `supabase_migrations` and `auth`. If the migration role may not grant
-  them, 0007 raises a WARNING (`auth schema not granted to backup_reader`)
-  instead of failing; the backup then cannot read `auth.users` until it is
-  granted (docs/RUNBOOKS/backup.md).
-- Apply with [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
-  from the SQL editor: one transaction with both migrations and all four
-  tracker rows. Drizzle hashes:
-  0007 `c18a35b22fc4792aac66a364282f50ed062d7aeb8fa24a3fa5510fcd01548ebb`,
+  on `supabase_migrations` and `auth`. Neither case fails 0007: where the
+  migration role holds a privilege without grant option, PostgreSQL grants
+  nothing for it and prints its own "no privileges were granted" WARNING;
+  where it holds none at all, 0007's handler turns the error into a WARNING
+  (`auth schema not granted to backup_reader`). Either way the backup cannot
+  read what was not granted (docs/RUNBOOKS/backup.md step 5).
+- Not yet applied in production. Apply with
+  [`manual/0007-0008-backup-reader.sql`](manual/0007-0008-backup-reader.sql)
+  from the SQL editor, after the pre-paste check in
+  [backup.md](backup.md) step 5: one transaction with both migrations and
+  all four tracker rows. Drizzle hashes:
+  0007 `0cd9da24e726cfa5e2d8aab26d84c5c7016bfd8a97696b23b7f0be38c3a20053`,
   `created_at` `1793273916007`; 0008
   `6d87bd3afd04885626c3d7d1b656de93a4267bf59ffe98a00de01ee947effcfd`,
   `created_at` `1793273993722`. Then set the password separately
   (`alter role backup_reader password '<openssl rand -hex 16>'`), stored only
   in the backup job's secrets.
-- Verify with the selects at the end of the manual file: the role's
-  attributes (`rolcanlogin` true, `rolsuper`, `rolbypassrls`,
-  `rolcreaterole` false); 25 `_backup_reader_read` policies in `app`;
-  `has_table_privilege('backup_reader', 'auth.users', 'SELECT')` true (false
-  means the `auth` grant warned); and `relrowsecurity` on `auth.users` false.
-  If that last one is true, `backup_reader` would read `auth.users` as empty
-  under `--enable-row-security`, since `postgres` cannot add a policy to a
-  table it does not own: set `BACKUP_AUTH_DATA=skip` for the backup job until
-  a policy exists.
+- Verify with the five selects at the end of the manual file, one at a time
+  (the SQL editor shows only the last result): the role's attributes
+  (`rolcanlogin` true, `rolsuper`, `rolbypassrls`, `rolcreaterole` false);
+  25 `_backup_reader_read` policies in `app`; no `public` RLS table without a
+  read policy for `backup_reader`; no `auth` table `backup_reader` cannot
+  read (rows mean the `auth` grant warned); and no `auth` table with row
+  security on. A row in either of the last two means `backup_reader` would
+  miss staff accounts (under `--enable-row-security` an RLS table it has no
+  policy on reads as empty, and `postgres` cannot add a policy to a table it
+  does not own): set `BACKUP_AUTH_DATA=skip` for the backup job until that is
+  fixed.
 - Locally and in CI neither `auth` nor `supabase_migrations` exists, so those
   grants are skipped; `packages/db/tests/backup-reader.integration.test.ts`
   checks the role, the policies, the privileges and a real connection as

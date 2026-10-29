@@ -1,9 +1,15 @@
 -- Migrations 0007 and 0008 by hand, for when the Supabase tool's confirm
 -- prompt cannot be answered (0007 has DO blocks, GRANT and ALTER DEFAULT
--- PRIVILEGES). Paste the whole file into Supabase → SQL Editor → Run, once.
--- It is one transaction: either all of it lands, all four tracker rows
--- included, or none of it. A WARNING that the auth schema was not granted is
--- not a failure (docs/RUNBOOKS/database.md, 0007 + 0008).
+-- PRIVILEGES). Run the pre-paste check in docs/RUNBOOKS/backup.md step 5
+-- first. Then paste everything from BEGIN to COMMIT into Supabase → SQL
+-- Editor → Run, once. It is one transaction: either all of it lands, all
+-- four tracker rows included, or none of it. A WARNING that the auth schema
+-- was not granted, or PostgreSQL's own "no privileges were granted" WARNING,
+-- is not a failure; the verification selects at the end show what
+-- backup_reader can read (docs/RUNBOOKS/database.md, 0007 + 0008).
+--
+-- The SQL editor shows only the last result set of a run, so run the
+-- password line and then each verification select on its own, one at a time.
 BEGIN;
 
 -- ---------------------------------------------------------------------------
@@ -70,9 +76,13 @@ BEGIN
 END
 $$;
 -- Supabase's own schemas, where they exist (neither does locally or in CI).
--- The migration role may not hold these privileges with grant option; the
--- backup then warns about the missing schema rather than this migration
--- failing.
+-- Neither case below fails this migration. Where the migration role holds a
+-- privilege without grant option, PostgreSQL grants nothing for it and
+-- prints its own WARNING ("no privileges were granted"). Where it holds no
+-- privilege on the object at all, the GRANT fails with insufficient_privilege
+-- and the handler turns that into a WARNING. Either way the verification
+-- selects in docs/RUNBOOKS/manual/0007-0008-backup-reader.sql show what
+-- backup_reader can read.
 DO $$
 BEGIN
 	IF to_regnamespace('supabase_migrations') IS NOT NULL THEN
@@ -124,7 +134,7 @@ CREATE POLICY "roles_backup_reader_read" ON "app"."roles" AS PERMISSIVE FOR SELE
 CREATE POLICY "service_credentials_backup_reader_read" ON "app"."service_credentials" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
 
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT 'c18a35b22fc4792aac66a364282f50ed062d7aeb8fa24a3fa5510fcd01548ebb', 1793273916007
+SELECT '0cd9da24e726cfa5e2d8aab26d84c5c7016bfd8a97696b23b7f0be38c3a20053', 1793273916007
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793273916007);
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
 SELECT '6d87bd3afd04885626c3d7d1b656de93a4267bf59ffe98a00de01ee947effcfd', 1793273993722
@@ -152,20 +162,31 @@ COMMIT;
 -- (docs/RUNBOOKS/backup.md); never commit it.
 -- ALTER ROLE backup_reader PASSWORD '<paste a 32-character random password>';
 
--- Verification. Expect: true, false, false, false, false, false, true.
+-- Verification, one select at a time.
+
+-- 1. Expect: true, false, false, false, false, false, true.
 SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication, rolinherit
 FROM pg_roles WHERE rolname = 'backup_reader';
 
--- Expect 25: one per RLS table in app (every app table but workspaces).
+-- 2. Expect 25: one per RLS table in app (every app table but workspaces).
 SELECT count(*) FROM pg_policies
-WHERE schemaname = 'app' AND policyname LIKE '%\_backup_reader\_read' AND 'backup_reader' = ANY (roles);
+WHERE schemaname = 'app' AND policyname LIKE '%\_backup\_reader\_read' AND 'backup_reader' = ANY (roles);
 
--- Expect true. False means the auth grant warned: the backup cannot read
--- auth.users until it is granted (docs/RUNBOOKS/backup.md).
-SELECT has_table_privilege('backup_reader', 'auth.users', 'SELECT');
+-- 3. Expect no rows: a public table with row security and no read policy
+-- that applies to backup_reader. Such a table would dump empty, so the backup
+-- stops on it (backup_source_unreadable) until a policy is added by hand.
+select tablename from pg_tables t where schemaname = 'public' and rowsecurity and not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = t.tablename and p.cmd in ('SELECT','ALL') and ('backup_reader' = any(p.roles) or 'public' = any(p.roles)));
 
--- Expect false. If true, backup_reader would read auth.users as empty under
--- pg_dump --enable-row-security, since postgres cannot add a policy to a table
--- it does not own; set BACKUP_AUTH_DATA=skip for the backup job until a
--- policy exists.
-SELECT relrowsecurity FROM pg_class WHERE oid = 'auth.users'::regclass;
+-- 4. Expect no rows: an auth table backup_reader cannot read. Rows mean the
+-- auth grant warned for them: set BACKUP_AUTH_DATA=skip for the backup job
+-- until they are granted (docs/RUNBOOKS/backup.md).
+SELECT c.relname FROM pg_class c
+WHERE c.relnamespace = 'auth'::regnamespace AND c.relkind IN ('r', 'p')
+  AND NOT has_table_privilege('backup_reader', c.oid, 'SELECT');
+
+-- 5. Expect no rows: an auth table with row security on. backup_reader would
+-- read it as empty under pg_dump --enable-row-security, and postgres cannot
+-- add a policy to a table it does not own; set BACKUP_AUTH_DATA=skip for the
+-- backup job until a policy exists.
+SELECT c.relname FROM pg_class c
+WHERE c.relnamespace = 'auth'::regnamespace AND c.relkind IN ('r', 'p') AND c.relrowsecurity;

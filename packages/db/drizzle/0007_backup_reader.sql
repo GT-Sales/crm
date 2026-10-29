@@ -66,9 +66,13 @@ END
 $$;
 --> statement-breakpoint
 -- Supabase's own schemas, where they exist (neither does locally or in CI).
--- The migration role may not hold these privileges with grant option; the
--- backup then warns about the missing schema rather than this migration
--- failing.
+-- Neither case below fails this migration. Where the migration role holds a
+-- privilege without grant option, PostgreSQL grants nothing for it and
+-- prints its own WARNING ("no privileges were granted"). Where it holds no
+-- privilege on the object at all, the GRANT fails with insufficient_privilege
+-- and the handler turns that into a WARNING. Either way the verification
+-- selects in docs/RUNBOOKS/manual/0007-0008-backup-reader.sql show what
+-- backup_reader can read.
 DO $$
 BEGIN
 	IF to_regnamespace('supabase_migrations') IS NOT NULL THEN
