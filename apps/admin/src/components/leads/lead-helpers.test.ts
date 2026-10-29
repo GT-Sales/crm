@@ -37,24 +37,25 @@ const members = [self, colleague];
 describe('inbox query', () => {
   it('round-trips through the URL', () => {
     const query = parseInboxQuery(
-      new URLSearchParams('type=internet&view=board&assignee=me&q=avery&page=3'),
+      new URLSearchParams('type=internet&layout=board&assignee=me&q=avery&page=3'),
     );
     expect(query).toEqual({
       type: 'internet',
       trash: false,
       due: false,
-      view: 'board',
+      layout: 'board',
+      hide: [],
       stage: undefined,
       assignee: 'me',
       q: 'avery',
       page: 3,
     });
-    expect(inboxSearch(query)).toBe('?type=internet&view=board&assignee=me&q=avery&page=3');
+    expect(inboxSearch(query)).toBe('?type=internet&layout=board&assignee=me&q=avery&page=3');
   });
 
   it('keeps the follow-ups due filter in the URL, as a table and never in the trash', () => {
-    const due = parseInboxQuery(new URLSearchParams('type=sim_order&view=board&due=1'));
-    expect(due).toMatchObject({ type: 'sim_order', due: true, view: 'table' });
+    const due = parseInboxQuery(new URLSearchParams('type=sim_order&layout=board&due=1'));
+    expect(due).toMatchObject({ type: 'sim_order', due: true, layout: 'table' });
     expect(inboxSearch(due)).toBe('?type=sim_order&due=1');
     expect(parseInboxQuery(new URLSearchParams('trash=1&due=1')).due).toBe(false);
     expect(parseInboxQuery(new URLSearchParams('due=yes')).due).toBe(false);
@@ -62,9 +63,9 @@ describe('inbox query', () => {
 
   it('drops values the backend would refuse and keeps the board to one type', () => {
     const query = parseInboxQuery(
-      new URLSearchParams('type=Not+A+Type&view=board&assignee=someone&page=-2&stage=won'),
+      new URLSearchParams('type=Not+A+Type&layout=board&assignee=someone&page=-2&stage=won'),
     );
-    expect(query).toMatchObject({ type: undefined, view: 'table', assignee: undefined, page: 1 });
+    expect(query).toMatchObject({ type: undefined, layout: 'table', assignee: undefined, page: 1 });
     expect(query.stage).toBeUndefined();
     expect(parseInboxQuery(new URLSearchParams('trash=1&type=internet')).type).toBeUndefined();
   });

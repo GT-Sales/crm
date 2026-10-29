@@ -14,7 +14,11 @@ export const BOARD_CARD_FIELDS: readonly { key: BoardCardField; label: string }[
   { key: 'timestamp', label: 'Next task / created' },
 ];
 
-/** The optional table columns; the ids live in the contracts so saved views share them. */
+/**
+ * The optional table columns; the ids live in the contracts so saved views
+ * share them. Which are hidden is in the URL (`?hide=`, `InboxQuery.hide`);
+ * this browser's storage keeps only the board's preferences.
+ */
 export type TableColumnKey = LeadTableColumn;
 
 const TABLE_COLUMN_LABELS: Record<TableColumnKey, string> = {

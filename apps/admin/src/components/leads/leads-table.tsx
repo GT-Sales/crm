@@ -8,6 +8,8 @@ import {
   leadTypeLabel,
   type AssignableMember,
   type LeadListItem,
+  type LeadTableColumn,
+  type PropertyCatalog,
 } from '@gt-sales/contracts';
 import { Button, cn } from '@gt-sales/ui';
 
@@ -22,12 +24,18 @@ import {
 } from '../../lib/dates';
 import { assigneeName } from '../../lib/people';
 import { useResource } from '../../lib/use-resource';
+import { PropertyValueText } from '../properties/property-value';
 import type { InboxQuery } from './inbox-query';
 import { CountdownLabel, leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
-import { propertyColumnLabel, propertyColumnValue } from './lead-fields';
-import { useStoredList } from './view-preferences';
+import { propertyColumnLabel, propertyColumnProperty } from './lead-fields';
 
 const PAGE_SIZE = 50;
+
+// A compact, Twenty-style grid: 32px rows, 13px text, the lead's name pinned
+// while the rest scrolls sideways.
+const HEAD_CELL = 'h-8 px-3 text-left text-[12px] font-medium whitespace-nowrap';
+const CELL = 'h-8 px-3 whitespace-nowrap';
+const NAME_CELL = 'sticky left-0 z-10 border-r border-crm-row-border';
 
 export const DUE_TONE_CLASS = {
   overdue: 'text-rose-300',
@@ -63,16 +71,18 @@ function SortableHeader({
   currentSort,
   canSort,
   onSort,
+  className,
 }: {
   label: string;
   field: string;
   currentSort: string | undefined;
   canSort: boolean;
   onSort?(next: string | undefined): void;
+  className?: string;
 }) {
   if (!canSort || !onSort) {
     return (
-      <th scope="col" className="px-3 py-2 font-medium">
+      <th scope="col" className={cn(HEAD_CELL, className)}>
         {label}
       </th>
     );
@@ -87,7 +97,7 @@ function SortableHeader({
           onSort(cycleLeadSort(currentSort, field));
         }
       }}
-      className="px-3 py-2 font-medium"
+      className={cn(HEAD_CELL, className)}
     >
       <button
         type="button"
@@ -103,13 +113,19 @@ function SortableHeader({
   );
 }
 
-/** The inbox as a table: one row per lead, newest activity first (follow-ups due: most overdue first). */
+/**
+ * The inbox as a table: one row per lead, newest activity first (follow-ups
+ * due: most overdue first). Property columns read through the site's
+ * catalogue; `waiting` holds the load while that catalogue is still needed.
+ */
 export function LeadsTable({
   workspaceSlug,
   workspaceId,
   accessToken,
   members,
   query,
+  catalog,
+  waiting,
   canUseProperties,
   onPage,
   onSort,
@@ -120,6 +136,8 @@ export function LeadsTable({
   accessToken: string;
   members: readonly AssignableMember[];
   query: InboxQuery;
+  catalog: PropertyCatalog;
+  waiting?: boolean;
   canUseProperties?: boolean;
   onPage(page: number): void;
   onSort?(sort: string | undefined): void;
@@ -127,22 +145,26 @@ export function LeadsTable({
 }) {
   const router = useRouter();
   const load = useMemo(
-    () => () =>
-      getStaffLeads(accessToken, workspaceId, {
-        type: query.type,
-        stage: query.stage,
-        assignee: query.assignee,
-        q: query.q,
-        view: query.trash ? 'trash' : 'active',
-        // Due by the viewer's own today: due dates are calendar days.
-        dueBy: query.due ? todayDay() : undefined,
-        ...(query.where && query.where.length > 0 ? { where: query.where } : {}),
-        ...(query.sort ? { sort: query.sort } : {}),
-        ...(query.columns && query.columns.length > 0 ? { columns: query.columns } : {}),
-        page: query.page,
-        pageSize: PAGE_SIZE,
-      }),
+    () =>
+      waiting
+        ? undefined
+        : () =>
+            getStaffLeads(accessToken, workspaceId, {
+              type: query.type,
+              stage: query.stage,
+              assignee: query.assignee,
+              q: query.q,
+              view: query.trash ? 'trash' : 'active',
+              // Due by the viewer's own today: due dates are calendar days.
+              dueBy: query.due ? todayDay() : undefined,
+              ...(query.where && query.where.length > 0 ? { where: query.where } : {}),
+              ...(query.sort ? { sort: query.sort } : {}),
+              ...(query.columns && query.columns.length > 0 ? { columns: query.columns } : {}),
+              page: query.page,
+              pageSize: PAGE_SIZE,
+            }),
     [
+      waiting,
       accessToken,
       workspaceId,
       query.type,
@@ -169,8 +191,7 @@ export function LeadsTable({
   // tab, when this page holds a lead that has one.
   const countdownType = query.type ?? rows.find((lead) => lead.countdownDate)?.leadType;
   const countdownField = countdownType ? leadCountdownField(countdownType) : undefined;
-  const [hiddenCols] = useStoredList(`gt-table-hidden-cols:${workspaceId}`);
-  const showCol = (key: string) => !hiddenCols.includes(key);
+  const showCol = (key: LeadTableColumn) => !query.hide.includes(key);
   const showingCountdown = Boolean(countdownField && showCol('countdown'));
   const propertyColumns = contactsAllowed
     ? (query.columns ?? []).filter((key) => !(showingCountdown && countdownField?.key === key))
@@ -192,34 +213,38 @@ export function LeadsTable({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[880px] text-sm" aria-busy={leads.loading}>
+      <div className="overflow-x-auto rounded-md border border-crm-row-border">
+        <table
+          className="w-full min-w-[880px] border-separate border-spacing-0 text-[13px]"
+          aria-busy={leads.loading || waiting}
+        >
           <thead>
-            <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+            <tr className="bg-crm-header text-muted-foreground [&>th]:border-b [&>th]:border-crm-row-border">
               <SortableHeader
                 label="Lead"
                 field="fullName"
                 currentSort={query.sort}
                 canSort={canSort}
                 onSort={onSort}
+                className={cn(NAME_CELL, 'bg-crm-header')}
               />
               {query.type || !showCol('type') ? null : (
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className={HEAD_CELL}>
                   Type
                 </th>
               )}
               {showCol('stage') ? (
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className={HEAD_CELL}>
                   Stage
                 </th>
               ) : null}
               {showCol('assignee') ? (
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className={HEAD_CELL}>
                   Assignee
                 </th>
               ) : null}
               {showCol('nextTask') ? (
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className={HEAD_CELL}>
                   Next task
                 </th>
               ) : null}
@@ -235,7 +260,7 @@ export function LeadsTable({
               {propertyColumns.map((key) => (
                 <SortableHeader
                   key={key}
-                  label={propertyColumnLabel(query.type, key)}
+                  label={propertyColumnLabel(query.type, key, catalog)}
                   field={`prop.${key}`}
                   currentSort={query.sort}
                   canSort={canSort}
@@ -243,7 +268,7 @@ export function LeadsTable({
                 />
               ))}
               {showCol('source') ? (
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className={HEAD_CELL}>
                   Source
                 </th>
               ) : null}
@@ -258,7 +283,7 @@ export function LeadsTable({
               ) : null}
               {showCol('activity') ? (
                 query.trash ? (
-                  <th scope="col" className="px-3 py-2 font-medium">
+                  <th scope="col" className={HEAD_CELL}>
                     Deleted
                   </th>
                 ) : (
@@ -280,7 +305,7 @@ export function LeadsTable({
                   colSpan={9 + propertyColumns.length}
                   className="px-3 py-10 text-center text-muted-foreground"
                 >
-                  {leads.loading ? (
+                  {leads.loading || waiting ? (
                     'Loading…'
                   ) : query.trash ? (
                     'The trash is empty.'
@@ -317,7 +342,7 @@ export function LeadsTable({
                 return (
                   <tr
                     key={lead.id}
-                    className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40"
+                    className="group h-8 cursor-pointer transition-colors hover:bg-crm-row-hover [&>td]:border-b [&>td]:border-crm-row-border last:[&>td]:border-b-0"
                     onClick={(event) => {
                       // Let a real link, a modifier-click or a text selection behave natively.
                       if (event.target instanceof HTMLElement && event.target.closest('a')) return;
@@ -325,34 +350,40 @@ export function LeadsTable({
                       router.push(leadHref(lead));
                     }}
                   >
-                    <td className="max-w-[260px] px-3 py-2">
+                    <td
+                      className={cn(
+                        CELL,
+                        NAME_CELL,
+                        'max-w-[280px] bg-background group-hover:bg-crm-row-hover',
+                      )}
+                    >
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Link
                           href={leadHref(lead)}
-                          className="min-w-0 truncate font-medium text-foreground hover:underline"
+                          className="min-w-0 shrink-0 truncate font-medium text-foreground hover:underline"
                         >
                           {leadDisplayName(lead.contact)}
                         </Link>
                         {lead.isNew ? <NewBadge /> : null}
+                        {secondary ? (
+                          <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                            {secondary}
+                          </span>
+                        ) : null}
                       </span>
-                      {secondary ? (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {secondary}
-                        </span>
-                      ) : null}
                     </td>
                     {query.type || !showCol('type') ? null : (
-                      <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                      <td className={cn(CELL, 'text-muted-foreground')}>
                         {leadTypeLabel(lead.leadType)}
                       </td>
                     )}
                     {showCol('stage') ? (
-                      <td className="px-3 py-2">
+                      <td className={CELL}>
                         <StageBadge leadType={lead.leadType} stage={lead.stage} />
                       </td>
                     ) : null}
                     {showCol('assignee') ? (
-                      <td className="max-w-[180px] px-3 py-2">
+                      <td className={cn(CELL, 'max-w-[180px]')}>
                         {assignee ? (
                           <PersonChip name={assignee} size="xs" />
                         ) : (
@@ -361,7 +392,7 @@ export function LeadsTable({
                       </td>
                     ) : null}
                     {showCol('nextTask') ? (
-                      <td className="px-3 py-2 whitespace-nowrap">
+                      <td className={CELL}>
                         {lead.nextTaskDueAt ? (
                           <span className={DUE_TONE_CLASS[dueTone(lead.nextTaskDueAt)]}>
                             {dueLabel(lead.nextTaskDueAt)}
@@ -375,37 +406,36 @@ export function LeadsTable({
                       </td>
                     ) : null}
                     {countdownField && showCol('countdown') ? (
-                      <td className="px-3 py-2 whitespace-nowrap">
+                      <td className={CELL}>
                         {lead.countdownDate ? (
-                          <>
-                            <span className="block">{dayLabel(lead.countdownDate)}</span>
-                            <CountdownLabel day={lead.countdownDate} className="block" />
-                          </>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span>{dayLabel(lead.countdownDate)}</span>
+                            <CountdownLabel day={lead.countdownDate} className="text-[12px]" />
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
                     ) : null}
                     {propertyColumns.map((key) => {
-                      const formatted = propertyColumnValue(lead.leadType, key, lead.properties);
+                      const property = propertyColumnProperty(lead.leadType, key, catalog);
                       return (
-                        <td key={key} className="max-w-[200px] truncate px-3 py-2">
-                          {formatted !== undefined ? (
-                            <span>{formatted}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                        <td key={key} className={cn(CELL, 'max-w-[220px] truncate')}>
+                          <PropertyValueText
+                            property={property ?? { kind: 'text' }}
+                            value={lead.properties?.[key]}
+                          />
                         </td>
                       );
                     })}
                     {showCol('source') ? (
-                      <td className="max-w-[180px] truncate px-3 py-2">
+                      <td className={cn(CELL, 'max-w-[180px] truncate')}>
                         <code className="text-xs text-muted-foreground">{lead.source}</code>
                       </td>
                     ) : null}
                     {showCol('created') ? (
                       <td
-                        className="px-3 py-2 whitespace-nowrap text-muted-foreground"
+                        className={cn(CELL, 'text-muted-foreground')}
                         title={dateTimeLabel(lead.createdAt)}
                       >
                         {relativeTime(lead.createdAt)}
@@ -413,7 +443,7 @@ export function LeadsTable({
                     ) : null}
                     {showCol('activity') ? (
                       <td
-                        className="px-3 py-2 whitespace-nowrap text-muted-foreground"
+                        className={cn(CELL, 'text-muted-foreground')}
                         title={dateTimeLabel(lastChange)}
                       >
                         {relativeTime(lastChange)}
@@ -427,7 +457,7 @@ export function LeadsTable({
         </table>
       </div>
 
-      <nav aria-label="Lead pages" className="flex items-center gap-3">
+      <nav aria-label="Lead pages" className="flex items-center gap-3 text-[13px]">
         <Button
           type="button"
           variant="outline"
@@ -437,7 +467,7 @@ export function LeadsTable({
         >
           Previous
         </Button>
-        <span className={cn('text-sm text-muted-foreground')}>
+        <span className="text-muted-foreground">
           Page {page.page} of {pages} · {page.total} lead{page.total === 1 ? '' : 's'}
         </span>
         <Button
