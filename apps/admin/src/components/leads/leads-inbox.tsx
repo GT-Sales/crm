@@ -4,15 +4,18 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   CUSTOM_PROPERTY_KEY_PREFIX,
+  DEFAULT_LEAD_VIEW_STATE,
   isValidLeadPropertyFilter,
   leadPropertyOperators,
   leadTypeEntry,
   leadTypeLabel,
+  SAVED_VIEW_LIMIT,
   type FilterableLeadProperty,
   type LeadFieldOption,
   type LeadPropertyFilter,
   type LeadPropertyOperator,
   type LeadTableColumn,
+  type SavedView,
 } from '@gt-sales/contracts';
 import {
   Button,
@@ -43,10 +46,16 @@ import {
   Trash2Icon,
 } from 'lucide-react';
 
-import { getLeadsSummary } from '../../lib/api';
+import {
+  createSavedView,
+  deleteSavedView,
+  getLeadsSummary,
+  listSavedViews,
+  updateSavedView,
+} from '../../lib/api';
 import { todayDay } from '../../lib/dates';
 import { memberName } from '../../lib/people';
-import { useResource } from '../../lib/use-resource';
+import { errorReason, useResource } from '../../lib/use-resource';
 import { BarButton, MenuItem, MenuLabel, MenuPanel, MenuSeparator } from '../crm/menu';
 import { FilterChip, ViewBar } from '../crm/view-bar';
 import { dollarsToCents } from '../properties/property-value';
@@ -62,8 +71,16 @@ import { stageDotClass } from './lead-display';
 import { propertyFilterParts, propertyOperatorLabel } from './lead-fields';
 import { LeadsBoard } from './leads-board';
 import { LeadsTable } from './leads-table';
+import { SavedViewSwitcher } from './saved-view-switcher';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { BOARD_CARD_FIELDS, TABLE_COLUMNS, useStoredList } from './view-preferences';
+import {
+  allLeadsQuery,
+  appliedViewState,
+  inboxQueryToViewState,
+  isViewDirty,
+  viewStateToInboxQuery,
+} from './view-state';
 
 const SEARCH_DELAY_MS = 300;
 
@@ -156,6 +173,18 @@ function keepUnreadProperties(
   }
   const kept = params.toString();
   return kept ? `?${kept}` : '';
+}
+
+/** What a failed saved-view call says to the person who made it. */
+function savedViewFailure(error: unknown): string {
+  const reason = errorReason(error);
+  if (reason === 'saved_view_name_taken') return 'A view with that name already exists.';
+  if (reason === 'saved_view_limit') {
+    return `You already have ${SAVED_VIEW_LIMIT} views. Delete one first.`;
+  }
+  if (reason === 'version_conflict') return 'This view changed elsewhere. Reload and try again.';
+  if (reason === 'saved_view_not_found') return 'This view no longer exists. Reload and try again.';
+  return `Could not save the view. Reason: ${reason}.`;
 }
 
 const LEGACY_HIDDEN_COLUMNS_KEY = 'gt-table-hidden-cols:';
@@ -282,15 +311,46 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   // The site's catalogue could not be read and there is no earlier copy:
   // only the built-in properties are understood.
   const catalogFailed = properties.error !== undefined && properties.model === undefined;
-  function update(patch: Partial<InboxQuery>) {
-    const next: InboxQuery = { ...latestQuery.current, page: 1, ...patch };
+  // The viewer's own saved views, once loaded (`undefined` until then).
+  const loadViews = useMemo(
+    () => (accessToken && workspaceId ? () => listSavedViews(accessToken, workspaceId) : undefined),
+    [accessToken, workspaceId],
+  );
+  const savedViews = useResource(loadViews);
+  const views = useMemo(() => savedViews.data?.views ?? [], [savedViews.data]);
+  const viewsRef = useRef<readonly SavedView[] | undefined>(undefined);
+  useEffect(() => {
+    viewsRef.current = savedViews.data?.views;
+  }, [savedViews.data]);
+  /** Keeps the list, and the copy `update` reads, in step with a change that just landed. */
+  function commitViews(next: readonly SavedView[]) {
+    viewsRef.current = next;
+    if (savedViews.data) savedViews.mutate((current) => ({ ...current, views: [...next] }));
+    else void savedViews.reload();
+  }
+
+  function openQuery(next: InboxQuery, search: string) {
     latestQuery.current = next;
-    const search =
-      catalogFailed && !next.trash
-        ? keepUnreadProperties(inboxSearch(next), latestUrl.current, patch)
-        : inboxSearch(next);
     latestUrl.current = search.slice(1);
     router.replace(`${pathname}${search}`, { scroll: false });
+  }
+  function update(patch: Partial<InboxQuery>) {
+    const base = latestQuery.current;
+    const known = viewsRef.current;
+    // A view id the list does not have is let go once the user changes something.
+    const view =
+      'view' in patch
+        ? patch.view
+        : known && base.view && !known.some((entry) => entry.id === base.view)
+          ? undefined
+          : base.view;
+    const next: InboxQuery = { ...base, page: 1, ...patch, view };
+    openQuery(
+      next,
+      catalogFailed && !next.trash
+        ? keepUnreadProperties(inboxSearch(next), latestUrl.current, patch)
+        : inboxSearch(next),
+    );
   }
   /** What a switch to `nextType` keeps of the property filters, sort and columns. */
   function propertiesFor(nextType: string | undefined) {
@@ -331,6 +391,101 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     // current search are what should restart the timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchText, query.q]);
+
+  // A saved view as the inbox would open it: before the site's catalogue is
+  // here nothing can be judged, so the state goes in as saved.
+  const catalogReady = catalogSettled && !catalogFailed;
+  function openedState(view: SavedView) {
+    return catalogReady ? appliedViewState(view.state, catalog) : view.state;
+  }
+  function selectView(viewId: string | undefined) {
+    const target = viewId ? viewsRef.current?.find((entry) => entry.id === viewId) : undefined;
+    if (viewId && !target) return;
+    // The search is not part of a view.
+    setSearchText('');
+    const next = target ? viewStateToInboxQuery(openedState(target), target.id) : allLeadsQuery();
+    openQuery(next, inboxSearch(next));
+  }
+  async function saveView(): Promise<string | undefined> {
+    const view = viewsRef.current?.find((entry) => entry.id === latestQuery.current.view);
+    if (!view || !accessToken || !workspaceId) return undefined;
+    try {
+      const result = await updateSavedView(accessToken, workspaceId, view.id, {
+        expectedVersion: view.version,
+        state: inboxQueryToViewState(latestQuery.current),
+      });
+      commitViews(
+        (viewsRef.current ?? []).map((entry) => (entry.id === view.id ? result.view : entry)),
+      );
+      return undefined;
+    } catch (error) {
+      return savedViewFailure(error);
+    }
+  }
+  async function saveViewAs(name: string): Promise<string | undefined> {
+    if (!accessToken || !workspaceId) return undefined;
+    try {
+      const result = await createSavedView(accessToken, workspaceId, {
+        object: 'lead',
+        name,
+        state: inboxQueryToViewState(latestQuery.current),
+      });
+      commitViews([...(viewsRef.current ?? []), result.view]);
+      update({ view: result.view.id });
+      return undefined;
+    } catch (error) {
+      return savedViewFailure(error);
+    }
+  }
+  async function renameView(view: SavedView, name: string): Promise<string | undefined> {
+    if (!accessToken || !workspaceId) return undefined;
+    try {
+      const result = await updateSavedView(accessToken, workspaceId, view.id, {
+        expectedVersion: view.version,
+        name,
+      });
+      commitViews(
+        (viewsRef.current ?? []).map((entry) => (entry.id === view.id ? result.view : entry)),
+      );
+      return undefined;
+    } catch (error) {
+      return savedViewFailure(error);
+    }
+  }
+  async function removeView(view: SavedView): Promise<string | undefined> {
+    if (!accessToken || !workspaceId) return undefined;
+    try {
+      await deleteSavedView(accessToken, workspaceId, view.id);
+      commitViews((viewsRef.current ?? []).filter((entry) => entry.id !== view.id));
+      // The filters stay as they are; only the link to the deleted view goes.
+      if (latestQuery.current.view === view.id) update({ view: undefined });
+      return undefined;
+    } catch (error) {
+      return savedViewFailure(error);
+    }
+  }
+
+  const activeView = views.find((entry) => entry.id === query.view);
+  const viewsPending = query.view !== undefined && savedViews.data === undefined;
+  const dirty =
+    catalogReady &&
+    !viewsPending &&
+    isViewDirty(
+      activeView ? appliedViewState(activeView.state, catalog) : DEFAULT_LEAD_VIEW_STATE,
+      inboxQueryToViewState(query),
+    );
+
+  // The lead count of the open view, known only while nothing narrows the list further.
+  const viewTotal =
+    activeView && summary.data && !query.q && !query.stage && !query.assignee && !query.due
+      ? (query.where?.length ?? 0) > 0
+        ? undefined
+        : query.trash
+          ? summary.data.trash
+          : query.type
+            ? types.find((entry) => entry.leadType === query.type)?.total
+            : totalActive
+      : undefined;
 
   const availableProperties = useMemo(() => catalog.filterable(query.type), [catalog, query.type]);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -1030,11 +1185,18 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       </div>
 
       <ViewBar
-        // The saved view switcher (Task 10) takes this slot.
         switcher={
-          <span className="px-1 text-[13px] font-medium text-foreground">
-            {query.trash ? 'Trash' : query.type ? leadTypeLabel(query.type) : 'All leads'}
-          </span>
+          <SavedViewSwitcher
+            views={views}
+            activeViewId={activeView?.id}
+            dirty={dirty}
+            total={viewTotal}
+            onSelect={selectView}
+            onSave={saveView}
+            onSaveAs={saveViewAs}
+            onRename={renameView}
+            onDelete={removeView}
+          />
         }
         actions={
           <>
@@ -1051,6 +1213,11 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       {summary.error ? (
         <p role="alert" className="text-sm text-muted-foreground">
           Could not load the lead counts. Reason: {summary.error}.
+        </p>
+      ) : null}
+      {savedViews.error ? (
+        <p role="alert" className="text-sm text-muted-foreground">
+          Could not load your saved views. Reason: {savedViews.error}.
         </p>
       ) : null}
       {catalogFailed ? (
