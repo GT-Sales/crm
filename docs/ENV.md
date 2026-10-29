@@ -103,3 +103,58 @@ test build; `next.config.ts` refuses the first on Vercel.
 | `TEST_MIGRATION_DATABASE_URL` + `DB_TEST_ALLOW_DESTRUCTIVE=1`                        | Enable the integration suites against a disposable database whose name ends in `_test`.                                                      |
 | `DB_SEED_ALLOW_SYNTHETIC=1`                                                          | Allow `db:seed` (synthetic sites and staff); refused on hosted Supabase unless the database name ends in `_test`/`_dev`.                     |
 | `E2E_ALLOW_REMOTE_DATABASE`                                                          | Deliberate override for destructive browser-test setup on a non-local database.                                                              |
+
+## Backups (GitHub Actions, never the runtime service)
+
+Every deployment is backed up by the same workflows, each run inside a GitHub
+Environment named after the deployment: `backup-<deployment>` (the daily
+backup), `backup-monitor-<deployment>` (the hourly heartbeat check) and
+`backup-retention-<deployment>` (pruning old restore points). The first
+deployment is `gt-sales`. Each deployment has its own Backblaze B2 archive
+bucket and its own B2 application keys, one per environment. No environment
+holds both a delete-capable archive key and the recovery private key; the
+restore runs on the owner's machine, never in GitHub. Every value below is a
+secret of the named environment unless the "Set where" column says otherwise.
+
+| B2 application key | Capabilities (restricted to the deployment's bucket) | Held by                         |
+| ------------------ | ---------------------------------------------------- | ------------------------------- |
+| Writer             | `listFiles`, `writeFiles`                            | `backup-<deployment>`           |
+| Reader             | `listFiles`, `readFiles`                             | `backup-monitor-<deployment>`   |
+| Retention admin    | `listFiles`, `readFiles`, `deleteFiles`              | `backup-retention-<deployment>` |
+| Recovery reader    | `listFiles`, `readFiles`                             | The owner, for a restore only   |
+
+### Backup run (`backup-<deployment>`)
+
+`pnpm --filter @gt-sales/jobs run backup`. A missing required variable stops
+the run with `<NAME> is required`, before anything is read or written.
+
+| Variable                                                            | Set where                                    | Value / purpose                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BACKUP_DEPLOYMENT`                                                 | Workflow matrix (`${{ matrix.deployment }}`) | Required. The deployment's name (`gt-sales`); recorded in the manifest and the heartbeat.                                                                                                                                                                                       |
+| `SOURCE_DATABASE_URL`                                               | GitHub Environment secret                    | Required. The `backup_reader` login through the session pooler: `postgresql://backup_reader.<project-ref>:<url-encoded password>@aws-1-ap-south-1.pooler.supabase.com:5432/postgres`. Port 5432, never 6543 (the transaction pooler breaks `pg_dump`). URL-encode the password. |
+| `SOURCE_STORAGE_ENDPOINT`                                           | GitHub Environment secret                    | Required. `https://<project-ref>.storage.supabase.co/storage/v1/s3`.                                                                                                                                                                                                            |
+| `SOURCE_STORAGE_REGION`                                             | GitHub Environment secret                    | Required. `ap-south-1` for `gt-sales`.                                                                                                                                                                                                                                          |
+| `SOURCE_STORAGE_BUCKET`                                             | GitHub Environment secret                    | Required. `documents` for `gt-sales`. A referenced object in any other bucket fails the run.                                                                                                                                                                                    |
+| `SOURCE_STORAGE_ACCESS_KEY_ID` / `SOURCE_STORAGE_SECRET_ACCESS_KEY` | GitHub Environment secret                    | Required. A Storage S3 access key pair of its own (not the backend's), so either can be revoked alone. The runner only reads.                                                                                                                                                   |
+| `SUPABASE_PROJECT_REF`                                              | GitHub Environment secret                    | Required. Recorded in the manifest's source ids.                                                                                                                                                                                                                                |
+| `RECOVERY_AGE_RECIPIENT`                                            | GitHub Environment secret                    | Required. The public `age1…` recipient every artifact and the manifest are encrypted to. The private identity is never in GitHub.                                                                                                                                               |
+| `B2_ARCHIVE_ENDPOINT` / `B2_ARCHIVE_REGION` / `B2_ARCHIVE_BUCKET`   | GitHub Environment secret                    | Required. The deployment's archive bucket: `https://s3.<region>.backblazeb2.com`, `<region>`, the bucket name.                                                                                                                                                                  |
+| `B2_ARCHIVE_WRITER_KEY_ID` / `B2_ARCHIVE_WRITER_APPLICATION_KEY`    | GitHub Environment secret                    | Required. The writer key (`listFiles`, `writeFiles` only).                                                                                                                                                                                                                      |
+| `BACKUP_AUTH_DATA`                                                  | GitHub Environment secret                    | `include` (default) or `skip`. `skip` is the operator fallback when `backup_reader` cannot read `auth`; the manifest records `auth_data_skipped_by_operator` and a restore re-invites staff. With `include`, an unreadable `auth` table fails the run.                          |
+| `BACKUP_HISTORY`                                                    | GitHub Environment secret                    | `include` (default) or `skip`. `skip` leaves out the `supabase_migrations` history; the manifest records `supabase_migrations_skipped_by_operator`.                                                                                                                             |
+| `BACKUP_RUN_ID`                                                     | GitHub Environment secret, normally unset    | Defaults to `run-<timestamp>-<uuid>`. A run refuses an id whose prefix already holds objects.                                                                                                                                                                                   |
+| `BACKUP_MAX_SNAPSHOT_BYTES`                                         | GitHub Environment secret, normally unset    | The in-memory snapshot limit in bytes; default 2 GiB. Above it the run stops with `backup_snapshot_too_large_for_runner` before copying any document.                                                                                                                           |
+| `AGE_VERSION`, `PG_DUMP_VERSION`                                    | The workflow, from the installed binaries    | Recorded in the manifest's tool versions; `unknown` when unset.                                                                                                                                                                                                                 |
+| `SENTRY_DSN`, `RELEASE_SHA`, `DEPLOYMENT_ENV`                       | GitHub Environment secret / the workflow     | Optional error tracking for a failed run.                                                                                                                                                                                                                                       |
+
+### Backup monitor (`backup-monitor-<deployment>`)
+
+Added by the monitor task.
+
+### Backup retention (`backup-retention-<deployment>`)
+
+Added by the retention task.
+
+### Restore (owner-run, never in GitHub)
+
+Added by the restore task.
