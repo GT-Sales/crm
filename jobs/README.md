@@ -53,7 +53,8 @@ ENV.md "Backup monitor".
 `pnpm --filter @gt-sales/jobs run retention`, weekly from
 `.github/workflows/backup-retention.yml`. Keeps 30 daily and 12 monthly restore
 points and deletes the rest with the B2 retention key, from the archive listing
-alone; a dry run unless `RETENTION_DRY_RUN=false`. ENV.md "Backup retention".
+alone; a dry run unless `RETENTION_DRY_RUN=false`, which the workflow sets for
+its scheduled runs. ENV.md "Backup retention".
 
 ### Restore (`src/restore/cli.ts`)
 

@@ -20,8 +20,9 @@ not a backup. Setup is in [backup.md](backup.md), every variable in
 3. **Keep the evidence.** Do not repair, delete or overwrite anything in the
    production project or its storage. Save the GitHub Actions logs of the
    recent Backup runs.
-4. **Hold retention.** Do not run Backup retention with Dry run unticked until
-   the incident is closed: it could prune the restore point you need. The
+4. **Hold retention.** Disable the Backup retention workflow (GitHub →
+   Actions → Backup retention → ⋯ → Disable workflow) until the incident is
+   closed: its Monday run could prune the restore point you need. The
    nightly Backup can keep running; it only adds restore points.
 5. **Stop at the first failed check** below (decryption, size, checksum, row
    count). Do not reopen on a partial restore.

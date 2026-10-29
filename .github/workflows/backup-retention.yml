@@ -5,8 +5,8 @@
 # (docs/RUNBOOKS/backup.md). It holds the retention key (list, read and
 # delete) and never the writer's key or the recovery private key: it works
 # from the archive listing alone and decrypts nothing, so no environment holds
-# both a delete-capable key and the means to read a backup. It reports
-# without deleting unless it is run by hand with "Dry run" unchecked.
+# both a delete-capable key and the means to read a backup. A scheduled run
+# deletes; a manual run is a dry run unless "Dry run" is unticked.
 name: Backup retention
 on:
   schedule:
@@ -26,7 +26,6 @@ jobs:
       fail-fast: false
       matrix:
         deployment: [gt-sales]
-    # The environment requires the owner's approval before each run.
     environment: backup-retention-${{ matrix.deployment }}
     concurrency:
       group: backup-retention-${{ matrix.deployment }}
@@ -45,11 +44,16 @@ jobs:
           node-version: 22.19.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Run retention (a dry run unless explicitly disabled)
+      - name: Run retention (scheduled runs delete, manual runs default to a dry run)
         env:
-          # Only a manual run with the box unchecked deletes; a scheduled run
-          # has no input and is always a dry run.
-          RETENTION_DRY_RUN: ${{ github.event.inputs.dry_run == 'false' && 'false' || 'true' }}
+          # A scheduled run deletes with no one watching. The safety is the
+          # policy itself, not an approval: 30 daily and 12 monthly points are
+          # always kept, nothing younger than the 24-hour grace is touched, a
+          # run counts only once its manifest (uploaded last) exists, and the
+          # heartbeat is never deleted. A human reads the dry-run report once,
+          # at setup (docs/RUNBOOKS/backup.md step 7), not every Monday. A
+          # manual run keeps the dry_run input, default true.
+          RETENTION_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (github.event.inputs.dry_run == 'false' && 'false' || 'true') }}
           BACKUP_DEPLOYMENT: ${{ matrix.deployment }}
           # The retention key: listFiles, readFiles and deleteFiles.
           B2_ARCHIVE_ENDPOINT: ${{ secrets.B2_ARCHIVE_ENDPOINT }}

@@ -512,18 +512,20 @@ moves, the Canadian Plans repository takes bug fixes only.
 ### 5.1 Owner, before anything else
 
 **Backups first (merge phase 1).** The code, the three workflows and the
-runbooks are built; nothing runs until the owner does the setup in
-[RUNBOOKS/backup.md](RUNBOOKS/backup.md), steps 3–7, in this order. The
-session never sees a secret; it reads only the run logs.
+runbooks are built. The owner does the setup in
+[RUNBOOKS/backup.md](RUNBOOKS/backup.md) steps 3–6 **before** the pull request
+is merged, so no scheduled run fails between merge and setup; then the merge,
+then the first run (step 7). The session never sees a secret; it reads only
+the run logs.
 
-| #   | Step ([backup.md](RUNBOOKS/backup.md))                                                                                                                                                                                             | Status |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| B1  | Backblaze B2: private bucket `gt-sales-crm-archive` with the 30-day lifecycle rule; the writer, reader and retention keys with the B2 tool, into the password manager (step 3).                                                    | To do  |
-| B2  | Recovery key: `age-keygen` on the owner's computer; the private key in the password manager and one offline copy, the file deleted; the `age1…` recipient noted (step 4).                                                          | To do  |
-| B3  | Supabase: the pre-paste check, migrations 0007 + 0008 from `RUNBOOKS/manual/0007-0008-backup-reader.sql`, the `backup_reader` password, the five verification selects one at a time, and a Storage S3 key for the backup (step 5). | To do  |
-| B4  | GitHub: Environments `backup-gt-sales`, `backup-monitor-gt-sales`, `backup-retention-gt-sales`, each limited to `main`, with their secrets; the owner as required reviewer on retention (step 6).                                  | To do  |
-| B5  | First run: Backup (`backup_completed`, `referencedObjectCount` 122 or today's count), Backup monitor (`status` `ok`), Backup retention as a dry run; then one scheduled night stays green (step 7).                                | To do  |
-| B6  | Restore drill on a scratch project ([RUNBOOKS/restore.md](RUNBOOKS/restore.md), "Drill"). Merge phase 1 is done when this is recorded.                                                                                             | To do  |
+| #   | Step ([backup.md](RUNBOOKS/backup.md))                                                                                                                                                                                                                         | Status |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| B1  | Backblaze B2: private bucket `gt-sales-crm-archive` with the 30-day lifecycle rule; the writer, reader and retention keys with the B2 tool, into the password manager (step 3).                                                                                | To do  |
+| B2  | Recovery key: `age-keygen` on the owner's computer; the private key in the password manager and one offline copy, the file deleted; the `age1…` recipient noted (step 4).                                                                                      | To do  |
+| B3  | Supabase: the pre-paste check, migrations 0007 + 0008 from `RUNBOOKS/manual/0007-0008-backup-reader.sql`, the `backup_reader` password, the five verification selects one at a time, and a Storage S3 key for the backup (step 5).                             | To do  |
+| B4  | GitHub: Environments `backup-gt-sales`, `backup-monitor-gt-sales`, `backup-retention-gt-sales`, each limited to `main` and holding only its own key, with their secrets; no required reviewers (step 6).                                                       | To do  |
+| B5  | Merge the pull request, then the first run: Backup (`backup_completed`, `referencedObjectCount` 122 or today's count), Backup monitor (`status` `ok`), Backup retention as a dry run, read, then once for real; then one scheduled night stays green (step 7). | To do  |
+| B6  | Restore drill on a scratch project ([RUNBOOKS/restore.md](RUNBOOKS/restore.md), "Drill"). Merge phase 1 is done when this is recorded.                                                                                                                         | To do  |
 
 Then the CRM's own owner items:
 

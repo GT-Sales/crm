@@ -9,22 +9,23 @@ design rests on. Restoring is in [restore.md](restore.md); what to do when the
 alert fires is in [backup-alert-response.md](backup-alert-response.md); every
 variable is in [docs/ENV.md](../ENV.md) "Backups".
 
-| Workflow                                  | Schedule (UTC)         | GitHub Environment              | B2 key                                             |
-| ----------------------------------------- | ---------------------- | ------------------------------- | -------------------------------------------------- |
-| Backup (`backup.yml`)                     | daily 06:17            | `backup-<deployment>`           | writer: `listFiles`, `writeFiles`                  |
-| Backup monitor (`backup-monitor.yml`)     | hourly at :08          | `backup-monitor-<deployment>`   | reader: `listFiles`, `readFiles`                   |
-| Backup retention (`backup-retention.yml`) | Mondays 07:43, dry run | `backup-retention-<deployment>` | retention: `listFiles`, `readFiles`, `deleteFiles` |
+| Workflow                                  | Schedule (UTC) | GitHub Environment              | B2 key                                             |
+| ----------------------------------------- | -------------- | ------------------------------- | -------------------------------------------------- |
+| Backup (`backup.yml`)                     | daily 06:17    | `backup-<deployment>`           | writer: `listFiles`, `writeFiles`                  |
+| Backup monitor (`backup-monitor.yml`)     | hourly at :08  | `backup-monitor-<deployment>`   | reader: `listFiles`, `readFiles`                   |
+| Backup retention (`backup-retention.yml`) | Mondays 07:43  | `backup-retention-<deployment>` | retention: `listFiles`, `readFiles`, `deleteFiles` |
 
 The first deployment is `gt-sales`. Three B2 keys, not four: the reader key
 is shared by the monitor and the owner's restore, because both only list and
 read. No environment holds both a delete-capable key and the recovery private
 key, and the private key is never in GitHub at all.
 
-The workflows run on `main` from the day this lands there. Until steps 3–6
-are done, every scheduled run fails for want of secrets and GitHub emails each
-failure. Either do the setup the same day, or disable the three workflows
-first (GitHub → Actions → each workflow → ⋯ → Disable workflow) and enable
-them again at step 7.
+Order: the setup (steps 3–6) comes **before** the pull request that adds the
+workflows is merged, so no scheduled run ever fails for want of a secret.
+GitHub Environments and their secrets can be created before the workflow
+files exist on `main`. Then merge, then the first run (step 7). If the setup
+cannot happen before the merge, disable the three workflows in the Actions
+tab (each workflow → ⋯ → Disable workflow) and enable them again at step 7.
 
 ## 1. Facts checked on 2026-10-29
 
@@ -315,9 +316,9 @@ create `backup-gt-sales`, `backup-monitor-gt-sales` and
   The repository is public; this keeps the secrets away from any other branch.
 - **Environment secrets:** add the secrets below. The names must match
   exactly. Leave the optional ones unset unless there is a reason.
-- On `backup-retention-gt-sales` only: **Required reviewers** → the owner.
-  Every retention run, scheduled or manual, then waits for the owner's
-  approval in the run's page.
+- No required reviewers on any of them: a scheduled run must never wait for
+  an approval. The protection is the branch limit above and that each
+  environment holds only its own key.
 
 | Secret                                                                                              | `backup-gt-sales` | `backup-monitor-gt-sales` | `backup-retention-gt-sales` | Value                                                                                                                                                                  |
 | --------------------------------------------------------------------------------------------------- | ----------------- | ------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -339,9 +340,10 @@ create `backup-gt-sales`, `backup-monitor-gt-sales` and
 The repository is public, so its Actions logs are too. The jobs log ids,
 counts and table names only, never a value or a row.
 
-## 7. First run
+## 7. Merge, then the first run
 
-In GitHub → Actions (enable the three workflows first if they were disabled):
+With steps 3–6 done, merge the pull request that adds the workflows. Then in
+GitHub → Actions (enable the three workflows first if they were disabled):
 
 1. **Backup** → Run workflow → branch `main` → Run workflow. Open the run,
    the job `backup (gt-sales)`, the step "Run the backup". The last line is
@@ -352,9 +354,12 @@ In GitHub → Actions (enable the three workflows first if they were disabled):
    [backup-alert-response.md](backup-alert-response.md).
 2. **Backup monitor** → Run workflow. The step's log shows
    `{"event":"monitor_status","deployment":"gt-sales","status":"ok",…}`.
-3. **Backup retention** → Run workflow, leave **Dry run** ticked, then
-   approve the waiting run. The log shows `retention_completed` with
-   `dryRun: true` and `candidateDeletionCount: 0`.
+3. **Backup retention** → Run workflow, leave **Dry run** ticked. The log
+   shows `retention_completed` with `dryRun: true` and
+   `candidateDeletionCount: 0`. Read the report: `retainedRunCount`,
+   `candidateRunIds` (empty) and `pendingRunIds` should make sense. Then run
+   it once more with **Dry run** unticked; the log shows `dryRun: false`
+   and `deletedCount: 0`. From then on the Monday schedule prunes on its own.
 4. The next morning, check that the 06:17 scheduled Backup ran green on its
    own and the hourly monitor stays green.
 5. Then practise a restore ([restore.md](restore.md), "Drill").
@@ -379,11 +384,12 @@ redo every deletion made since that restore point.
 - **What retention keeps:** the newest run of each of the last 30 days and of
   each of the last 12 months, so at most 42 restore points, plus anything
   younger than 24 hours.
-- **Scheduled runs are dry runs.** The Monday run only reports what it would
-  delete (it has no input, and the workflow deletes only when a manual run
-  unticks Dry run). To prune, once a month: Actions → Backup retention → Run
-  workflow → untick Dry run → approve. Read `candidateRunIds` in the dry run
-  first.
+- **Scheduled runs delete; manual runs default to a dry run.** The Monday
+  run prunes with no one watching. What keeps it safe is the policy: the
+  kept points above are never deleted, nothing younger than the 24-hour grace
+  is touched, a run counts as complete only once its manifest (uploaded last)
+  exists, and `heartbeat/latest.json` is never deleted. A human read the dry
+  run once, at step 7. Its log lists `candidateRunIds` every week.
 - **Size:** each run stores the full document set, not changes. Today that
   is about 90 MiB a run, so 42 points are about 3.7 GiB, plus up to 30 days
   of pruned versions kept by the lifecycle rule (step 3). B2 stores 10 GB
