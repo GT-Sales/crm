@@ -1,5 +1,6 @@
 import { websiteBotTokenSchema, type WebsiteBotProof } from './website-bot';
 import type { z } from 'zod';
+import type { ErrorDetails } from './common';
 
 import {
   createDownloadLinkRequestSchema,
@@ -188,6 +189,8 @@ export class BackendError extends Error {
     readonly code: ApiErrorCode | 'internal_error',
     readonly status: number,
     readonly requestId: string,
+    /** The envelope's `details` (for example `{ leadCount }` on `property_in_use`), when the backend sent any. */
+    readonly details?: ErrorDetails,
   ) {
     super(code);
     this.name = 'BackendError';
@@ -454,6 +457,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           parsed.data.error.code,
           response.status,
           parsed.data.error.requestId,
+          parsed.data.error.details,
         );
       }
       throw new BackendError('internal_error', response.status, requestId);
