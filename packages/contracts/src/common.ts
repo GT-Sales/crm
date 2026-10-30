@@ -118,6 +118,10 @@ export const domainErrorCodeSchema = z.enum([
   'saved_view_not_found',
   'saved_view_name_taken',
   'saved_view_limit',
+  'plan_not_available',
+  'plan_not_found',
+  'plan_name_taken',
+  'plan_limit',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

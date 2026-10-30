@@ -58,6 +58,15 @@ import {
   savePropertyLayoutRequestSchema,
 } from './property-layouts';
 import {
+  createPlanRequestSchema,
+  listPlansQuerySchema,
+  listPlansResponseSchema,
+  listWebsitePlansQuerySchema,
+  listWebsitePlansResponseSchema,
+  planResponseSchema,
+  updatePlanRequestSchema,
+} from './plans';
+import {
   createSavedViewRequestSchema,
   deleteSavedViewResponseSchema,
   listSavedViewsQuerySchema,
@@ -474,6 +483,38 @@ export const endpoints: readonly EndpointDef[] = [
     response: deleteSavedViewResponseSchema,
   },
 
+  // Staff — plans
+  {
+    operationId: 'listPlans',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/plans',
+    summary: "List the site's plans, active only unless asked for inactive ones too.",
+    auth: 'staff',
+    successStatus: 200,
+    query: listPlansQuerySchema,
+    response: listPlansResponseSchema,
+  },
+  {
+    operationId: 'createPlan',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/plans',
+    summary: 'Add a plan the site sells for one order lead type.',
+    auth: 'staff',
+    successStatus: 201,
+    request: createPlanRequestSchema,
+    response: planResponseSchema,
+  },
+  {
+    operationId: 'updatePlan',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/plans/{planId}',
+    summary: 'Change, reorder, deactivate or reactivate one of the site plans.',
+    auth: 'staff',
+    successStatus: 200,
+    request: updatePlanRequestSchema,
+    response: planResponseSchema,
+  },
+
   // Staff — outbox jobs
   {
     operationId: 'listWorkspaceJobs',
@@ -571,6 +612,18 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     response: readLeadResponseSchema,
     headers: [DRAFT_GRANT],
+  },
+
+  // Website — plans
+  {
+    operationId: 'listWebsitePlans',
+    method: 'GET',
+    path: '/api/v1/website/plans',
+    summary: "List the site's active plans with their website-visible values, for its storefront.",
+    auth: 'website',
+    successStatus: 200,
+    query: listWebsitePlansQuerySchema,
+    response: listWebsitePlansResponseSchema,
   },
 
   // Website — customer documents

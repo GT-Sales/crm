@@ -40,9 +40,9 @@ import {
   updateLeadResponseSchema,
   readLeadResponseSchema,
   type ReadLeadResponse,
-  type CreateLeadRequest,
+  type CreateLeadRequestInput,
   type CreateLeadResponse,
-  type UpdateLeadRequest,
+  type UpdateLeadRequestInput,
   type UpdateLeadResponse,
 } from './leads';
 import {
@@ -119,6 +119,20 @@ import {
   type PropertyResponse,
   type SavePropertyLayoutRequest,
 } from './property-layouts';
+import {
+  createPlanRequestSchema,
+  listPlansResponseSchema,
+  listWebsitePlansResponseSchema,
+  planResponseSchema,
+  updatePlanRequestSchema,
+  type CreatePlanRequestInput,
+  type ListPlansQueryInput,
+  type ListPlansResponse,
+  type ListWebsitePlansQuery,
+  type ListWebsitePlansResponse,
+  type PlanResponse,
+  type UpdatePlanRequest,
+} from './plans';
 import {
   createSavedViewRequestSchema,
   deleteSavedViewResponseSchema,
@@ -239,10 +253,10 @@ export interface BackendClient {
   health(): Promise<HealthResponse>;
   leads: {
     read(leadId: string, options: { draftGrant: string }): Promise<ReadLeadResponse>;
-    create(body: CreateLeadRequest, proof?: WebsiteBotProof): Promise<CreateLeadResponse>;
+    create(body: CreateLeadRequestInput, proof?: WebsiteBotProof): Promise<CreateLeadResponse>;
     update(
       leadId: string,
-      body: UpdateLeadRequest,
+      body: UpdateLeadRequestInput,
       options: { draftGrant: string } & WebsiteBotProof,
     ): Promise<UpdateLeadResponse>;
     /** The ID step: a signed PUT for the customer's licence photo. */
@@ -257,6 +271,10 @@ export interface BackendClient {
       body: SubmitLeadIdentityRequest,
       proof?: WebsiteBotProof,
     ): Promise<SubmitLeadIdentityResponse>;
+  };
+  plans: {
+    /** The site's active plans, as its storefront shows them. */
+    list(query?: ListWebsitePlansQuery): Promise<ListWebsitePlansResponse>;
   };
   uploads: {
     createIntent(
@@ -365,6 +383,9 @@ export interface BackendClient {
       body: UpdateSavedViewRequest,
     ): Promise<SavedViewResponse>;
     deleteSavedView(workspaceId: string, viewId: string): Promise<DeleteSavedViewResponse>;
+    listPlans(workspaceId: string, query?: ListPlansQueryInput): Promise<ListPlansResponse>;
+    createPlan(workspaceId: string, body: CreatePlanRequestInput): Promise<PlanResponse>;
+    updatePlan(workspaceId: string, planId: string, body: UpdatePlanRequest): Promise<PlanResponse>;
     listJobs(workspaceId: string): Promise<ListWorkspaceJobsResponse>;
     retryJob(workspaceId: string, jobId: string): Promise<RetryWorkspaceJobResponse>;
     resolveUncertainJob(
@@ -518,6 +539,16 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: submitLeadIdentityRequestSchema.parse(body),
           headers: proofHeader(proof),
           responseSchema: submitLeadIdentityResponseSchema,
+        }),
+    },
+
+    plans: {
+      list: (query) =>
+        call({
+          method: 'GET',
+          path: '/api/v1/website/plans',
+          query: { leadType: query?.leadType },
+          responseSchema: listWebsitePlansResponseSchema,
         }),
     },
 
@@ -801,6 +832,27 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           method: 'DELETE',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/views/${encode(viewId)}`,
           responseSchema: deleteSavedViewResponseSchema,
+        }),
+      listPlans: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans`,
+          query: { leadType: query?.leadType, includeInactive: query?.includeInactive },
+          responseSchema: listPlansResponseSchema,
+        }),
+      createPlan: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans`,
+          body: createPlanRequestSchema.parse(body),
+          responseSchema: planResponseSchema,
+        }),
+      updatePlan: (workspaceId, planId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans/${encode(planId)}`,
+          body: updatePlanRequestSchema.parse(body),
+          responseSchema: planResponseSchema,
         }),
       listJobs: (workspaceId) =>
         call({

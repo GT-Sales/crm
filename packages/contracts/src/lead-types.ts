@@ -57,6 +57,11 @@ export interface LeadStageDefinition {
 export interface LeadTypeCatalogEntry {
   readonly label: string;
   readonly stages: readonly LeadStageDefinition[];
+  /**
+   * The lead is an order of one of the site's plans: it carries order details
+   * (`leadOrderSchema` in `./plans`). Matches `orderLeadTypes`.
+   */
+  readonly order?: true;
   /** The order ends with an identity for a credit check: a licence photo or a SIN. */
   readonly takesIdentity?: true;
   /**
@@ -105,28 +110,30 @@ export const leadTypeCatalog = {
       WON,
       LOST,
     ],
+    order: true,
   },
   mobility: {
     label: 'Mobility',
     stages: [NEW, CONTACTED, QUALIFIED, stage('activated', 'Activated'), WON, LOST],
+    order: true,
     takesIdentity: true,
   },
   // Get Canada Sim's order statuses, as its admin names them. `incomplete` is
-  // a checkout the customer never finished (also the lead's status).
+  // a checkout the customer never finished (also the lead's status). Its old
+  // money states (`invoiced`, `paid`) are order details now, not stages.
   sim_order: {
     label: 'SIM order',
     stages: [
       stage('incomplete', 'Incomplete'),
       stage('pending', 'Pending'),
       stage('verified', 'Verified'),
-      stage('on_hold', 'On Hold'),
+      stage('on_hold', 'On hold'),
       stage('delivered', 'Delivered'),
       stage('activated', 'Activated'),
       stage('completed', 'Completed'),
-      stage('invoiced', 'Invoiced'),
-      stage('paid', 'Paid'),
       stage('cancelled', 'Cancelled'),
     ],
+    order: true,
     deliveryLetterUrl: 'https://getcanadasim.com/delivery-letter.html',
     // Get Canada Sim's dashboard tiles, in its words.
     outcomes: {

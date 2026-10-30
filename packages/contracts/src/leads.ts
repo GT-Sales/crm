@@ -119,6 +119,21 @@ export const draftGrantSchema = z.object({
 });
 export type DraftGrant = z.infer<typeof draftGrantSchema>;
 
+/**
+ * Website intake: the chosen plan and quantity; the price is never sent. The
+ * backend freezes the plan as the site sells it (`freezePlan` in `./plans`,
+ * which re-exports this schema). Defined here, not in `./plans`, so this
+ * module keeps importing nothing but `./common` (see `./properties`).
+ */
+export const leadOrderIntakeSchema = z
+  .object({
+    planId: z.uuid(),
+    quantity: z.number().int().min(1).max(99).default(1),
+  })
+  .strict();
+export type LeadOrderIntake = z.infer<typeof leadOrderIntakeSchema>;
+export type LeadOrderIntakeInput = z.input<typeof leadOrderIntakeSchema>;
+
 export const createLeadRequestSchema = z.object({
   leadType: leadTypeSchema,
   externalRef: leadExternalRefSchema.optional(),
@@ -132,8 +147,11 @@ export const createLeadRequestSchema = z.object({
    * marks one-shot (`internet`, `mobility`) require it.
    */
   submit: z.boolean().optional(),
+  /** For an order lead type (`orderLeadTypes`): the plan the customer chose. */
+  order: leadOrderIntakeSchema.optional(),
 });
 export type CreateLeadRequest = z.infer<typeof createLeadRequestSchema>;
+export type CreateLeadRequestInput = z.input<typeof createLeadRequestSchema>;
 
 export const createLeadResponseSchema = z.object({
   lead: leadSummarySchema,
@@ -148,8 +166,11 @@ export const updateLeadRequestSchema = z.object({
   form: leadFormSchema.optional(),
   attribution: rawAttributionSchema.optional(),
   consentVersion: consentVersionSchema.optional(),
+  /** For an order lead type: the plan the customer chose, re-frozen on save. */
+  order: leadOrderIntakeSchema.optional(),
 });
 export type UpdateLeadRequest = z.infer<typeof updateLeadRequestSchema>;
+export type UpdateLeadRequestInput = z.input<typeof updateLeadRequestSchema>;
 
 export const updateLeadResponseSchema = z.object({
   lead: leadSummarySchema,

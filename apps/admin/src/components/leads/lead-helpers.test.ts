@@ -150,7 +150,7 @@ describe('form fields', () => {
     expect(
       formFields('sim_order', { planId: '75gb-fido', arrivalDate: '2026-11-02', gotVisa: true }),
     ).toEqual([
-      { label: 'Plan', value: '75GB · $35, Fido' },
+      { label: 'Plan (as submitted)', value: '75GB · $35, Fido' },
       {
         label: 'Arrival in Canada',
         value: expect.stringMatching(/2026/),

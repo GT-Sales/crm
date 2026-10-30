@@ -520,7 +520,7 @@ describe('LeadRecord order details', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Copy info' }));
     await screen.findByRole('button', { name: 'Copied' });
     expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining('Plan: Unlimited Data · $40, Rogers'),
+      expect.stringContaining('Plan (as submitted): Unlimited Data · $40, Rogers'),
     );
 
     const letter = screen.getByRole('link', { name: 'Print delivery letter' });
