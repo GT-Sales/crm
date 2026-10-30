@@ -13,6 +13,7 @@ import {
   savedViewSchema,
   savedViewStateSchema,
   updateSavedViewRequestSchema,
+  type CreateSavedViewRequestInput,
   type PropertyRow,
   type SavedViewState,
 } from './index';
@@ -63,6 +64,19 @@ describe('saved view state', () => {
     expect(parsed.archived).toBe(true);
     expect(parsed).not.toHaveProperty('trash');
     expect(savedViewStateSchema.parse({ ...legacy, trash: false }).archived).toBe(false);
+  });
+
+  it('types a new view body with archived and keeps the legacy trash key out of the types', () => {
+    const body: CreateSavedViewRequestInput = { name: 'Mine', state: DEFAULT_LEAD_VIEW_STATE };
+    expect(createSavedViewRequestSchema.parse(body).state.archived).toBe(false);
+    const { archived: _archived, ...legacy } = DEFAULT_LEAD_VIEW_STATE;
+    const stale: CreateSavedViewRequestInput = {
+      name: 'Old',
+      // @ts-expect-error a state with `trash` and no `archived` does not compile
+      state: { ...legacy, trash: true },
+    };
+    // At runtime the legacy key is still accepted and renamed.
+    expect(createSavedViewRequestSchema.parse(stale).state.archived).toBe(true);
   });
 
   it('keeps archived when a state carries both keys, and still rejects unknown keys', () => {

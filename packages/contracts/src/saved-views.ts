@@ -53,7 +53,8 @@ const savedViewStateObjectSchema = z
 /**
  * Views saved before Archive replaced Trash carry `trash` instead of
  * `archived`: the key is renamed (never duplicated) before the strict parse.
- * A state that has both keeps `archived`.
+ * A state that has both keeps `archived`. A legacy `trash` key is still
+ * accepted at runtime, but not by the TypeScript types (`SavedViewState`).
  */
 export const savedViewStateSchema = z.preprocess((state) => {
   if (typeof state !== 'object' || state === null || Array.isArray(state) || !('trash' in state)) {
@@ -107,7 +108,14 @@ export const createSavedViewRequestSchema = z
   })
   .strict();
 export type CreateSavedViewRequest = z.infer<typeof createSavedViewRequestSchema>;
-export type CreateSavedViewRequestInput = z.input<typeof createSavedViewRequestSchema>;
+/**
+ * The state's `z.input` is `unknown` (it passes a preprocess), so it is typed
+ * as the parsed state here: new writes carry `archived`, never `trash`.
+ */
+export type CreateSavedViewRequestInput = Omit<
+  z.input<typeof createSavedViewRequestSchema>,
+  'state'
+> & { state: SavedViewState };
 
 export const updateSavedViewRequestSchema = z
   .object({
