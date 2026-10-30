@@ -435,7 +435,11 @@ created_at desc)`.
   template version a site-content email was rendered from. No rewrite; the
   check scans `email_messages` once.
 - Drizzle hash `dc79cd6b92a16064141144d74734b4f9d1a0ca70ef28c7c1f90221e28ea47962`,
-  `created_at` `1793349931483`. **Not applied in production yet.**
+  `created_at` `1793349931483`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030135521`, name `0013_order_tools`; the
+  Drizzle tracker row added in the same run), from the Supabase tool with the
+  file's statements verbatim. Pre-check A before: the six tables absent, no
+  `template_version` column, 0 tracker rows.
 
 ## 0014_order_tools_runtime
 
@@ -453,8 +457,20 @@ app_runtime`. The scheduler's `data_retention` run (on only with
   `OPERATIONAL_RETENTION_ENABLED=1`) picks both up with no code change.
 - Every statement is safe to run twice. No data migration.
 - Drizzle hash `c84d2ebed00c0fb61f26e79e68887636a2db1e30701d406ef4c7d6acd2c0ea60`,
-  `created_at` `1793349941965`. **Not applied in production yet.**
-- To apply both, before deploying a backend that reads the six tables or
+  `created_at` `1793349941965`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030151130`, name `0014_order_tools_runtime`,
+  inserted by hand), right after 0013, statement for statement from the file:
+  the six `FORCE ROW LEVEL SECURITY` and six `GRANT`s through the Supabase
+  tool's SQL runner; the `prune_operational_rows` replacement pasted by the
+  owner in the SQL editor (the tool asks for a confirmation on a function body
+  with `DELETE`s, and the prompt could not be answered from the session); then
+  the `REVOKE`/`GRANT EXECUTE` and both tracker rows through the tool. The
+  seven verification selects afterwards: six tables `true, true`; twelve
+  policies; 35 backup read policies; grants as listed (no `DELETE` anywhere,
+  `UPDATE` false on the two append-only tables); `template_version integer`
+  nullable, no default, check present; prune function names both new tables
+  and is `SECURITY DEFINER`; both Drizzle rows present.
+- The steps that were used, kept for the next time a hand apply is needed: before deploying a backend that reads the six tables or
   `email_messages.template_version`: in the SQL editor, as `postgres`, run
   [`manual/0013-0014-order-tools.sql`](manual/0013-0014-order-tools.sql)'s
   pre-check (A: the six tables absent, no `template_version` column, no

@@ -719,9 +719,10 @@ Built on this branch from
 [docs/superpowers/plans/2026-10-30-phase-4-order-tools-email.md](superpowers/plans/2026-10-30-phase-4-order-tools-email.md).
 The contracts, the migrations, the backend, Settings → Email, the Automations
 page and the lead page's changes are merged on the branch. Migrations 0013 and
-0014 are **not applied to the hosted project yet** (§5.1), so this is not
-deployed, and the branch's backend must not be deployed before them (it reads
-the six new tables and `email_messages.template_version`).
+0014 were applied to the hosted project on 2026-10-30 (§5.1,
+[RUNBOOKS/database.md](RUNBOOKS/database.md#0013_order_tools)), before the
+branch's backend was deployed (it reads the six new tables and
+`email_messages.template_version`).
 
 Owner rulings of 2026-10-30 on the plan's first draft:
 
@@ -948,17 +949,15 @@ or remap the stragglers by hand in the SQL Editor; for a `paid` row:
 PR #4 merged 2026-10-30 (`e33a70a`); the Railway deploy succeeded, health 200, and select 7 after it read `old_stages_left` 0: the freeze window is closed. Status: **done**.
 
 **Order tools and email migrations (merge phase 4).** `0013_order_tools` and
-`0014_order_tools_runtime` are **not applied to the hosted project yet**. Owner
-or developer step, before deploying this branch's backend (it reads the six new
-tables and `email_messages.template_version`): in the SQL Editor, as `postgres`,
-run the pre-check (A) of
-[`RUNBOOKS/manual/0013-0014-order-tools.sql`](RUNBOOKS/manual/0013-0014-order-tools.sql)
-(the six tables absent, no `template_version` column, no tracker rows); paste
-`BEGIN` … `COMMIT` once; then run the seven verification selects one at a time.
-The change is additive, with no data migration, so no existing lead, stage or
-mail changes. The statement-by-statement record goes in
-[RUNBOOKS/database.md](RUNBOOKS/database.md#0013_order_tools) afterwards.
-Status: **to do**.
+`0014_order_tools_runtime` were applied to the hosted project on 2026-10-30,
+before this branch's backend was deployed (it reads the six new tables and
+`email_messages.template_version`): pre-check A clean, 0013 through the
+Supabase tool, 0014 statement by statement (the `prune_operational_rows`
+replacement pasted by the owner in the SQL editor), the seven verification
+selects all as expected. The change is additive, with no data migration, so no
+existing lead, stage or mail changed. The record is in
+[RUNBOOKS/database.md](RUNBOOKS/database.md#0013_order_tools). Status:
+**done**.
 
 After that deploy, the owner's steps for each site (nothing is sent to a
 customer until they are done):
@@ -1120,8 +1119,8 @@ Still to do in phase 2:
 - **Merge phase 4: order tools and customer email** is built (§3.7): dispatch
   and activation, allowed stage moves, the documents gate and its override,
   protection against a double submit, customer emails per site and automation
-  rules. It waits on migrations 0013 and 0014 (§5.1) and the deploy. Customer
-  tracking is phase 5.
+  rules. Migrations 0013 and 0014 are applied (§5.1); PR #6 carries the code.
+  Customer tracking is phase 5.
 - **Cutover clean-up** once staff are on the CRM (§5.1 step 7): a migration
   dropping `leads_mirror_canadawide_legacy` and its function, and removing the
   old pages from the Get Canada Sim admin.
