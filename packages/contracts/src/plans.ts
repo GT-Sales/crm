@@ -10,7 +10,7 @@ import {
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import { documentChecklistKeySchema } from './domain';
-import { propertyKeySchema } from './properties';
+import { PLAN_NAME_MAX, propertyKeySchema } from './properties';
 import { leadPropertyValueSchema } from './workspace-leads';
 
 /**
@@ -41,7 +41,10 @@ export const carrierCommissionStatusSchema = z.enum(carrierCommissionStatuses);
 /** A document the plan's orders must carry, as the lead's document checklist names it. */
 export const planRequiredDocumentSchema = documentChecklistKeySchema;
 
-const planNameSchema = z.string().trim().min(1).max(120);
+/** A plan's name, at most `PLAN_NAME_MAX` (80) characters, as its option label in the lead catalogue. */
+const planNameSchema = z.string().trim().min(1).max(PLAN_NAME_MAX);
+/** A frozen copy keeps the name as it was taken; the database allows 120, so an older copy still reads. */
+const snapshotNameSchema = z.string().trim().min(1).max(120);
 const planPriceMinorSchema = z.number().int().min(0).max(1e12);
 const planRequiredDocumentsSchema = z.array(planRequiredDocumentSchema).max(16);
 const planPositionSchema = z.number().int().min(0);
@@ -134,7 +137,7 @@ export type PlanResponse = z.infer<typeof planResponseSchema>;
 export const planSnapshotSchema = z
   .object({
     planId: z.uuid(),
-    name: planNameSchema,
+    name: snapshotNameSchema,
     priceMinor: planPriceMinorSchema,
     currency: z.literal('CAD'),
     billingPeriod: billingPeriodSchema,

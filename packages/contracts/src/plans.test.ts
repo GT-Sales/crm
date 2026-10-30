@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LEAD_ORDER,
   PLAN_LIMIT,
+  PLAN_NAME_MAX,
+  buildPropertyCatalog,
   createBackendClient,
   createLeadRequestSchema,
   createPlanRequestSchema,
@@ -23,6 +25,7 @@ import {
   planSchema,
   planSnapshotSchema,
   updateLeadRequestSchema,
+  sitePropertySchema,
   updatePlanRequestSchema,
   updateWorkspaceLeadRequestSchema,
   websitePlanSchema,
@@ -106,6 +109,33 @@ describe('plans', () => {
     expect(createPlanRequestSchema.safeParse({ ...base, billingPeriod: 'weekly' }).success).toBe(
       false,
     );
+  });
+
+  it('caps a plan name at 80 characters, its option label in the lead catalogue', () => {
+    expect(PLAN_NAME_MAX).toBe(80);
+    const create = {
+      leadType: 'internet',
+      name: 'n'.repeat(80),
+      priceMinor: 6500,
+      billingPeriod: 'month',
+      paymentRequired: false,
+      requiredDocuments: [],
+    };
+    expect(createPlanRequestSchema.safeParse(create).success).toBe(true);
+    expect(createPlanRequestSchema.safeParse({ ...create, name: 'n'.repeat(81) }).success).toBe(
+      false,
+    );
+    expect(
+      updatePlanRequestSchema.safeParse({ expectedVersion: 1, name: 'n'.repeat(80) }).success,
+    ).toBe(true);
+    expect(
+      updatePlanRequestSchema.safeParse({ expectedVersion: 1, name: 'n'.repeat(81) }).success,
+    ).toBe(false);
+    // An 80-character name is a valid option label, so the property model still parses.
+    const catalog = buildPropertyCatalog([], 'lead', {
+      plans: [{ id: UUID_A, name: 'n'.repeat(80), active: true, leadType: 'internet' }],
+    });
+    expect(sitePropertySchema.safeParse(catalog.get('plan')).success).toBe(true);
   });
 
   it('updates a plan only with a version and something to change; clears a custom value with null', () => {

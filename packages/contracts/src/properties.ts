@@ -282,10 +282,17 @@ export interface PlanOption {
   readonly leadType: string;
 }
 
+/**
+ * The longest plan name: a plan's name is the label of its option on the
+ * order's `plan` property, and an option label is at most 80 characters
+ * (`propertyOptionSchema`), so a longer name would fail the property model.
+ */
+export const PLAN_NAME_MAX = 80;
+
 /** The wire form of `PlanOption` (`GET /properties` carries the site's plans as `plans`). */
 export const planOptionSchema = z.object({
   id: z.uuid(),
-  name: z.string().min(1).max(120),
+  name: z.string().min(1).max(PLAN_NAME_MAX),
   active: z.boolean(),
   leadType: leadTypeSchema,
 });

@@ -2,6 +2,7 @@
 
 import { useState, type JSX } from 'react';
 import {
+  PLAN_NAME_MAX,
   createPlanRequestSchema,
   updatePlanRequestSchema,
   type CreatePlanRequest,
@@ -92,6 +93,10 @@ export function PlanEditor({
       setError('Enter a name.');
       return;
     }
+    if (trimmed.length > PLAN_NAME_MAX) {
+      setError(`Keep the name to ${PLAN_NAME_MAX} characters or fewer.`);
+      return;
+    }
     if (price.trim() === '') {
       setError('Enter a price.');
       return;
@@ -176,7 +181,11 @@ export function PlanEditor({
       }}
     >
       <FormField id="plan-name" label="Name">
-        <Input maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />
+        <Input
+          maxLength={PLAN_NAME_MAX}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
       </FormField>
 
       <FormField id="plan-price" label="Price (CAD)" hint="In dollars, such as 19.99.">
