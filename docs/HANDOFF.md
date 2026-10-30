@@ -316,7 +316,10 @@ every request.
    verifies a forwarded Turnstile token and refuses every write when Turnstile
    is not configured. `delegated` trusts the calling website's own screening
    (CanadaWide's honeypot, origin check, per-IP and per-email limits); the
-   site key and the limits above still apply. Production runs `delegated`.
+   site key and the limits above still apply. Production runs `delegated`,
+   which is why the OpenAPI document marks `X-Turnstile-Token` as needed
+   only in `turnstile` mode: a website that sends none (Get Canada Sim,
+   CanadaWide) is correct, and nothing needs "fixing" on either side.
 8. **Plans and orders** (phase 3). A site's plans are read with
    `GET /api/v1/website/plans?leadType=sim_order`: only active plans, each with
    its price in cents, billing period, `paymentRequired`, required documents and
@@ -357,9 +360,14 @@ every request.
     transaction, so concurrent orders never share a number and a replayed or
     refused create takes none. The counter starts after the site's highest
     imported `MS-<n>` and is raised on switch day past the old checkout's
-    last `order_no` (RUNBOOKS/legacy-import.md, "The final run"). A website
-    that sends its own `externalRef` keeps it as sent. Get Canada Sim reads
-    its order number from the response; it never chooses one.
+    last `order_no` (RUNBOOKS/legacy-import.md, "The final run"). It never
+    issues a number a lead already holds: behind the site's highest `MS-<n>`
+    it jumps past it. A number taken at the same moment by a concurrent
+    import, or a website's own `externalRef` another lead holds, is `409
+external_ref_taken`. A website that sends its own `externalRef` keeps it
+    as sent. Get Canada Sim reads its order number from the response; it
+    never chooses one. A submitted SIM order is at stage `pending` at once
+    (a draft is `incomplete`), with a `submitted` timeline entry.
 11. **Customer tracking** (merge phase 5, step B). The website's
     `/tracking/*` routes (§2.3) need a site key with the `tracking` scope and
     `TRACKING_HASH_SECRET` on the backend (unset or under 32 characters:
@@ -380,10 +388,15 @@ feature_not_ready`). The customer types an email; the website calls
     site, not archived or restricted, newest first, at most 50: the
     reference (`MS-<n>`, or the lead id), the stage in the customer's words
     ("Received", "Confirmed", "Waiting on you", "On its way", "Active",
-    "Completed", "Cancelled" for a SIM order), the frozen plan, quantity,
-    delivery, dispatch details, SIM number, the customer's own answers, each
-    document's state (`missing`, `received`, `approved`, `needs_replacement`,
-    never a link) and their pending change request. Never payment status,
+    "Completed", "Cancelled" for a SIM order), the frozen plan (with no
+    frozen plan, as on an imported order: `plan` null and the website's own
+    plan slug and label from the stored form in `details.websitePlanSlug`
+    and `details.websitePlanLabel`), quantity, delivery, dispatch details,
+    SIM number, the customer's own answers, each document's state
+    (`missing`, `received`, `approved`, `needs_replacement`, never a link;
+    a SIM order always lists the passport and visa, whatever its plan lists,
+    which drives only staff's documents check) and their pending change
+    request. Never payment status,
     carrier commission, notes, tasks, assignee or custom values. **What may
     change**: on a `sim_order` at `pending`, `verified` or `on_hold`, the
     name, phone, plan (a CRM plan id), delivery, arrival date, permit type,
@@ -1064,6 +1077,18 @@ the hosted project yet (§5.1).
     on the lead page; the harness seeds it through
     `DatabaseChangeRequestStore.requestChange`).
 
+11. **Final fix wave** (from the final review, on `p5/fix`). A submitted SIM
+    order is Pending at once (a draft stays Incomplete), with `stage` in the
+    audit and a `submitted` timeline entry; an imported order on `/track`
+    names the website's plan from its form (`details.websitePlanSlug`,
+    `details.websitePlanLabel`) and every SIM order lists the passport and
+    visa; the order counter never issues a number a lead holds, and a number
+    taken in the same moment answers `409 external_ref_taken`; a held file
+    finalized after its order left the changeable stages is deleted rather
+    than orphaned; the timeline reads "the phone and arrival in Canada"; the
+    OpenAPI document marks `X-Turnstile-Token` as needed only in `turnstile`
+    mode.
+
 ## 4. What is verified, and how
 
 | Claim                                       | Evidence                                                                                                                                                                                         |
@@ -1178,7 +1203,7 @@ customer until they are done):
    footer and the site's address (which makes `{tracking link}` work). Until
    they are saved, a site's `EMAIL_SENDERS_JSON` entry is the sender, in the
    default look, but only until the step B backend is deployed: from then on
-   a site without saved settings sends no customer email (step B step 4).
+   a site without saved settings sends no customer email (step B step 3).
 2. **Read and edit the templates** (seven today, nine with step B's
    Change approved and Change rejected) if the starter text is not wanted, and
    press "Send me a test" on each one that will be used; the test goes to the
@@ -1241,12 +1266,17 @@ switch day):
    ([RUNBOOKS/database.md](RUNBOOKS/database.md#0017_customer_tracking)); the
    `prune_operational_rows` replacement is the statement the owner pastes.
    Status: **not applied yet**.
-3. **Deploy** the backend and then the admin, with `CRM_TRACKING` still unset
-   on Get Canada Sim.
-4. **Remove `EMAIL_SENDERS_JSON` from Railway** after that deploy (the new
-   backend no longer reads it; the one before it does), once every sending
-   site has saved Settings → Email: a site without saved settings sends no
-   customer email at all, the tracking code included. Status: to do.
+3. **Before the deploy, every sending site has saved Settings → Email.** This
+   backend no longer reads `EMAIL_SENDERS_JSON`, so a site that still relies
+   on it stops sending customer mail **at the deploy**, not when the variable
+   is removed: the SIM-number mail and, from this step on, the tracking code
+   and the two decision mails (they skip as `no_sender`). On 2026-10-30
+   production had no saved settings for either site and had sent no customer
+   mail in 30 days, so the settings are saved first (Settings → Email, the
+   phase 4 steps above) and check 1 below is run. Then **deploy** the backend
+   and then the admin, with `CRM_TRACKING` still unset on Get Canada Sim.
+4. **Remove `EMAIL_SENDERS_JSON` from Railway** after that deploy: nothing
+   reads it any more. Status: to do.
 5. **The Get Canada Sim site key gets the `tracking` scope**: create a new key
    in the admin (`/w/getcanadasim/settings`) with `leads:write`,
    `uploads:customer` and `tracking` ("Order tracking", not preselected) and
@@ -1273,6 +1303,104 @@ switch day):
    and the switch-day test order (step A step 5). Phase 5 is done when a
    real customer's change request has been approved in the CRM; record it
    here and in §3.8.
+
+**Pre-deploy and switch-day checks (step B, from the final review).** Run
+each in the SQL editor or the dashboard named, and record the result here.
+
+Before applying 0017/0018 and before the CRM deploy:
+
+1. **Senders.** Every site that sends mail has saved settings. Expect one
+   row per sending site with `saved` true (Get Canada Sim at least):
+   ```sql
+   select w.slug, s.workspace_id is not null as saved, s.from_address
+   from app.workspaces w left join app.workspace_email_settings s on s.workspace_id = w.id
+   order by w.slug;
+   ```
+   Compare with the site keys in Railway's `EMAIL_SENDERS_JSON` (names
+   only): a key without a saved row means that site's mail stops at the
+   deploy.
+2. **Old SIM-number jobs.** Expect no rows; a pending or failed one would end
+   `handler_not_registered`, so let it drain on the old backend or resolve
+   it in the jobs admin first:
+   ```sql
+   select status, count(*) from app.outbox_jobs
+   where job_type = 'lead_sim_number_email' and status <> 'completed' group by status;
+   ```
+3. **Railway variables** (names only): `TRACKING_HASH_SECRET` set (at least
+   32 characters, new); `EMAIL_PROVIDER=resend` with `RESEND_API_KEY` (else
+   every tracking code skips as `no_sender`); `WEBSITE_BOT_CHECK=delegated`
+   (else every Get Canada Sim tracking and upload call answers 403: the
+   website sends no Turnstile token); `EMAIL_CONTACT_HASH_SECRET` still set.
+4. **Order of work.** 0017/0018 before the backend deploy: the new
+   backend's document queries read `files.held_for_change_request`, so a
+   deploy before the column exists breaks every document read and finalize,
+   checkout uploads included. The paste file's select 5 confirms the column.
+
+Before the B15 test order and before switch day:
+
+5. **Site key scope.** Expect the active key to include `leads:write`,
+   `uploads:customer` and `tracking`; then confirm Vercel's `CRM_SITE_KEY`
+   is that key and redeploy (Vercel variables need a redeploy):
+   ```sql
+   select c.id, c.scopes, c.created_at from app.service_credentials c
+   join app.workspaces w on w.id = c.workspace_id
+   where w.slug = 'getcanadasim' and c.revoked_at is null;
+   ```
+6. **Plans.** Six active `sim_order` plans, one slug each, and the
+   documents the business requires for staff's documents check (the
+   customer is always asked for the passport and visa on `/track`):
+   ```sql
+   select p.name, p.active, p.custom_values ->> 'custom_website_slug' as slug, p.required_documents
+   from app.plans p join app.workspaces w on w.id = p.workspace_id
+   where w.slug = 'getcanadasim' and p.lead_type = 'sim_order' order by p.name;
+   ```
+7. **CORS** for the browser upload (step 7 above). With a signed URL from
+   the B15 test order's upload intent (or a staff intent on a test lead):
+   ```
+   curl -i -X OPTIONS '<signed url>' -H 'Origin: https://getcanadasim.com' \
+     -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: content-type'
+   ```
+   Expect 2xx with `access-control-allow-origin` covering
+   `https://getcanadasim.com` and `PUT` allowed, then do the real browser
+   upload in the test order: the passport must show on the request card. If
+   CORS is refused, `CRM_TRACKING` can still go on with everything but
+   uploads working (customers see "Upload failed"): the owner's call.
+8. **The code mail was really sent** after the B15 test. Expect `completed`
+   with a real provider id, never `skipped:…`, and payloads holding only
+   `challengeId`:
+   ```sql
+   select status, provider_id, count(*) from app.outbox_jobs
+   where job_type = 'tracking_code_email' group by status, provider_id;
+   select payload from app.outbox_jobs where job_type='tracking_code_email' and status='completed' limit 3;
+   ```
+9. **Seeds** (PF2/PF3). Before the first test order run the `SEED` block
+   with `+ 1000` in both places, then expect two rows, each at least the old
+   system's highest number plus 1000; on the day run it with `+ 9`: the
+   values must not drop:
+   ```sql
+   select counter, last_value from app.site_counters c join app.workspaces w on w.id = c.workspace_id
+   where w.slug='getcanadasim';
+   ```
+10. **Vercel functions** (Get Canada Sim): Fluid compute on, or a maximum
+    duration of at least 30 s for the project, unless `maxDuration` is set in
+    the code; the checkout's step 2 can take 25 s.
+11. **Switch-day stragglers.** After `CRM_ORDERS` goes on, expect 0 from
+    `select count(*) from public.order_edit_requests where status = 'pending';`.
+    Requests filed between staff's clean-up and the flip are frozen in the old
+    admin; staff apply them by hand in the CRM.
+12. **After the final import**, the `RECONCILE` block, and no CRM-made order
+    at stage `incomplete` (a submitted SIM order is Pending at once). Expect
+    no rows:
+    ```sql
+    select l.external_ref, l.stage from app.leads l join app.workspaces w on w.id=l.workspace_id
+    where w.slug='getcanadasim' and l.status='submitted' and l.stage='incomplete'
+      and not exists (select 1 from public.orders o where o.id=l.id);
+    ```
+
+If a switch-day step has to be undone, the rollback is in
+[RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md#rollback): turning only
+`CRM_TRACKING` off is safe; turning `CRM_ORDERS` off once CRM orders exist
+needs the old checkout's order number moved past the CRM's first.
 
 Then the CRM's own owner items:
 

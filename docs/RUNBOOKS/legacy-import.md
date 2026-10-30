@@ -249,6 +249,34 @@ the final import would fail on `leads_workspace_type_external_ref_unique`.
 The switch-day seed's `greatest` never lowers the counter below the test
 order.
 
+### Rollback
+
+Undo the switch day one flag at a time, the newer first.
+
+1. **Prefer turning only `CRM_TRACKING` off** (Vercel production,
+   redeploy). That is safe: `/track` falls back to the read-only view of
+   `public.orders`, so orders made in the CRM vanish from `/track` until the
+   flag is back on, and staff can still decide the pending CRM change
+   requests on the lead page.
+2. **Turning `CRM_ORDERS` off once CRM orders exist double-issues order
+   numbers** unless the old checkout's numbering is moved first: it numbers
+   from `public.orders`' own sequence (its highest `order_no` plus 1), which
+   reaches the CRM's `MS-<n>` within days, and two customers would hold one
+   number. So, before the flag goes off, in the SQL editor as `postgres`
+   (the counter is in the same database):
+
+   ```sql
+   select setval(pg_get_serial_sequence('public.orders','order_no'),
+     (select last_value from app.site_counters c join app.workspaces w on w.id = c.workspace_id
+      where w.slug = 'getcanadasim' and c.counter = 'sim_order_ref') + 1000);
+   ```
+
+   Then turn `CRM_ORDERS` off. The orders made in the CRM stay in the CRM and
+   are worked there; the import must not run again (it would not bring them
+   back, and would fail on the unique index), and the old admin's Orders
+   board takes the new old-checkout orders, so staff work two systems until
+   the flag is back on.
+
 The rehearsal is the "switch day" suite in
 `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`. It runs
 the `SEED` and `RECONCILE` blocks verbatim. Orders 141 to 143 are imported,

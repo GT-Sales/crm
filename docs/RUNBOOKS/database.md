@@ -619,6 +619,12 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
 - Every statement is safe to run twice. No data migration.
 - Drizzle hash `900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2`,
   `created_at` `1793385701352`. **Not yet applied** to the hosted project.
+- Before applying, check that every sending site has saved Settings →
+  Email (docs/HANDOFF.md §5.1, check 1): the backend deployed after these
+  migrations no longer reads `EMAIL_SENDERS_JSON`, so a site without saved
+  settings stops sending customer mail at that deploy. On 2026-10-30
+  production had no saved settings for either site and had sent no customer
+  mail in 30 days.
 - To apply, before deploying a backend that uses customer tracking: in the
   SQL editor, as `postgres`, run
   [`manual/0017-0018-customer-tracking.sql`](manual/0017-0018-customer-tracking.sql)'s

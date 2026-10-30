@@ -245,12 +245,23 @@ site's counter `sim_order_ref` in `app.site_counters`
 idempotency claim and the order check, so a replay or a refused create takes
 none). Unseeded, the counter starts after the site's highest imported
 `MS-<n>`; on switch day it is seeded past the old checkout's last number
-(`docs/RUNBOOKS/manual/gcs-switch-day.sql`) and it only ever goes up. A
-website that sends its own `externalRef` keeps it as sent and takes no
-number. A `sim_order` draft may be partial; its submission needs the
-contact's name and email, a plan (`order.planId`) and `delivery` (`esim`, or
-`pickup` with a shipping address), else `400 validation_error` with
-`details.field` `contact`, `order` or `form` (the registry's `submitCheck`).
+(`docs/RUNBOOKS/manual/gcs-switch-day.sql`) and it only ever goes up. It
+never issues a number a lead already holds: a counter left behind the site's
+highest `MS-<n>` jumps past it (the upsert takes the greater of the next
+value and that highest plus 1); a number a concurrent import takes in the
+same moment answers `409 external_ref_taken` and logs
+`site_counter_collision` with ids only. A website that sends its own
+`externalRef` keeps it as sent and takes no number (one already held is
+`409 external_ref_taken` too). A `sim_order` draft may be partial and stays
+at stage `incomplete`; its submission needs the contact's name and email, a
+plan (`order.planId`) and `delivery` (`esim`, or `pickup` with a shipping
+address), else `400 validation_error` with `details.field` `contact`,
+`order` or `form` (the registry's `submitCheck`). Submitted (on the create
+or the save that submits the draft), a SIM order still at `incomplete`
+moves to `pending` in the same transaction (`submittedLeadStage`), with
+`stage` in the audit and a `system` `submitted` timeline entry by the
+website's credential; no stage-move automation runs (the submit rules
+already fired). Other lead types stay at their first stage.
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
 Settings → Email): from name and address, reply-to, logo, brand colour, footer

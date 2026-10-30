@@ -64,10 +64,13 @@ with `RESEND_API_KEY` for `resend`, and `EMAIL_CONTACT_HASH_SECRET` at least
 16 characters; otherwise the admin reports "no sender" for every site, which
 is a deployment problem, not something Settings → Email can fix.
 
-`EMAIL_SENDERS_JSON` is gone: this backend never reads it. The backend running
-before merge phase 5 step B is deployed still uses it as the fallback sender,
-so leave it on Railway until that deploy, check that every sending site has
-saved Settings → Email, then delete it.
+`EMAIL_SENDERS_JSON` is gone: this backend never reads it. A site that
+relies on it stops sending customer mail **the moment this backend is
+deployed**, not when the variable is removed, so check that every sending
+site has saved Settings → Email **before** that deploy (docs/HANDOFF.md §5.1,
+step B step 3 and check 1). On 2026-10-30 production had no saved settings
+for either site and had sent no customer mail in 30 days. Delete the
+variable from Railway after the deploy; nothing reads it any more.
 
 Resend delivery events arrive at `POST /api/v1/email/events/:selector`; the
 selector and its signing secret live in `MACHINE_REGISTRY_JSON.webhooks`. A
