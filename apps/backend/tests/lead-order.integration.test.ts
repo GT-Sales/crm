@@ -236,6 +236,27 @@ databaseTest('order details on leads', () => {
     await admin?.end();
   });
 
+  it('the catalogue offers each order type only its own plans', () => {
+    const offered = (leadType: string) =>
+      (catalog.forType(leadType).find((property) => property.key === 'plan')?.options ?? [])
+        .filter((option) => !option.hidden)
+        .map((option) => option.value);
+    expect(offered('sim_order')).toEqual([simPaid.id, simFree.id]);
+    expect(offered('internet')).toEqual([internetPlan.id]);
+    expect(offered('mobility')).toEqual([]);
+    // The SIM plans stay readable on an internet order, as hidden options.
+    const internetPlanProperty = catalog.forType('internet').find((p) => p.key === 'plan');
+    expect(internetPlanProperty?.options).toEqual(
+      expect.arrayContaining([{ value: simPaid.id, label: 'Unlimited 50', hidden: true }]),
+    );
+    expect(catalog.filterable().find((property) => property.key === 'plan')?.options).toEqual(
+      expect.arrayContaining([
+        { value: internetPlan.id, label: 'Fibre 1G (Internet)', hidden: false },
+        { value: simInactive.id, label: 'Old plan (SIM order)', hidden: true },
+      ]),
+    );
+  });
+
   describe('website intake', () => {
     it('freezes the plan at submission with its payment status, quantity 1 by default', async () => {
       const order = leadOrderIntakeSchema.parse({ planId: simPaid.id });

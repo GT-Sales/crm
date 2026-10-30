@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import {
   PROPERTY_OBJECTS,
+  planOptionSchema,
   propertyKeySchema,
   sitePropertySchema,
   type PropertyCatalog,
@@ -169,6 +170,12 @@ export type PropertyObjectQueryInput = z.input<typeof propertyObjectQuerySchema>
 /** `GET /properties`: the site's catalogue (hidden and sensitive included) and every saved layout by lead type. */
 export const propertyModelResponseSchema = z.object({
   properties: z.array(sitePropertySchema),
+  /**
+   * Leads only: the site's plans, each with its lead type, which the order's
+   * `plan` property offers (only a type's own on that type's record and
+   * filters). Absent for plans.
+   */
+  plans: z.array(planOptionSchema).optional(),
   layouts: z.record(z.string(), propertyLayoutRowSchema),
   capabilities: z.object({ canManage: z.boolean() }),
   requestId: requestIdSchema,

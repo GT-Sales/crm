@@ -329,6 +329,7 @@ export {
   generatePropertyKey,
   orderPropertyCatalog,
   parsePropertyValue,
+  planOptionSchema,
   propertyKeySchema,
   propertyOptionSchema,
   propertyRowSchema,

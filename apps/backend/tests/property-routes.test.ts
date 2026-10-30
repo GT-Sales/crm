@@ -270,19 +270,47 @@ describe('property routes', () => {
   });
 
   it('GET /properties offers the site plans on the order plan property', async () => {
+    const plans = [
+      {
+        id: '70000000-0000-4000-8000-000000000f01',
+        name: 'Unlimited 50',
+        active: true,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000f02',
+        name: 'Old',
+        active: false,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000f03',
+        name: 'Talk and text',
+        active: true,
+        leadType: 'mobility',
+      },
+    ];
     properties.model.mockResolvedValueOnce({
       rows: [],
       layouts: [],
-      plans: [
-        { id: '70000000-0000-4000-8000-000000000f01', name: 'Unlimited 50', active: true },
-        { id: '70000000-0000-4000-8000-000000000f02', name: 'Old', active: false },
-      ],
+      plans,
     });
     const body = propertyModelResponseSchema.parse(await (await call(propertiesUrl())).json());
     expect(body.properties.find((property) => property.key === 'plan')?.options).toEqual([
       { value: '70000000-0000-4000-8000-000000000f01', label: 'Unlimited 50', hidden: false },
       { value: '70000000-0000-4000-8000-000000000f02', label: 'Old', hidden: true },
+      { value: '70000000-0000-4000-8000-000000000f03', label: 'Talk and text', hidden: false },
     ]);
+    // Each plan with its lead type, so the admin scopes the options per type.
+    expect(body.plans).toEqual(plans);
+  });
+
+  it('GET /properties?object=plan carries no plans', async () => {
+    properties.model.mockResolvedValueOnce({ rows: [], layouts: [] });
+    const response = await call(`${propertiesUrl()}?object=plan`);
+    expect(response.status).toBe(200);
+    const body = propertyModelResponseSchema.parse(await response.json());
+    expect(body.plans).toBeUndefined();
   });
 
   it('GET /properties is 403 for someone outside the site and 400 for a bad site id', async () => {

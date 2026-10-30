@@ -5,6 +5,7 @@ import {
   codePropertyCatalog,
   DEFAULT_LEAD_VIEW_STATE,
   savedViewStateSchema,
+  type PlanOption,
   type SavedView,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -92,9 +93,13 @@ function customProperty(
 }
 
 /** `GET /properties` as the backend answers it: the whole catalogue, built-ins first. */
-function propertyModel(properties: readonly SiteProperty[] = codePropertyCatalog.all) {
+function propertyModel(
+  properties: readonly SiteProperty[] = codePropertyCatalog.all,
+  plans?: readonly PlanOption[],
+) {
   return {
     properties,
+    ...(plans ? { plans } : {}),
     layouts: {},
     capabilities: { canManage: true },
     requestId: 'req_test',
@@ -303,15 +308,29 @@ describe('LeadsInbox', () => {
   });
 
   it('filters an order type by its plan, payment status, carrier commission and quantity', async () => {
+    const plans: PlanOption[] = [
+      {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Unlimited 50',
+        active: true,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000002',
+        name: 'Legacy 10',
+        active: false,
+        leadType: 'sim_order',
+      },
+      // Another type's plan: the SIM order filter does not list it.
+      {
+        id: '70000000-0000-4000-8000-000000000003',
+        name: 'Fibre 500',
+        active: true,
+        leadType: 'internet',
+      },
+    ];
     mocks.getPropertyModel.mockResolvedValue(
-      propertyModel(
-        buildPropertyCatalog([], 'lead', {
-          plans: [
-            { id: '70000000-0000-4000-8000-000000000001', name: 'Unlimited 50', active: true },
-            { id: '70000000-0000-4000-8000-000000000002', name: 'Legacy 10', active: false },
-          ],
-        }).all,
-      ),
+      propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
     );
     navigation.search = 'type=sim_order';
     render(<LeadsInbox workspaceSlug="canadawide" />);
@@ -336,6 +355,40 @@ describe('LeadsInbox', () => {
           (opt) => opt.textContent,
         ),
       ).toEqual(['Unlimited 50', 'Legacy 10 (retired)']),
+    );
+  });
+
+  it('names each plan’s type in the filter across all types', async () => {
+    const plans: PlanOption[] = [
+      {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Basic',
+        active: true,
+        leadType: 'internet',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000002',
+        name: 'Basic',
+        active: true,
+        leadType: 'mobility',
+      },
+    ];
+    mocks.getPropertyModel.mockResolvedValue(
+      propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
+    );
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    const propertySelect = await screen.findByLabelText('Property');
+    await waitFor(() =>
+      expect(propertySelect.querySelector('option[value="plan"]')).not.toBeNull(),
+    );
+    fireEvent.change(propertySelect, { target: { value: 'plan' } });
+    await waitFor(() =>
+      expect(
+        Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+          (opt) => opt.textContent,
+        ),
+      ).toEqual(['Basic (Internet)', 'Basic (Mobility)']),
     );
   });
 

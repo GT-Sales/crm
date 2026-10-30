@@ -11,14 +11,15 @@ export const PLAN_ORDER = [
 ];
 
 /**
- * Every plan of the transaction's site, inactive ones included, as the lead
- * catalogue's `plan` property offers them (an inactive plan is a hidden
- * option, so an order that names it still reads). Kept apart from the plan
+ * Every plan of the transaction's site, inactive ones included, with its
+ * lead type, as the lead catalogue's `plan` property offers them (an inactive
+ * plan, or another type's, is a hidden option, so an order that names it
+ * still reads). Kept apart from the plan
  * store so the property catalogue can load it without importing that store.
  */
 export function loadPlanOptions(tx: TenantTransaction): Promise<PlanOption[]> {
   return tx
-    .select({ id: plans.id, name: plans.name, active: plans.active })
+    .select({ id: plans.id, name: plans.name, active: plans.active, leadType: plans.leadType })
     .from(plans)
     .where(eq(plans.workspaceId, contextWorkspaceId))
     .orderBy(...PLAN_ORDER);

@@ -191,11 +191,12 @@ databaseTest('plan store', () => {
       after: { id: first.id, name: 'Unlimited 50', priceMinor: 5000, version: 1 },
     });
 
+    // Each with its lead type, so the catalogue offers a type only its own.
     expect(await store.options(ctx)).toEqual([
-      { id: internet.id, name: 'Fibre 1G', active: true },
-      { id: second.id, name: 'basic 20', active: true },
-      { id: first.id, name: 'Unlimited 50', active: true },
-      { id: retired.id, name: 'Old plan', active: false },
+      { id: internet.id, name: 'Fibre 1G', active: true, leadType: 'internet' },
+      { id: second.id, name: 'basic 20', active: true, leadType: 'sim_order' },
+      { id: first.id, name: 'Unlimited 50', active: true, leadType: 'sim_order' },
+      { id: retired.id, name: 'Old plan', active: false, leadType: 'sim_order' },
     ]);
   });
 
