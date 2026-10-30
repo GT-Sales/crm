@@ -158,7 +158,7 @@ function DeleteDialog({
 }
 
 /**
- * The view bar's left side: the active saved view (or "All leads") as a menu
+ * At the right end of the type tabs: the active saved view (or "All leads") as a menu
  * of the viewer's own views, and, while the list differs from the saved view,
  * a dirty dot with "Save" (the view itself) and "Save as new view".
  */
@@ -218,7 +218,7 @@ export function SavedViewSwitcher({
             <ChevronDownIcon aria-hidden="true" />
           </BarButton>
         </PopoverTrigger>
-        <MenuPanel className="max-h-96 w-64 overflow-y-auto">
+        <MenuPanel align="end" className="max-h-96 w-64 overflow-y-auto">
           <MenuItem selected={active === undefined} onClick={() => choose(undefined)}>
             All leads
           </MenuItem>
