@@ -45,6 +45,7 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { sensitiveFieldsKey } from '../crypto/cipher.js';
+import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
 import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
@@ -73,6 +74,7 @@ import {
   type WebsiteCredentialStore,
 } from '../website/store.js';
 
+import { createAutomationRoutes } from './automations.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 
@@ -105,6 +107,8 @@ export interface StaffRouteDependencies {
   propertyStore?: PropertyStore;
   /** The site's plans; `createApp` supplies the database store when this is omitted. */
   planStore?: PlanStore;
+  /** The built-in automation rules' state and runs; omitted in route tests that do not reach them. */
+  automationStore?: AutomationStore;
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -121,6 +125,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     customerEmail: customerEmailFromEnv(),
     savedViewStore: new DatabaseSavedViewStore(),
     planStore: new DatabasePlanStore(),
+    automationStore: new DatabaseAutomationStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -155,6 +160,12 @@ const unconfiguredPlanStore: PlanStore = {
   update: () => notConfigured('plan store'),
   listForWebsite: () => notConfigured('plan store'),
   options: () => notConfigured('plan store'),
+};
+const unconfiguredAutomationStore: AutomationStore = {
+  list: () => notConfigured('automation store'),
+  setEnabled: () => notConfigured('automation store'),
+  recordRun: () => notConfigured('automation store'),
+  listRuns: () => notConfigured('automation store'),
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 
@@ -1401,6 +1412,16 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     createPlanRoutes({
       store: dependencies.planStore ?? unconfiguredPlanStore,
       decide,
+      reportFailure,
+    }),
+  );
+
+  router.use(
+    createAutomationRoutes({
+      store: dependencies.automationStore ?? unconfiguredAutomationStore,
+      customerEmail: dependencies.customerEmail,
+      decide,
+      canSeeContacts,
       reportFailure,
     }),
   );
