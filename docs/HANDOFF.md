@@ -106,7 +106,7 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | POST            | `/workspaces/:id/leads/:leadId/{notes,tasks,archive,restore}` | lead.manage                  | Note, follow-up task, archive (soft delete; `/trash` is the deprecated alias of `/archive`) and back. An archived lead refuses changes (`lead_trashed`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | PATCH · GET     | `/workspaces/:id/tasks/:taskId` · `/tasks`                    | lead.manage · workspace.read | Complete, reopen, cancel, edit; "my tasks", or the team's (`assignee=all`), optionally due by a day (`dueBy`); needs contact access.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | GET             | `/workspaces/:id/members`                                     | workspace.read               | Assignee options: membership and actor ids, roles and display names, never emails.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| GET             | `/workspaces/:id/properties`                                  | workspace.read               | The site's lead properties (code built-ins as the site relabelled or hid them, then custom ones), every lead type's record layout (the saved one, else the default at version 0) and `capabilities.canManage`. The five property routes (this one, `POST`, `PATCH`/`DELETE` `/properties/:key` and `PATCH /properties/layouts`) take `?object=lead` (the default) or `?object=plan`: see the plan properties below.                                                                                                                                                                                                                                    |
+| GET             | `/workspaces/:id/properties`                                  | workspace.read               | The site's lead properties (code built-ins as the site relabelled or hid them, then custom ones), every lead type's record layout (the saved one, else the default at version 0), for leads the site's `plans` (id, name, active, lead type: each order type's `plan` offers only its own) and `capabilities.canManage`. The five property routes (this one, `POST`, `PATCH`/`DELETE` `/properties/:key` and `PATCH /properties/layouts`) take `?object=lead` (the default) or `?object=plan`: see the plan properties below.                                                                                                                          |
 | POST            | `/workspaces/:id/properties`                                  | property.manage              | Adds a custom property (label, kind, options, `staffOnly`, `sensitive`, `leadTypes`); its key `custom_<snake>` is generated from the label. 201; 409 `property_limit` at 100 live custom properties per site (tombstones do not count).                                                                                                                                                                                                                                                                                                                                                                                                                |
 | PATCH           | `/workspaces/:id/properties/:key`                             | property.manage              | Edits a property with `expectedVersion`. A built-in takes only `label` and `hidden` (400 `builtin_property_locked` otherwise). 400 `invalid_request` when the options do not fit the kind, 404 `property_not_found`, 409 `version_conflict`, 409 `property_option_in_use` when a removed choice option is still on leads (`details { optionValue, leadCount, active, trashed, restricted }`).                                                                                                                                                                                                                                                          |
 | DELETE          | `/workspaces/:id/properties/:key`                             | property.manage              | Tombstones a custom property; the key stays reserved. 404 `property_not_found`, 400 `builtin_property_locked`, 409 `property_in_use` while any lead, trashed and restricted ones included, holds a value; `details { leadCount, active, trashed, restricted }` tells the owner which leads to clear, restore first, or that hiding is the only way out.                                                                                                                                                                                                                                                                                                |
@@ -642,16 +642,28 @@ selects `leads.order_details`).
    list. The property engine has a third storage, `order`: the built-ins
    `plan`, `quantity`, `paymentStatus` and `carrierCommission` on order lead
    types, read from `leads.order_details`; `plan` reads `order_details.planId`
-   through `storageKey`, and its options are the site's plans (an inactive
-   plan stays readable as a hidden option). `object=plan` selects plan
-   properties on the property routes, and plan usage counts return `planCount`.
-   `leadViewSchema` accepts `archived` and still `trash`.
+   through `storageKey` (the one map is `ORDER_STORAGE_KEYS` /
+   `orderStorageKey`, beside `isOrderLeadType`), and its options are the
+   site's plans of the lead's own type (`PlanOption.leadType`): an inactive
+   plan, or another type's, stays readable as a hidden option, a typed filter
+   lists only the type's plans, and the filter across types names each plan's
+   type (`Basic (Mobility)`). `GET /properties` carries the site's plans with
+   their types as `plans`, which the admin builds its catalogue from. A layout
+   saved before phase 3 that places none of the order properties opens the
+   record with them in an **Order** section instead of under "Other".
+   `object=plan` selects plan properties on the property routes, and plan
+   usage counts return `planCount`. `leadViewSchema` accepts `archived` and
+   still `trash`.
 4. **Backend.** `apps/backend/src/plans/{store,options}.ts` and
    `routes/plans.ts` (the routes of §2.3), `routes/website.ts` (`GET /plans`,
-   `order` on intake, `submit` on `PATCH`), `leads/order.ts` and the lead
+   `order` on intake, `submit` on `PATCH`, and a resumed draft's
+   `order: { planId, quantity }` on `GET /leads/:id`), `leads/order.ts` and the lead
    store and work store (freeze at submission, re-freeze when staff change the
    plan, the order in the lead list, filters, sort and columns as the
-   catalogue's order properties). `POST /leads/:id/archive` is the new name of
+   catalogue's order properties; a staff order edit writes only the changed
+   fields over the stored `order_details`, so an unknown key or the stored
+   frozen copy survives, and an order field's `empty` filter matches only
+   order types). `POST /leads/:id/archive` is the new name of
    `/trash` (both work), `view=archived` of `view=trash`, and the summary
    returns `archived` (and `trash`, the same number).
 5. **Admin.** **Settings → Plans** (`apps/admin/src/components/plans/`: the
@@ -665,7 +677,10 @@ selects `leads.order_details`).
    the inbox filters and columns cover them; the timeline shows what the 0012
    migration changed. The admin says Archive instead of Trash. The URL
    parameter is `archived=1`, with the legacy `trash=1` still read (and
-   rewritten), and a saved view with the legacy `trash` key opens the archive.
+   rewritten, in the same change as the one-time move of this browser's
+   hidden columns into `?hide=`), and a saved view with the legacy `trash` key
+   opens the archive. Closing the side panel after a change reloads the list
+   and the tab counts (an archive there shows the Archive tab at once).
 
 ## 4. What is verified, and how
 
