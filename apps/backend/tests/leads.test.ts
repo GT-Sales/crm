@@ -72,6 +72,8 @@ class FakeLeadStore implements LeadStore {
   createError: Error | undefined;
   /** Whether the next create answers as a replay of the first outcome. */
   createReplayed = false;
+  /** The order number the store gives a create that names none, as the site counter does. */
+  nextExternalRef: string | null = null;
   /** What the next update answers once its grant checks pass. */
   updateOutcome: UpdateLeadOutcome | undefined;
 
@@ -84,7 +86,7 @@ class FakeLeadStore implements LeadStore {
           id: LEAD_A,
           workspaceId: input.workspaceId,
           status: 'submitted',
-          externalRef: input.externalRef ?? null,
+          externalRef: input.externalRef ?? this.nextExternalRef,
           updatedAt: NOW,
         },
         grant: null,
@@ -96,7 +98,7 @@ class FakeLeadStore implements LeadStore {
         id: LEAD_A,
         workspaceId: input.workspaceId,
         status: 'incomplete',
-        externalRef: input.externalRef ?? null,
+        externalRef: input.externalRef ?? this.nextExternalRef,
         updatedAt: NOW,
       },
       grant: { token: VALID_GRANT_A, expiresAt: new Date(Date.now() + 60_000).toISOString() },
@@ -825,6 +827,18 @@ describe('SIM order intake', () => {
     expect(response.status).toBe(400);
     return apiErrorResponseSchema.parse(await response.json()).error;
   }
+
+  it("returns the order's number on the created lead", async () => {
+    leadStore.nextExternalRef = 'MS-153';
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      { leadType: 'sim_order', consentVersion: 'gcs-v1', contact: { fullName: 'Nadia Khan' } },
+    );
+    expect(response.status).toBe(201);
+    expect(createLeadResponseSchema.parse(await response.json()).lead.externalRef).toBe('MS-153');
+  });
 
   it('saves a draft with only a name', async () => {
     const response = await request(

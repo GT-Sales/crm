@@ -15,6 +15,7 @@ import {
   leadFormSchema,
   leadStatusSchema,
   leadTypeSchema,
+  simOrderRef,
   type LeadAssigneeFilter,
   type LeadContact,
   type LeadForm,
@@ -44,6 +45,7 @@ import {
   type IdempotencyInput,
 } from './idempotency.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
+import { nextSiteNumber } from './site-counter.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
 import { checkLeadForm, checkLeadSubmit, type LeadIntakeProblem } from './types.js';
@@ -187,15 +189,39 @@ function toSummary(row: {
   id: string;
   workspaceId: string;
   status: string;
+  externalRef: string | null;
   updatedAt: Date;
 }): LeadSummary {
   return {
     id: row.id,
     workspaceId: row.workspaceId,
     status: leadStatusSchema.parse(row.status),
-    externalRef: null,
+    externalRef: row.externalRef,
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/** What every summary is read from: the lead row's own columns. */
+const summaryColumns = {
+  id: leads.id,
+  workspaceId: leads.workspaceId,
+  status: leads.status,
+  externalRef: leads.externalRef,
+  updatedAt: leads.updatedAt,
+};
+
+/**
+ * The reference a new lead is stored under: the website's own when it sent
+ * one; else, for a SIM order, the next `MS-<n>` from the site's counter; else
+ * none.
+ */
+async function intakeExternalRef(
+  tx: TenantTransaction,
+  input: CreateLeadInput,
+): Promise<string | null> {
+  if (input.externalRef !== undefined) return input.externalRef;
+  if (input.leadType !== 'sim_order') return null;
+  return simOrderRef(await nextSiteNumber(tx, input.workspaceId, 'sim_order_ref'));
 }
 
 /**
@@ -283,10 +309,7 @@ async function replayCreatedLead(
 ): Promise<CreateLeadResult> {
   const [row] = await tx
     .select({
-      id: leads.id,
-      workspaceId: leads.workspaceId,
-      status: leads.status,
-      updatedAt: leads.updatedAt,
+      ...summaryColumns,
       deletedAt: leads.deletedAt,
       customerDataRestrictedAt: leads.customerDataRestrictedAt,
     })
@@ -433,6 +456,9 @@ export class DatabaseLeadStore implements LeadStore {
         const attribution = sanitizeAttribution(input.attribution);
         const status = input.submit ? 'submitted' : 'incomplete';
         const orderDetails = await intakeOrder(tx, input);
+        // Numbered after the claim and the order check, so a replay or a
+        // refused create takes no number.
+        const externalRef = await intakeExternalRef(tx, input);
         const contactId = input.contact?.email
           ? await upsertContact(tx, { ...input.contact, email: input.contact.email })
           : null;
@@ -449,18 +475,13 @@ export class DatabaseLeadStore implements LeadStore {
             phone: input.contact?.phone,
             countryCode: input.contact?.countryCode,
             contactId,
-            externalRef: input.externalRef ?? null,
+            externalRef,
             payload: input.form ?? null,
             attribution,
             consentVersion: input.consentVersion,
             ...(orderDetails ? { orderDetails } : {}),
           })
-          .returning({
-            id: leads.id,
-            workspaceId: leads.workspaceId,
-            status: leads.status,
-            updatedAt: leads.updatedAt,
-          });
+          .returning(summaryColumns);
         if (!leadRow) throw new Error('lead insert did not return a row');
 
         await tx.insert(auditEvents).values({
@@ -474,7 +495,7 @@ export class DatabaseLeadStore implements LeadStore {
           after: {
             status,
             leadType: input.leadType,
-            externalRef: input.externalRef ?? null,
+            externalRef,
             contactId,
             consentVersion: input.consentVersion,
             ...(orderDetails ? { order: orderDetails } : {}),
@@ -532,6 +553,7 @@ export class DatabaseLeadStore implements LeadStore {
             expiresAt: draftGrants.expiresAt,
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
+            leadExternalRef: leads.externalRef,
             leadUpdatedAt: leads.updatedAt,
             leadFullName: leads.fullName,
             leadEmail: leads.email,
@@ -582,6 +604,7 @@ export class DatabaseLeadStore implements LeadStore {
               id: input.leadId,
               workspaceId: input.workspaceId,
               status: grant.leadStatus,
+              externalRef: grant.leadExternalRef,
               updatedAt: grant.leadUpdatedAt,
             });
             return { status: 'updated', lead, replayed: true };
@@ -674,12 +697,7 @@ export class DatabaseLeadStore implements LeadStore {
           .update(leads)
           .set(updates)
           .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)))
-          .returning({
-            id: leads.id,
-            workspaceId: leads.workspaceId,
-            status: leads.status,
-            updatedAt: leads.updatedAt,
-          });
+          .returning(summaryColumns);
         // The grant resolved but the lead itself is gone — treat identically
         // to an invalid grant.
         if (!row) throw new UpdateRefused({ status: 'grant_invalid' });
