@@ -4,6 +4,7 @@ import {
   ListTodoIcon,
   SettingsIcon,
   UsersIcon,
+  ZapIcon,
 } from 'lucide-react';
 
 /**
@@ -17,5 +18,6 @@ export const NAV_ITEMS = [
   { section: 'leads', label: 'Leads', icon: UsersIcon },
   { section: 'tasks', label: 'My tasks', icon: ListTodoIcon },
   { section: 'documents', label: 'Documents', icon: FileTextIcon },
+  { section: 'automations', label: 'Automations', icon: ZapIcon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ] as const;

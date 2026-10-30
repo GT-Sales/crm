@@ -1,6 +1,11 @@
 import {
   BackendError,
   createBackendClient,
+  type AutomationKey,
+  type AutomationResponse,
+  type ListAutomationRunsResponse,
+  type ListAutomationsResponse,
+  type UpdateAutomationRequest,
   type CreateDownloadLinkResponse,
   type CreateSavedViewRequestInput,
   type CreatePlanRequestInput,
@@ -372,6 +377,34 @@ export async function updatePlan(
   body: UpdatePlanRequest,
 ): Promise<PlanResponse> {
   return client(accessToken).staff.updatePlan(workspaceId, planId, body);
+}
+
+// ---- Automation rules. Reading them and their runs needs workspace access
+// (lead names only with contact access); switching one needs
+// integration.manage, checked server-side. ----
+
+export async function listAutomations(
+  accessToken: string,
+  workspaceId: string,
+): Promise<ListAutomationsResponse> {
+  return client(accessToken).staff.listAutomations(workspaceId);
+}
+
+export async function updateAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  body: UpdateAutomationRequest,
+): Promise<AutomationResponse> {
+  return client(accessToken).staff.updateAutomation(workspaceId, key, body);
+}
+
+export async function listAutomationRuns(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<ListAutomationRunsResponse> {
+  return client(accessToken).staff.listAutomationRuns(workspaceId, key);
 }
 
 // ---- Private saved views: the caller's own, never anyone else's. ----
