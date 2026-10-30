@@ -22,6 +22,14 @@ import {
   trackingOrderSchema,
   trackingPendingChangeSchema,
   trackingStageWord,
+  createTrackedChangeRequestSchema,
+  trackedChangeResponseSchema,
+  trackingCodeRequestSchema,
+  trackingCodeResponseSchema,
+  trackingOrdersResponseSchema,
+  trackingUploadIntentRequestSchema,
+  trackingVerifyRequestSchema,
+  trackingVerifyResponseSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -192,6 +200,88 @@ describe('a tracked order', () => {
     expect(
       trackingPendingChangeSchema.safeParse({ ...order.pendingChange, documents: ['selfie'] })
         .success,
+    ).toBe(false);
+  });
+});
+
+describe('the tracking API shapes', () => {
+  it('asks for a code with an email only, and answers neutrally', () => {
+    expect(trackingCodeRequestSchema.parse({ email: ' nadia@example.com ' })).toEqual({
+      email: 'nadia@example.com',
+    });
+    expect(trackingCodeRequestSchema.safeParse({ email: 'not-an-email' }).success).toBe(false);
+    expect(
+      trackingCodeRequestSchema.safeParse({ email: 'nadia@example.com', reference: 'MS-1' })
+        .success,
+    ).toBe(false);
+    expect(trackingCodeResponseSchema.parse({ status: 'code_sent', requestId: UUID_A })).toEqual({
+      status: 'code_sent',
+      requestId: UUID_A,
+    });
+  });
+
+  it('verifies six digits and answers with a grant', () => {
+    expect(
+      trackingVerifyRequestSchema.safeParse({ email: 'nadia@example.com', code: '012345' }).success,
+    ).toBe(true);
+    expect(
+      trackingVerifyRequestSchema.safeParse({ email: 'nadia@example.com', code: '12345' }).success,
+    ).toBe(false);
+    expect(
+      trackingVerifyRequestSchema.safeParse({ email: 'nadia@example.com', code: '12345a' }).success,
+    ).toBe(false);
+    const grant = { token: 'v1.abc.def', expiresAt: NOW };
+    expect(trackingVerifyResponseSchema.parse({ grant, requestId: UUID_A }).grant).toEqual(grant);
+    expect(
+      trackingVerifyResponseSchema.safeParse({
+        grant: { ...grant, token: 'x'.repeat(2049) },
+        requestId: UUID_A,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('lists at most fifty orders', () => {
+    expect(trackingOrdersResponseSchema.parse({ orders: [], requestId: UUID_A }).orders).toEqual(
+      [],
+    );
+  });
+
+  it('takes a change request with at least one field, never the email', () => {
+    expect(createTrackedChangeRequestSchema.safeParse({ fields: {} }).success).toBe(false);
+    expect(
+      createTrackedChangeRequestSchema.safeParse({ fields: { email: 'a@b.co' } }).success,
+    ).toBe(false);
+    expect(
+      createTrackedChangeRequestSchema.parse({ fields: { flightBooked: true } }).fields,
+    ).toEqual({ flightBooked: true });
+    expect(
+      trackedChangeResponseSchema.parse({
+        changeRequest: {
+          requestNo: 1,
+          fields: { flightBooked: true },
+          documents: [],
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        requestId: UUID_A,
+      }).changeRequest.requestNo,
+    ).toBe(1);
+  });
+
+  it('takes an upload of a passport or visa within the document limits', () => {
+    const intent = { documentType: 'visa', contentType: 'application/pdf', sizeBytes: 1200 };
+    expect(trackingUploadIntentRequestSchema.parse(intent)).toEqual(intent);
+    expect(
+      trackingUploadIntentRequestSchema.safeParse({ ...intent, documentType: 'selfie' }).success,
+    ).toBe(false);
+    expect(
+      trackingUploadIntentRequestSchema.safeParse({ ...intent, contentType: 'image/heic' }).success,
+    ).toBe(false);
+    expect(trackingUploadIntentRequestSchema.safeParse({ ...intent, sizeBytes: 0 }).success).toBe(
+      false,
+    );
+    expect(
+      trackingUploadIntentRequestSchema.safeParse({ ...intent, parentId: UUID_A }).success,
     ).toBe(false);
   });
 });

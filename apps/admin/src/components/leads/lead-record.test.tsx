@@ -116,6 +116,7 @@ function response(overrides: Partial<GetWorkspaceLeadResponse> = {}): GetWorkspa
     identities: [],
     documents: [],
     allowedMoves: [],
+    changeRequest: null,
     access: { contacts: true, manage: true },
     requestId: '00000000-0000-4000-8000-000000000001',
     ...overrides,

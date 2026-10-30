@@ -482,3 +482,136 @@ describe('property client methods', () => {
     );
   });
 });
+
+describe('tracking client methods', () => {
+  const NOW = '2026-10-30T12:00:00.000Z';
+  const pending = {
+    requestNo: 3,
+    fields: { phone: '+1 647 555 0123' },
+    documents: [],
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  it('asks for a code and verifies it with the website credential only', async () => {
+    const code = harness(200, { status: 'code_sent', requestId: UUID });
+    expect(await code.client.tracking.requestCode({ email: 'nadia@example.com' })).toEqual({
+      status: 'code_sent',
+      requestId: UUID,
+    });
+    expect(code.calls[0]?.method).toBe('POST');
+    expect(code.calls[0]?.url).toBe('https://api.example.test/api/v1/website/tracking/code');
+    expect(code.calls[0]?.headers.has('x-customer-grant')).toBe(false);
+    expect(JSON.parse(code.calls[0]?.body ?? '{}')).toEqual({ email: 'nadia@example.com' });
+
+    const grant = { token: 'v1.abc.def', expiresAt: NOW };
+    const verify = harness(200, { grant, requestId: UUID });
+    expect(
+      (await verify.client.tracking.verify({ email: 'nadia@example.com', code: '012345' })).grant,
+    ).toEqual(grant);
+    expect(verify.calls[0]?.url).toBe('https://api.example.test/api/v1/website/tracking/verify');
+  });
+
+  it('sends the customer grant on every call after the code', async () => {
+    const orders = harness(200, { orders: [], requestId: UUID });
+    await orders.client.tracking.orders({ customerGrant: 'grant-1' });
+    expect(orders.calls[0]?.method).toBe('GET');
+    expect(orders.calls[0]?.url).toBe('https://api.example.test/api/v1/website/tracking/orders');
+    expect(orders.calls[0]?.headers.get('x-customer-grant')).toBe('grant-1');
+
+    const change = harness(201, { changeRequest: pending, requestId: UUID });
+    expect(
+      (
+        await change.client.tracking.requestChange(
+          'MS-153',
+          { fields: { phone: '+1 647 555 0123' } },
+          { customerGrant: 'grant-2' },
+        )
+      ).changeRequest,
+    ).toEqual(pending);
+    expect(change.calls[0]?.url).toBe(
+      'https://api.example.test/api/v1/website/tracking/orders/MS-153/changes',
+    );
+    expect(change.calls[0]?.headers.get('x-customer-grant')).toBe('grant-2');
+
+    const intent = harness(201, {
+      uploadId: UUID,
+      url: 'https://storage.example.test/put',
+      method: 'PUT',
+      headers: {},
+      expiresAt: NOW,
+      requestId: UUID,
+    });
+    await intent.client.tracking.createUpload(
+      'MS-153',
+      { documentType: 'passport', contentType: 'image/png', sizeBytes: 10 },
+      { customerGrant: 'grant-3' },
+    );
+    expect(intent.calls[0]?.url).toBe(
+      'https://api.example.test/api/v1/website/tracking/orders/MS-153/uploads/intents',
+    );
+    expect(intent.calls[0]?.headers.get('x-customer-grant')).toBe('grant-3');
+
+    const finalize = harness(200, { changeRequest: pending, requestId: UUID });
+    await finalize.client.tracking.finalizeUpload(
+      'MS-153',
+      UUID,
+      { checksumSha256: 'a'.repeat(64) },
+      { customerGrant: 'grant-4' },
+    );
+    expect(finalize.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/website/tracking/orders/MS-153/uploads/${UUID}/finalize`,
+    );
+    expect(finalize.calls[0]?.headers.get('x-customer-grant')).toBe('grant-4');
+  });
+
+  it('refuses a tracked order that carries a payment status', async () => {
+    const { client } = harness(200, {
+      orders: [{ reference: 'MS-1', paymentStatus: 'paid' }],
+      requestId: UUID,
+    });
+    await expect(client.tracking.orders({ customerGrant: 'grant' })).rejects.toThrow();
+  });
+
+  it('approves and rejects a change request with the version staff saw', async () => {
+    const lead = {
+      id: UUID,
+      workspaceId: UUID,
+      leadType: 'sim_order',
+      status: 'submitted',
+      stage: 'pending',
+      contact: {},
+      contactId: null,
+      assignedActorId: null,
+      externalRef: 'MS-153',
+      source: 'direct',
+      attribution: {},
+      consentVersion: 'getcanadasim-order-2026-10',
+      openTaskCount: 0,
+      nextTaskDueAt: null,
+      deletedAt: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      form: null,
+    };
+    for (const decision of ['approve', 'reject'] as const) {
+      const { client, calls } = harness(200, {
+        lead,
+        activities: [],
+        allowedMoves: [],
+        emailSkipped: { template: 'change_approved', reason: 'no_sender' },
+        requestId: UUID,
+      });
+      const call =
+        decision === 'approve'
+          ? client.staff.approveChangeRequest(UUID, UUID, UUID, { expectedVersion: 2 })
+          : client.staff.rejectChangeRequest(UUID, UUID, UUID, { expectedVersion: 2 });
+      expect((await call).emailSkipped?.reason).toBe('no_sender');
+      expect(calls[0]?.method).toBe('POST');
+      expect(calls[0]?.url).toBe(
+        `https://api.example.test/api/v1/staff/workspaces/${UUID}/leads/${UUID}/change-requests/${UUID}/${decision}`,
+      );
+      expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ expectedVersion: 2 });
+    }
+  });
+});

@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 import { orderLeadTypes, type OrderLeadType } from '@gt-sales/types';
 
-import { isoDateTimeSchema } from './common';
-import { documentChecklistKeySchema } from './domain';
+import { isoDateTimeSchema, requestIdSchema } from './common';
+import { MAX_DOCUMENT_BYTES, documentChecklistKeySchema, documentMediaTypeSchema } from './domain';
 import { isCalendarDate } from './lead-fields';
 import { SIM_ORDER_DELIVERIES, SIM_ORDER_PERMIT_TYPES } from './lead-types';
 import { billingPeriodSchema, orderDateSchema, orderLeadTypeSchema } from './plans';
@@ -16,9 +16,22 @@ import { leadStageSchema } from './workspace-leads';
  * website's key belongs to, never another site's, and may ask for changes to a
  * SIM order that staff approve or reject on the lead page.
  *
- * This module holds the vocabulary: the limits (spec ruling 7), the fields a
- * customer may change (ruling 4), the customer's words for each stage and the
- * shape of one tracked order. The endpoints come with the API shapes.
+ * This module holds the vocabulary (the limits of spec ruling 7, the fields a
+ * customer may change under ruling 4, the customer's words for each stage),
+ * the shape of one tracked order and the website API's requests and answers.
+ *
+ * Paths, all under `/api/v1/website/tracking`:
+ * - `POST /code`, `POST /verify`: email only; the code request answers the
+ *   same `code_sent` whether or not the email has orders on this site.
+ * - `GET /orders`: the verified email's orders, newest first.
+ * - `POST /orders/:reference/changes`: a pending change request staff decide.
+ * - `POST /orders/:reference/uploads/intents` and
+ *   `POST /orders/:reference/uploads/:uploadId/finalize`: a passport or visa
+ *   for the pending change request, through the signed upload pipeline.
+ *
+ * Every call after the code carries the 30-minute grant (`X-Customer-Grant`),
+ * bound to the site and the normalized email; the backend re-resolves each
+ * order by reference **and** email, so one email never reaches another's.
  */
 
 /** A code lives 10 minutes. */
@@ -215,3 +228,79 @@ export const trackingOrderSchema = z
   })
   .strict();
 export type TrackingOrder = z.infer<typeof trackingOrderSchema>;
+
+/** As `leadContactSchema.email`, trimmed: the address the customer types on `/track`. */
+const trackingEmailSchema = z
+  .string()
+  .trim()
+  .max(254)
+  .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'email address');
+
+/** `POST /website/tracking/code`. */
+export const trackingCodeRequestSchema = z.object({ email: trackingEmailSchema }).strict();
+export type TrackingCodeRequest = z.infer<typeof trackingCodeRequestSchema>;
+
+/** The neutral answer, the same whether or not the email has orders. */
+export const trackingCodeResponseSchema = z.object({
+  status: z.literal('code_sent'),
+  requestId: requestIdSchema,
+});
+export type TrackingCodeResponse = z.infer<typeof trackingCodeResponseSchema>;
+
+/** `POST /website/tracking/verify`: the email and the six digits it was sent. */
+export const trackingVerifyRequestSchema = z
+  .object({ email: trackingEmailSchema, code: z.string().regex(/^\d{6}$/, 'six-digit code') })
+  .strict();
+export type TrackingVerifyRequest = z.infer<typeof trackingVerifyRequestSchema>;
+
+/** A signed 30-minute grant, bound to the site and the normalized email. */
+export const trackingGrantSchema = z.object({
+  token: z.string().min(1).max(2048),
+  expiresAt: isoDateTimeSchema,
+});
+export type TrackingGrant = z.infer<typeof trackingGrantSchema>;
+
+export const trackingVerifyResponseSchema = z.object({
+  grant: trackingGrantSchema,
+  requestId: requestIdSchema,
+});
+export type TrackingVerifyResponse = z.infer<typeof trackingVerifyResponseSchema>;
+
+/** `GET /website/tracking/orders`. */
+export const trackingOrdersResponseSchema = z.object({
+  orders: z.array(trackingOrderSchema).max(MAX_TRACKED_ORDERS),
+  requestId: requestIdSchema,
+});
+export type TrackingOrdersResponse = z.infer<typeof trackingOrdersResponseSchema>;
+
+/** `POST /website/tracking/orders/:reference/changes`: at least one field. */
+export const createTrackedChangeRequestSchema = z
+  .object({
+    fields: changeRequestFieldsSchema.refine(
+      (fields) => Object.keys(fields).length > 0,
+      'at least one field',
+    ),
+  })
+  .strict();
+export type CreateTrackedChangeRequest = z.infer<typeof createTrackedChangeRequestSchema>;
+
+/** The customer's pending change request after a change or a finalized upload. */
+export const trackedChangeResponseSchema = z.object({
+  changeRequest: trackingPendingChangeSchema,
+  requestId: requestIdSchema,
+});
+export type TrackedChangeResponse = z.infer<typeof trackedChangeResponseSchema>;
+
+/**
+ * `POST /website/tracking/orders/:reference/uploads/intents`: a passport or
+ * visa for the order's pending change request. The parent is the order the
+ * reference resolves to, never a value the website sends.
+ */
+export const trackingUploadIntentRequestSchema = z
+  .object({
+    documentType: z.enum(CHANGE_REQUEST_DOCUMENTS),
+    contentType: documentMediaTypeSchema,
+    sizeBytes: z.int().positive().max(MAX_DOCUMENT_BYTES),
+  })
+  .strict();
+export type TrackingUploadIntentRequest = z.infer<typeof trackingUploadIntentRequestSchema>;

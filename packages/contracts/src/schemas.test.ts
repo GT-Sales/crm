@@ -47,6 +47,10 @@ import {
   normalizeLeadView,
   websiteBotActions,
   websiteScopeSchema,
+  changeDecisionEmailSkippedSchema,
+  leadAccessSchema,
+  resolveChangeRequestRequestSchema,
+  staffChangeRequestSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -284,6 +288,16 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
         },
       ],
       allowedMoves: ['won', 'lost'],
+      changeRequest: {
+        id: UUID_C,
+        requestNo: 2,
+        status: 'pending',
+        fields: { phone: '+1 604 555 0199' },
+        documents: [],
+        version: 1,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
       access: {
         contacts: true,
         manage: true,
@@ -435,6 +449,7 @@ describe('contract schemas reject invalid input', () => {
       identities: _identities,
       documents: _documents,
       allowedMoves: _allowedMoves,
+      changeRequest: _changeRequest,
       ...older
     } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
     const parsed = getWorkspaceLeadResponseSchema.parse(older);
@@ -442,6 +457,60 @@ describe('contract schemas reject invalid input', () => {
     expect(parsed.identities).toEqual([]);
     expect(parsed.documents).toEqual([]);
     expect(parsed.allowedMoves).toEqual([]);
+    expect(parsed.changeRequest).toBeNull();
+  });
+});
+
+describe('a customer’s change request, as staff decide it', () => {
+  const request = {
+    id: UUID_A,
+    requestNo: 4,
+    status: 'pending',
+    fields: { phone: '+1 647 555 0123', planId: UUID_B },
+    documents: [{ fileId: UUID_C, documentType: 'passport' }],
+    version: 2,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  it('carries the requested values, the sent files and its version', () => {
+    expect(staffChangeRequestSchema.parse(request)).toEqual(request);
+    expect(staffChangeRequestSchema.safeParse({ ...request, version: 0 }).success).toBe(false);
+    expect(staffChangeRequestSchema.safeParse({ ...request, status: 'cancelled' }).success).toBe(
+      false,
+    );
+  });
+
+  it('is decided with the version staff saw', () => {
+    expect(resolveChangeRequestRequestSchema.parse({ expectedVersion: 2 })).toEqual({
+      expectedVersion: 2,
+    });
+    expect(resolveChangeRequestRequestSchema.safeParse({ expectedVersion: 0 }).success).toBe(false);
+    expect(
+      resolveChangeRequestRequestSchema.safeParse({ expectedVersion: 2, note: 'x' }).success,
+    ).toBe(false);
+  });
+
+  it('says when the decision email was skipped and why', () => {
+    expect(
+      changeDecisionEmailSkippedSchema.parse({
+        template: 'change_approved',
+        reason: 'missing_fill_in',
+        missing: ['tracking link'],
+      }),
+    ).toMatchObject({ reason: 'missing_fill_in' });
+    expect(
+      changeDecisionEmailSkippedSchema.safeParse({ template: 'dispatched', reason: 'no_sender' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('lets a lead page say whether the caller decides changes', () => {
+    expect(leadAccessSchema.parse({ contacts: true, manage: true, decideChanges: true })).toEqual({
+      contacts: true,
+      manage: true,
+      decideChanges: true,
+    });
   });
 });
 

@@ -114,6 +114,55 @@ describe('OpenAPI generation', () => {
     }
   });
 
+  it('registers the tracking and change request operations', () => {
+    const site = '/api/v1/website/tracking';
+    const lead =
+      '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/change-requests/{changeRequestId}';
+    const expected = [
+      ['requestTrackingCode', 'post', `${site}/code`, 200, 'website'],
+      ['verifyTrackingCode', 'post', `${site}/verify`, 200, 'website'],
+      ['listTrackedOrders', 'get', `${site}/orders`, 200, 'customer'],
+      ['createTrackedOrderChange', 'post', `${site}/orders/{reference}/changes`, 201, 'customer'],
+      [
+        'createTrackedOrderUpload',
+        'post',
+        `${site}/orders/{reference}/uploads/intents`,
+        201,
+        'customer',
+      ],
+      [
+        'finalizeTrackedOrderUpload',
+        'post',
+        `${site}/orders/{reference}/uploads/{uploadId}/finalize`,
+        200,
+        'customer',
+      ],
+      ['approveLeadChangeRequest', 'post', `${lead}/approve`, 200, 'staff'],
+      ['rejectLeadChangeRequest', 'post', `${lead}/reject`, 200, 'staff'],
+    ] as const;
+    const paths = asObject(doc['paths']);
+    for (const [operationId, method, path, status, auth] of expected) {
+      const operation = asObject(asObject(paths[path])[method]);
+      expect(operation['operationId']).toBe(operationId);
+      expect(asObject(operation['responses'])[String(status)]).toBeDefined();
+      const registered = endpoints.find((entry) => entry.operationId === operationId);
+      expect(registered?.method).toBe(method.toUpperCase());
+      expect(registered?.successStatus).toBe(status);
+      expect(registered?.auth).toBe(auth);
+      const parameters = operation['parameters'];
+      const headers = (Array.isArray(parameters) ? parameters : [])
+        .map(asObject)
+        .filter((param) => param['in'] === 'header');
+      const grant = headers.find((param) => param['name'] === 'X-Customer-Grant');
+      if (auth === 'customer') {
+        expect(grant).toMatchObject({ required: true });
+        expect(String(grant?.['description'])).toContain('30-minute grant');
+      } else {
+        expect(grant).toBeUndefined();
+      }
+    }
+  });
+
   it('documents the optional Idempotency-Key header on website lead create and update', () => {
     const paths = asObject(doc['paths']);
     for (const [path, method] of [
