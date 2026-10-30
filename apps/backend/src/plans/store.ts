@@ -16,12 +16,14 @@ import {
   planSchema,
   type CreatePlanRequest,
   type Plan,
+  type PlanOption,
   type PropertyValue,
   type UpdatePlanRequest,
   type WebsitePlan,
 } from '@gt-sales/contracts';
 
 import { loadPropertyCatalog } from '../properties/catalog.js';
+import { PLAN_ORDER, loadPlanOptions } from './options.js';
 import type { PropertyContext } from '../properties/store.js';
 
 /**
@@ -46,16 +48,6 @@ export type UpdatePlanOutcome =
   | { kind: 'name_taken' }
   | { kind: 'version_conflict' }
   | { kind: 'invalid_custom_value'; field: string };
-
-/**
- * A plan as the lead catalogue's plan choice lists it.
- * TODO(task 2): use the contracts `PlanOption` once it lands.
- */
-export interface PlanOption {
-  readonly id: string;
-  readonly name: string;
-  readonly active: boolean;
-}
 
 export interface PlanStore {
   /** Ordered by lead type, position, then name ignoring case; inactive plans only when asked. */
@@ -139,13 +131,6 @@ async function lockSitePlans(tx: TenantTransaction, workspaceId: string): Promis
     sql`select pg_advisory_xact_lock(hashtextextended('plans:' || ${workspaceId}::text, 0))`,
   );
 }
-
-const PLAN_ORDER = [
-  asc(plans.leadType),
-  asc(plans.position),
-  sql`lower(${plans.name})`,
-  asc(plans.id),
-];
 
 async function selectPlans(tx: TenantTransaction, where: SQL | undefined): Promise<PlanRecord[]> {
   return tx
@@ -381,12 +366,6 @@ export class DatabasePlanStore implements PlanStore {
   }
 
   options(ctx: TenantContext): Promise<PlanOption[]> {
-    return this.database.withTenantTx(ctx, async (tx) =>
-      tx
-        .select({ id: plans.id, name: plans.name, active: plans.active })
-        .from(plans)
-        .where(eq(plans.workspaceId, ctx.workspaceId))
-        .orderBy(...PLAN_ORDER),
-    );
+    return this.database.withTenantTx(ctx, (tx) => loadPlanOptions(tx));
   }
 }

@@ -13,26 +13,30 @@ import {
 import {
   BUILTIN_OVERRIDE_FIELDS,
   PROPERTY_LIMIT,
+  ORDER_PROPERTY_KEYS,
   generatePropertyKey,
   leadPropertyCatalog,
+  orderPropertyCatalog,
   propertyLayoutRowSchema,
   type CreateCustomProperty,
   type LeadPropertyDefinition,
+  type PlanOption,
   type PropertyCatalog,
   type PropertyLayout,
   type PropertyLayoutRow,
   type PropertyObject,
   type PropertyOption,
+  type PropertyRow,
   type PropertyUsage,
   type UpdateProperty,
 } from '@gt-sales/contracts';
 
+import { loadPlanOptions } from '../plans/options.js';
 import {
   loadPropertyCatalog,
   loadPropertyRows,
   toPropertyRow,
   type PropertyRecord,
-  type StoredPropertyRow,
 } from './catalog.js';
 
 /**
@@ -51,18 +55,10 @@ import {
  * objects.
  */
 
-/**
- * A create or update body; `websiteVisible` applies to plan properties only
- * (the routes refuse it on lead properties).
- * TODO(task 2): the contracts schemas gain `websiteVisible`; these become them.
- */
-export type CreatePropertyInput = CreateCustomProperty & { websiteVisible?: boolean };
-export type UpdatePropertyInput = UpdateProperty & { websiteVisible?: boolean };
-
 export type CreatePropertyOutcome =
-  { kind: 'created'; property: StoredPropertyRow } | { kind: 'limit_reached' };
+  { kind: 'created'; property: PropertyRow } | { kind: 'limit_reached' };
 export type UpdatePropertyOutcome =
-  | { kind: 'updated'; property: StoredPropertyRow }
+  | { kind: 'updated'; property: PropertyRow }
   | { kind: 'not_found' }
   | { kind: 'version_conflict' }
   | { kind: 'builtin_locked' }
@@ -80,8 +76,10 @@ export type SaveLayoutOutcome =
   | { kind: 'unknown_key'; key: string };
 
 export interface PropertyModel {
-  rows: StoredPropertyRow[];
+  rows: PropertyRow[];
   layouts: PropertyLayoutRow[];
+  /** Leads only: the site's plans, which the order's `plan` property offers. */
+  plans?: PlanOption[];
 }
 
 /** The tenant context, plus the request id the audit rows carry (a fresh one when absent). */
@@ -95,13 +93,13 @@ export interface PropertyStore {
   create(
     ctx: PropertyContext,
     object: PropertyObject,
-    input: CreatePropertyInput,
+    input: CreateCustomProperty,
   ): Promise<CreatePropertyOutcome>;
   update(
     ctx: PropertyContext,
     object: PropertyObject,
     key: string,
-    input: UpdatePropertyInput,
+    input: UpdateProperty,
   ): Promise<UpdatePropertyOutcome>;
   remove(ctx: PropertyContext, object: PropertyObject, key: string): Promise<RemovePropertyOutcome>;
   saveLayout(
@@ -126,25 +124,26 @@ async function lockSiteProperties(tx: TenantTransaction, workspaceId: string): P
 }
 
 /**
- * The code definition of a built-in key of the object, if it is one.
- * TODO(task 6): the order built-ins (contracts `ORDER_PROPERTY_KEYS` /
- * `orderPropertyCatalog`, from task 2) are lead built-ins too, relabelled or
- * hidden like the form ones; add them here and to `builtinKeys`.
+ * The code definition of a built-in key of the object, if it is one: a form
+ * property or one of the order properties, either of which a site may
+ * relabel or hide. Plans have no built-ins.
  */
 function builtinDefinition(
   object: PropertyObject,
   key: string,
 ): LeadPropertyDefinition | undefined {
-  if (object !== 'lead' || !Object.hasOwn(leadPropertyCatalog, key)) return undefined;
-  return leadPropertyCatalog[key];
+  if (object !== 'lead') return undefined;
+  if (Object.hasOwn(leadPropertyCatalog, key)) return leadPropertyCatalog[key];
+  if (Object.hasOwn(orderPropertyCatalog, key)) return orderPropertyCatalog[key];
+  return undefined;
 }
 
 function builtinKeys(object: PropertyObject): string[] {
-  return object === 'lead' ? Object.keys(leadPropertyCatalog) : [];
+  return object === 'lead' ? [...Object.keys(leadPropertyCatalog), ...ORDER_PROPERTY_KEYS] : [];
 }
 
 /** What an audit row records of a property: its definition, no timestamps, no values. */
-function definitionOf(row: StoredPropertyRow): Record<string, unknown> {
+function definitionOf(row: PropertyRow): Record<string, unknown> {
   return {
     object: row.object,
     key: row.key,
@@ -156,7 +155,7 @@ function definitionOf(row: StoredPropertyRow): Record<string, unknown> {
     sensitive: row.sensitive,
     hidden: row.hidden,
     leadTypes: row.leadTypes,
-    websiteVisible: row.websiteVisible ?? false,
+    websiteVisible: row.websiteVisible,
     position: row.position,
     version: row.version,
   };
@@ -278,8 +277,8 @@ async function auditProperty(
   input: {
     action: 'property.created' | 'property.updated' | 'property.deleted';
     entityId: string;
-    before: StoredPropertyRow | null;
-    after: StoredPropertyRow | null;
+    before: PropertyRow | null;
+    after: PropertyRow | null;
   },
 ): Promise<void> {
   await tx.insert(auditEvents).values({
@@ -312,14 +311,18 @@ export class DatabasePropertyStore implements PropertyStore {
           and(eq(propertyLayouts.workspaceId, ctx.workspaceId), eq(propertyLayouts.object, object)),
         )
         .orderBy(asc(propertyLayouts.leadType));
-      return { rows, layouts: layouts.map(toLayoutRow) };
+      return {
+        rows,
+        layouts: layouts.map(toLayoutRow),
+        ...(object === 'lead' ? { plans: await loadPlanOptions(tx) } : {}),
+      };
     });
   }
 
   create(
     ctx: PropertyContext,
     object: PropertyObject,
-    input: CreatePropertyInput,
+    input: CreateCustomProperty,
   ): Promise<CreatePropertyOutcome> {
     return this.database.withTenantTx(ctx, async (tx) => {
       await lockSiteProperties(tx, ctx.workspaceId);
@@ -356,7 +359,7 @@ export class DatabasePropertyStore implements PropertyStore {
           staffOnly: input.staffOnly,
           sensitive: input.sensitive,
           leadTypes: input.leadTypes,
-          websiteVisible: object === 'plan' && input.websiteVisible === true,
+          websiteVisible: object === 'plan' && input.websiteVisible,
           position,
           createdBy: ctx.actorId,
           updatedBy: ctx.actorId,
@@ -378,7 +381,7 @@ export class DatabasePropertyStore implements PropertyStore {
     ctx: PropertyContext,
     object: PropertyObject,
     key: string,
-    input: UpdatePropertyInput,
+    input: UpdateProperty,
   ): Promise<UpdatePropertyOutcome> {
     return this.database.withTenantTx(ctx, async (tx) => {
       await lockSiteProperties(tx, ctx.workspaceId);

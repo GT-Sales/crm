@@ -1,18 +1,19 @@
 import { Router, type Request, type Response } from 'express';
 import {
-  PROPERTY_OBJECTS,
   buildPropertyCatalog,
   createCustomPropertySchema,
   defaultPropertyLayout,
   leadTypeCatalog,
   leadTypeEntry,
   propertyKeySchema,
+  propertyObjectQuerySchema,
   savePropertyLayoutRequestSchema,
   updatePropertySchema,
   type PropertyCatalog,
   type PropertyLayout,
   type PropertyLayoutRow,
   type PropertyObject,
+  type PropertyRow,
   type PropertyUsage,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -21,7 +22,6 @@ import { z } from 'zod';
 import type { VerifiedStaffSession } from '../auth/session.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
-import type { StoredPropertyRow } from '../properties/catalog.js';
 import type { PropertyContext, PropertyStore } from '../properties/store.js';
 import {
   decideAccess,
@@ -43,25 +43,13 @@ export interface PropertyRouteDependencies {
   reportFailure: (req: Request, error: unknown) => void;
 }
 
-/** `?object=lead|plan` on every property route; leads when absent. */
-const objectQuerySchema = z.object({ object: z.enum(PROPERTY_OBJECTS).default('lead') });
-
-/**
- * The bodies, with whether a plan property is shown on the website.
- * TODO(task 2): the contracts schemas carry `websiteVisible` (default false
- * on create); drop these extensions then.
- */
-const createPropertyBodySchema = createCustomPropertySchema.safeExtend({
-  websiteVisible: z.boolean().optional(),
-});
-const updatePropertyBodySchema = updatePropertySchema.safeExtend({
-  websiteVisible: z.boolean().optional(),
-});
-
 /** The one layout key of an object without lead types (plans). */
 const PLAN_LAYOUT_TYPE = '';
 
-/** Only a plan property is shown on the website; turning it on for a lead property is refused. */
+/**
+ * Only a plan property is shown on the website; turning it on for a lead
+ * property is refused (off, the create default, passes).
+ */
 function refusesWebsiteVisible(
   object: PropertyObject,
   body: { websiteVisible?: boolean },
@@ -81,22 +69,14 @@ function usageDetails(usage: PropertyUsage): PropertyUsage {
 }
 
 /**
- * A resolved property with whether it is shown on the website (plan
- * properties only; false otherwise).
- * TODO(task 2): `SiteProperty` carries `websiteVisible` from the catalogue; drop this.
+ * The wire form of a row the store just wrote: the row resolved as the
+ * catalogue resolves it (the order's `plan` property without its options;
+ * the admin reloads the model after a change).
  */
-function withWebsiteVisible(
-  property: SiteProperty,
-  row: StoredPropertyRow | undefined,
-): SiteProperty & { websiteVisible: boolean } {
-  return { ...property, websiteVisible: row?.websiteVisible ?? false };
-}
-
-/** The wire form of a row the store just wrote: the row resolved as the catalogue resolves it. */
-function siteProperty(row: StoredPropertyRow): SiteProperty & { websiteVisible: boolean } {
+function siteProperty(row: PropertyRow): SiteProperty {
   const property = buildPropertyCatalog([row], row.object).get(row.key);
   if (!property) throw new Error('a stored property row did not resolve to a property');
-  return withWebsiteVisible(property, row);
+  return property;
 }
 
 /**
@@ -171,7 +151,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
   }
 
   function objectOf(req: Request): PropertyObject | undefined {
-    const query = objectQuerySchema.safeParse({ object: req.query['object'] });
+    const query = propertyObjectQuerySchema.safeParse({ object: req.query['object'] });
     return query.success ? query.data.object : undefined;
   }
 
@@ -216,12 +196,13 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
       if (!allowed) return;
       const model = await store.model(allowed.ctx, object);
       // The catalogue from the same rows, so properties and layouts agree.
-      const catalog = buildPropertyCatalog(model.rows, object);
-      const rowsByKey = new Map(model.rows.map((row) => [row.key, row]));
+      const catalog = buildPropertyCatalog(
+        model.rows,
+        object,
+        model.plans ? { plans: model.plans } : {},
+      );
       res.json({
-        properties: catalog.all.map((property) =>
-          withWebsiteVisible(property, rowsByKey.get(property.key)),
-        ),
+        properties: catalog.all,
         layouts: layoutsByType(object, model.layouts, catalog),
         // Decided on the snapshot this request already loaded: no second membership read.
         capabilities: { canManage: decideAccess(allowed.access, 'property.manage').allowed },
@@ -235,7 +216,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
   router.post('/workspaces/:workspaceId/properties', async (req, res) => {
     const workspaceId = workspaceIdOf(req);
     const object = objectOf(req);
-    const body = createPropertyBodySchema.safeParse(req.body);
+    const body = createCustomPropertySchema.safeParse(req.body);
     if (!workspaceId || !object || !body.success || refusesWebsiteVisible(object, body.data)) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
@@ -307,7 +288,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
 
   router.patch('/workspaces/:workspaceId/properties/:key', async (req, res) => {
     const params = keyParams(req);
-    const body = updatePropertyBodySchema.safeParse(req.body);
+    const body = updatePropertySchema.safeParse(req.body);
     if (!params || !body.success || refusesWebsiteVisible(params.object, body.data)) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;

@@ -451,6 +451,42 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     });
   });
 
+  it('order built-ins are relabelled or hidden like form ones, and the lead catalogue offers the site plans', async () => {
+    await expect(
+      store.update(ctx, 'lead', 'paymentStatus', { expectedVersion: 1, label: 'Paid?' }),
+    ).resolves.toMatchObject({
+      kind: 'updated',
+      property: { key: 'paymentStatus', origin: 'builtin', label: 'Paid?', version: 2 },
+    });
+    await expect(
+      store.update(ctx, 'lead', 'quantity', { expectedVersion: 1, hidden: true }),
+    ).resolves.toMatchObject({ kind: 'updated', property: { key: 'quantity', hidden: true } });
+    await expect(
+      store.update(ctx, 'lead', 'plan', { expectedVersion: 1, staffOnly: true }),
+    ).resolves.toEqual({ kind: 'builtin_locked' });
+    await expect(store.remove(ctx, 'lead', 'carrierCommission')).resolves.toEqual({
+      kind: 'builtin',
+    });
+
+    const [plan] = await admin<{ id: string }[]>`
+      insert into app.plans (workspace_id, lead_type, name, active, position)
+      values (${SITE}, 'sim_order', 'Unlimited 50', true, 0), (${SITE}, 'sim_order', 'Old', false, 1)
+      returning id
+    `;
+    const catalog = await store.catalog(ctx);
+    expect(catalog.get('paymentStatus')?.label).toBe('Paid?');
+    expect(catalog.get('quantity')?.hidden).toBe(true);
+    expect(catalog.get('plan')?.options).toEqual([
+      { value: plan?.id, label: 'Unlimited 50', hidden: false },
+      { value: expect.any(String), label: 'Old', hidden: true },
+    ]);
+    const model = await store.model(ctx, 'lead');
+    expect(model.plans?.map((option) => option.name)).toEqual(['Unlimited 50', 'Old']);
+    expect((await store.model(ctx, 'plan')).plans).toBeUndefined();
+    // Another site's plans are not offered here.
+    expect((await store.catalog(otherCtx)).get('plan')?.options).toEqual([]);
+  });
+
   it('plan properties: website visibility, no built-ins, usage counted over plans, a layout keyed by no type', async () => {
     const created = await store.create(ctx, 'plan', {
       ...textInput('Network'),
@@ -635,7 +671,11 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     const otherCatalog = await store.catalog(otherCtx);
     expect(otherCatalog.get(key)).toBeUndefined();
     expect(otherCatalog.get('city')?.label).toBe('City');
-    await expect(store.model(otherCtx, 'lead')).resolves.toEqual({ rows: [], layouts: [] });
+    await expect(store.model(otherCtx, 'lead')).resolves.toEqual({
+      rows: [],
+      layouts: [],
+      plans: [],
+    });
 
     // The other site's keys are its own: no suffix, and SITE's key is unknown there.
     expect(keyOf(await store.create(otherCtx, 'lead', textInput('Referral code')))).toBe(key);

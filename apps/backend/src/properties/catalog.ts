@@ -3,24 +3,20 @@ import { contextWorkspaceId, properties, type TenantTransaction } from '@gt-sale
 import {
   buildPropertyCatalog,
   propertyRowSchema,
+  type BuildCatalogOptions,
   type PropertyCatalog,
   type PropertyObject,
   type PropertyRow,
 } from '@gt-sales/contracts';
 
+import { loadPlanOptions } from '../plans/options.js';
+
 /** A row of app.properties as Drizzle reads it. */
 export type PropertyRecord = typeof properties.$inferSelect;
 
-/**
- * The API form of a stored row with whether a plan property is shown on the
- * website (`website_visible`; false for lead properties).
- * TODO(task 2): `PropertyRow` gains `websiteVisible`; this becomes `PropertyRow`.
- */
-export type StoredPropertyRow = PropertyRow & { websiteVisible?: boolean };
-
 /** The API form of a stored row; parsing narrows its text columns to their enums. */
-export function toPropertyRow(record: PropertyRecord): StoredPropertyRow {
-  const row = propertyRowSchema.parse({
+export function toPropertyRow(record: PropertyRecord): PropertyRow {
+  return propertyRowSchema.parse({
     object: record.object,
     key: record.key,
     origin: record.origin,
@@ -30,13 +26,13 @@ export function toPropertyRow(record: PropertyRecord): StoredPropertyRow {
     staffOnly: record.staffOnly,
     sensitive: record.sensitive,
     hidden: record.hidden,
+    websiteVisible: record.websiteVisible,
     leadTypes: record.leadTypes,
     position: record.position,
     version: record.version,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   });
-  return { ...row, websiteVisible: record.websiteVisible };
 }
 
 /**
@@ -47,7 +43,7 @@ export function toPropertyRow(record: PropertyRecord): StoredPropertyRow {
 export async function loadPropertyRows(
   tx: TenantTransaction,
   object: PropertyObject,
-): Promise<StoredPropertyRow[]> {
+): Promise<PropertyRow[]> {
   const records = await tx
     .select()
     .from(properties)
@@ -63,12 +59,25 @@ export async function loadPropertyRows(
 }
 
 /**
- * The site's catalogue of one object: the code catalogue merged with its rows.
- * TODO(task 2): take `options` (`{ plans }`) for the lead catalogue's plan choice.
+ * The catalogue options of one object: for leads, the site's plans (the
+ * order's `plan` property offers them); plans need none.
+ */
+export async function loadCatalogOptions(
+  tx: TenantTransaction,
+  object: PropertyObject,
+): Promise<BuildCatalogOptions> {
+  return object === 'lead' ? { plans: await loadPlanOptions(tx) } : {};
+}
+
+/**
+ * The site's catalogue of one object: the code catalogue merged with its rows
+ * and, for leads, the site's plans (unless `options` are given).
  */
 export async function loadPropertyCatalog(
   tx: TenantTransaction,
   object: PropertyObject = 'lead',
+  options?: BuildCatalogOptions,
 ): Promise<PropertyCatalog> {
-  return buildPropertyCatalog(await loadPropertyRows(tx, object), object);
+  const rows = await loadPropertyRows(tx, object);
+  return buildPropertyCatalog(rows, object, options ?? (await loadCatalogOptions(tx, object)));
 }

@@ -155,6 +155,17 @@ export function renderPropertyLayout(
   return rendered;
 }
 
+/**
+ * `?object=` on the five property routes: whose properties and layouts, the
+ * lead's (the default) or the plan's. Plans have one layout, keyed `''`
+ * (`PATCH /properties/layouts?object=plan`).
+ */
+export const propertyObjectQuerySchema = z.object({
+  object: z.enum(PROPERTY_OBJECTS).default('lead'),
+});
+export type PropertyObjectQuery = z.infer<typeof propertyObjectQuerySchema>;
+export type PropertyObjectQueryInput = z.input<typeof propertyObjectQuerySchema>;
+
 /** `GET /properties`: the site's catalogue (hidden and sensitive included) and every saved layout by lead type. */
 export const propertyModelResponseSchema = z.object({
   properties: z.array(sitePropertySchema),

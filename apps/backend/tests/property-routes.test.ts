@@ -17,7 +17,6 @@ import {
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { LeadStore } from '../src/leads/store.js';
-import type { StoredPropertyRow } from '../src/properties/catalog.js';
 import type { PropertyContext, PropertyStore } from '../src/properties/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { StaffStore } from '../src/staff/store.js';
@@ -36,9 +35,7 @@ const workspace: StaffWorkspace = {
   roles: ['owner'],
 };
 
-function propertyRow(
-  overrides: Partial<StoredPropertyRow> & Pick<PropertyRow, 'key'>,
-): StoredPropertyRow {
+function propertyRow(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key'>): PropertyRow {
   return {
     object: 'lead',
     origin: 'custom',
@@ -272,6 +269,22 @@ describe('property routes', () => {
     });
   });
 
+  it('GET /properties offers the site plans on the order plan property', async () => {
+    properties.model.mockResolvedValueOnce({
+      rows: [],
+      layouts: [],
+      plans: [
+        { id: '70000000-0000-4000-8000-000000000f01', name: 'Unlimited 50', active: true },
+        { id: '70000000-0000-4000-8000-000000000f02', name: 'Old', active: false },
+      ],
+    });
+    const body = propertyModelResponseSchema.parse(await (await call(propertiesUrl())).json());
+    expect(body.properties.find((property) => property.key === 'plan')?.options).toEqual([
+      { value: '70000000-0000-4000-8000-000000000f01', label: 'Unlimited 50', hidden: false },
+      { value: '70000000-0000-4000-8000-000000000f02', label: 'Old', hidden: true },
+    ]);
+  });
+
   it('GET /properties is 403 for someone outside the site and 400 for a bad site id', async () => {
     store.access = { ...store.access, status: 'revoked' };
     expect((await call(propertiesUrl())).status).toBe(403);
@@ -490,20 +503,16 @@ describe('property routes for plans (?object=plan)', () => {
     properties.model.mockResolvedValueOnce({ rows: [network, cost], layouts: [] });
     const response = await call(`${propertiesUrl()}?object=plan`);
     expect(response.status).toBe(200);
-    const raw: unknown = await response.json();
-    const body = propertyModelResponseSchema.parse(raw);
+    const body = propertyModelResponseSchema.parse(await response.json());
     expect(properties.model).toHaveBeenCalledWith(ownerContext, 'plan');
     expect(body.properties.map((property) => property.key)).toEqual([
       'custom_network',
       'custom_cost',
     ]);
-    // TODO(task 2): read websiteVisible from the parsed body once sitePropertySchema has it.
-    expect(raw).toMatchObject({
-      properties: [
-        { key: 'custom_network', websiteVisible: true },
-        { key: 'custom_cost', websiteVisible: false },
-      ],
-    });
+    expect(body.properties.map((property) => [property.key, property.websiteVisible])).toEqual([
+      ['custom_network', true],
+      ['custom_cost', false],
+    ]);
     expect(body.layouts).toEqual({
       '': {
         object: 'plan',

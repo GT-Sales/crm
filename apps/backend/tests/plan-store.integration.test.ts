@@ -299,6 +299,7 @@ databaseTest('plan store', () => {
       options: [],
       staffOnly: false,
       sensitive: false,
+      websiteVisible: false,
       leadTypes: [],
     });
     expect(
