@@ -295,7 +295,10 @@ lower(name))`. Tenant policy and `plans_backup_reader_read`, so `app` now
 null default false` (plan properties shown to the website). Neither
   rewrites rows (constant defaults); the check scans `leads` once.
 - Drizzle hash `ce21f737d78ea05f0c3ccd46dbe86d76aff29a01bee10b1a997095770e524ca0`,
-  `created_at` `1793326396341`. Not applied in production yet.
+  `created_at` `1793326396341`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030041921`, name `0011_plans`; the Drizzle
+  tracker row added in the same run), from the Supabase tool with the file's
+  statements verbatim; see 0012 below for the checks.
 
 ## 0012_plans_runtime
 
@@ -326,7 +329,30 @@ Completed; carrier commission set to Invoiced (phase 3 migration)`, data
   Canada Sim import run removes it (legacy-import.md). Re-running changes
   nothing (only `{}` leads are touched).
 - Drizzle hash `e243ef2f8914f732d0357f88f2b3e97661354b6b3d803d4cba66f9e24e1c36ff`,
-  `created_at` `1793326400817`. Not applied in production yet.
+  `created_at` `1793326400817`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030041954`, name `0012_plans_runtime`),
+  right after 0011, from the Supabase tool with the file's statements
+  verbatim plus the Drizzle tracker row. Pre-check A before: no `plans`,
+  neither column, 0 tracker rows, `getcanadasim` present. Reconciliation B
+  before (all `getcanadasim`, 139 leads, 44 archived, 3 restricted):
+  incomplete 23 (11 archived, 3 restricted), pending 59 (25 archived),
+  verified 1, delivered 1, activated 8, completed 13, cancelled 14 (8
+  archived), paid 20; `payment_status` null throughout. The seven
+  verification selects after: `plans` row security on and forced; policies
+  `plans_backup_reader_read`, `plans_tenant_policy`; 29 backup read
+  policies; `app_runtime` select/insert/update true, delete false,
+  `backup_reader` select true; `leads.order_details` `'{}'::jsonb` not null
+  with its check, `properties.website_visible` false not null; the six plans
+  at positions 0–5 with the prices above, `sim_order`, CAD, month, payment
+  required, active; `moved` 20, `moved_from_invoiced` 0,
+  `sim_order_without_payment_status` 0, `old_stages_left` 0,
+  `other_leads_with_order_details` 0; both Drizzle tracker rows present. B
+  after: incomplete/pending 23 (11 archived, 3 restricted), pending/pending
+  59 (25 archived), pending/paid 20, verified/paid 1, delivered/paid 1,
+  activated/paid 8, completed/paid 13, cancelled/not_needed 14 (8 archived);
+  139 leads, 44 archived, no `paid` or `invoiced` stage, no null payment
+  status. Select 7 is to be run once more after the phase 3 backend deploys
+  (the SIM-order freeze window).
 - To apply both, before deploying a backend that reads `plans` or
   `order_details` and before the next Get Canada Sim import run: in the SQL
   editor, as `postgres`, run
@@ -343,8 +369,9 @@ Completed; carrier commission set to Invoiced (phase 3 migration)`, data
   (139 `sim_order` leads, 44 archived): before incomplete 23, pending 59,
   verified 1, delivered 1, activated 8, completed 13, cancelled 14, paid 20;
   after pending 79 (59 `pending` + 20 `paid`), every other stage unchanged,
-  no `paid` or `invoiced`, every lead with a payment status. Record the date,
-  the Supabase tracker versions and both sets of counts here afterwards.
+  no `paid` or `invoiced`, every lead with a payment status. (Done on
+  2026-10-30 through the Supabase tool rather than the paste file: same
+  statements, same checks, counts as recorded above.)
 - Rehearsed 2026-10-30 on a local database migrated to 0010 with those
   production counts: the paste file ran as written and its checks and the
   after counts were as above; the migrator then applied nothing.

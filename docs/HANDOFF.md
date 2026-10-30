@@ -740,22 +740,22 @@ all matched; the record is in
 [RUNBOOKS/database.md](RUNBOOKS/database.md#0009_properties). Status: **done**.
 For another deployment, paste that file into the SQL Editor as `postgres`, once.
 
-**Plans migrations (merge phase 3).** `0011_plans` and `0012_plans_runtime` are
-**not applied to the hosted project yet**. Owner or developer step, before
-deploying this branch's backend (its lead queries select `leads.order_details`):
-in the SQL Editor, as `postgres`, run the pre-check (A) and the reconciliation
-(B) of
-[`RUNBOOKS/manual/0011-0012-plans.sql`](RUNBOOKS/manual/0011-0012-plans.sql) and
-write down B's rows (the **before** counts); paste `BEGIN` … `COMMIT` once; run
-the seven verification selects one at a time; then run B again (the **after**
-counts). On 2026-10-30 production held 139 `sim_order` leads (44 archived); the
-file's comments say what to expect: 20 `paid` leads become `pending`, no
-other lead changes stage (`pending` gains those 20: 59 → 79), none is left in `paid` or `invoiced`, and the same
-139 and the same archived counts remain. The statement-by-statement record goes
-in [RUNBOOKS/database.md](RUNBOOKS/database.md#0011_plans) afterwards. The next
-Get Canada Sim import run needs them too (it writes `order_details`).
-**Between applying 0012 and deploying this branch, freeze SIM orders:** run no
-Get Canada Sim import from `main`'s old script (it writes the old admin's
+**Plans migrations (merge phase 3).** `0011_plans` and `0012_plans_runtime`
+were **applied to the hosted project on 2026-10-30** (Supabase tracker
+versions `20261030041921` and `20261030041954`, both Drizzle tracker rows in
+place), through the Supabase tool with the files' statements verbatim, with
+the pre-check, the before/after reconciliation and the seven verification
+selects of
+[`RUNBOOKS/manual/0011-0012-plans.sql`](RUNBOOKS/manual/0011-0012-plans.sql)
+around them. Before: 139 `sim_order` leads (44 archived), 20 in `paid`. After:
+the 20 `paid` orders are `pending` with payment status `paid` (`pending` 59 →
+79), every other stage unchanged, none left in `paid` or `invoiced`, every
+SIM order with a payment status, six Get Canada Sim plans seeded, 20 timeline
+entries. The statement-by-statement record is in
+[RUNBOOKS/database.md](RUNBOOKS/database.md#0011_plans). For another
+deployment, paste that file into the SQL Editor as `postgres`, once.
+**Until this branch's backend is deployed, SIM orders are frozen:** run no Get
+Canada Sim import from `main`'s old script (it writes the old admin's
 `orders.status` straight into `stage`, so it would put the 20 orders back on
 `paid`, and 0012 cannot be run again to repair them: its data step only
 touches leads whose `order_details` is still `'{}'`), and staff should not move
@@ -766,7 +766,7 @@ or remap the stragglers by hand in the SQL Editor; for a `paid` row:
 `UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';`
 (an `invoiced` row becomes `completed` with `paymentStatus` `paid` and
 `carrierCommission` `invoiced`).
-Status: **to do**.
+Status: **migrations done; the post-deploy select 7 check follows the merge**.
 
 Then the CRM's own owner items:
 
@@ -891,7 +891,8 @@ Still to do in phase 2:
   route exists), with moving day.
 - **Saved views** are done (§3.5): private, per person and site, in
   `app.saved_views`. **Plans, the stage clean-up and Archive** are built
-  (§3.6) and wait on migrations 0011 and 0012 (§5.1).
+  (§3.6); migrations 0011 and 0012 are applied in production (§5.1) and the
+  branch ships with PR #4.
 - **Phase 3b: the cross-site inbox, the contact page and split/merge.** The
   inbox that reads a query per site the admin belongs to (PLAN.md §5.2), the
   **contact page** (all leads of one person across sites) and **split/merge**
