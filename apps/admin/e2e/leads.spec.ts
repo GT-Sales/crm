@@ -351,20 +351,12 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   expect(errors).toEqual([]);
 });
 
-test('a plan is added, an order is marked paid, filtered on, archived and restored, and its stages are the order stages', async ({
+test('a plan is added, an order is marked paid, filtered on, archived and restored, and its stage moves are the order’s', async ({
   page,
 }) => {
   const errors = trackErrors(page);
-  const simStages = [
-    'Incomplete',
-    'Pending',
-    'Verified',
-    'On hold',
-    'Delivered',
-    'Activated',
-    'Completed',
-    'Cancelled',
-  ];
+  // Where a pending order is, and the moves it allows from there.
+  const simStages = ['Pending', 'Verified', 'On hold', 'Cancelled'];
 
   // Settings → Plans: the owner adds a SIM order plan beside the two seeded ones.
   await page.goto('/w/getcanadasim/settings');
@@ -442,7 +434,7 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   await panel.getByRole('button', { name: 'Restore' }).click();
   await expect(panel.getByText(/This lead is archived/)).toHaveCount(0);
 
-  // Restored, its stage select offers the eight order stages, no payment stages.
+  // Restored, its stage select offers the moves from Pending, no payment stages.
   const stage = panel.getByLabel('Stage');
   await expect(stage).toBeVisible();
   await expect(stage).toHaveValue('pending');

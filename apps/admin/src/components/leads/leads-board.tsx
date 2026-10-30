@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
+  allowedStageMoves,
   leadStageLabel,
   leadTypeEntry,
+  stageGates,
   type AssignableMember,
   type LeadBoardColumn,
   type LeadListItem,
@@ -37,6 +39,7 @@ import { errorReason, useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
 import { CountdownDay, leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
+import { stageMoveRefusal } from './stage-move-dialog';
 import { useStoredList } from './view-preferences';
 
 const PER_STAGE = 50;
@@ -135,8 +138,10 @@ function moveCard(columns: LeadBoardColumn[], move: Move, replacement?: LeadList
 /**
  * The inbox as a board for one lead type: a column per stage, newest first.
  * Staff who manage leads drag a card to another column, or use its "Move to"
- * menu (the keyboard and touch path); the move shows at once and is undone
- * if the backend refuses it. Column order, collapsed and hidden columns and
+ * menu (the keyboard and touch path), which offers the moves the type allows
+ * from the card's stage; the move shows at once and is undone if the backend
+ * refuses it. A stage that asks for details first (dispatch, activation,
+ * approved documents) is moved to from the lead page, never from here. Column order, collapsed and hidden columns and
  * the card fields shown are personal view preferences kept in this browser.
  */
 export function LeadsBoard({
@@ -241,6 +246,12 @@ export function LeadsBoard({
 
   async function move(next: Move) {
     if (next.from === next.to) return;
+    if (stageGates(query.type, next.to).length > 0) {
+      setMessage(
+        `Open the lead to move it to ${leadStageLabel(query.type, next.to)}: it needs details.`,
+      );
+      return;
+    }
     setMessage(undefined);
     snapshotBoardPositions();
     board.mutate((current) => ({ ...current, columns: moveCard(current.columns, next) }));
@@ -259,7 +270,11 @@ export function LeadsBoard({
         ...current,
         columns: moveCard(current.columns, { leadId: next.leadId, from: next.to, to: next.from }),
       }));
-      setMessage(`The lead could not be moved. Reason: ${errorReason(error)}.`);
+      const code = errorReason(error);
+      setMessage(
+        stageMoveRefusal(code, query.type, next.from) ??
+          `The lead could not be moved. Reason: ${code}.`,
+      );
     }
   }
 
@@ -540,7 +555,11 @@ export function LeadsBoard({
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuLabel>Move to</DropdownMenuLabel>
                                   {stages
-                                    .filter((entry) => entry.key !== lead.stage)
+                                    .filter((entry) =>
+                                      allowedStageMoves(lead.leadType, lead.stage).includes(
+                                        entry.key,
+                                      ),
+                                    )
                                     .map((entry) => (
                                       <DropdownMenuItem
                                         key={entry.key}

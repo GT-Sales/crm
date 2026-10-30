@@ -1292,6 +1292,7 @@ describe('LeadsInbox side panel', () => {
       related: [],
       identities: [],
       documents: [],
+      allowedMoves: [],
       access: { contacts: true, manage: true },
       requestId: 'req_test',
     });
@@ -1365,6 +1366,7 @@ describe('LeadsInbox side panel', () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...row, stage: 'contacted', form: null, customValues: {} },
       activities: [],
+      allowedMoves: [],
       requestId: 'req_test',
     });
     navigation.search = `type=internet&page=2&lead=${LEAD_ID}`;
@@ -1400,6 +1402,7 @@ describe('LeadsInbox side panel', () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...row, stage: 'contacted', form: null, customValues: {} },
       activities: [],
+      allowedMoves: [],
       requestId: 'req_test',
     });
     navigation.search = `type=internet&lead=${LEAD_ID}`;
