@@ -12,6 +12,8 @@
 
 **Execution:** subagent-driven development, already chosen (README "Working method"). CRM work branch `phase-5-customer-tracking`; worktrees `/home/user/crm-wt/t<n>` on `p5/t<n>`. Get Canada Sim tasks run in `/home/user/get-canada-sim` worktrees `/home/user/gcs-wt/t<n>` on `p5/gcs-t<n>`, merged into `claude/crm-orders` (Part A) and `claude/crm-tracking` (Part B, cut from `main` after Part A's website PR merges).
 
+**Owner decision on the plan (2026-10-30), D10: one switch day, after both parts are live.** Part A's code still merges to `main` and deploys first with `CRM_ORDERS` off; the switch day (Task A11) runs only after Part B is deployed, and moves orders and `/track` to the CRM on the same day (`CRM_ORDERS` on, the final import, then `CRM_TRACKING` on). Customers never lose online change requests. This supersedes S4's interim read-only `/track` as a live state: Task A8 still builds it as the safe fallback, but no customer sees it unless a step of switch day fails. Task A11 runs after Task B15's deploy, and Task B15's `/track` switch becomes A11's last step.
+
 **Rulings added by the planner** (each: ruling — why — cost if wrong):
 
 - **S1.** The switch-day seed sets the counter's last issued number to the highest `order_no` in `public.orders` plus 9, so the CRM's first order is that number plus 10; it only ever raises the counter (`greatest`). — An order started on the old checkout between the seed and the flag flip takes the next `order_no`; without a gap the CRM's first order would take the same number and the unique index on `(workspace_id, lead_type, external_ref)` would make the final import fail. — Up to nine numbers never used; numbers were never promised consecutive.
@@ -435,6 +437,8 @@ Wave A4. Model: easy.
 ---
 
 ### Task A11: Switch day (owner-run, the day the owner picks)
+
+Runs after Task B15's deploy (owner decision D10); add as a final step: `CRM_TRACKING` on in Vercel production, then a real customer's change request approved in the CRM (spec §12 done when).
 
 Wave A4. Model: easy. The session prepares the commands and records results; the owner runs each step.
 
