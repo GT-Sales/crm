@@ -16447,7 +16447,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/email/templates": {
       "get": {
         "operationId": "listEmailTemplates",
-        "summary": "List the site's seven email templates, starter text where none is saved.",
+        "summary": "List the site's nine email templates, starter text where none is saved.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [

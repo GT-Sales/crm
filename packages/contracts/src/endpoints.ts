@@ -621,7 +621,7 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'listEmailTemplates',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/email/templates',
-    summary: "List the site's seven email templates, starter text where none is saved.",
+    summary: "List the site's nine email templates, starter text where none is saved.",
     auth: 'staff',
     successStatus: 200,
     response: listEmailTemplatesResponseSchema,

@@ -96,6 +96,7 @@ const decided = {
 
 function mount(
   props: {
+    lead?: LeadDetail;
     changeRequest?: StaffChangeRequest;
     canDecide?: boolean;
     canDownload?: boolean;
@@ -108,7 +109,7 @@ function mount(
   const openDocument = vi.fn(() => Promise.resolve());
   render(
     <ChangeRequestCard
-      lead={lead}
+      lead={props.lead ?? lead}
       changeRequest={props.changeRequest ?? changeRequest()}
       catalog={catalog}
       canDecide={props.canDecide ?? true}
@@ -250,6 +251,41 @@ describe('ChangeRequestCard', () => {
     expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
   });
 
+  it('says when the customer asked: how long ago this week, on which day before that', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOW));
+    const { unmount } = render(
+      <ChangeRequestCard
+        lead={lead}
+        changeRequest={changeRequest({ updatedAt: '2026-10-30T11:55:00.000Z' })}
+        catalog={catalog}
+        canDecide
+        canDownload
+        onDecide={() => Promise.resolve(decided)}
+        onDone={() => undefined}
+        openDocument={() => Promise.resolve()}
+      />,
+    );
+    expect(screen.getByText(/The customer asked for these changes/).textContent).toBe(
+      'The customer asked for these changes 5m ago.',
+    );
+    unmount();
+    mount({ changeRequest: changeRequest({ updatedAt: '2026-10-12T12:00:00.000Z' }) });
+    expect(screen.getByText(/The customer asked for these changes/).textContent).toBe(
+      'The customer asked for these changes on Oct 12.',
+    );
+  });
+
+  it('moves focus to the outcome once the decision is saved', async () => {
+    mount();
+    const approve = screen.getByRole('button', { name: 'Approve changes' });
+    approve.focus();
+    fireEvent.click(approve);
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(document.activeElement).toBe(status));
+    expect(status.getAttribute('tabindex')).toBe('-1');
+  });
+
   it('says only "Approved." when no document came with the request', async () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Approve changes' }));
@@ -330,6 +366,15 @@ describe('ChangeRequestCard', () => {
     expect(onDecide).not.toHaveBeenCalled();
     // The request itself is still readable.
     expect(within(row('Phone')).getByText('+1 403 555 0199')).toBeTruthy();
+  });
+
+  it('asks to restore an archived lead first, rather than for the Leads role', () => {
+    const { onDecide } = mount({ lead: { ...lead, deletedAt: NOW } });
+    expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+    expect(screen.getByText('Restore this lead to decide this request.')).toBeTruthy();
+    expect(screen.queryByText(/Leads role/)).toBeNull();
+    expect(onDecide).not.toHaveBeenCalled();
   });
 
   describe('a decision whose email was not sent', () => {

@@ -12,7 +12,12 @@
  * filter, sort and column checks, two plans ("Rogers 60GB", payment required,
  * and "Fido 75GB", none) and one more SIM order that ordered Rogers 60GB, so
  * its order details carry the frozen plan. Rogers 60GB requires a passport,
- * and Nadia Khan's order has one, attached and not yet reviewed. Get Canada
+ * and Nadia Khan's order has one, attached and not yet reviewed. Nadia Khan
+ * also has a pending change request (#1) asking for a new phone and arrival
+ * date, made through `DatabaseChangeRequestStore.requestChange` as the
+ * website's credential (`WEBSITE_ACTOR_ID`), the store call the tracking route
+ * `POST /website/tracking/orders/:reference/changes` makes once it has checked
+ * the site's key and the customer's grant. Get Canada
  * Sim has its email settings saved and its Dispatched email saved once
  * (version 1), and no automation rule switched on. All of it is written
  * through the real stores: the plans through the plan store, the ordered SIM
@@ -43,6 +48,7 @@ import { DatabaseLeadStore } from '../../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../../src/leads/work-store.js';
 import { DatabasePlanStore } from '../../src/plans/store.js';
 import { createDefaultStaffRouteDependencies } from '../../src/routes/staff.js';
+import { DatabaseChangeRequestStore } from '../../src/tracking/change-requests.js';
 
 const PORT = Number(process.env['E2E_HARNESS_PORT'] ?? 4100);
 const WORKSPACE_ID = '10000000-0000-4000-8000-0000000e2e01';
@@ -278,6 +284,15 @@ async function seed(): Promise<void> {
     });
     await work.updateLead({ ...simOwner, leadId: ordered.lead.id, stage: 'pending' });
     nadiaLeadId = ordered.lead.id;
+
+    // The customer asks, through tracking, for a new phone and arrival date: request #1.
+    const asked = await new DatabaseChangeRequestStore(database).requestChange({
+      ...simWebsite,
+      leadId: ordered.lead.id,
+      fields: { phone: '647 555 0299', arrivalDate: '2026-11-27' },
+      now: new Date(),
+    });
+    if (asked.status !== 'saved') throw new Error(`seed change request: ${asked.status}`);
 
     // Get Canada Sim's sender, and its Dispatched email saved once (version 1).
     // No automation rule is switched on: the journey does that.
