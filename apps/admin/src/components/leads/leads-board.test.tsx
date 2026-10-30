@@ -54,16 +54,35 @@ function board(manage: boolean): LeadBoardResponse {
   };
 }
 
-function renderBoard() {
+function renderBoard(type = 'internet') {
   return render(
     <LeadsBoard
       workspaceSlug="canadawide"
       workspaceId={WORKSPACE}
       accessToken="staff-token"
       members={[]}
-      query={{ type: 'internet', archived: false, due: false, layout: 'board', hide: [], page: 1 }}
+      query={{ type, archived: false, due: false, layout: 'board', hide: [], page: 1 }}
     />,
   );
+}
+
+/** A SIM order board: the Avery Example order is Verified. */
+function orderBoard(): LeadBoardResponse {
+  return {
+    leadType: 'sim_order',
+    columns: [
+      { stage: 'pending', total: 0, leads: [] },
+      {
+        stage: 'verified',
+        total: 1,
+        leads: [{ ...card, leadType: 'sim_order', stage: 'verified' }],
+      },
+      { stage: 'on_hold', total: 0, leads: [] },
+      { stage: 'delivered', total: 0, leads: [] },
+    ],
+    access: { contacts: true, manage: true },
+    requestId: '00000000-0000-4000-8000-000000000001',
+  };
 }
 
 function column(name: RegExp) {
@@ -126,6 +145,7 @@ describe('LeadsBoard', () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...card, stage: 'contacted', form: null },
       activities: [],
+      allowedMoves: [],
       requestId: NOW,
     });
     renderBoard();
@@ -145,6 +165,7 @@ describe('LeadsBoard', () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...card, stage: 'won', form: null },
       activities: [],
+      allowedMoves: [],
       requestId: NOW,
     });
     renderBoard();
@@ -223,5 +244,42 @@ describe('LeadsBoard', () => {
     expect(screen.getByText('Avery Example').closest('li')?.getAttribute('draggable')).toBe(
       'false',
     );
+  });
+
+  it('refuses a drop on a stage that needs details, without asking the backend', async () => {
+    mocks.getLeadBoard.mockResolvedValue(orderBoard());
+    renderBoard('sim_order');
+    await moveTo('Delivered');
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Open the lead to move it to Delivered: it needs details.',
+    );
+    expect(mocks.updateStaffLead).not.toHaveBeenCalled();
+    expect(within(column(/^Verified, 1 leads$/)).getByText('Avery Example')).toBeTruthy();
+    expect(column(/^Delivered, 0 leads$/)).toBeTruthy();
+  });
+
+  it('offers only the moves the order allows from its stage', async () => {
+    mocks.getLeadBoard.mockResolvedValue(orderBoard());
+    renderBoard('sim_order');
+    fireEvent.pointerDown(
+      await screen.findByRole('button', { name: 'Move Avery Example to another stage' }),
+      { button: 0, ctrlKey: false },
+    );
+    const items = await screen.findAllByRole('menuitem');
+    expect(items.map((item) => item.textContent)).toEqual(['On hold', 'Delivered', 'Cancelled']);
+  });
+
+  it('says from where a move is not allowed when the backend refuses it', async () => {
+    mocks.getLeadBoard.mockResolvedValue(orderBoard());
+    const { BackendError } = await import('../../lib/api');
+    mocks.updateStaffLead.mockRejectedValue(new BackendError('illegal_stage_move', 409, NOW));
+    renderBoard('sim_order');
+    await moveTo('Pending');
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'That move is not allowed from Verified.',
+    );
+    expect(within(column(/^Verified, 1 leads$/)).getByText('Avery Example')).toBeTruthy();
   });
 });

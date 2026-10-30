@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import type { LeadDocument } from '@gt-sales/contracts';
-import { Button, Card, CardContent } from '@gt-sales/ui';
+import type { FileReviewDecision, LeadDocument } from '@gt-sales/contracts';
+import { Badge, Button, Card, CardContent, cn } from '@gt-sales/ui';
 
-import { createFileDownloadLink } from '../../lib/api';
+import { createFileDownloadLink, reviewFile } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
 import { errorReason } from '../../lib/use-resource';
@@ -51,6 +51,20 @@ function rank(documentType: string): number {
   return index === -1 ? TYPE_ORDER.length : index;
 }
 
+/** The latest review of a document, as its badge reads. */
+function reviewBadge(review: LeadDocument['review']): { label: string; className: string } {
+  if (review?.decision === 'approved') {
+    return {
+      label: 'Approved',
+      className: 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300',
+    };
+  }
+  if (review?.decision === 'rejected') {
+    return { label: 'Rejected', className: 'border-rose-500/40 text-rose-700 dark:text-rose-300' };
+  }
+  return { label: 'Not reviewed', className: 'text-muted-foreground' };
+}
+
 function linkFailure(code: string): string {
   if (code === 'permission_denied') return 'You need the document download permission for this.';
   if (code === 'file_not_available') return 'This document is not available yet.';
@@ -60,20 +74,27 @@ function linkFailure(code: string): string {
 
 /**
  * The lead's documents (a passport, an approval letter, a SIM photo…), the
- * current one of each type: view it in a tab of its own, or download it.
- * Both take the document download permission, and every link is recorded.
- * Nothing shows when the lead has none.
+ * current one of each type, each with its latest review: view it in a tab of
+ * its own, or download it. Both take the document download permission, and
+ * every link is recorded. Staff who review documents (`canReview`) approve or
+ * reject each, after which the record is reloaded (`onReviewed`): the review
+ * writes a timeline entry and may open a stage move. Nothing shows when the
+ * lead has none.
  */
 export function LeadDocuments({
   accessToken,
   workspaceId,
   documents,
   canDownload,
+  canReview,
+  onReviewed,
 }: {
   accessToken: string;
   workspaceId: string;
   documents: readonly LeadDocument[];
   canDownload: boolean;
+  canReview: boolean;
+  onReviewed(): Promise<void>;
 }) {
   if (documents.length === 0) return null;
   const ordered = [...documents].sort(
@@ -91,6 +112,8 @@ export function LeadDocuments({
               workspaceId={workspaceId}
               document={document}
               canDownload={canDownload}
+              canReview={canReview}
+              onReviewed={onReviewed}
             />
           ))}
         </ul>
@@ -109,15 +132,20 @@ function DocumentRow({
   workspaceId,
   document,
   canDownload,
+  canReview,
+  onReviewed,
 }: {
   accessToken: string;
   workspaceId: string;
   document: LeadDocument;
   canDownload: boolean;
+  canReview: boolean;
+  onReviewed(): Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
   const label = documentLabel(document.documentType);
+  const badge = reviewBadge(document.review);
 
   async function view() {
     setMessage(undefined);
@@ -134,6 +162,23 @@ function DocumentRow({
     } catch (error) {
       tab.close();
       setMessage(linkFailure(errorReason(error)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function review(decision: FileReviewDecision) {
+    setBusy(true);
+    setMessage(undefined);
+    try {
+      await reviewFile(accessToken, workspaceId, document.id, { decision });
+    } catch (error) {
+      setMessage(`The review was not saved. Reason: ${errorReason(error)}.`);
+      setBusy(false);
+      return;
+    }
+    try {
+      await onReviewed();
     } finally {
       setBusy(false);
     }
@@ -156,7 +201,12 @@ function DocumentRow({
     <li className="flex flex-col gap-1 py-2 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex flex-col">
-          <span className="font-medium">{label}</span>
+          <span className="flex items-center gap-2">
+            <span className="font-medium">{label}</span>
+            <Badge variant="outline" className={cn('font-normal', badge.className)}>
+              {badge.label}
+            </Badge>
+          </span>
           <span className="text-xs text-muted-foreground">
             {FORMAT_LABELS[document.contentType]} · {sizeLabel(document.sizeBytes)} ·{' '}
             <time dateTime={document.createdAt} title={dateTimeLabel(document.createdAt)}>
@@ -164,26 +214,52 @@ function DocumentRow({
             </time>
           </span>
         </span>
-        {canDownload ? (
-          <span className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              aria-label={`View ${label}`}
-              onClick={() => void view()}
-            >
-              View
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              aria-label={`Download ${label}`}
-              onClick={() => void download()}
-            >
-              Download
-            </Button>
+        {canDownload || canReview ? (
+          <span className="flex flex-wrap gap-2">
+            {canReview ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || document.review?.decision === 'approved'}
+                  aria-label={`Approve ${label}`}
+                  onClick={() => void review('approved')}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || document.review?.decision === 'rejected'}
+                  aria-label={`Reject ${label}`}
+                  onClick={() => void review('rejected')}
+                >
+                  Reject
+                </Button>
+              </>
+            ) : null}
+            {canDownload ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  aria-label={`View ${label}`}
+                  onClick={() => void view()}
+                >
+                  View
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  aria-label={`Download ${label}`}
+                  onClick={() => void download()}
+                >
+                  Download
+                </Button>
+              </>
+            ) : null}
           </span>
         ) : null}
       </div>
