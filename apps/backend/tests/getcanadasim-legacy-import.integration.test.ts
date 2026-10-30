@@ -18,6 +18,7 @@ import { DatabaseDocumentContextResolver } from '../src/documents/resolver.js';
 import { DocumentService } from '../src/documents/service.js';
 import { DatabaseDocumentStore } from '../src/documents/store.js';
 import { DatabaseOutboxStore } from '../src/jobs/store.js';
+import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
@@ -738,6 +739,227 @@ databaseTest('Get Canada Sim historical import', () => {
       'change_requested:2',
       'change_approved:1',
       'change_requested:1',
+    ]);
+  });
+});
+
+/** The switch-day file's block between `-- <name> BEGIN` and `-- <name> END`, verbatim. */
+function switchDayBlock(name: 'SEED' | 'RECONCILE'): string {
+  const text = readFileSync(
+    fileURLToPath(new URL('../../../docs/RUNBOOKS/manual/gcs-switch-day.sql', import.meta.url)),
+    'utf8',
+  );
+  const begin = text.indexOf(`-- ${name} BEGIN\n`);
+  const end = text.indexOf(`-- ${name} END`);
+  if (begin < 0 || end < begin) throw new Error(`no ${name} block in gcs-switch-day.sql`);
+  return text.slice(begin, end);
+}
+
+// The switch-day suite's own ids.
+const ORDER_141 = '00000000-0000-4000-8000-000000005541';
+const ORDER_142 = '00000000-0000-4000-8000-000000005542';
+const ORDER_143 = '00000000-0000-4000-8000-000000005543';
+const ORDER_144 = '00000000-0000-4000-8000-000000005544';
+const ORDER_1143 = '00000000-0000-4000-8000-000000005545';
+const WEBSITE = '00000000-0000-4000-8000-000000005551';
+const SWITCH_REQUEST = '00000000-0000-4000-8000-000000005561';
+
+databaseTest('Get Canada Sim switch day: the final import beside CRM orders', () => {
+  let admin: ReturnType<typeof postgres>;
+  let database: DatabaseClient;
+  let leads: DatabaseLeadStore;
+  let site: string;
+
+  async function runImport(): Promise<void> {
+    await admin.unsafe(IMPORT_SQL);
+  }
+
+  async function seed(gap: '+ 9' | '+ 1000' = '+ 9'): Promise<void> {
+    const block = switchDayBlock('SEED');
+    expect(block.split('+ 9').length - 1).toBe(1);
+    await admin.unsafe(block.replace('+ 9', gap));
+  }
+
+  async function counter(): Promise<number | undefined> {
+    const [row] = await admin<{ lastValue: number }[]>`
+      select last_value as "lastValue" from app.site_counters
+      where workspace_id = ${site} and counter = 'sim_order_ref'
+    `;
+    return row?.lastValue;
+  }
+
+  /** The four reconciliation selects, run as the file has them. */
+  async function reconcile() {
+    const results: unknown = await admin.unsafe(switchDayBlock('RECONCILE'));
+    if (!Array.isArray(results) || results.length !== 4) throw new Error('expected four results');
+    const rows = (index: number): Record<string, unknown>[] => {
+      const result: unknown = results[index];
+      if (!Array.isArray(result)) throw new Error(`no rows for select ${index + 1}`);
+      return result.map((row: unknown) => {
+        if (typeof row !== 'object' || row === null) throw new Error('not a row');
+        return Object.fromEntries(Object.entries(row));
+      });
+    };
+    return { orders: rows(0), duplicated: rows(1), crmOrders: rows(2), counter: rows(3) };
+  }
+
+  async function oldCheckoutOrder(id: string, orderNo: number): Promise<void> {
+    await admin`
+      insert into public.orders (id, order_no, full_name, email, phone, plan, delivery, status,
+        created_at)
+      values (${id}, ${orderNo}, ${`Customer ${orderNo}`}, ${`order-${orderNo}@example.test`},
+        '000', 'unlimited-data-rogers', 'esim', 'pending', now())
+    `;
+  }
+
+  async function crmOrder() {
+    return leads.createLead({
+      workspaceId: site,
+      actorId: WEBSITE,
+      requestId: SWITCH_REQUEST,
+      leadType: 'sim_order',
+      consentVersion: 'getcanadasim-order-2026-10',
+      contact: { fullName: 'New Checkout', email: 'new.checkout@example.test' },
+      form: { schemaVersion: 1, payload: { delivery: 'esim', arrivalDate: '2026-11-20' } },
+    });
+  }
+
+  /** Everything the import could rewrite on a lead, its timeline included. */
+  const leadFingerprint = async (id: string) => {
+    const [row] = await admin<{ digest: string }[]>`
+      select md5(row_to_json(x)::text) as digest from (
+        select l.status, l.stage, l.payload, l.order_details, l.external_ref, l.full_name,
+               l.deleted_at, l.updated_at,
+               (select json_agg(row_to_json(a) order by a.id)
+                from app.lead_activities a where a.lead_id = l.id) as timeline
+        from app.leads l where l.id = ${id}
+      ) x
+    `;
+    return row?.digest;
+  };
+
+  beforeAll(async () => {
+    if (!migrationUrl) throw new Error('TEST_MIGRATION_DATABASE_URL is required');
+    admin = postgres(migrationUrl, { max: 1, prepare: false, ssl: false, onnotice: () => {} });
+    await admin.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(745284914)`;
+      await tx.unsafe(`ALTER ROLE app_runtime PASSWORD '${TEST_RUNTIME_PASSWORD}'`);
+    });
+    await admin`select pg_advisory_lock(${GCS_TABLES_LOCK_KEY})`;
+    await admin`drop table if exists public.order_edit_requests, public.orders, public.partners`;
+    await admin.unsafe(GCS_TABLES_DDL);
+    await admin.unsafe(STORAGE_DDL);
+    await admin`
+      insert into app.workspaces (id, slug, name)
+      values (${GCS_CANDIDATE}, 'getcanadasim', 'Get Canada Sim')
+      on conflict do nothing
+    `;
+    const [row] = await admin<{ id: string }[]>`
+      select id from app.workspaces where slug = 'getcanadasim'
+    `;
+    if (!row) throw new Error('expected the getcanadasim workspace');
+    site = row.id;
+    // While it holds the lock this suite owns the site's SIM orders and its
+    // counter: a reused database keeps an earlier run's.
+    await admin`delete from app.leads where workspace_id = ${site} and lead_type = 'sim_order'`;
+    await admin`delete from app.site_counters where workspace_id = ${site}`;
+    // The orders imported before the day.
+    for (const [id, orderNo] of [
+      [ORDER_141, 141],
+      [ORDER_142, 142],
+      [ORDER_143, 143],
+    ] as const) {
+      await oldCheckoutOrder(id, orderNo);
+    }
+    await runImport();
+
+    const runtimeUrl = new URL(migrationUrl);
+    runtimeUrl.username = 'app_runtime';
+    runtimeUrl.password = TEST_RUNTIME_PASSWORD;
+    database = createDatabaseClient({
+      connectionString: runtimeUrl.toString(),
+      maxConnections: 1,
+      ssl: false,
+    });
+    leads = new DatabaseLeadStore(database);
+  }, 120_000);
+
+  afterAll(async () => {
+    await database?.close();
+    await admin`delete from app.leads where workspace_id = ${site} and lead_type = 'sim_order'`;
+    await admin`delete from app.site_counters where workspace_id = ${site}`;
+    await admin`drop table if exists public.order_edit_requests, public.orders, public.partners`;
+    await admin`select pg_advisory_unlock(${GCS_TABLES_LOCK_KEY})`;
+    await admin.end();
+  });
+
+  test('an order on each side of the flip: the old one imported, the new one numbered past the gap', async () => {
+    await seed();
+    expect(await counter()).toBe(152);
+
+    // The flip: the next order is the CRM's.
+    const created = await crmOrder();
+    expect(created.lead.externalRef).toBe('MS-153');
+    const before = await leadFingerprint(created.lead.id);
+
+    // An order the old checkout numbered in the window, then the final import.
+    await oldCheckoutOrder(ORDER_144, 144);
+    await expect(runImport()).resolves.toBeUndefined();
+    const [imported] = await admin<{ externalRef: string; leadType: string }[]>`
+      select external_ref as "externalRef", lead_type as "leadType" from app.leads
+      where id = ${ORDER_144}
+    `;
+    expect(imported).toEqual({ externalRef: 'MS-144', leadType: 'sim_order' });
+    // The import never touches a CRM order.
+    expect(await leadFingerprint(created.lead.id)).toBe(before);
+
+    // A second run of the seed never lowers the counter.
+    await admin`
+      update app.site_counters set last_value = 160
+      where workspace_id = ${site} and counter = 'sim_order_ref'
+    `;
+    await seed();
+    expect(await counter()).toBe(160);
+
+    const result = await reconcile();
+    expect(result.orders).toEqual([{ gcs_orders: '4', imported_orders: '4', rows_missing: '0' }]);
+    expect(result.duplicated).toEqual([]);
+    expect(result.crmOrders).toEqual([
+      expect.objectContaining({ external_ref: 'MS-153', status: 'incomplete', archived: false }),
+    ]);
+    expect(result.counter).toEqual([expect.objectContaining({ last_value: 160 })]);
+  });
+
+  test('a test order before the day, after the +1000 seed, never collides with the old checkout', async () => {
+    // Back to the day before: only the three imported orders, no counter.
+    await admin`delete from app.leads where workspace_id = ${site} and lead_type = 'sim_order'
+      and id not in (${ORDER_141}, ${ORDER_142}, ${ORDER_143})`;
+    await admin`delete from public.orders where order_no > 143`;
+    await admin`delete from app.site_counters where workspace_id = ${site}`;
+
+    await seed('+ 1000');
+    expect(await counter()).toBe(1143);
+    const testOrder = await crmOrder();
+    expect(testOrder.lead.externalRef).toBe('MS-1144');
+    // Staff archive the test order; it keeps its number.
+    await admin`update app.leads set deleted_at = now() where id = ${testOrder.lead.id}`;
+
+    // The old checkout keeps numbering up to the gap; every run imports cleanly.
+    await oldCheckoutOrder(ORDER_144, 144);
+    await oldCheckoutOrder(ORDER_1143, 1143);
+    await expect(runImport()).resolves.toBeUndefined();
+
+    // Switch day: the seed raises the counter past the old checkout, never below the test order.
+    await seed();
+    expect(await counter()).toBe(1152);
+    expect((await crmOrder()).lead.externalRef).toBe('MS-1153');
+
+    const result = await reconcile();
+    expect(result.orders).toEqual([{ gcs_orders: '5', imported_orders: '5', rows_missing: '0' }]);
+    expect(result.duplicated).toEqual([]);
+    expect(result.crmOrders.map((row) => [row['external_ref'], row['archived']])).toEqual([
+      ['MS-1144', true],
+      ['MS-1153', false],
     ]);
   });
 });
