@@ -1071,11 +1071,21 @@ export const emailMessages = appSchema
       providerAccount: text('provider_account'),
       lastErrorCode: text('last_error_code'),
       lastEventAt: timestamp('last_event_at', { withTimezone: true, mode: 'date' }),
+      /**
+       * The `app.email_template_versions` version a site-content email was
+       * rendered from (`0` for the built-in copy); null for an email that is
+       * not from a site template.
+       */
+      templateVersion: integer('template_version'),
       createdAt: createdAt(),
       updatedAt: updatedAt(),
     },
     (table) => [
       unique('email_messages_workspace_id_id_unique').on(table.workspaceId, table.id),
+      check(
+        'email_messages_template_version_check',
+        sql`${table.templateVersion} is null or ${table.templateVersion} >= 0`,
+      ),
       unique('email_messages_workspace_message_id_unique').on(table.workspaceId, table.messageId),
       check(
         'email_messages_class_check',
@@ -1552,6 +1562,307 @@ export const plans = appSchema
   )
   .enableRLS();
 
+// ---------------------------------------------------------------------------
+// Order tools and customer email
+// ---------------------------------------------------------------------------
+
+const quotedList = (values: readonly string[]) =>
+  sql.raw(values.map((value) => `'${value}'`).join(', '));
+
+/** Must match contracts' idempotency scopes. */
+const idempotencyScopeList = quotedList(['lead_submission']);
+/** Must match contracts' email template keys. */
+const emailTemplateKeyList = quotedList([
+  'tracking_code',
+  'order_received',
+  'information_needed',
+  'dispatched',
+  'activated',
+  'cancelled',
+  'sim_number_ready',
+]);
+/** Must match contracts' `BUILT_IN_AUTOMATIONS` keys. */
+const automationKeyList = quotedList([
+  'order_received',
+  'sim_order_information_needed',
+  'sim_order_dispatched',
+  'sim_order_activated',
+  'sim_order_cancelled',
+  'mobility_activated',
+]);
+const automationRunOutcomeList = quotedList(['queued', 'skipped']);
+const automationRunReasonList = quotedList(['no_sender', 'no_customer_email', 'missing_fill_in']);
+
+/** A plain address check; the backend validates addresses properly before they are stored. */
+const emailAddressPattern = sql.raw(`'^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'`);
+
+/**
+ * A website's double-submit protection: the keyed hash of the
+ * `Idempotency-Key` it sent, the fingerprint of the request body and, once
+ * the request has done its work, the lead it made. Claimed in the lead's own
+ * transaction; pruned after 7 days by `app.prune_operational_rows`.
+ */
+export const idempotencyKeys = appSchema
+  .table(
+    'idempotency_keys',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      scope: text('scope').notNull(),
+      keyHash: text('key_hash').notNull(),
+      requestFingerprint: text('request_fingerprint').notNull(),
+      leadId: uuid('lead_id'),
+      status: text('status').default('pending').notNull(),
+      completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      unique('idempotency_keys_scope_key_unique').on(table.workspaceId, table.scope, table.keyHash),
+      foreignKey({
+        name: 'idempotency_keys_workspace_lead_fk',
+        columns: [table.workspaceId, table.leadId],
+        foreignColumns: [leads.workspaceId, leads.id],
+      }).onDelete('cascade'),
+      check('idempotency_keys_scope_check', sql`${table.scope} in (${idempotencyScopeList})`),
+      check('idempotency_keys_key_hash_check', sql`${table.keyHash} ~ '^[0-9a-f]{64}$'`),
+      check(
+        'idempotency_keys_request_fingerprint_check',
+        sql`${table.requestFingerprint} ~ '^sha256:[0-9a-f]{64}$'`,
+      ),
+      check('idempotency_keys_status_check', sql`${table.status} in ('pending', 'completed')`),
+      check(
+        'idempotency_keys_completed_check',
+        sql`(${table.status} = 'completed') = (${table.completedAt} is not null and ${table.leadId} is not null)`,
+      ),
+      index('idempotency_keys_workspace_created_idx').on(table.workspaceId, table.createdAt),
+      tenantPolicy('idempotency_keys_tenant_policy', table.workspaceId),
+      backupReadPolicy('idempotency_keys'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A site's customer email identity and look (Settings → Email): the sender,
+ * reply-to, logo, brand colour, footer and website link every customer email
+ * of the site uses. One row per site, absent until an owner saves it.
+ */
+export const workspaceEmailSettings = appSchema
+  .table(
+    'workspace_email_settings',
+    {
+      workspaceId: uuid('workspace_id')
+        .primaryKey()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      fromName: text('from_name').notNull(),
+      fromAddress: text('from_address').notNull(),
+      replyTo: text('reply_to'),
+      logoUrl: text('logo_url'),
+      brandColor: text('brand_color').default('#d72638').notNull(),
+      footerText: text('footer_text').default('').notNull(),
+      siteUrl: text('site_url'),
+      updatedBy: uuid('updated_by').notNull(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      check(
+        'workspace_email_settings_from_name_check',
+        sql`char_length(btrim(${table.fromName})) between 1 and 80`,
+      ),
+      check(
+        'workspace_email_settings_from_address_check',
+        sql`char_length(${table.fromAddress}) <= 254 and ${table.fromAddress} ~ ${emailAddressPattern}`,
+      ),
+      check(
+        'workspace_email_settings_reply_to_check',
+        sql`${table.replyTo} is null or (char_length(${table.replyTo}) <= 254 and ${table.replyTo} ~ ${emailAddressPattern})`,
+      ),
+      check(
+        'workspace_email_settings_logo_url_check',
+        sql`${table.logoUrl} is null or (char_length(${table.logoUrl}) <= 2048 and ${table.logoUrl} ~ '^https://')`,
+      ),
+      check(
+        'workspace_email_settings_brand_color_check',
+        sql`${table.brandColor} ~ '^#[0-9a-f]{6}$'`,
+      ),
+      check(
+        'workspace_email_settings_footer_text_check',
+        sql`char_length(${table.footerText}) <= 500`,
+      ),
+      check(
+        'workspace_email_settings_site_url_check',
+        sql`${table.siteUrl} is null or (char_length(${table.siteUrl}) <= 2048 and ${table.siteUrl} ~ '^https://')`,
+      ),
+      tenantPolicy('workspace_email_settings_tenant_policy', table.workspaceId),
+      backupReadPolicy('workspace_email_settings'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A site's current copy of one customer email (subject and body in the
+ * template markup), at `version`. Content only: whether and when it is sent
+ * is an automation's call (`app.automations`). Every save also appends its
+ * version to `app.email_template_versions`.
+ */
+export const emailTemplates = appSchema
+  .table(
+    'email_templates',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      key: text('key').notNull(),
+      subject: text('subject').notNull(),
+      body: text('body').notNull(),
+      version: integer('version').notNull(),
+      updatedBy: uuid('updated_by').notNull(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('email_templates_workspace_key_unique').on(table.workspaceId, table.key),
+      check('email_templates_key_check', sql`${table.key} in (${emailTemplateKeyList})`),
+      check('email_templates_subject_check', sql`char_length(${table.subject}) between 1 and 150`),
+      check('email_templates_body_check', sql`char_length(${table.body}) between 1 and 5000`),
+      check('email_templates_version_check', sql`${table.version} > 0`),
+      tenantPolicy('email_templates_tenant_policy', table.workspaceId),
+      backupReadPolicy('email_templates'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * Every saved version of a site's template, append-only (`app_runtime` has
+ * SELECT and INSERT only), so a sent email's `template_version` always names
+ * the copy it was rendered from.
+ */
+export const emailTemplateVersions = appSchema
+  .table(
+    'email_template_versions',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      key: text('key').notNull(),
+      version: integer('version').notNull(),
+      subject: text('subject').notNull(),
+      body: text('body').notNull(),
+      createdBy: uuid('created_by').notNull(),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      unique('email_template_versions_workspace_key_version_unique').on(
+        table.workspaceId,
+        table.key,
+        table.version,
+      ),
+      check('email_template_versions_key_check', sql`${table.key} in (${emailTemplateKeyList})`),
+      check(
+        'email_template_versions_subject_check',
+        sql`char_length(${table.subject}) between 1 and 150`,
+      ),
+      check(
+        'email_template_versions_body_check',
+        sql`char_length(${table.body}) between 1 and 5000`,
+      ),
+      check('email_template_versions_version_check', sql`${table.version} > 0`),
+      tenantPolicy('email_template_versions_tenant_policy', table.workspaceId),
+      backupReadPolicy('email_template_versions'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A site's state of one automation rule: on or off (off until an owner
+ * switches it on), when it last ran and how many times. The rules themselves
+ * (trigger and action) are defined in code, contracts `BUILT_IN_AUTOMATIONS`;
+ * phase 8's builder adds custom rules here.
+ */
+export const automations = appSchema
+  .table(
+    'automations',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      key: text('key').notNull(),
+      enabled: boolean('enabled').default(false).notNull(),
+      lastRunAt: timestamp('last_run_at', { withTimezone: true, mode: 'date' }),
+      runCount: integer('run_count').default(0).notNull(),
+      updatedBy: uuid('updated_by').notNull(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('automations_workspace_key_unique').on(table.workspaceId, table.key),
+      check('automations_key_check', sql`${table.key} in (${automationKeyList})`),
+      check('automations_run_count_check', sql`${table.runCount} >= 0`),
+      tenantPolicy('automations_tenant_policy', table.workspaceId),
+      backupReadPolicy('automations'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * One firing of an automation for a lead, append-only: `queued` with the
+ * outbox job it queued, or `skipped` with why. Pruned after 90 days by
+ * `app.prune_operational_rows`.
+ */
+export const automationRuns = appSchema
+  .table(
+    'automation_runs',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      automationKey: text('automation_key').notNull(),
+      leadId: uuid('lead_id').notNull(),
+      outcome: text('outcome').notNull(),
+      reason: text('reason'),
+      jobId: uuid('job_id'),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      foreignKey({
+        name: 'automation_runs_workspace_lead_fk',
+        columns: [table.workspaceId, table.leadId],
+        foreignColumns: [leads.workspaceId, leads.id],
+      }).onDelete('cascade'),
+      check(
+        'automation_runs_automation_key_check',
+        sql`${table.automationKey} in (${automationKeyList})`,
+      ),
+      check(
+        'automation_runs_outcome_check',
+        sql`${table.outcome} in (${automationRunOutcomeList})`,
+      ),
+      check(
+        'automation_runs_reason_check',
+        sql`${table.reason} is null or ${table.reason} in (${automationRunReasonList})`,
+      ),
+      check(
+        'automation_runs_skipped_reason_check',
+        sql`(${table.outcome} = 'skipped') = (${table.reason} is not null)`,
+      ),
+      check(
+        'automation_runs_queued_job_check',
+        sql`(${table.outcome} = 'queued') = (${table.jobId} is not null)`,
+      ),
+      index('automation_runs_workspace_key_created_idx').on(
+        table.workspaceId,
+        table.automationKey,
+        table.createdAt.desc(),
+      ),
+      tenantPolicy('automation_runs_tenant_policy', table.workspaceId),
+      backupReadPolicy('automation_runs'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
   workspaces,
   memberships,
@@ -1583,4 +1894,10 @@ export const schema = {
   propertyLayouts,
   savedViews,
   plans,
+  idempotencyKeys,
+  workspaceEmailSettings,
+  emailTemplates,
+  emailTemplateVersions,
+  automations,
+  automationRuns,
 };
