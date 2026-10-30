@@ -43,7 +43,7 @@ const catalog = buildPropertyCatalog([
 
 const query: InboxQuery = {
   type: 'internet',
-  trash: false,
+  archived: false,
   due: false,
   layout: 'table',
   hide: ['source'],
@@ -127,5 +127,33 @@ describe('LeadsTable', () => {
     expect(screen.getByRole('columnheader', { name: 'Stage' })).toBeTruthy();
     expect(name.closest('tr')?.className).toContain('h-8');
     expect(name.closest('td')?.className).toContain('sticky');
+  });
+
+  it('lists the archive with the archived view, and says when it is empty', async () => {
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [],
+      page: { page: 1, pageSize: 50, total: 0 },
+      access: { contacts: true, manage: true },
+    });
+    render(
+      <LeadsTable
+        workspaceSlug="canadawide"
+        workspaceId={WORKSPACE}
+        accessToken="staff-token"
+        members={[]}
+        query={{ archived: true, due: false, layout: 'table', hide: [], page: 1 }}
+        catalog={catalog}
+        canUseProperties
+        onPage={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText('The archive is empty.')).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Archived' })).toBeTruthy();
+    expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      expect.objectContaining({ view: 'archived' }),
+    );
+    expect(document.body.textContent ?? '').not.toMatch(/trash/i);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LEGACY_IMPORT_ACTOR_ID, type AssignableMember } from '@gt-sales/contracts';
+import { leadTypeEntry, LEGACY_IMPORT_ACTOR_ID, type AssignableMember } from '@gt-sales/contracts';
 
 import {
   countdown,
@@ -13,6 +13,7 @@ import {
 } from '../../lib/dates';
 import { actorName, assigneeName, initials, memberName } from '../../lib/people';
 import { inboxSearch, parseInboxQuery } from './inbox-query';
+import { stageDotClass } from './lead-display';
 import { formFields } from './lead-fields';
 
 const SELF = '20000000-0000-4000-8000-000000000001';
@@ -41,7 +42,7 @@ describe('inbox query', () => {
     );
     expect(query).toEqual({
       type: 'internet',
-      trash: false,
+      archived: false,
       due: false,
       layout: 'board',
       hide: [],
@@ -53,10 +54,11 @@ describe('inbox query', () => {
     expect(inboxSearch(query)).toBe('?type=internet&layout=board&assignee=me&q=avery&page=3');
   });
 
-  it('keeps the follow-ups due filter in the URL, as a table and never in the trash', () => {
+  it('keeps the follow-ups due filter in the URL, as a table and never in the archive', () => {
     const due = parseInboxQuery(new URLSearchParams('type=sim_order&layout=board&due=1'));
     expect(due).toMatchObject({ type: 'sim_order', due: true, layout: 'table' });
     expect(inboxSearch(due)).toBe('?type=sim_order&due=1');
+    expect(parseInboxQuery(new URLSearchParams('archived=1&due=1')).due).toBe(false);
     expect(parseInboxQuery(new URLSearchParams('trash=1&due=1')).due).toBe(false);
     expect(parseInboxQuery(new URLSearchParams('due=yes')).due).toBe(false);
   });
@@ -67,7 +69,16 @@ describe('inbox query', () => {
     );
     expect(query).toMatchObject({ type: undefined, layout: 'table', assignee: undefined, page: 1 });
     expect(query.stage).toBeUndefined();
-    expect(parseInboxQuery(new URLSearchParams('trash=1&type=internet')).type).toBeUndefined();
+    expect(parseInboxQuery(new URLSearchParams('archived=1&type=internet')).type).toBeUndefined();
+  });
+
+  it('reads the archive from archived=1 and from the legacy trash=1, and writes archived=1', () => {
+    const archived = parseInboxQuery(new URLSearchParams('archived=1'));
+    const legacy = parseInboxQuery(new URLSearchParams('trash=1'));
+    expect(archived.archived).toBe(true);
+    expect(legacy).toEqual(archived);
+    expect(inboxSearch(legacy)).toBe('?archived=1');
+    expect(parseInboxQuery(new URLSearchParams('archived=0')).archived).toBe(false);
   });
 });
 
@@ -165,5 +176,15 @@ describe('form fields', () => {
       { label: 'Message body', value: 'Hello' },
       { label: 'Urgent', value: 'Yes' },
     ]);
+  });
+});
+
+describe('stage colours', () => {
+  it('gives each SIM order stage a colour of its own', () => {
+    const stages = (leadTypeEntry('sim_order')?.stages ?? []).map((entry) => entry.key);
+    expect(stages).toHaveLength(8);
+    const dots = stages.map(stageDotClass);
+    expect(dots).not.toContain('bg-muted-foreground');
+    expect(new Set(dots).size).toBe(stages.length);
   });
 });

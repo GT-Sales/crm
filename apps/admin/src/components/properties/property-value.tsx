@@ -130,19 +130,25 @@ function localDateTime(value: PropertyValue | undefined): string {
 const TEXT_INPUT_TYPE = { text: 'text', email: 'email', phone: 'tel', url: 'url' } as const;
 const TEXT_MAX_LENGTH = { text: 200, email: 254, phone: 32, url: 2048 } as const;
 
-/** A typed control for one property's value; label it with a `<label htmlFor={id}>`. */
+/**
+ * A typed control for one property's value; label it with a `<label htmlFor={id}>`.
+ * A choice option no longer offered shows only while it is the value, marked
+ * with `hiddenOptionLabel` ("retired" unless the caller names it otherwise).
+ */
 export function PropertyValueControl({
   property,
   value,
   onChange,
   disabled,
   id,
+  hiddenOptionLabel = 'retired',
 }: {
   property: SiteProperty;
   value: PropertyValue | undefined;
   onChange(value: PropertyValue | null): void;
   disabled?: boolean;
   id: string;
+  hiddenOptionLabel?: string;
 }): JSX.Element {
   const textOf = (raw: string) => (raw === '' ? null : raw);
   switch (property.kind) {
@@ -214,7 +220,7 @@ export function PropertyValueControl({
             .filter((option) => !option.hidden || option.value === current)
             .map((option) => (
               <option key={option.value} value={option.value}>
-                {option.hidden ? `${option.label} (retired)` : option.label}
+                {option.hidden ? `${option.label} (${hiddenOptionLabel})` : option.label}
               </option>
             ))}
           {current !== '' && !known ? <option value={current}>{current}</option> : null}

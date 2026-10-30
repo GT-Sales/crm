@@ -66,6 +66,7 @@ export function leadSummaryText(
 ): string {
   const form = lead.form?.payload ?? {};
   const customValues = lead.customValues ?? {};
+  const order: Readonly<Record<string, unknown>> = lead.order ?? {};
   const lines = [
     `${lead.externalRef ?? lead.id} · ${leadTypeLabel(lead.leadType)}`,
     `Stage: ${leadStageLabel(lead.leadType, lead.stage)}`,
@@ -78,7 +79,7 @@ export function leadSummaryText(
     for (const property of section.properties) {
       const value = propertyText(
         property,
-        storedValue(property, form, customValues),
+        storedValue(property, form, customValues, order),
         form,
         view.canRevealSensitive,
       );

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildPropertyCatalog,
   codePropertyCatalog,
+  type PlanOption,
   type PropertyCatalog,
   type PropertyModelResponse,
   type PropertyObject,
@@ -39,9 +40,26 @@ function rowFor(property: SiteProperty, position: number, object: PropertyObject
 }
 
 /**
+ * The site's plans as `GET /properties` offers them: the options of the
+ * order's `plan` property, an inactive plan as a hidden option.
+ */
+function plansFromModel(properties: readonly SiteProperty[]): PlanOption[] {
+  const plan = properties.find(
+    (property) => property.storage === 'order' && property.key === 'plan',
+  );
+  return (plan?.options ?? []).map((option) => ({
+    id: option.value,
+    name: option.label,
+    active: !option.hidden,
+  }));
+}
+
+/**
  * The site's catalogue from `GET /properties`: its custom properties (in the
  * order the backend lists them) and the built-ins it relabelled or hid, laid
- * over the code catalogue. A site that changed nothing reads exactly as code.
+ * over the code catalogue, with the site's plans as the order's `plan`
+ * options. A site that changed nothing and sells no plans reads exactly as
+ * code.
  */
 export function catalogFromModel(
   properties: readonly SiteProperty[],
@@ -60,7 +78,10 @@ export function catalogFromModel(
     }
   }
   if (object === 'plan') return buildPropertyCatalog(rows, 'plan');
-  return rows.length === 0 ? codePropertyCatalog : buildPropertyCatalog(rows);
+  const plans = plansFromModel(properties);
+  return rows.length === 0 && plans.length === 0
+    ? codePropertyCatalog
+    : buildPropertyCatalog(rows, 'lead', { plans });
 }
 
 interface ModelState {

@@ -213,14 +213,15 @@ export async function markLeadOpened(
   return client(accessToken).staff.markLeadOpened(workspaceId, leadId);
 }
 
-export async function setLeadTrashed(
+/** Moves the lead to the archive (`POST …/archive`) or back (`POST …/restore`); both idempotent. */
+export async function setLeadArchived(
   accessToken: string,
   workspaceId: string,
   leadId: string,
-  trashed: boolean,
+  archived: boolean,
 ): Promise<LeadTrashResponse> {
   const staff = client(accessToken).staff;
-  return trashed ? staff.trashLead(workspaceId, leadId) : staff.restoreLead(workspaceId, leadId);
+  return archived ? staff.archiveLead(workspaceId, leadId) : staff.restoreLead(workspaceId, leadId);
 }
 
 export async function addLeadNote(

@@ -278,7 +278,7 @@ describe('PropertiesSettings properties', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save property' }));
 
     expect((await within(dialog).findByRole('alert')).textContent).toBe(
-      'Option bronze is used on 4 leads: 3 active, 1 in the trash (restore, clear the value, trash again). Hide it instead of removing it.',
+      'Option bronze is used on 4 leads: 3 active, 1 in the archive (restore, clear the value, archive again). Hide it instead of removing it.',
     );
   });
 
@@ -379,7 +379,7 @@ describe('PropertiesSettings properties', () => {
 
     expect(
       await screen.findByText(
-        'Used on 5 leads: 2 active, 2 in the trash (restore, clear the value, trash again), 1 restricted (cannot be edited). Hide the property instead.',
+        'Used on 5 leads: 2 active, 2 in the archive (restore, clear the value, archive again), 1 restricted (cannot be edited). Hide the property instead.',
       ),
     ).toBeTruthy();
     expect(screen.getByRole('dialog')).toBeTruthy();

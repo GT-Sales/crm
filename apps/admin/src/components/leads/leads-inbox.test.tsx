@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildPropertyCatalog,
   codePropertyCatalog,
   DEFAULT_LEAD_VIEW_STATE,
+  savedViewStateSchema,
   type SavedView,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -231,6 +233,7 @@ describe('LeadsInbox', () => {
         { leadType: 'internet', total: 665 },
         { leadType: 'mobility', total: 39 },
       ],
+      archived: 3,
       trash: 3,
       access: { contacts: true, manage: true },
     });
@@ -244,17 +247,96 @@ describe('LeadsInbox', () => {
     vi.useRealTimers();
   });
 
-  it('offers a tab per lead type the site has, with counts, and the trash', async () => {
+  it('offers a tab per lead type the site has, with counts, and the archive', async () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     expect(await screen.findByRole('tab', { name: /Internet\s*665/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /Mobility\s*39/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /All leads\s*704/ })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Trash\s*3/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Archive\s*3/ })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /trash/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: /Mobility/ }));
     expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=mobility', {
       scroll: false,
     });
+    fireEvent.click(screen.getByRole('tab', { name: /Archive/ }));
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?archived=1', {
+      scroll: false,
+    });
+  });
+
+  it('opens the archive from ?archived=1, with no board and no trash in its words', async () => {
+    navigation.search = 'archived=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const tab = await screen.findByRole('tab', { name: /Archive\s*3/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ view: 'archived' }),
+      ),
+    );
+    expect(await screen.findByText('The archive is empty.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Board/ }).getAttribute('title')).toBe(
+      'The archive has no board',
+    );
+    expect(document.body.textContent ?? '').not.toMatch(/trash/i);
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it('reads a link from before Archive, ?trash=1, as the archive and rewrites it as archived=1', async () => {
+    navigation.search = 'trash=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const tab = await screen.findByRole('tab', { name: /Archive\s*3/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith('/w/canadawide/leads?archived=1', {
+        scroll: false,
+      }),
+    );
+    expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      expect.objectContaining({ view: 'archived' }),
+    );
+  });
+
+  it('filters an order type by its plan, payment status, carrier commission and quantity', async () => {
+    mocks.getPropertyModel.mockResolvedValue(
+      propertyModel(
+        buildPropertyCatalog([], 'lead', {
+          plans: [
+            { id: '70000000-0000-4000-8000-000000000001', name: 'Unlimited 50', active: true },
+            { id: '70000000-0000-4000-8000-000000000002', name: 'Legacy 10', active: false },
+          ],
+        }).all,
+      ),
+    );
+    navigation.search = 'type=sim_order';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    const propertySelect = await screen.findByLabelText('Property');
+    const labels = Array.from(propertySelect.querySelectorAll('option')).map(
+      (opt) => opt.textContent,
+    );
+    expect(labels).toEqual(
+      expect.arrayContaining(['Plan', 'Quantity', 'Payment status', 'Carrier commission']),
+    );
+    fireEvent.change(propertySelect, { target: { value: 'paymentStatus' } });
+    expect(
+      Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+        (opt) => opt.textContent,
+      ),
+    ).toEqual(['Not needed', 'Pending', 'Paid']);
+    fireEvent.change(propertySelect, { target: { value: 'plan' } });
+    await waitFor(() =>
+      expect(
+        Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+          (opt) => opt.textContent,
+        ),
+      ).toEqual(['Unlimited 50', 'Legacy 10 (retired)']),
+    );
   });
 
   it('loads the table from the URL filters', async () => {
@@ -280,6 +362,7 @@ describe('LeadsInbox', () => {
         { leadType: 'internet', total: 665, followUpsDue: 2 },
         { leadType: 'mobility', total: 39, followUpsDue: 1 },
       ],
+      archived: 3,
       trash: 3,
       access: { contacts: true, manage: true },
     });
@@ -496,6 +579,7 @@ describe('LeadsInbox', () => {
   it('hides filter, column and sort controls when access.contacts is false', async () => {
     mocks.getLeadsSummary.mockResolvedValue({
       types: [{ leadType: 'internet', total: 10 }],
+      archived: 0,
       trash: 0,
       access: { contacts: false, manage: false },
     });
@@ -744,6 +828,33 @@ describe('LeadsInbox', () => {
         { scroll: false },
       );
       expect(screen.getByRole('searchbox')).toHaveProperty('value', '');
+    });
+
+    it('opens a view saved before Archive replaced Trash in the archive', async () => {
+      const OLD: SavedView = {
+        id: '40000000-0000-4000-8000-000000000003',
+        object: 'lead',
+        name: 'Old bin',
+        // As the contract reads a view saved with the legacy `trash` key.
+        state: savedViewStateSchema.parse({
+          layout: 'table',
+          trash: true,
+          due: false,
+          where: [],
+          columns: [],
+          hiddenColumns: [],
+        }),
+        version: 1,
+        updatedAt: '2026-10-26T10:00:00.000Z',
+      };
+      mocks.listSavedViews.mockResolvedValue({ views: [OLD], requestId: 'req_test' });
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger('All leads'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Old bin' }));
+      expect(navigation.replace).toHaveBeenLastCalledWith(
+        `/w/canadawide/leads?archived=1&view=${OLD.id}`,
+        { scroll: false },
+      );
     });
 
     it('goes back to All leads with the default state and no view id', async () => {
@@ -1043,6 +1154,7 @@ describe('LeadsInbox side panel', () => {
     mocks.getPropertyModel.mockResolvedValue(propertyModel());
     mocks.getLeadsSummary.mockResolvedValue({
       types: [{ leadType: 'internet', total: 1 }],
+      archived: 0,
       trash: 0,
       access: { contacts: true, manage: true },
     });

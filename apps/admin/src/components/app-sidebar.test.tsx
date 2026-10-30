@@ -33,6 +33,7 @@ describe('AppSidebar', () => {
     getLeadsSummary.mockReset();
     getLeadsSummary.mockResolvedValue({
       types: [],
+      archived: 0,
       trash: 0,
       requestId: '00000000-0000-4000-8000-000000000001',
     });
@@ -85,6 +86,7 @@ describe('AppSidebar', () => {
         { leadType: 'sim_order', total: 94, unopened: 3 },
         { leadType: 'partner_application', total: 5, unopened: 0 },
       ],
+      archived: 44,
       trash: 44,
       requestId: '00000000-0000-4000-8000-000000000001',
     });
