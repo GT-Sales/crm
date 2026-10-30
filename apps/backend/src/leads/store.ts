@@ -46,6 +46,7 @@ import {
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
+import { checkLeadForm, checkLeadSubmit, type LeadIntakeProblem } from './types.js';
 
 /** Long enough for a customer to leave and resume the form later. */
 const DEFAULT_DRAFT_GRANT_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -110,7 +111,13 @@ export type UpdateLeadOutcome =
   /** The idempotency key was used with another body or for another lead. */
   | { status: 'idempotency_conflict' }
   /** The idempotency key is claimed by a request that never completed. */
-  | { status: 'idempotency_in_progress' };
+  | { status: 'idempotency_in_progress' }
+  /**
+   * The save would leave the lead unfit for its type: its form is not the
+   * type's (`form`), or a submission lacks what the type needs to be worked
+   * (`checkLeadSubmit`). Nothing was written; `problem` names the part only.
+   */
+  | { status: 'submission_incomplete'; problem: LeadIntakeProblem };
 
 export interface UpdateLeadInput {
   workspaceId: string;
@@ -306,6 +313,12 @@ class UpdateRefused extends Error {
     super(`lead update refused: ${outcome.status}`);
     this.name = 'UpdateRefused';
   }
+}
+
+/** The `payload` of a stored form envelope, or null when the lead holds none. */
+function storedPayload(stored: unknown): Readonly<Record<string, unknown>> | null {
+  const form = leadFormSchema.safeParse(stored);
+  return form.success ? form.data.payload : null;
 }
 
 /** The plan and quantity a draft of an order type was saved with, when it names a plan. */
@@ -520,8 +533,11 @@ export class DatabaseLeadStore implements LeadStore {
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
             leadUpdatedAt: leads.updatedAt,
+            leadFullName: leads.fullName,
             leadEmail: leads.email,
+            leadPhone: leads.phone,
             leadType: leads.leadType,
+            leadPayload: leads.payload,
             orderDetails: leads.orderDetails,
           })
           .from(draftGrants)
@@ -582,7 +598,12 @@ export class DatabaseLeadStore implements LeadStore {
           throw new UpdateRefused({ status: 'draft_submitted' });
         }
 
-        // The order is settled before anything is written, so a refused plan changes nothing.
+        // The form, the submission and the order are settled before anything
+        // is written, so a refusal changes nothing.
+        const form = checkLeadForm(grant.leadType, input.form);
+        if (!form.ok) {
+          throw new UpdateRefused({ status: 'submission_incomplete', problem: form.problem });
+        }
         const updates: Partial<typeof leads.$inferInsert> = { updatedAt: now };
         const changedFields: string[] = [];
         if (input.order && !isOrderLeadType(grant.leadType)) {
@@ -591,6 +612,20 @@ export class DatabaseLeadStore implements LeadStore {
         const draftOrder = toLeadOrder(grant.orderDetails);
         const planId = input.order?.planId ?? draftOrder.planId;
         const quantity = input.order?.quantity ?? draftOrder.quantity;
+        if (input.submit) {
+          const ready = checkLeadSubmit(grant.leadType, {
+            contact: {
+              fullName: input.contact?.fullName ?? grant.leadFullName ?? undefined,
+              email: input.contact?.email ?? grant.leadEmail ?? undefined,
+              phone: input.contact?.phone ?? grant.leadPhone ?? undefined,
+            },
+            payload: input.form?.payload ?? storedPayload(grant.leadPayload),
+            planId,
+          });
+          if (!ready.ok) {
+            throw new UpdateRefused({ status: 'submission_incomplete', problem: ready.problem });
+          }
+        }
         if (planId !== null && (input.order || input.submit)) {
           const found = await loadPlanForFreeze(tx, input.workspaceId, planId);
           if (!isPlanAvailable(found, grant.leadType)) {

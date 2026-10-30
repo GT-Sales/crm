@@ -86,6 +86,7 @@ databaseTest('idempotent website submission', () => {
     leadType: 'sim_order',
     consentVersion: 'ci',
     contact: { fullName: 'Retry Person', email: `${marker}@example.test` },
+    form: { schemaVersion: 1, payload: { delivery: 'esim' } },
     ...overrides,
   });
 
@@ -231,7 +232,7 @@ databaseTest('idempotent website submission', () => {
       ...ctx,
       leadId: first.lead.id,
       grantToken: draftToken(again),
-      form: { schemaVersion: 1, payload: { step: 2 } },
+      form: { schemaVersion: 1, payload: { delivery: 'esim', arrivalDate: '2026-11-20' } },
     });
     expect(saved).toMatchObject({ status: 'updated', lead: { id: first.lead.id } });
   });
@@ -271,8 +272,9 @@ databaseTest('idempotent website submission', () => {
   });
 
   it("refuses a key on another lead's submitting update", async () => {
-    const first = await store.createLead(base({ marker: 'idem-other-a' }));
-    const second = await store.createLead(base({ marker: 'idem-other-b' }));
+    const order = { planId: plan.id, quantity: 1 };
+    const first = await store.createLead(base({ marker: 'idem-other-a', order }));
+    const second = await store.createLead(base({ marker: 'idem-other-b', order }));
     const idempotency = keyed('key-other-lead', { submit: true });
 
     await expect(

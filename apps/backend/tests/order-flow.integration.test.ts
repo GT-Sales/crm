@@ -299,6 +299,7 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
     const order = {
       leadType: 'sim_order',
       contact: { fullName: 'Nadia Khan', email: 'order-flow-1801@example.test' },
+      form: { schemaVersion: 1, payload: { delivery: 'esim' } },
       consentVersion: 'ci',
       submit: true,
       order: { planId, quantity: 1 },

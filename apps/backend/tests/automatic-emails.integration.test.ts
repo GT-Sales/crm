@@ -341,6 +341,7 @@ databaseTest('automation rules send customer emails', () => {
       leadType: 'sim_order',
       consentVersion: 'ci',
       contact: { fullName: 'Draft Person', email: 'draft-submit@example.test' },
+      form: { schemaVersion: 1, payload: { delivery: 'esim' } },
       order: { planId: plan.id, quantity: 1 },
     });
     const leadId = draft.lead.id;
