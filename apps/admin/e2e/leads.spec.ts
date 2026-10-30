@@ -238,10 +238,16 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
 
   // The inbox opens an internet lead in the side panel; the value is set there.
   await page.goto('/w/canadawide/leads?type=internet');
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   await page.getByRole('link', { name: 'Drew Testcase' }).click();
   await expect(page).toHaveURL(/lead=/);
   const panel = page.getByRole('complementary', { name: 'Lead' });
   await expect(panel.getByRole('heading', { name: 'Drew Testcase' })).toBeVisible();
+  // Opening the panel leaves the page where it was: the header and the tabs stay in view.
+  await expect(panel).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+  await expect(page.getByRole('heading', { level: 1, name: 'Leads' })).toBeInViewport();
+  await expect(page.getByRole('tablist', { name: 'Lead types' })).toBeInViewport();
   const custom = panel.getByRole('region', { name: 'Custom' });
   await custom.getByRole('button', { name: 'Edit' }).click();
   await custom.getByLabel('Referral code').fill('R-100');
@@ -294,9 +300,12 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Drew Testcase');
   await expect(leadHeader).toHaveAttribute('aria-sort', 'ascending');
-  // The table's 32 px rows (h-8), with a little room for borders.
+  // The roomy rows: the email sits on its own line under the name.
+  const nameBox = await rows.first().getByRole('link', { name: 'Drew Testcase' }).boundingBox();
+  const emailBox = await rows.first().getByText('drew@example.test').boundingBox();
+  expect(nameBox && emailBox && emailBox.y >= nameBox.y + nameBox.height - 1).toBe(true);
   const rowHeight = await rows.first().evaluate((row) => row.getBoundingClientRect().height);
-  expect(rowHeight).toBeLessThanOrEqual(36);
+  expect(rowHeight).toBeGreaterThan(36);
   await switcher.click();
   await expect(
     page.getByRole('dialog').getByRole('button', { name: 'Referrals', exact: true }),

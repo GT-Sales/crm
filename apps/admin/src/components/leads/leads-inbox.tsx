@@ -1344,11 +1344,13 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
             />
           )}
         </div>
-        {/* Beside the list the panel stays in view while the list scrolls; a phone gets a sheet. */}
+        {/* Beside the list the panel stays in view while the list scrolls; a phone gets a
+            sheet. Its height leaves room for the 3.5rem top bar and the page's 1.5rem padding
+            above and below, so it never outgrows the viewport. */}
         <div
           className={cn(
-            'sticky top-4 flex self-start',
-            query.lead !== undefined && 'md:h-[calc(100dvh-2rem)]',
+            'sticky top-6 flex self-start',
+            query.lead !== undefined && 'md:h-[calc(100dvh-3.5rem-3rem)]',
           )}
         >
           <SidePanel
