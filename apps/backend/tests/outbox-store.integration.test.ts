@@ -450,13 +450,16 @@ databaseTest('database outbox store', () => {
       sealedCode: 'sealed-value',
       expiresAt: new Date(Date.now() + 600_000).toISOString(),
     });
+    // Due a second ago: the claim's `now` is a millisecond Date, so a job
+    // stamped with the database's microsecond now() in the same millisecond
+    // would not be due yet.
     const queue = async (attempts = 0) => {
       const challengeId = crypto.randomUUID();
       const payload = full(challengeId);
       const [row] = await admin<{ id: string }[]>`
-        insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload, attempts)
+        insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload, attempts, available_at)
         values (${CODE_WORKSPACE}, 'tracking_code_email', ${challengeId},
-          ${admin.json(payload)}, ${attempts})
+          ${admin.json(payload)}, ${attempts}, now() - interval '1 second')
         returning id
       `;
       return { jobId: String(row?.id), challengeId, payload };
@@ -527,8 +530,9 @@ databaseTest('database outbox store', () => {
     expect(await payloadOf(exhausted.jobId)).toEqual({ challengeId: exhausted.challengeId });
     // Another job type's payload is untouched by the scrub.
     await admin`
-      insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload)
-      values (${CODE_WORKSPACE}, 'analytics_lead_saved', 'lead:1', ${admin.json({ leadId: retried.challengeId })})
+      insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload, available_at)
+      values (${CODE_WORKSPACE}, 'analytics_lead_saved', 'lead:1', ${admin.json({ leadId: retried.challengeId })},
+        now() - interval '1 second')
     `;
     const other = await finish({ status: 'failed', errorCode: 'provider_not_configured' });
     expect(await payloadOf(other)).toEqual({ leadId: retried.challengeId });
