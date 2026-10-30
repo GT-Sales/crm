@@ -10,6 +10,7 @@ import {
   type AssignableMember,
   type LeadBoardColumn,
   type LeadListItem,
+  type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 import {
   Button,
@@ -39,10 +40,27 @@ import { errorReason, useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
 import { CountdownDay, leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
-import { stageMoveRefusal } from './stage-move-dialog';
+import { emailSkippedText, stageMoveRefusal } from './stage-move-dialog';
 import { useStoredList } from './view-preferences';
 
 const PER_STAGE = 50;
+
+/**
+ * What a move did about customer mail, one line each: that its rule queued
+ * an email, and each one its rules skipped and why (as the lead page says it).
+ */
+function customerMailNotes(result: UpdateWorkspaceLeadResponse): string[] {
+  const queued = result.activities.some(
+    (entry) =>
+      entry.kind === 'system' &&
+      entry.event === 'customer_emailed' &&
+      entry.automation !== undefined,
+  );
+  return [
+    ...(queued ? ['Customer email queued.'] : []),
+    ...(result.emailSkipped ?? []).map(emailSkippedText),
+  ];
+}
 const DRAG_TYPE = 'application/x-gt-lead';
 const COLUMN_DRAG_TYPE = 'application/x-gt-board-column';
 
@@ -185,6 +203,8 @@ export function LeadsBoard({
   const [hidden, setHidden] = useStoredList(`gt-board-hidden:${workspaceId}:${query.type}`);
   const [hiddenFields] = useStoredList(`gt-board-fields:${workspaceId}:${query.type}`);
   const [message, setMessage] = useState<string>();
+  // What the last move did about customer mail.
+  const [mailNotes, setMailNotes] = useState<readonly string[]>([]);
   const boardRef = useRef<HTMLDivElement>(null);
   const previousRectsRef = useRef<Map<string, DOMRect>>(new Map());
 
@@ -253,6 +273,7 @@ export function LeadsBoard({
       return;
     }
     setMessage(undefined);
+    setMailNotes([]);
     snapshotBoardPositions();
     board.mutate((current) => ({ ...current, columns: moveCard(current.columns, next) }));
     try {
@@ -264,6 +285,7 @@ export function LeadsBoard({
         ...current,
         columns: moveCard(current.columns, { ...next, from: next.to }, card),
       }));
+      setMailNotes(customerMailNotes(result));
     } catch (error) {
       snapshotBoardPositions();
       board.mutate((current) => ({
@@ -321,6 +343,18 @@ export function LeadsBoard({
         <p role="alert" className="text-sm text-rose-300">
           {message}
         </p>
+      ) : null}
+      {mailNotes.length > 0 ? (
+        <div role="status">
+          <ul
+            aria-label="Customer emails"
+            className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+          >
+            {mailNotes.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       <div
         ref={boardRef}

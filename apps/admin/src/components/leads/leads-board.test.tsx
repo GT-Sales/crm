@@ -270,6 +270,83 @@ describe('LeadsBoard', () => {
     expect(items.map((item) => item.textContent)).toEqual(['On hold', 'Delivered', 'Cancelled']);
   });
 
+  it('says which customer mails a move did not send, one line each', async () => {
+    mocks.getLeadBoard.mockResolvedValue(orderBoard());
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...card, leadType: 'sim_order', stage: 'on_hold', form: null },
+      activities: [],
+      allowedMoves: [],
+      emailSkipped: [
+        {
+          automation: 'sim_order_information_needed',
+          template: 'information_needed',
+          reason: 'missing_fill_in',
+          missing: ['tracking number'],
+        },
+        {
+          automation: 'sim_order_information_needed',
+          template: 'information_needed',
+          reason: 'no_customer_email',
+        },
+      ],
+      requestId: NOW,
+    });
+    renderBoard('sim_order');
+    await moveTo('On hold');
+
+    const notices = await screen.findByRole('list', { name: 'Customer emails' });
+    expect(
+      within(notices)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'The Information needed email was not sent: it needs the tracking number.',
+      'The Information needed email was not sent: the customer has no email address.',
+    ]);
+  });
+
+  it('says when a move queued an email to the customer', async () => {
+    mocks.getLeadBoard.mockResolvedValue(orderBoard());
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...card, leadType: 'sim_order', stage: 'on_hold', form: null },
+      activities: [
+        {
+          id: '92000000-0000-4000-8000-000000000001',
+          actorId: null,
+          createdAt: NOW,
+          kind: 'system',
+          event: 'customer_emailed',
+          template: 'information_needed',
+          automation: 'sim_order_information_needed',
+          templateVersion: 0,
+        },
+      ],
+      allowedMoves: [],
+      requestId: NOW,
+    });
+    renderBoard('sim_order');
+    await moveTo('On hold');
+
+    const notices = await screen.findByRole('list', { name: 'Customer emails' });
+    expect(within(notices).getByRole('listitem').textContent).toBe('Customer email queued.');
+  });
+
+  it('says nothing of customer mail when a move sends none', async () => {
+    mocks.getLeadBoard.mockResolvedValue(board(true));
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...card, stage: 'contacted', form: null },
+      activities: [],
+      allowedMoves: [],
+      requestId: NOW,
+    });
+    renderBoard();
+    await moveTo('Contacted');
+    await waitFor(() =>
+      expect(within(column(/^Contacted, 1 leads$/)).getByText('Avery Example')).toBeTruthy(),
+    );
+    expect(screen.queryByRole('list', { name: 'Customer emails' })).toBeNull();
+  });
+
   it('says from where a move is not allowed when the backend refuses it', async () => {
     mocks.getLeadBoard.mockResolvedValue(orderBoard());
     const { BackendError } = await import('../../lib/api');
