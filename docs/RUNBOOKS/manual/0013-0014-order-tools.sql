@@ -56,7 +56,9 @@ CREATE TABLE "app"."automation_runs" (
 	CONSTRAINT "automation_runs_skipped_reason_check" CHECK (("app"."automation_runs"."outcome" = 'skipped') = ("app"."automation_runs"."reason" is not null)),
 	CONSTRAINT "automation_runs_queued_job_check" CHECK (("app"."automation_runs"."outcome" = 'queued') = ("app"."automation_runs"."job_id" is not null))
 );
-ALTER TABLE "app"."automation_runs" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"."automations" (
+
+ALTER TABLE "app"."automation_runs" ENABLE ROW LEVEL SECURITY;
+CREATE TABLE "app"."automations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"key" text NOT NULL,
@@ -69,7 +71,9 @@ ALTER TABLE "app"."automation_runs" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"
 	CONSTRAINT "automations_key_check" CHECK ("app"."automations"."key" in ('order_received', 'sim_order_information_needed', 'sim_order_dispatched', 'sim_order_activated', 'sim_order_cancelled', 'mobility_activated')),
 	CONSTRAINT "automations_run_count_check" CHECK ("app"."automations"."run_count" >= 0)
 );
-ALTER TABLE "app"."automations" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"."email_template_versions" (
+
+ALTER TABLE "app"."automations" ENABLE ROW LEVEL SECURITY;
+CREATE TABLE "app"."email_template_versions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"key" text NOT NULL,
@@ -84,7 +88,9 @@ ALTER TABLE "app"."automations" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"."em
 	CONSTRAINT "email_template_versions_body_check" CHECK (char_length("app"."email_template_versions"."body") between 1 and 5000),
 	CONSTRAINT "email_template_versions_version_check" CHECK ("app"."email_template_versions"."version" > 0)
 );
-ALTER TABLE "app"."email_template_versions" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"."email_templates" (
+
+ALTER TABLE "app"."email_template_versions" ENABLE ROW LEVEL SECURITY;
+CREATE TABLE "app"."email_templates" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"key" text NOT NULL,
@@ -99,7 +105,9 @@ ALTER TABLE "app"."email_template_versions" ENABLE ROW LEVEL SECURITY;CREATE TAB
 	CONSTRAINT "email_templates_body_check" CHECK (char_length("app"."email_templates"."body") between 1 and 5000),
 	CONSTRAINT "email_templates_version_check" CHECK ("app"."email_templates"."version" > 0)
 );
-ALTER TABLE "app"."email_templates" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"."idempotency_keys" (
+
+ALTER TABLE "app"."email_templates" ENABLE ROW LEVEL SECURITY;
+CREATE TABLE "app"."idempotency_keys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"scope" text NOT NULL,
@@ -116,7 +124,9 @@ ALTER TABLE "app"."email_templates" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"
 	CONSTRAINT "idempotency_keys_status_check" CHECK ("app"."idempotency_keys"."status" in ('pending', 'completed')),
 	CONSTRAINT "idempotency_keys_completed_check" CHECK (("app"."idempotency_keys"."status" = 'completed') = ("app"."idempotency_keys"."completed_at" is not null and "app"."idempotency_keys"."lead_id" is not null))
 );
-ALTER TABLE "app"."idempotency_keys" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app"."workspace_email_settings" (
+
+ALTER TABLE "app"."idempotency_keys" ENABLE ROW LEVEL SECURITY;
+CREATE TABLE "app"."workspace_email_settings" (
 	"workspace_id" uuid PRIMARY KEY NOT NULL,
 	"from_name" text NOT NULL,
 	"from_address" text NOT NULL,
@@ -135,7 +145,21 @@ ALTER TABLE "app"."idempotency_keys" ENABLE ROW LEVEL SECURITY;CREATE TABLE "app
 	CONSTRAINT "workspace_email_settings_footer_text_check" CHECK (char_length("app"."workspace_email_settings"."footer_text") <= 500),
 	CONSTRAINT "workspace_email_settings_site_url_check" CHECK ("app"."workspace_email_settings"."site_url" is null or (char_length("app"."workspace_email_settings"."site_url") <= 2048 and "app"."workspace_email_settings"."site_url" ~ '^https://'))
 );
-ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TABLE "app"."email_messages" ADD COLUMN "template_version" integer;ALTER TABLE "app"."automation_runs" ADD CONSTRAINT "automation_runs_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."automation_runs" ADD CONSTRAINT "automation_runs_workspace_lead_fk" FOREIGN KEY ("workspace_id","lead_id") REFERENCES "app"."leads"("workspace_id","id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."automations" ADD CONSTRAINT "automations_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."email_template_versions" ADD CONSTRAINT "email_template_versions_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."email_templates" ADD CONSTRAINT "email_templates_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."idempotency_keys" ADD CONSTRAINT "idempotency_keys_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."idempotency_keys" ADD CONSTRAINT "idempotency_keys_workspace_lead_fk" FOREIGN KEY ("workspace_id","lead_id") REFERENCES "app"."leads"("workspace_id","id") ON DELETE cascade ON UPDATE no action;ALTER TABLE "app"."workspace_email_settings" ADD CONSTRAINT "workspace_email_settings_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;CREATE INDEX "automation_runs_workspace_key_created_idx" ON "app"."automation_runs" USING btree ("workspace_id","automation_key","created_at" DESC NULLS LAST);CREATE INDEX "idempotency_keys_workspace_created_idx" ON "app"."idempotency_keys" USING btree ("workspace_id","created_at");ALTER TABLE "app"."email_messages" ADD CONSTRAINT "email_messages_template_version_check" CHECK ("app"."email_messages"."template_version" is null or "app"."email_messages"."template_version" >= 0);CREATE POLICY "automation_runs_tenant_policy" ON "app"."automation_runs" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."automation_runs"."workspace_id" = nullif(
+
+ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "app"."email_messages" ADD COLUMN "template_version" integer;
+ALTER TABLE "app"."automation_runs" ADD CONSTRAINT "automation_runs_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."automation_runs" ADD CONSTRAINT "automation_runs_workspace_lead_fk" FOREIGN KEY ("workspace_id","lead_id") REFERENCES "app"."leads"("workspace_id","id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."automations" ADD CONSTRAINT "automations_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."email_template_versions" ADD CONSTRAINT "email_template_versions_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."email_templates" ADD CONSTRAINT "email_templates_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."idempotency_keys" ADD CONSTRAINT "idempotency_keys_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."idempotency_keys" ADD CONSTRAINT "idempotency_keys_workspace_lead_fk" FOREIGN KEY ("workspace_id","lead_id") REFERENCES "app"."leads"("workspace_id","id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "app"."workspace_email_settings" ADD CONSTRAINT "workspace_email_settings_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+CREATE INDEX "automation_runs_workspace_key_created_idx" ON "app"."automation_runs" USING btree ("workspace_id","automation_key","created_at" DESC NULLS LAST);
+CREATE INDEX "idempotency_keys_workspace_created_idx" ON "app"."idempotency_keys" USING btree ("workspace_id","created_at");
+ALTER TABLE "app"."email_messages" ADD CONSTRAINT "email_messages_template_version_check" CHECK ("app"."email_messages"."template_version" is null or "app"."email_messages"."template_version" >= 0);
+CREATE POLICY "automation_runs_tenant_policy" ON "app"."automation_runs" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."automation_runs"."workspace_id" = nullif(
       (select current_setting('app.workspace_id', true)),
       ''
     )::uuid and nullif(
@@ -147,7 +171,9 @@ ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TAB
     )::uuid and nullif(
       (select current_setting('app.actor_id', true)),
       ''
-    )::uuid is not null);CREATE POLICY "automation_runs_backup_reader_read" ON "app"."automation_runs" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);CREATE POLICY "automations_tenant_policy" ON "app"."automations" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."automations"."workspace_id" = nullif(
+    )::uuid is not null);
+CREATE POLICY "automation_runs_backup_reader_read" ON "app"."automation_runs" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
+CREATE POLICY "automations_tenant_policy" ON "app"."automations" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."automations"."workspace_id" = nullif(
       (select current_setting('app.workspace_id', true)),
       ''
     )::uuid and nullif(
@@ -159,7 +185,9 @@ ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TAB
     )::uuid and nullif(
       (select current_setting('app.actor_id', true)),
       ''
-    )::uuid is not null);CREATE POLICY "automations_backup_reader_read" ON "app"."automations" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);CREATE POLICY "email_template_versions_tenant_policy" ON "app"."email_template_versions" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."email_template_versions"."workspace_id" = nullif(
+    )::uuid is not null);
+CREATE POLICY "automations_backup_reader_read" ON "app"."automations" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
+CREATE POLICY "email_template_versions_tenant_policy" ON "app"."email_template_versions" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."email_template_versions"."workspace_id" = nullif(
       (select current_setting('app.workspace_id', true)),
       ''
     )::uuid and nullif(
@@ -171,7 +199,9 @@ ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TAB
     )::uuid and nullif(
       (select current_setting('app.actor_id', true)),
       ''
-    )::uuid is not null);CREATE POLICY "email_template_versions_backup_reader_read" ON "app"."email_template_versions" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);CREATE POLICY "email_templates_tenant_policy" ON "app"."email_templates" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."email_templates"."workspace_id" = nullif(
+    )::uuid is not null);
+CREATE POLICY "email_template_versions_backup_reader_read" ON "app"."email_template_versions" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
+CREATE POLICY "email_templates_tenant_policy" ON "app"."email_templates" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."email_templates"."workspace_id" = nullif(
       (select current_setting('app.workspace_id', true)),
       ''
     )::uuid and nullif(
@@ -183,7 +213,9 @@ ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TAB
     )::uuid and nullif(
       (select current_setting('app.actor_id', true)),
       ''
-    )::uuid is not null);CREATE POLICY "email_templates_backup_reader_read" ON "app"."email_templates" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);CREATE POLICY "idempotency_keys_tenant_policy" ON "app"."idempotency_keys" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."idempotency_keys"."workspace_id" = nullif(
+    )::uuid is not null);
+CREATE POLICY "email_templates_backup_reader_read" ON "app"."email_templates" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
+CREATE POLICY "idempotency_keys_tenant_policy" ON "app"."idempotency_keys" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."idempotency_keys"."workspace_id" = nullif(
       (select current_setting('app.workspace_id', true)),
       ''
     )::uuid and nullif(
@@ -195,7 +227,9 @@ ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TAB
     )::uuid and nullif(
       (select current_setting('app.actor_id', true)),
       ''
-    )::uuid is not null);CREATE POLICY "idempotency_keys_backup_reader_read" ON "app"."idempotency_keys" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);CREATE POLICY "workspace_email_settings_tenant_policy" ON "app"."workspace_email_settings" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."workspace_email_settings"."workspace_id" = nullif(
+    )::uuid is not null);
+CREATE POLICY "idempotency_keys_backup_reader_read" ON "app"."idempotency_keys" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
+CREATE POLICY "workspace_email_settings_tenant_policy" ON "app"."workspace_email_settings" AS PERMISSIVE FOR ALL TO "app_runtime" USING ("app"."workspace_email_settings"."workspace_id" = nullif(
       (select current_setting('app.workspace_id', true)),
       ''
     )::uuid and nullif(
@@ -207,7 +241,8 @@ ALTER TABLE "app"."workspace_email_settings" ENABLE ROW LEVEL SECURITY;ALTER TAB
     )::uuid and nullif(
       (select current_setting('app.actor_id', true)),
       ''
-    )::uuid is not null);CREATE POLICY "workspace_email_settings_backup_reader_read" ON "app"."workspace_email_settings" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
+    )::uuid is not null);
+CREATE POLICY "workspace_email_settings_backup_reader_read" ON "app"."workspace_email_settings" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
 
 -- ---------------------------------------------------------------------------
 -- 0014_order_tools_runtime
