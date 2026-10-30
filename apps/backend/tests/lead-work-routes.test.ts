@@ -26,7 +26,9 @@ import {
   type LeadTask,
   type PropertyRow,
   type RelatedLead,
+  type StaffChangeRequest,
   type StaffWorkspace,
+  resolveChangeRequestResponseSchema,
 } from '@gt-sales/contracts';
 
 import { createApp } from '../src/app.js';
@@ -38,6 +40,7 @@ import type {
   UpdateLeadWorkInput,
   UpdateLeadWorkOutcome,
 } from '../src/leads/work-store.js';
+import type { ChangeRequestService, DecisionOutcome } from '../src/tracking/change-requests.js';
 import type { PropertyStore } from '../src/properties/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
@@ -321,6 +324,10 @@ let work: ReturnType<typeof memoryWorkStore>;
 let properties: ReturnType<typeof catalogPropertyStore>;
 // Whether this site can send mail to its customers right now.
 let mailReady: boolean;
+let decisions: {
+  approve: ReturnType<typeof vi.fn<ChangeRequestService['approve']>>;
+  reject: ReturnType<typeof vi.fn<ChangeRequestService['reject']>>;
+};
 
 beforeEach(async () => {
   store = new MemoryStaffStore();
@@ -328,6 +335,10 @@ beforeEach(async () => {
   work = memoryWorkStore();
   properties = catalogPropertyStore();
   mailReady = true;
+  decisions = {
+    approve: vi.fn<ChangeRequestService['approve']>(async () => decided('approved')),
+    reject: vi.fn<ChangeRequestService['reject']>(async () => decided('rejected')),
+  };
   server = createApp({
     staff: {
       sessionVerifier: new TokenVerifier(),
@@ -343,6 +354,7 @@ beforeEach(async () => {
         },
         available: async ({ workspaceId }) => mailReady && workspaceId === WORKSPACE,
       },
+      changeRequests: decisions,
     },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -687,7 +699,9 @@ describe('staff lead work routes', () => {
       downloadDocuments: false,
       reviewDocuments: false,
       overrideDocuments: false,
+      decideChanges: false,
     });
+    expect(body.changeRequest).toBeNull();
     expect(body.allowedMoves).toEqual([
       'contacted',
       'qualified',
@@ -1248,5 +1262,129 @@ describe('staff lead work routes', () => {
       });
       expect(bad.status).toBe(400);
     }
+  });
+});
+
+const CHANGE_REQUEST = '70000000-0000-4000-8000-000000000e01';
+
+const pendingChange: StaffChangeRequest = {
+  id: CHANGE_REQUEST,
+  requestNo: 70,
+  status: 'pending',
+  fields: { phone: '+1 437 555 0188' },
+  documents: [],
+  version: 2,
+  createdAt: '2026-10-30T12:00:00.000Z',
+  updatedAt: '2026-10-30T12:05:00.000Z',
+};
+
+function decided(
+  status: 'approved' | 'rejected',
+): Extract<DecisionOutcome, { status: 'approved' | 'rejected' }> {
+  return {
+    status,
+    lead: { ...lead, leadType: 'sim_order', stage: 'pending' },
+    activities: [note],
+  };
+}
+
+describe('change request decisions', () => {
+  const decisionUrl = (decision: 'approve' | 'reject') =>
+    `${leadsUrl()}/${LEAD}/change-requests/${CHANGE_REQUEST}/${decision}`;
+  const decide = (decision: 'approve' | 'reject', body: unknown = { expectedVersion: 2 }) =>
+    call(decisionUrl(decision), { method: 'POST', body });
+
+  it('lets a Leads member approve and reject, with the version they saw', async () => {
+    store.access = { ...store.access, roles: ['leads'] };
+    const approved = await decide('approve');
+    expect(approved.status).toBe(200);
+    const body = resolveChangeRequestResponseSchema.parse(await approved.json());
+    expect(body.lead.id).toBe(LEAD);
+    expect(body.allowedMoves).toEqual(['verified', 'on_hold', 'cancelled']);
+    expect(body.emailSkipped).toBeUndefined();
+    expect(decisions.approve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        leadId: LEAD,
+        changeRequestId: CHANGE_REQUEST,
+        expectedVersion: 2,
+      }),
+    );
+    expect((await decide('reject')).status).toBe(200);
+    expect(decisions.reject).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an Orders-only member and a viewer', async () => {
+    for (const roles of [['orders'], ['viewer']] as const) {
+      store.access = { ...store.access, roles: [...roles] };
+      for (const decision of ['approve', 'reject'] as const) {
+        const response = await decide(decision);
+        expect(response.status).toBe(403);
+      }
+    }
+    expect(decisions.approve).not.toHaveBeenCalled();
+    expect(decisions.reject).not.toHaveBeenCalled();
+  });
+
+  it('refuses a body without the version, or with anything else', async () => {
+    for (const body of [{}, { expectedVersion: 0 }, { expectedVersion: 2, phone: 'x' }]) {
+      expect((await decide('approve', body)).status).toBe(400);
+    }
+    expect(decisions.approve).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ status: 'not_found' }, 404, 'change_request_not_found'],
+    [{ status: 'resolved' }, 409, 'change_request_resolved'],
+    [{ status: 'version_conflict' }, 409, 'version_conflict'],
+    [{ status: 'trashed' }, 409, 'lead_trashed'],
+    [{ status: 'invalid_field', field: 'plan' }, 400, 'validation_error'],
+  ] as const)('answers %j with %i %s', async (outcome, status, code) => {
+    decisions.approve.mockResolvedValueOnce(outcome);
+    const response = await decide('approve');
+    expect(response.status).toBe(status);
+    const error = await errorCode(response);
+    expect(error.code).toBe(code);
+    if (outcome.status === 'invalid_field') expect(error.details).toEqual({ field: 'plan' });
+  });
+
+  it('passes the skipped decision mail through', async () => {
+    decisions.reject.mockResolvedValueOnce({
+      ...decided('rejected'),
+      emailSkipped: { template: 'change_rejected', reason: 'no_sender' },
+    });
+    const body = resolveChangeRequestResponseSchema.parse(await (await decide('reject')).json());
+    expect(body.emailSkipped).toEqual({ template: 'change_rejected', reason: 'no_sender' });
+  });
+
+  it('shows the pending request and whether the caller may decide it on the lead page', async () => {
+    const page = async () => {
+      // Always returned here, so the route's own redaction is what the viewer sees.
+      work.getLead.mockImplementationOnce(async () => ({
+        lead,
+        activities: [],
+        tasks: [],
+        related: [],
+        identities: [],
+        documents: [],
+        changeRequest: pendingChange,
+      }));
+      return getWorkspaceLeadResponseSchema.parse(
+        await (await call(`${leadsUrl()}/${LEAD}`)).json(),
+      );
+    };
+    store.access = { ...store.access, roles: ['leads'] };
+    const leads = await page();
+    expect(leads.changeRequest).toEqual(pendingChange);
+    expect(leads.access.decideChanges).toBe(true);
+
+    store.access = { ...store.access, roles: ['orders'] };
+    expect((await page()).access.decideChanges).toBe(false);
+
+    store.access = { ...store.access, roles: ['viewer'] };
+    const viewer = await page();
+    expect(viewer.changeRequest).toBeNull();
+    expect(viewer.access.decideChanges).toBe(false);
   });
 });

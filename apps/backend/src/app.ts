@@ -18,6 +18,11 @@ import {
   type WebsiteRouteDependencies,
 } from './routes/website.js';
 import {
+  createDefaultTrackingRouteDependencies,
+  createTrackingRouter,
+  type TrackingRouteDependencies,
+} from './routes/tracking.js';
+import {
   createDefaultJobsRouteDependencies,
   createJobsRouter,
   type JobsRouteDependencies,
@@ -32,6 +37,8 @@ import {
 export interface CreateAppOptions {
   staff?: StaffRouteDependencies;
   website?: WebsiteRouteDependencies;
+  /** Customer order tracking; by default the database stores with `TRACKING_HASH_SECRET`. */
+  tracking?: TrackingRouteDependencies;
   jobs?: JobsRouteDependencies;
   email?: EmailRouteDependencies;
   errorTracker?: ErrorTracker;
@@ -117,6 +124,9 @@ export function createApp(options: CreateAppOptions = {}): Express {
   const staffDependencies = options.staff ?? createDefaultStaffRouteDependencies();
   const propertyStore = staffDependencies.propertyStore ?? new DatabasePropertyStore();
   const planStore = staffDependencies.planStore ?? new DatabasePlanStore();
+  const websiteDependencies = options.website ?? createDefaultWebsiteRouteDependencies();
+  const trackingDependencies =
+    options.tracking ?? createDefaultTrackingRouteDependencies(websiteDependencies.auth);
   app.use(
     '/api/v1/staff',
     createStaffRouter({
@@ -126,11 +136,12 @@ export function createApp(options: CreateAppOptions = {}): Express {
       // Saved views are cleaned against the site's own catalogue.
       loadPropertyCatalog:
         staffDependencies.loadPropertyCatalog ?? ((ctx) => propertyStore.catalog(ctx)),
+      // Staff decide the change requests customers make through tracking.
+      changeRequests: staffDependencies.changeRequests ?? trackingDependencies.changeRequests,
     }),
   );
   // Website intake surface. Server-to-server, so CORS does not apply and is
   // never treated as authentication; the service credential is the only proof.
-  const websiteDependencies = options.website ?? createDefaultWebsiteRouteDependencies();
   app.use(
     '/api/v1/website',
     createWebsiteRouter({
@@ -138,6 +149,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
       plans: websiteDependencies.plans ?? { store: planStore },
     }),
   );
+  app.use('/api/v1/website', createTrackingRouter(trackingDependencies));
   app.use('/api/v1/email', createEmailRouter(emailDependencies));
   app.use(createInvalidBodyError(errorTracker));
 
