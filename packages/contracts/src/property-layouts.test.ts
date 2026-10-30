@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ORDER_PROPERTY_KEYS,
   buildPropertyCatalog,
   codePropertyCatalog,
   defaultPropertyLayout,
@@ -183,8 +184,8 @@ describe('renderPropertyLayout', () => {
       sections: [{ id: 'main', label: 'Main', keys: ['city', 'nope', ...(first ? [first] : [])] }],
     };
     const rendered = renderPropertyLayout(layout, 'internet', catalog);
-    expect(rendered[0]?.id).toBe('main');
-    expect(rendered[0]?.properties.map((p) => p.key)).toEqual(first ? [first] : []);
+    const main = rendered.find((section) => section.id === 'main');
+    expect(main?.properties.map((p) => p.key)).toEqual(first ? [first] : []);
     const other = rendered[rendered.length - 1];
     expect(other?.id).toBe('other');
     expect(other?.label).toBe('Other');
@@ -200,14 +201,48 @@ describe('renderPropertyLayout', () => {
     expect(rendered.map((s) => s.id)).toEqual(['order', 'request', 'staff']);
   });
 
-  it('puts the order properties under Other in a layout saved before they existed', () => {
+  it('opens a layout saved before the order properties existed with an Order section', () => {
+    const request = codePropertyCatalog
+      .forType('sim_order')
+      .filter((p) => p.storage === 'form')
+      .map((p) => p.key);
     const saved: PropertyLayout = {
-      sections: [{ id: 'request', label: 'Request', keys: ['planId'] }],
+      sections: [{ id: 'request', label: 'Request', keys: ['planId', ...request] }],
     };
     const rendered = renderPropertyLayout(saved, 'sim_order', codePropertyCatalog);
+    expect(rendered.map((s) => [s.id, s.label])).toEqual([
+      ['order', 'Order'],
+      ['request', 'Request'],
+    ]);
+    expect(rendered[0]?.properties.map((p) => p.key)).toEqual([...ORDER_PROPERTY_KEYS]);
+    // Nothing is left for Other, and nothing is shown twice.
+    const placed = rendered.flatMap((s) => s.properties.map((p) => p.key));
+    expect(new Set(placed).size).toBe(placed.length);
+  });
+
+  it('leaves a layout that places an order property as it is: the rest go under Other', () => {
+    const saved: PropertyLayout = {
+      sections: [{ id: 'mine', label: 'Mine', keys: ['quantity'] }],
+    };
+    const rendered = renderPropertyLayout(saved, 'sim_order', codePropertyCatalog);
+    expect(rendered[0]?.id).toBe('mine');
+    expect(rendered.some((s) => s.label === 'Order')).toBe(false);
     expect(rendered.at(-1)?.id).toBe('other');
     expect(rendered.at(-1)?.properties.map((p) => p.key)).toEqual(
-      expect.arrayContaining(['plan', 'quantity', 'paymentStatus', 'carrierCommission']),
+      expect.arrayContaining(['plan', 'paymentStatus', 'carrierCommission']),
+    );
+  });
+
+  it('adds no Order section to a type without order details, or when the site hid them all', () => {
+    const saved: PropertyLayout = { sections: [{ id: 'request', label: 'Request', keys: [] }] };
+    expect(
+      renderPropertyLayout(saved, 'partner_application', codePropertyCatalog).map((s) => s.id),
+    ).not.toContain('order');
+    const hidden = buildPropertyCatalog(
+      ORDER_PROPERTY_KEYS.map((key) => row({ key, origin: 'builtin', hidden: true })),
+    );
+    expect(renderPropertyLayout(saved, 'sim_order', hidden).map((s) => s.id)).not.toContain(
+      'order',
     );
   });
 
@@ -217,7 +252,10 @@ describe('renderPropertyLayout', () => {
       'sim_order',
       codePropertyCatalog,
     );
-    expect(rendered[0]).toMatchObject({ id: 'empty', properties: [] });
+    expect(rendered.find((section) => section.id === 'empty')).toMatchObject({
+      id: 'empty',
+      properties: [],
+    });
   });
 });
 

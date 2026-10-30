@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import {
+  ORDER_PROPERTY_KEYS,
   PROPERTY_OBJECTS,
   planOptionSchema,
   propertyKeySchema,
@@ -130,7 +131,10 @@ export interface RenderedSection {
 /**
  * Resolves a layout's keys against the catalogue: unknown and hidden keys are
  * skipped; visible properties of the type missing from the layout go in a
- * final "Other" section so nothing a site adds is ever unreachable.
+ * final "Other" section so nothing a site adds is ever unreachable. A layout
+ * saved before order types had order properties (phase 2) places none of
+ * them: for such a layout the order properties open the record in an "Order"
+ * section, as the default layout has them, rather than trail under "Other".
  */
 export function renderPropertyLayout(
   layout: PropertyLayout,
@@ -140,7 +144,27 @@ export function renderPropertyLayout(
   const visible = catalog.forType(leadType);
   const byKey = new Map(visible.map((property) => [property.key, property]));
   const placed = new Set<string>();
-  const rendered: RenderedSection[] = layout.sections.map((section) => {
+  const orderKeys: ReadonlySet<string> = new Set(ORDER_PROPERTY_KEYS);
+  const placesOrder = layout.sections.some((section) =>
+    section.keys.some((key) => orderKeys.has(key)),
+  );
+  const order = placesOrder
+    ? []
+    : ORDER_PROPERTY_KEYS.flatMap((key) => {
+        const property = byKey.get(key);
+        return property && property.storage === 'order' ? [property] : [];
+      });
+  const rendered: RenderedSection[] = [];
+  if (order.length > 0) {
+    for (const property of order) placed.add(property.key);
+    const taken = new Set(layout.sections.map((section) => section.id));
+    rendered.push({
+      id: taken.has('order') ? 'order-details' : 'order',
+      label: 'Order',
+      properties: order,
+    });
+  }
+  for (const section of layout.sections) {
     const properties: SiteProperty[] = [];
     for (const key of section.keys) {
       const property = byKey.get(key);
@@ -149,8 +173,8 @@ export function renderPropertyLayout(
         properties.push(property);
       }
     }
-    return { id: section.id, label: section.label, properties };
-  });
+    rendered.push({ id: section.id, label: section.label, properties });
+  }
   const unplaced = visible.filter((property) => !placed.has(property.key));
   if (unplaced.length > 0) rendered.push({ id: 'other', label: 'Other', properties: unplaced });
   return rendered;
