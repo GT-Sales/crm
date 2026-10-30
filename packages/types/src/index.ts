@@ -51,10 +51,12 @@ export type LeadStatus = (typeof leadStatuses)[number];
 
 /**
  * Scopes a website service credential may hold. A website may only create and
- * resume its own drafts and upload documents against them; it can never list
- * records or take a staff action.
+ * resume its own drafts and upload documents against them, and with
+ * `tracking` let a customer who proved their email with a code see and ask
+ * to change that email's orders; it can never list records or take a staff
+ * action.
  */
-export const websiteScopeNames = tuple('leads:write', 'uploads:customer');
+export const websiteScopeNames = tuple('leads:write', 'uploads:customer', 'tracking');
 export type WebsiteScopeName = (typeof websiteScopeNames)[number];
 
 /** Distinguishes how a request authenticated, so a staff-only route can refuse a website caller. */

@@ -61,7 +61,7 @@ export interface EmailSettingsStore {
   getSettings(ctx: Scope): Promise<StoredEmailSettings | undefined>;
   /** Saves the whole form; audit `email.settings_updated` names the fields that changed. */
   putSettings(ctx: WriteScope, input: UpdateEmailSettingsRequest): Promise<StoredEmailSettings>;
-  /** The seven, in CUSTOMER_EMAIL_TEMPLATES order; an unsaved one is its starter at version 0. */
+  /** The nine, in CUSTOMER_EMAIL_TEMPLATES order; an unsaved one is its starter at version 0. */
   listTemplates(ctx: Scope): Promise<StoredEmailTemplate[]>;
   /** Saves `expectedVersion + 1` when that is still the stored version; audit `email.template_saved`. */
   putTemplate(

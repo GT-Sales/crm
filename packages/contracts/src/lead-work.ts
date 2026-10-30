@@ -120,9 +120,14 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     /** For `documents_override`: why staff moved the order on without them. */
     reason: documentsOverrideReasonSchema.optional(),
     requestNo: z.int().positive().optional(),
-    /** For `change_requested`: the fields asked to change (contact or form keys), never their values. */
+    /** For a change request made through the CRM's tracking (`app.change_requests`): its id. */
+    changeRequestId: z.uuid().optional(),
+    /**
+     * For `change_requested` and `change_approved`: the fields asked to change
+     * or applied (contact or form keys, `planId`), never their values.
+     */
     fields: z.array(activityFieldKeySchema).max(50).optional(),
-    /** For `change_requested`: the documents sent with it. */
+    /** For `change_requested` and `change_approved`: the documents sent with it or attached. */
     documents: z.array(documentChecklistKeySchema).max(10).optional(),
     /**
      * For an `unknown` entry a data migration wrote (the 0012 stage clean-up):

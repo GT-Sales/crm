@@ -70,4 +70,19 @@ export const STARTER_TEMPLATES: Readonly<
       'If the number does not match what you were expecting, reply to this email straight away and our team will sort it. It is much easier to fix now than after you land.',
     ].join('\n\n'),
   },
+  change_approved: {
+    subject: 'Your change request was approved',
+    body: [
+      'Hi {first name},',
+      'The changes you asked for on your order with {site name} have been made.',
+      'Reply to this email if anything looks wrong.',
+    ].join('\n\n'),
+  },
+  change_rejected: {
+    subject: 'About your change request',
+    body: [
+      'Hi {first name},',
+      'We could not make the changes you asked for on your order with {site name}. Reply to this email and we will help.',
+    ].join('\n\n'),
+  },
 };

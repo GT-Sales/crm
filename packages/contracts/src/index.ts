@@ -298,6 +298,7 @@ export {
 } from './lead-work';
 
 export {
+  ALWAYS_SENT_TEMPLATES,
   CUSTOMER_EMAIL_JOB_TYPE,
   CUSTOMER_EMAIL_TEMPLATES,
   CUSTOMER_EMAIL_TEMPLATE_LABELS,
@@ -320,6 +321,9 @@ export {
   previewEmailTemplateRequestSchema,
   previewEmailTemplateResponseSchema,
   sendTestEmailResponseSchema,
+  TRACKING_CODE_JOB_TYPE,
+  trackingCodeJobPayloadSchema,
+  trackingCodeScrubbedPayloadSchema,
   updateEmailSettingsRequestSchema,
   updateEmailTemplateRequestSchema,
   type CustomerEmailJobPayload,
@@ -334,6 +338,8 @@ export {
   type PreviewEmailTemplateRequest,
   type PreviewEmailTemplateResponse,
   type SendTestEmailResponse,
+  type TrackingCodeJobPayload,
+  type TrackingCodeScrubbedPayload,
   type UpdateEmailSettingsRequest,
   type UpdateEmailSettingsRequestInput,
   type UpdateEmailTemplateRequest,
@@ -614,6 +620,34 @@ export {
   type ExportJobStatus,
   type ExportKind,
 } from './exports';
+
+export {
+  CHANGEABLE_FIELD_KEYS,
+  CHANGE_REQUEST_DOCUMENTS,
+  CHANGE_REQUEST_STAGES,
+  MAX_TRACKED_ORDERS,
+  TRACKING_CODE_REQUESTS_PER_EMAIL,
+  TRACKING_CODE_TTL_MS,
+  TRACKING_EMAIL_WINDOW_SECONDS,
+  TRACKING_GRANT_HEADER,
+  TRACKING_GRANT_TTL_MS,
+  TRACKING_MAX_ATTEMPTS,
+  TRACKING_MIN_LATENCY_MS,
+  TRACKING_STAGE_WORDS,
+  TRACKING_VERIFICATIONS_PER_EMAIL,
+  TRACKING_WRITES_PER_EMAIL,
+  changeRequestFieldsSchema,
+  trackingDocumentStateSchema,
+  trackingOrderSchema,
+  trackingPendingChangeSchema,
+  trackingReferenceSchema,
+  trackingStageWord,
+  type ChangeRequestFields,
+  type ChangeableFieldKey,
+  type TrackingDocumentState,
+  type TrackingOrder,
+  type TrackingPendingChange,
+} from './tracking';
 
 // Endpoint registry, OpenAPI generation, typed client
 export {

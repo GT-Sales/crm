@@ -36,10 +36,10 @@ function row(label: string) {
 }
 
 describe('TemplateList', () => {
-  it('lists the seven emails by label, with no on/off switch', () => {
+  it('lists the nine emails by label, with no on/off switch', () => {
     render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
     const list = screen.getByRole('list', { name: 'Emails' });
-    expect(within(list).getAllByRole('listitem')).toHaveLength(7);
+    expect(within(list).getAllByRole('listitem')).toHaveLength(9);
     for (const label of [
       'Tracking code',
       'Order received',
@@ -48,6 +48,8 @@ describe('TemplateList', () => {
       'Activated',
       'Cancelled',
       'SIM number ready',
+      'Change approved',
+      'Change rejected',
     ]) {
       expect(within(list).getByRole('heading', { name: label })).toBeTruthy();
     }

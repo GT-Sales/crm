@@ -45,6 +45,8 @@ import {
   leadViewSchema,
   leadsSummaryResponseSchema,
   normalizeLeadView,
+  websiteBotActions,
+  websiteScopeSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -605,6 +607,20 @@ describe('phase 4 timeline entries and documents', () => {
     expect(leadActivitySchema.parse(entry)).toEqual(entry);
   });
 
+  it('records a change decision by request number, id, field keys and document types', () => {
+    const entry = {
+      ...base,
+      kind: 'system',
+      event: 'change_approved',
+      requestNo: 4,
+      changeRequestId: UUID_B,
+      fields: ['phone', 'arrivalDate'],
+      documents: ['passport'],
+    };
+    expect(leadActivitySchema.parse(entry)).toEqual(entry);
+    expect(leadActivitySchema.safeParse({ ...entry, changeRequestId: 'cr-4' }).success).toBe(false);
+  });
+
   it('records which rule and template version sent a customer email', () => {
     const entry = {
       ...base,
@@ -659,6 +675,15 @@ describe('phase 4 timeline entries and documents', () => {
     ]) {
       expect(domainErrorCodeSchema.safeParse(code).success, code).toBe(true);
     }
+  });
+});
+
+describe('customer tracking vocabulary', () => {
+  it('knows the change request refusal, the tracking scope and the two bot actions', () => {
+    expect(domainErrorCodeSchema.safeParse('change_request_not_allowed').success).toBe(true);
+    expect(websiteScopeSchema.options).toEqual(['leads:write', 'uploads:customer', 'tracking']);
+    expect(websiteBotActions).toContain('tracking-request');
+    expect(websiteBotActions).toContain('tracking-verify');
   });
 });
 
