@@ -1277,4 +1277,42 @@ describe('LeadsInbox side panel', () => {
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
     expect(mocks.getStaffLeads).toHaveBeenCalledTimes(2);
   });
+
+  it('asks for the counts again on close after a change in the panel, not after a close without one', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...row, stage: 'contacted', form: null, customValues: {} },
+      activities: [],
+      requestId: 'req_test',
+    });
+    navigation.search = `type=internet&lead=${LEAD_ID}`;
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    const panel = await screen.findByRole('complementary', { name: 'Lead' });
+    await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1));
+
+    // Nothing changed: closing asks for no counts.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
+    expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1);
+
+    // A change saved in the panel: closing asks for the counts once more.
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'internet', total: 0 }],
+      archived: 1,
+      trash: 1,
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = `type=internet&lead=${LEAD_ID}`;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    const reopened = await screen.findByRole('complementary', { name: 'Lead' });
+    fireEvent.change(await within(reopened).findByLabelText('Stage'), {
+      target: { value: 'contacted' },
+    });
+    await waitFor(() => expect(mocks.updateStaffLead).toHaveBeenCalledTimes(1));
+    expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('tab', { name: /Archive\s*1/ })).toBeTruthy();
+  });
 });

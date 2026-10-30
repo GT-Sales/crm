@@ -367,7 +367,8 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     );
   }
   // Closing the panel hands focus back to the lead's row in the list, and
-  // asks for the list again when something was saved in the panel.
+  // asks for the list and the counts again when something was saved in the
+  // panel: an archive or a stage change moves the tab counts too.
   const closedLead = useRef<string | undefined>(undefined);
   const panelChanged = useRef(false);
   const [listVersion, setListVersion] = useState(0);
@@ -376,6 +377,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     if (panelChanged.current) {
       panelChanged.current = false;
       setListVersion((current) => current + 1);
+      void summary.reload();
     }
     setPanelLead(undefined);
   }
