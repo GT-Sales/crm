@@ -35,6 +35,20 @@ describe('GET /api/v1/health', () => {
     expect(response.headers.get('access-control-allow-headers')).toContain('x-request-id');
   });
 
+  it('allows every method the staff routes use through browser preflight', async () => {
+    // PUT saves an automation switch and Settings → Email; the admin is on another origin.
+    const response = await fetch(`${baseUrl}/api/v1/staff/workspaces`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: process.env.ADMIN_ORIGIN ?? 'http://localhost:3000',
+        'access-control-request-method': 'PUT',
+      },
+    });
+    expect(response.status).toBe(204);
+    const allowed = (response.headers.get('access-control-allow-methods') ?? '').split(/,\s*/);
+    expect(allowed).toEqual(expect.arrayContaining(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']));
+  });
+
   it('returns ok: true with a UUID requestId', async () => {
     const res = await fetch(`${baseUrl}/api/v1/health`);
     const body = healthResponseSchema.parse(await res.json());

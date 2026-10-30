@@ -6,6 +6,7 @@ import {
   type BuiltInAutomation,
   type CustomerEmailTemplate,
   type EmailSkipped,
+  type LeadActivity,
 } from '@gt-sales/contracts';
 
 import { composeCustomerEmail, type ComposeOutcome } from '../email/compose.js';
@@ -40,11 +41,18 @@ export interface RunAutomationsInput {
   store: AutomationStore;
 }
 
-/** The skips of the rules that were on but could not send, in rule order. */
+export interface RunAutomationsResult {
+  /** The rules that were on but could not send, in rule order. */
+  skipped: EmailSkipped[];
+  /** The `customer_emailed` timeline entries of the mails queued, in rule order. */
+  activities: LeadActivity[];
+}
+
+/** What the rules that were on did: the mails they queued and the ones they could not send. */
 export async function runAutomations(
   tx: TenantTransaction,
   input: RunAutomationsInput,
-): Promise<EmailSkipped[]> {
+): Promise<RunAutomationsResult> {
   const { workspaceId, lead } = input;
   const enabled = await enabledAutomationKeys(
     tx,
@@ -52,6 +60,7 @@ export async function runAutomations(
     input.automations.map((rule) => rule.key),
   );
   const skipped: EmailSkipped[] = [];
+  const activities: LeadActivity[] = [];
   for (const rule of input.automations) {
     if (!enabled.has(rule.key)) continue;
     const template = rule.action.template;
@@ -108,8 +117,9 @@ export async function runAutomations(
       outcome: 'queued',
       jobId: queued.jobId,
     });
+    if (queued.activity) activities.push(queued.activity);
   }
-  return skipped;
+  return { skipped, activities };
 }
 
 /** The fill-in lead of a stored lead row: its form's values and, for an order type, its order. */
