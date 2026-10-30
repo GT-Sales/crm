@@ -766,7 +766,7 @@ or remap the stragglers by hand in the SQL Editor; for a `paid` row:
 `UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';`
 (an `invoiced` row becomes `completed` with `paymentStatus` `paid` and
 `carrierCommission` `invoiced`).
-Status: **migrations done; the post-deploy select 7 check follows the merge**.
+PR #4 merged 2026-10-30 (`e33a70a`); the Railway deploy succeeded, health 200, and select 7 after it read `old_stages_left` 0: the freeze window is closed. Status: **done**.
 
 Then the CRM's own owner items:
 

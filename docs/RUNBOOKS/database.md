@@ -351,8 +351,9 @@ Completed; carrier commission set to Invoiced (phase 3 migration)`, data
   59 (25 archived), pending/paid 20, verified/paid 1, delivered/paid 1,
   activated/paid 8, completed/paid 13, cancelled/not_needed 14 (8 archived);
   139 leads, 44 archived, no `paid` or `invoiced` stage, no null payment
-  status. Select 7 is to be run once more after the phase 3 backend deploys
-  (the SIM-order freeze window).
+  status. Select 7 run again after the phase 3 backend deployed (PR #4,
+  `e33a70a`, 2026-10-30): moved 20, `old_stages_left` 0, nothing else
+  changed; the SIM-order freeze window is over.
 - To apply both, before deploying a backend that reads `plans` or
   `order_details` and before the next Get Canada Sim import run: in the SQL
   editor, as `postgres`, run
