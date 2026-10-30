@@ -49,13 +49,14 @@ const SITE = '1a000000-0000-4000-8000-000000001001'; // settings, five rules on
 const QUIET_SITE = '1a000000-0000-4000-8000-000000001002'; // settings, every rule off
 const NO_SENDER_SITE = '1a000000-0000-4000-8000-000000001003'; // no sender, cancelled on
 const BROKEN_SITE = '1a000000-0000-4000-8000-000000001004'; // a stored template that no longer parses
+const LONG_SITE = '1a000000-0000-4000-8000-000000001005'; // a subject that can outgrow the job's limit
 const STAFF = '2a000000-0000-4000-8000-000000001001';
 const CREDENTIAL = '2a000000-0000-4000-8000-000000001002'; // the website's credential
 const REQUEST = '3a000000-0000-4000-8000-000000001001';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const SECRET = 'ci-email-contact-hash-secret-0123456789';
 
-const SITES = [SITE, QUIET_SITE, NO_SENDER_SITE, BROKEN_SITE];
+const SITES = [SITE, QUIET_SITE, NO_SENDER_SITE, BROKEN_SITE, LONG_SITE];
 const RULES_ON: readonly AutomationKey[] = [
   'order_received',
   'sim_order_information_needed',
@@ -125,6 +126,7 @@ databaseTest('automation rules send customer emails', () => {
     leadType?: string;
     status?: 'incomplete' | 'submitted';
     stage: string;
+    fullName?: string;
     email?: string | null;
     form?: Record<string, unknown>;
     order?: Record<string, unknown>;
@@ -138,7 +140,8 @@ databaseTest('automation rules send customer emails', () => {
         ${id}, ${input.workspaceId ?? SITE}, ${input.leadType ?? 'sim_order'},
         ${input.status ?? 'submitted'},
         ${input.stage}, 'ci', '{}'::jsonb,
-        ${admin.json(JSON.parse(JSON.stringify({ schemaVersion: 1, payload: input.form ?? {} })))}, 'Nadia Khan',
+        ${admin.json(JSON.parse(JSON.stringify({ schemaVersion: 1, payload: input.form ?? {} })))},
+        ${input.fullName ?? 'Nadia Khan'},
         ${input.email === undefined ? `${id}@example.test` : input.email},
         ${admin.json(JSON.parse(JSON.stringify(input.order ?? {})))}
       )
@@ -225,9 +228,10 @@ databaseTest('automation rules send customer emails', () => {
         (${SITE}, 'automatic-emails-1001', 'Automatic Emails'),
         (${QUIET_SITE}, 'automatic-emails-1002', 'Automatic Emails Quiet'),
         (${NO_SENDER_SITE}, 'automatic-emails-1003', 'Automatic Emails No Sender'),
-        (${BROKEN_SITE}, 'automatic-emails-1004', 'Automatic Emails Broken')
+        (${BROKEN_SITE}, 'automatic-emails-1004', 'Automatic Emails Broken'),
+        (${LONG_SITE}, 'automatic-emails-1005', 'Automatic Emails Long')
     `;
-    for (const workspaceId of [SITE, QUIET_SITE, BROKEN_SITE]) {
+    for (const workspaceId of [SITE, QUIET_SITE, BROKEN_SITE, LONG_SITE]) {
       await admin`
         insert into app.workspace_email_settings (
           workspace_id, from_name, from_address, reply_to, logo_url, brand_color, footer_text,
@@ -254,6 +258,7 @@ databaseTest('automation rules send customer emails', () => {
     for (const key of RULES_ON) await automations.setEnabled(staff(), key, true);
     await automations.setEnabled(staff(NO_SENDER_SITE), 'sim_order_cancelled', true);
     await automations.setEnabled(staff(BROKEN_SITE), 'sim_order_cancelled', true);
+    await automations.setEnabled(staff(LONG_SITE), 'sim_order_cancelled', true);
 
     await saveTemplate(
       SITE,
@@ -561,6 +566,51 @@ databaseTest('automation rules send customer emails', () => {
       });
       expect(logged).not.toContain('broken.customer');
       expect(logged).not.toContain('Nadia');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('queues nothing for a mail that would not fit its job, and logs only the rule', async () => {
+    // A subject at its 150-character limit, filled with a long name, passes the job's 300.
+    const subject = 'Cancelled: {first name} {last name}, yes {first name} {last name} '.padEnd(
+      150,
+      'x',
+    );
+    expect(subject).toHaveLength(150);
+    await saveTemplate(LONG_SITE, 'cancelled', subject, 'Your order is cancelled.');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const leadId = await insertLead({
+        workspaceId: LONG_SITE,
+        stage: 'pending',
+        fullName: `${'Annabelle'.repeat(9)} ${'Lee'.repeat(25)}`,
+        email: 'long.customer@example.test',
+      });
+      const outcome = await move(leadId, 'cancelled', { workspaceId: LONG_SITE });
+      expect(outcome).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
+      expect(outcome).not.toHaveProperty('emailSkipped');
+      expect(await jobs(leadId)).toEqual([]);
+      expect(await runs(leadId)).toEqual([]);
+      expect(await emailed(leadId)).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = String(warn.mock.calls[0]?.[0]);
+      expect(Object.keys(JSON.parse(logged)).sort()).toEqual([
+        'automation',
+        'event',
+        'requestId',
+        'template',
+        'workspaceId',
+      ]);
+      expect(JSON.parse(logged)).toMatchObject({
+        event: 'automation_compose_failed',
+        workspaceId: LONG_SITE,
+        automation: 'sim_order_cancelled',
+        template: 'cancelled',
+      });
+      expect(logged).not.toContain('long.customer');
+      expect(logged).not.toContain('Annabelle');
+      expect(logged).not.toContain('Cancelled:');
     } finally {
       warn.mockRestore();
     }
