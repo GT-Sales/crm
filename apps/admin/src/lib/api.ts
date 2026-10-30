@@ -4,6 +4,15 @@ import {
   type CreateDownloadLinkResponse,
   type CreateSavedViewRequestInput,
   type CreatePlanRequestInput,
+  type CustomerEmailTemplate,
+  type EmailSettingsResponse,
+  type EmailTemplateResponse,
+  type ListEmailTemplatesResponse,
+  type PreviewEmailTemplateRequest,
+  type PreviewEmailTemplateResponse,
+  type SendTestEmailResponse,
+  type UpdateEmailSettingsRequestInput,
+  type UpdateEmailTemplateRequest,
   type DeletePropertyResponse,
   type ListPlansQueryInput,
   type ListPlansResponse,
@@ -372,6 +381,59 @@ export async function updatePlan(
   body: UpdatePlanRequest,
 ): Promise<PlanResponse> {
   return client(accessToken).staff.updatePlan(workspaceId, planId, body);
+}
+
+// ---- Settings → Email: the site's sender and its seven templates. Every
+// call needs integration.manage (the owner), checked server-side. ----
+
+export async function getEmailSettings(
+  accessToken: string,
+  workspaceId: string,
+): Promise<EmailSettingsResponse> {
+  return client(accessToken).staff.getEmailSettings(workspaceId);
+}
+
+export async function updateEmailSettings(
+  accessToken: string,
+  workspaceId: string,
+  body: UpdateEmailSettingsRequestInput,
+): Promise<EmailSettingsResponse> {
+  return client(accessToken).staff.updateEmailSettings(workspaceId, body);
+}
+
+export async function listEmailTemplates(
+  accessToken: string,
+  workspaceId: string,
+): Promise<ListEmailTemplatesResponse> {
+  return client(accessToken).staff.listEmailTemplates(workspaceId);
+}
+
+export async function updateEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  key: CustomerEmailTemplate,
+  body: UpdateEmailTemplateRequest,
+): Promise<EmailTemplateResponse> {
+  return client(accessToken).staff.updateEmailTemplate(workspaceId, key, body);
+}
+
+/** The unsaved subject and body rendered with sample values; nothing is stored or sent. */
+export async function previewEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  key: CustomerEmailTemplate,
+  body: PreviewEmailTemplateRequest,
+): Promise<PreviewEmailTemplateResponse> {
+  return client(accessToken).staff.previewEmailTemplate(workspaceId, key, body);
+}
+
+/** The saved template mailed to the signed-in staff member; at most one per template a minute. */
+export async function sendTestEmail(
+  accessToken: string,
+  workspaceId: string,
+  key: CustomerEmailTemplate,
+): Promise<SendTestEmailResponse> {
+  return client(accessToken).staff.sendTestEmail(workspaceId, key);
 }
 
 // ---- Private saved views: the caller's own, never anyone else's. ----
