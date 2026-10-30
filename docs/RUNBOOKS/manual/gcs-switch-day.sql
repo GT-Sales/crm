@@ -29,7 +29,12 @@
 -- A test order then takes a number the old checkout will not reach before
 -- the switch, and the switch-day seed's greatest() keeps the counter above it.
 --
--- Part B adds the change request counter (change_request_no) to this block.
+-- The same holds for change request numbers (pre-flight PF3): the seed sets
+-- the change_request_no counter to the highest request_no in
+-- public.order_edit_requests plus 9, so a request made in the old admin
+-- before the flip and imported afterwards never shares a number with one
+-- made through the CRM. Before the first pre-switch test change request,
+-- run the block with `+ 1000` in place of both `+ 9`.
 
 -- SEED BEGIN
 insert into app.site_counters (workspace_id, counter, last_value)
@@ -37,13 +42,23 @@ select w.id, 'sim_order_ref', coalesce((select max(o.order_no) from public.order
 from app.workspaces w where w.slug = 'getcanadasim'
 on conflict (workspace_id, counter) do update
   set last_value = greatest(app.site_counters.last_value, excluded.last_value), updated_at = now();
+insert into app.site_counters (workspace_id, counter, last_value)
+select w.id, 'change_request_no',
+  coalesce((select max(r.request_no) from public.order_edit_requests r), 0) + 9
+from app.workspaces w where w.slug = 'getcanadasim'
+on conflict (workspace_id, counter) do update
+  set last_value = greatest(app.site_counters.last_value, excluded.last_value), updated_at = now();
 -- SEED END
 
 -- After the seed, expect one row: last_value at least the highest order_no
--- plus 9. Write it down.
+-- plus 9. Write it down. (The change request counter is checked below it.)
 select c.last_value, (select max(o.order_no) from public.orders o) as highest_order_no
 from app.site_counters c join app.workspaces w on w.id = c.workspace_id
 where w.slug = 'getcanadasim' and c.counter = 'sim_order_ref';
+-- Expect one row: last_value at least the highest request_no plus 9.
+select c.last_value, (select max(r.request_no) from public.order_edit_requests r) as highest_request_no
+from app.site_counters c join app.workspaces w on w.id = c.workspace_id
+where w.slug = 'getcanadasim' and c.counter = 'change_request_no';
 
 -- RECONCILE BEGIN
 -- 1. Every public.orders row has its lead. Expect rows_missing 0 and

@@ -18,6 +18,7 @@ import { DatabaseDocumentContextResolver } from '../src/documents/resolver.js';
 import { DocumentService } from '../src/documents/service.js';
 import { DatabaseDocumentStore } from '../src/documents/store.js';
 import { DatabaseOutboxStore } from '../src/jobs/store.js';
+import { nextSiteNumber } from '../src/leads/site-counter.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 
@@ -776,14 +777,15 @@ databaseTest('Get Canada Sim switch day: the final import beside CRM orders', ()
 
   async function seed(gap: '+ 9' | '+ 1000' = '+ 9'): Promise<void> {
     const block = switchDayBlock('SEED');
-    expect(block.split('+ 9').length - 1).toBe(1);
-    await admin.unsafe(block.replace('+ 9', gap));
+    // The order counter and the change request counter (PF3).
+    expect(block.split('+ 9').length - 1).toBe(2);
+    await admin.unsafe(block.replaceAll('+ 9', gap));
   }
 
-  async function counter(): Promise<number | undefined> {
+  async function counter(name = 'sim_order_ref'): Promise<number | undefined> {
     const [row] = await admin<{ lastValue: number }[]>`
       select last_value as "lastValue" from app.site_counters
-      where workspace_id = ${site} and counter = 'sim_order_ref'
+      where workspace_id = ${site} and counter = ${name}
     `;
     return row?.lastValue;
   }
@@ -961,5 +963,36 @@ databaseTest('Get Canada Sim switch day: the final import beside CRM orders', ()
       ['MS-1144', true],
       ['MS-1153', false],
     ]);
+  });
+
+  test('the seed numbers CRM change requests past the old admin’s, and never lowers the counter', async () => {
+    await admin`delete from app.site_counters where workspace_id = ${site}`;
+    await admin`delete from public.order_edit_requests`;
+    for (let index = 0; index < 3; index += 1) {
+      await admin`
+        insert into public.order_edit_requests (order_id, email, changes)
+        values (${ORDER_141}, 'order-141@example.test', '{"phone":"x"}'::jsonb)
+      `;
+    }
+    const [highest] = await admin<{ requestNo: number }[]>`
+      select max(request_no)::int as "requestNo" from public.order_edit_requests
+    `;
+    const top = highest?.requestNo ?? 0;
+
+    await seed('+ 1000');
+    expect(await counter('change_request_no')).toBe(top + 1000);
+    // Switch day: the +9 seed keeps the higher pre-switch value.
+    await seed();
+    expect(await counter('change_request_no')).toBe(top + 1000);
+
+    await admin`delete from app.site_counters where workspace_id = ${site} and counter = 'change_request_no'`;
+    await seed();
+    expect(await counter('change_request_no')).toBe(top + 9);
+    // The CRM's next request takes the number after the gap.
+    const next = await database.withTenantTx({ workspaceId: site, actorId: WEBSITE }, (tx) =>
+      nextSiteNumber(tx, site, 'change_request_no'),
+    );
+    expect(next).toBe(top + 10);
+    await admin`delete from public.order_edit_requests`;
   });
 });

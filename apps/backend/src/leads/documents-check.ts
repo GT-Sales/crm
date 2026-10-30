@@ -11,8 +11,9 @@ import type { TenantTransaction } from '@gt-sales/db';
 /**
  * The lead's current documents, as the lead page lists them, for `app.files f`:
  * attached (`available`), on the lead, not replaced by a newer upload of the
- * same type, and not a licence photo given for the credit check (that belongs
- * to the ID check, `app.lead_identities`).
+ * same type, not held back for a customer's change request until staff
+ * approve it (ruling T7), and not a licence photo given for the credit check
+ * (that belongs to the ID check, `app.lead_identities`).
  */
 export function currentLeadDocuments(workspaceId: SQL, leadId: SQL): SQL {
   return sql`
@@ -21,6 +22,7 @@ export function currentLeadDocuments(workspaceId: SQL, leadId: SQL): SQL {
     and f.record_id = ${leadId}
     and f.status = 'available'
     and f.superseded_by_file_id is null
+    and not f.held_for_change_request
     and not exists (
       select 1 from app.lead_identities i
       where i.workspace_id = f.workspace_id and i.file_id = f.id

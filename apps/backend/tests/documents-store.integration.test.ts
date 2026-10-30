@@ -413,4 +413,67 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
       createdAt: '2026-09-01T10:00:00.000Z',
     });
   });
+
+  /** Intent, claim and attach of one passport on `lead`; `held` for a customer's change request. */
+  const attachPassport = async (lead: string, held?: true) => {
+    const file = await store.createIntent({
+      ...intent(),
+      recordId: lead,
+      ...(held ? { held } : {}),
+    });
+    const candidateKey = `candidate/${WORKSPACE}/${file.id}/c1`;
+    await store.claimForVerification({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      fileId: file.id,
+      candidateKey,
+      now: new Date(),
+    });
+    const attached = await store.attachVerified({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      requestId: REQUEST,
+      fileId: file.id,
+      candidateKey,
+      objectKey: candidateKey,
+      detectedMime: 'application/pdf',
+      sizeBytes: 100,
+      checksumSha256: 'd'.repeat(64),
+    });
+    expect(attached.status).toBe('attached');
+    return file.id;
+  };
+
+  const fileState = async (fileId: string) => {
+    const [row] = await admin<{ held: boolean; supersededBy: string | null; status: string }[]>`
+      select held_for_change_request as held, superseded_by_file_id as "supersededBy", status
+      from app.files where id = ${fileId}
+    `;
+    return row;
+  };
+
+  test('a held file is available but never current, and supersedes nothing', async () => {
+    const lead = await order();
+    const current = await attachPassport(lead);
+    const held = await attachPassport(lead, true);
+    expect(await fileState(held)).toEqual({ held: true, supersededBy: null, status: 'available' });
+    expect(await fileState(current)).toEqual({
+      held: false,
+      supersededBy: null,
+      status: 'available',
+    });
+    // A staff upload after it replaces the current file, never the held one.
+    const later = await attachPassport(lead);
+    expect((await fileState(current))?.supersededBy).toBe(later);
+    expect((await fileState(held))?.supersededBy).toBeNull();
+
+    const page = await work.getLead({
+      workspaceId: WORKSPACE,
+      catalog: codePropertyCatalog,
+      actorId: ACTOR,
+      leadId: lead,
+      includeWork: true,
+    });
+    expect(page?.documents.map((document) => document.id)).toEqual([later]);
+  });
 });

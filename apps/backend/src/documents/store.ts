@@ -78,6 +78,8 @@ export interface CreateIntentInput {
   declaredContentType: DocumentMediaType;
   declaredSizeBytes: number;
   expiresAt: Date;
+  /** A customer's document for a change request: never current until staff approve it. */
+  held?: true;
 }
 
 export type ClaimResult =
@@ -317,6 +319,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
             revision,
             uploadedBy: input.actorId,
             expiresAt: input.expiresAt,
+            heldForChangeRequest: input.held === true,
           })
           .returning(fileColumns);
         if (!row) throw new Error('file intent insert did not return a row');
@@ -326,7 +329,12 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           requestId: input.requestId,
           action: 'file.intent_created',
           fileId: row.id,
-          after: { recordType: input.recordType, documentType: input.documentType, revision },
+          after: {
+            recordType: input.recordType,
+            documentType: input.documentType,
+            revision,
+            ...(input.held ? { held: true } : {}),
+          },
         });
         return toFileRow(row);
       },
@@ -481,9 +489,10 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
               eq(files.candidateKey, input.candidateKey),
             ),
           )
-          .returning(fileColumns);
+          .returning({ ...fileColumns, held: files.heldForChangeRequest });
         if (!attached) return { status: 'lost' };
-        const row = toFileRow(attached);
+        const { held, ...attachedRow } = attached;
+        const row = toFileRow(attachedRow);
 
         await tx.insert(fileRevisions).values({
           workspaceId: input.workspaceId,
@@ -496,7 +505,8 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           createdBy: input.actorId,
         });
 
-        await supersedeEarlier(tx, row);
+        // A held file waits for staff: it replaces the current one only on approval.
+        if (!held) await supersedeEarlier(tx, row);
 
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
@@ -801,9 +811,10 @@ async function selectFile(
 
 /**
  * Marks any earlier available object for the same logical slot superseded by
- * `file`, so exactly one current object exists per (record, documentType).
+ * `file`, so exactly one current object exists per (record, documentType). A
+ * file held for a change request is not in the slot until it is released.
  */
-async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<void> {
+export async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<void> {
   await tx
     .update(files)
     .set({ supersededByFileId: file.id, updatedAt: new Date() })
@@ -814,6 +825,7 @@ async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<v
         eq(files.recordId, file.recordId),
         eq(files.documentType, file.documentType),
         eq(files.status, 'available'),
+        eq(files.heldForChangeRequest, false),
         sql`${files.id} <> ${file.id}`,
         sql`${files.supersededByFileId} is null`,
       ),

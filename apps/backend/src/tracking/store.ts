@@ -20,6 +20,7 @@ import {
   trackingStageWord,
   type TrackingDocumentState,
   type TrackingOrder,
+  type TrackingPendingChange,
 } from '@gt-sales/contracts';
 import { orderLeadTypes } from '@gt-sales/types';
 import { z } from 'zod';
@@ -27,6 +28,7 @@ import { z } from 'zod';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { LATEST_REVIEW, currentLeadDocuments } from '../leads/documents-check.js';
 import { toLeadOrder } from '../leads/order.js';
+import { pendingForLeads, toTrackingPendingChange } from './change-requests.js';
 import { hashesEqual } from './secrets.js';
 
 /**
@@ -222,7 +224,10 @@ interface TrackedLeadRow extends Record<string, unknown> {
 
 const isChangeStage = (stage: string) => CHANGE_REQUEST_STAGES.some((value) => value === stage);
 
-function toTrackingOrder(row: TrackedLeadRow): TrackingOrder | undefined {
+function toTrackingOrder(
+  row: TrackedLeadRow,
+  pendingChange: TrackingPendingChange | null,
+): TrackingOrder | undefined {
   const leadType = orderLeadTypeSchema.safeParse(row.leadType);
   if (!leadType.success) return undefined;
   const form = formOf(row.payload);
@@ -262,8 +267,7 @@ function toTrackingOrder(row: TrackedLeadRow): TrackingOrder | undefined {
       documents.success ? documents.data : [],
     ),
     canRequestChange: leadType.data === 'sim_order' && isChangeStage(row.stage),
-    // The customer's pending change request comes with change requests.
-    pendingChange: null,
+    pendingChange,
   };
 }
 
@@ -274,8 +278,12 @@ function toTrackingOrder(row: TrackedLeadRow): TrackingOrder | undefined {
  * customer's whole list, and a warning names only the lead and the failing
  * path, never a value.
  */
-function listable(workspaceId: string, row: TrackedLeadRow): TrackingOrder | undefined {
-  const built = toTrackingOrder(row);
+function listable(
+  workspaceId: string,
+  row: TrackedLeadRow,
+  pendingChange: TrackingPendingChange | null,
+): TrackingOrder | undefined {
+  const built = toTrackingOrder(row, pendingChange);
   const parsed = trackingOrderSchema.safeParse(built);
   if (parsed.success) return parsed.data;
   const path = built === undefined ? 'leadType' : parsed.error.issues[0]?.path.join('.');
@@ -460,8 +468,18 @@ export class DatabaseTrackingStore implements TrackingStore {
         order by l.created_at desc, l.id desc
         limit ${MAX_TRACKED_ORDERS}
       `);
+      const pending = await pendingForLeads(
+        tx,
+        input.workspaceId,
+        rows.map((row) => row.id),
+      );
       return rows.flatMap((row) => {
-        const order = listable(input.workspaceId, row);
+        const request = pending.get(row.id);
+        const order = listable(
+          input.workspaceId,
+          row,
+          request ? toTrackingPendingChange(request) : null,
+        );
         return order ? [order] : [];
       });
     });

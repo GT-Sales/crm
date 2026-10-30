@@ -207,7 +207,7 @@ export interface LeadWorkStore {
   ): Promise<{ tasks: WorkspaceTask[]; total: number }>;
 }
 
-interface LockedLead {
+export interface LockedLead {
   [key: string]: unknown;
   id: string;
   leadType: string;
@@ -235,8 +235,12 @@ function storedForm(payload: unknown): LeadForm {
   return form.success ? form.data : { schemaVersion: 1, payload: {} };
 }
 
-/** The lead, locked for the rest of the transaction; restricted leads do not exist here. */
-async function lockLead(
+/**
+ * The lead, locked for the rest of the transaction; restricted leads do not
+ * exist here. Every write that also locks a change request locks the lead
+ * first, so the two never deadlock.
+ */
+export async function lockLead(
   tx: TenantTransaction,
   workspaceId: string,
   leadId: string,
