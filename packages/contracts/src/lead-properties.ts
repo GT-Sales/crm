@@ -97,14 +97,6 @@ const SIM_ORDER_DELIVERY_OPTIONS: readonly LeadFieldOption[] = [
   { value: 'pickup', label: 'Physical SIM (mailed)' },
 ];
 
-// The commission the carrier pays on the order, tracked by hand (Get Canada
-// Sim's `commission_status`); unset means not tracked yet. It voids nothing.
-const COMMISSION_STATUS_OPTIONS: readonly LeadFieldOption[] = [
-  { value: 'invoiced', label: 'Invoiced' },
-  { value: 'commission_received', label: 'Commission received' },
-  { value: 'claw_back', label: 'Clawback' },
-];
-
 const prop = (
   key: string,
   label: string,
@@ -140,7 +132,6 @@ export const leadPropertyCatalog: Readonly<Record<string, LeadPropertyDefinition
   reference: prop('reference', 'Reference', 'text', { maxLength: 120 }),
   customerNotes: prop('customerNotes', 'Customer notes', 'longText'),
   simNumber: prop('simNumber', 'SIM number', 'text', { maxLength: 40 }),
-  commissionStatus: prop('commissionStatus', 'Carrier commission', 'choice'),
   company: prop('company', 'Company', 'text'),
   businessType: prop('businessType', 'Business type', 'text'),
   country: prop('country', 'Country', 'text'),
@@ -179,9 +170,11 @@ export const leadTypeProperties: Readonly<Record<string, readonly LeadTypeProper
     { key: 'postalCode' },
   ],
   sim_order: [
+    // The plan slug the website's form sent, kept as submitted; the plan the
+    // order is for is its order detail (`leadOrderSchema.plan`) from phase 3.
     {
       key: 'planId',
-      label: 'Plan',
+      label: 'Plan (as submitted)',
       kind: 'choice',
       options: SIM_PLANS,
       labelKey: 'planLabel',
@@ -206,12 +199,6 @@ export const leadTypeProperties: Readonly<Record<string, readonly LeadTypeProper
     { key: 'reference', editable: true, maxLength: 120 },
     { key: 'customerNotes' },
     { key: 'simNumber', editable: true, staffOnly: true, maxLength: 40 },
-    {
-      key: 'commissionStatus',
-      options: COMMISSION_STATUS_OPTIONS,
-      editable: true,
-      staffOnly: true,
-    },
   ],
   partner_application: [
     { key: 'company' },

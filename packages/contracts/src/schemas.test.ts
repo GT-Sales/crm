@@ -17,6 +17,7 @@ import {
   finalizeUploadResponseSchema,
   getWorkspaceLeadResponseSchema,
   identityLeadTypes,
+  initialLeadStage,
   isLeadStage,
   isValidDateOfBirth,
   isValidSin,
@@ -459,7 +460,8 @@ describe('lead-type catalogue', () => {
       // A SIM order begins as Get Canada Sim's unfinished checkout.
       expect(entry.stages[0]?.key).toBe(leadType === 'sim_order' ? 'incomplete' : 'new');
     }
-    // Get Canada Sim's order statuses, one for one, in its admin's order.
+    // Get Canada Sim's order statuses in its admin's order, without the
+    // money states (`invoiced`, `paid`), which are order details now.
     expect(leadTypeCatalog.sim_order.stages.map((entry) => entry.key)).toEqual([
       'incomplete',
       'pending',
@@ -468,11 +470,22 @@ describe('lead-type catalogue', () => {
       'delivered',
       'activated',
       'completed',
-      'invoiced',
-      'paid',
       'cancelled',
     ]);
-    expect(leadStageLabel('sim_order', 'on_hold')).toBe('On Hold');
+    expect(leadTypeCatalog.sim_order.stages.map((entry) => entry.label)).toEqual([
+      'Incomplete',
+      'Pending',
+      'Verified',
+      'On hold',
+      'Delivered',
+      'Activated',
+      'Completed',
+      'Cancelled',
+    ]);
+    expect(leadStageLabel('sim_order', 'on_hold')).toBe('On hold');
+    expect(isLeadStage('sim_order', 'paid')).toBe(false);
+    expect(isLeadStage('sim_order', 'invoiced')).toBe(false);
+    expect(initialLeadStage('sim_order')).toBe('incomplete');
     expect(leadStageLabel('internet', 'existing_shaw')).toBe('Existing Shaw');
     expect(leadStageLabel('internet', 'mystery')).toBe('mystery');
     expect(isLeadStage('mobility', 'activated')).toBe(true);

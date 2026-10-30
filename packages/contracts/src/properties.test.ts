@@ -104,7 +104,7 @@ describe('buildPropertyCatalog', () => {
     const plan = codePropertyCatalog.forType('sim_order').find((p) => p.key === 'planId');
     const field = leadFields('sim_order').find((f) => f.key === 'planId');
     expect(plan).toMatchObject({
-      label: 'Plan',
+      label: 'Plan (as submitted)',
       kind: 'choice',
       labelKey: 'planLabel',
       editable: true,
@@ -134,7 +134,7 @@ describe('buildPropertyCatalog', () => {
   it('an override row keeps the type’s own label until the site relabels it', () => {
     const untouched = buildPropertyCatalog([row({ key: 'planId', origin: 'builtin', version: 3 })]);
     const plan = untouched.forType('sim_order').find((p) => p.key === 'planId');
-    expect(plan).toMatchObject({ label: 'Plan', version: 3 });
+    expect(plan).toMatchObject({ label: 'Plan (as submitted)', version: 3 });
     const relabelled = buildPropertyCatalog([
       row({ key: 'planId', origin: 'builtin', label: 'Plan code' }),
     ]);

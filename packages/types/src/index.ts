@@ -67,3 +67,23 @@ export type CallerType = (typeof callerTypes)[number];
  */
 export const machineScopeNames = tuple('outbox:run', 'reconcile:run', 'synthetic:check');
 export type MachineScopeName = (typeof machineScopeNames)[number];
+
+/**
+ * The lead types that are orders of a plan a site sells: each carries order
+ * details (the chosen plan frozen at submission, quantity, payment and the
+ * carrier's commission) beside its form.
+ */
+export const orderLeadTypes = tuple('sim_order', 'internet', 'mobility');
+export type OrderLeadType = (typeof orderLeadTypes)[number];
+
+/** How often a plan's price is charged; `one_time` is a single payment. */
+export const billingPeriods = tuple('one_time', 'month', '30_days', '90_days', 'year');
+export type BillingPeriod = (typeof billingPeriods)[number];
+
+/** Whether the customer owes, or has paid, for an order; `not_needed` when the plan takes no payment. */
+export const paymentStatuses = tuple('not_needed', 'pending', 'paid');
+export type PaymentStatus = (typeof paymentStatuses)[number];
+
+/** The commission the carrier pays on an order, tracked by hand. */
+export const carrierCommissionStatuses = tuple('not_yet', 'invoiced', 'received', 'clawback');
+export type CarrierCommissionStatus = (typeof carrierCommissionStatuses)[number];
