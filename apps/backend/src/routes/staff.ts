@@ -53,6 +53,7 @@ import {
   type TaskOutcome,
 } from '../leads/work-store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
+import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
 import type { PropertyStore } from '../properties/store.js';
 import {
   createAuthorize,
@@ -71,6 +72,7 @@ import {
   type WebsiteCredentialStore,
 } from '../website/store.js';
 
+import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 
 export interface StaffRouteDependencies {
@@ -100,6 +102,8 @@ export interface StaffRouteDependencies {
    * database store when this is omitted.
    */
   propertyStore?: PropertyStore;
+  /** The site's plans; `createApp` supplies the database store when this is omitted. */
+  planStore?: PlanStore;
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -115,6 +119,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     identityStore: identityStoreFromEnv(),
     customerEmail: customerEmailFromEnv(),
     savedViewStore: new DatabaseSavedViewStore(),
+    planStore: new DatabasePlanStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -141,6 +146,14 @@ const unconfiguredSavedViewStore: SavedViewStore = {
   create: () => notConfigured('saved view store'),
   update: () => notConfigured('saved view store'),
   delete: () => notConfigured('saved view store'),
+};
+const unconfiguredPlanStore: PlanStore = {
+  list: () => notConfigured('plan store'),
+  get: () => notConfigured('plan store'),
+  create: () => notConfigured('plan store'),
+  update: () => notConfigured('plan store'),
+  listForWebsite: () => notConfigured('plan store'),
+  options: () => notConfigured('plan store'),
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 
@@ -1367,6 +1380,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   });
 
   router.use(createPropertyRoutes({ store: propertyStore, decide, reportFailure }));
+
+  router.use(
+    createPlanRoutes({
+      store: dependencies.planStore ?? unconfiguredPlanStore,
+      decide,
+      reportFailure,
+    }),
+  );
 
   router.use(
     createSavedViewRoutes({

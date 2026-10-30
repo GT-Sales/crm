@@ -63,6 +63,9 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   saved_view_not_found: 'You have no saved view with this id on this site.',
   saved_view_name_taken: 'You already have a saved view with this name.',
   saved_view_limit: 'You have reached the most saved views you can keep on this site.',
+  plan_not_found: 'The plan does not exist on this site.',
+  plan_name_taken: 'This site already has a plan of this type by this name.',
+  plan_limit: 'This site already has the most plans it may have.',
 };
 
 export function sendDomainError(

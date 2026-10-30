@@ -11,9 +11,16 @@ import {
 /** A row of app.properties as Drizzle reads it. */
 export type PropertyRecord = typeof properties.$inferSelect;
 
+/**
+ * The API form of a stored row with whether a plan property is shown on the
+ * website (`website_visible`; false for lead properties).
+ * TODO(task 2): `PropertyRow` gains `websiteVisible`; this becomes `PropertyRow`.
+ */
+export type StoredPropertyRow = PropertyRow & { websiteVisible?: boolean };
+
 /** The API form of a stored row; parsing narrows its text columns to their enums. */
-export function toPropertyRow(record: PropertyRecord): PropertyRow {
-  return propertyRowSchema.parse({
+export function toPropertyRow(record: PropertyRecord): StoredPropertyRow {
+  const row = propertyRowSchema.parse({
     object: record.object,
     key: record.key,
     origin: record.origin,
@@ -29,6 +36,7 @@ export function toPropertyRow(record: PropertyRecord): PropertyRow {
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   });
+  return { ...row, websiteVisible: record.websiteVisible };
 }
 
 /**
@@ -39,7 +47,7 @@ export function toPropertyRow(record: PropertyRecord): PropertyRow {
 export async function loadPropertyRows(
   tx: TenantTransaction,
   object: PropertyObject,
-): Promise<PropertyRow[]> {
+): Promise<StoredPropertyRow[]> {
   const records = await tx
     .select()
     .from(properties)
@@ -54,7 +62,10 @@ export async function loadPropertyRows(
   return records.map(toPropertyRow);
 }
 
-/** The site's catalogue of one object: the code catalogue merged with its rows. */
+/**
+ * The site's catalogue of one object: the code catalogue merged with its rows.
+ * TODO(task 2): take `options` (`{ plans }`) for the lead catalogue's plan choice.
+ */
 export async function loadPropertyCatalog(
   tx: TenantTransaction,
   object: PropertyObject = 'lead',

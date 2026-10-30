@@ -183,7 +183,8 @@ export const PROPERTY_LIMIT = 100;
 /**
  * The `details` of `property_in_use` (and, with `optionValue`, of
  * `property_option_in_use`): every lead of the site holding the value, split
- * by what the owner can do about it. `active` leads can be edited; `trashed`
+ * by what the owner can do about it (for a plan property, its plans: see
+ * `planCount`). `active` leads can be edited; `trashed`
  * ones must be restored first; `restricted` ones (personal data restricted)
  * can never be edited. `leadCount` is their sum.
  */
@@ -192,6 +193,12 @@ export const propertyUsageSchema = z.object({
   active: z.number().int().min(0),
   trashed: z.number().int().min(0),
   restricted: z.number().int().min(0),
+  /**
+   * Plan properties only: the site's plans holding the value. Plans are never
+   * archived or restricted, so for a plan property `active` equals it and
+   * `leadCount`, `trashed` and `restricted` are 0.
+   */
+  planCount: z.number().int().min(0).optional(),
 });
 export type PropertyUsage = z.infer<typeof propertyUsageSchema>;
 

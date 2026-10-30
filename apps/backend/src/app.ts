@@ -4,6 +4,7 @@ import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters
 import { sendStaffAuthError } from './http/staff-errors.js';
 import { requestLog } from './http/requestLog.js';
 import { requestId } from './requestId.js';
+import { DatabasePlanStore } from './plans/store.js';
 import { DatabasePropertyStore } from './properties/store.js';
 import { getHealth } from './routes/health.js';
 import {
@@ -115,11 +116,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   );
   const staffDependencies = options.staff ?? createDefaultStaffRouteDependencies();
   const propertyStore = staffDependencies.propertyStore ?? new DatabasePropertyStore();
+  const planStore = staffDependencies.planStore ?? new DatabasePlanStore();
   app.use(
     '/api/v1/staff',
     createStaffRouter({
       ...staffDependencies,
       propertyStore,
+      planStore,
       // Saved views are cleaned against the site's own catalogue.
       loadPropertyCatalog:
         staffDependencies.loadPropertyCatalog ?? ((ctx) => propertyStore.catalog(ctx)),
@@ -128,7 +131,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   // Website intake surface. Server-to-server, so CORS does not apply and is
   // never treated as authentication; the service credential is the only proof.
   const websiteDependencies = options.website ?? createDefaultWebsiteRouteDependencies();
-  app.use('/api/v1/website', createWebsiteRouter(websiteDependencies));
+  app.use(
+    '/api/v1/website',
+    createWebsiteRouter({
+      ...websiteDependencies,
+      plans: websiteDependencies.plans ?? { store: planStore },
+    }),
+  );
   app.use('/api/v1/email', createEmailRouter(emailDependencies));
   app.use(createInvalidBodyError(errorTracker));
 
