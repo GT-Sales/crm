@@ -325,6 +325,8 @@ export const leadAccessSchema = z.object({
   reviewDocuments: z.boolean().optional(),
   /** May move an order on without its documents approved (`order.override`). Absent means no. */
   overrideDocuments: z.boolean().optional(),
+  /** May approve or reject the customer's change request (`lead.manage`). Absent means no. */
+  decideChanges: z.boolean().optional(),
 });
 export type LeadAccess = z.infer<typeof leadAccessSchema>;
 

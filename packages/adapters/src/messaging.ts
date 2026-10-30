@@ -12,6 +12,8 @@ const siteContentEmailTemplates = [
   'dispatched',
   'activated',
   'cancelled',
+  'change_approved',
+  'change_rejected',
 ] as const;
 
 /**
@@ -462,6 +464,8 @@ function renderTemplateBody(
     case 'dispatched':
     case 'activated':
     case 'cancelled':
+    case 'change_approved':
+    case 'change_rejected':
       // Never reached: `contentFor` refuses these without a rendered message.
       throw new Error('rendered_message_missing');
     case 'abandoned_form_marketing':

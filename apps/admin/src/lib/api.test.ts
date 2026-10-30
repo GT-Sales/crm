@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getStaffWorkspaces, setLeadArchived } from './api.js';
+import {
+  approveChangeRequest,
+  getStaffWorkspaces,
+  rejectChangeRequest,
+  setLeadArchived,
+} from './api.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -85,6 +90,61 @@ describe('archiving a lead', () => {
     expect(calls).toEqual([
       ['POST', `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/leads/${LEAD}/archive`],
       ['POST', `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/leads/${LEAD}/restore`],
+    ]);
+  });
+});
+
+describe('deciding a change request', () => {
+  const WORKSPACE = '10000000-0000-4000-8000-000000000001';
+  const LEAD = '90000000-0000-4000-8000-000000000001';
+  const REQUEST = 'c0000000-0000-4000-8000-000000000001';
+  const lead = {
+    id: LEAD,
+    workspaceId: WORKSPACE,
+    leadType: 'sim_order',
+    status: 'submitted',
+    stage: 'pending',
+    contact: {},
+    contactId: null,
+    assignedActorId: null,
+    externalRef: 'MS-70',
+    source: 'direct',
+    attribution: {},
+    consentVersion: null,
+    openTaskCount: 0,
+    nextTaskDueAt: null,
+    deletedAt: null,
+    createdAt: '2026-10-30T09:00:00.000Z',
+    updatedAt: '2026-10-30T09:00:00.000Z',
+    form: null,
+  };
+
+  it('posts the expected version to /approve and /reject, and reads the answer', async () => {
+    const request = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            lead,
+            activities: [],
+            allowedMoves: [],
+            emailSkipped: { template: 'change_approved', reason: 'no_sender' },
+            requestId: '70000000-0000-4000-8000-000000000001',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+
+    const approved = await approveChangeRequest('token', WORKSPACE, LEAD, REQUEST, 2);
+    await rejectChangeRequest('token', WORKSPACE, LEAD, REQUEST, 3);
+
+    expect(approved.emailSkipped).toEqual({ template: 'change_approved', reason: 'no_sender' });
+    const base = `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/leads/${LEAD}/change-requests/${REQUEST}`;
+    expect(
+      request.mock.calls.map(([input, init]) => [init?.method, String(input), init?.body]),
+    ).toEqual([
+      ['POST', `${base}/approve`, JSON.stringify({ expectedVersion: 2 })],
+      ['POST', `${base}/reject`, JSON.stringify({ expectedVersion: 3 })],
     ]);
   });
 });

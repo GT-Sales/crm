@@ -65,7 +65,20 @@ import {
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
   updateWorkspaceLeadResponseSchema,
+  resolveChangeRequestRequestSchema,
+  resolveChangeRequestResponseSchema,
 } from './lead-work';
+import {
+  TRACKING_GRANT_HEADER,
+  createTrackedChangeRequestSchema,
+  trackedChangeResponseSchema,
+  trackingCodeRequestSchema,
+  trackingCodeResponseSchema,
+  trackingOrdersResponseSchema,
+  trackingUploadIntentRequestSchema,
+  trackingVerifyRequestSchema,
+  trackingVerifyResponseSchema,
+} from './tracking';
 import { createCustomPropertySchema, updatePropertySchema } from './properties';
 import {
   deletePropertyResponseSchema,
@@ -158,6 +171,12 @@ const DRAFT_GRANT: EndpointHeader = {
   name: 'X-Draft-Grant',
   required: true,
   description: 'Scoped grant token that authorises resuming this draft.',
+};
+
+const CUSTOMER_GRANT: EndpointHeader = {
+  name: TRACKING_GRANT_HEADER,
+  required: true,
+  description: 'The 30-minute grant from verifyTrackingCode, bound to this site and email.',
 };
 
 const IDEMPOTENCY_KEY: EndpointHeader = {
@@ -326,6 +345,28 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     request: updateWorkspaceLeadRequestSchema,
     response: updateWorkspaceLeadResponseSchema,
+  },
+  {
+    operationId: 'approveLeadChangeRequest',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/change-requests/{changeRequestId}/approve',
+    summary:
+      "Apply the customer's pending change request to the lead and email them (lead management).",
+    auth: 'staff',
+    successStatus: 200,
+    request: resolveChangeRequestRequestSchema,
+    response: resolveChangeRequestResponseSchema,
+  },
+  {
+    operationId: 'rejectLeadChangeRequest',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/change-requests/{changeRequestId}/reject',
+    summary:
+      "Turn down the customer's pending change request, discard its files and email them (lead management).",
+    auth: 'staff',
+    successStatus: 200,
+    request: resolveChangeRequestRequestSchema,
+    response: resolveChangeRequestResponseSchema,
   },
   {
     operationId: 'archiveWorkspaceLead',
@@ -810,5 +851,71 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     response: createDownloadLinkResponseSchema,
     headers: [DRAFT_GRANT],
+  },
+
+  // Website — customer order tracking (the `tracking` scope)
+  {
+    operationId: 'requestTrackingCode',
+    method: 'POST',
+    path: '/api/v1/website/tracking/code',
+    summary:
+      'Email a six-digit tracking code; the answer is the same whether or not the email has orders.',
+    auth: 'website',
+    successStatus: 200,
+    request: trackingCodeRequestSchema,
+    response: trackingCodeResponseSchema,
+  },
+  {
+    operationId: 'verifyTrackingCode',
+    method: 'POST',
+    path: '/api/v1/website/tracking/verify',
+    summary: 'Trade a tracking code for a 30-minute grant bound to this site and email.',
+    auth: 'website',
+    successStatus: 200,
+    request: trackingVerifyRequestSchema,
+    response: trackingVerifyResponseSchema,
+  },
+  {
+    operationId: 'listTrackedOrders',
+    method: 'GET',
+    path: '/api/v1/website/tracking/orders',
+    summary: "List the verified email's submitted orders on this site, newest first.",
+    auth: 'customer',
+    successStatus: 200,
+    response: trackingOrdersResponseSchema,
+    headers: [CUSTOMER_GRANT],
+  },
+  {
+    operationId: 'createTrackedOrderChange',
+    method: 'POST',
+    path: '/api/v1/website/tracking/orders/{reference}/changes',
+    summary: "Ask for a change to one of the verified email's SIM orders, for staff to decide.",
+    auth: 'customer',
+    successStatus: 201,
+    request: createTrackedChangeRequestSchema,
+    response: trackedChangeResponseSchema,
+    headers: [CUSTOMER_GRANT],
+  },
+  {
+    operationId: 'createTrackedOrderUpload',
+    method: 'POST',
+    path: '/api/v1/website/tracking/orders/{reference}/uploads/intents',
+    summary: 'Authorise a passport or visa upload for the order’s pending change request.',
+    auth: 'customer',
+    successStatus: 201,
+    request: trackingUploadIntentRequestSchema,
+    response: createUploadIntentResponseSchema,
+    headers: [CUSTOMER_GRANT],
+  },
+  {
+    operationId: 'finalizeTrackedOrderUpload',
+    method: 'POST',
+    path: '/api/v1/website/tracking/orders/{reference}/uploads/{uploadId}/finalize',
+    summary: 'Verify the uploaded document and add it to the order’s pending change request.',
+    auth: 'customer',
+    successStatus: 200,
+    request: finalizeUploadRequestSchema,
+    response: trackedChangeResponseSchema,
+    headers: [CUSTOMER_GRANT],
   },
 ];

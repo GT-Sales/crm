@@ -10,6 +10,7 @@ import {
 } from './leads';
 import { automationKeySchema } from './automations';
 import { EMAIL_FILL_IN_KEYS, customerEmailTemplateSchema } from './customer-email';
+import { CHANGE_REQUEST_DOCUMENTS, changeRequestFieldsSchema } from './tracking';
 import { documentChecklistKeySchema } from './domain';
 import { fileReviewDecisionSchema, leadDocumentSchema } from './files';
 import { leadFormEditSchema } from './lead-fields';
@@ -120,9 +121,14 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     /** For `documents_override`: why staff moved the order on without them. */
     reason: documentsOverrideReasonSchema.optional(),
     requestNo: z.int().positive().optional(),
-    /** For `change_requested`: the fields asked to change (contact or form keys), never their values. */
+    /** For a change request made through the CRM's tracking (`app.change_requests`): its id. */
+    changeRequestId: z.uuid().optional(),
+    /**
+     * For `change_requested` and `change_approved`: the fields asked to change
+     * or applied (contact or form keys, `planId`), never their values.
+     */
     fields: z.array(activityFieldKeySchema).max(50).optional(),
-    /** For `change_requested`: the documents sent with it. */
+    /** For `change_requested` and `change_approved`: the documents sent with it or attached. */
     documents: z.array(documentChecklistKeySchema).max(10).optional(),
     /**
      * For an `unknown` entry a data migration wrote (the 0012 stage clean-up):
@@ -184,6 +190,26 @@ export type RelatedLead = z.infer<typeof relatedLeadSchema>;
 export const RELATED_LEADS_LIMIT = 20;
 
 /**
+ * A customer's change request as staff decide it on the lead page: the values
+ * asked for (personal data, as freely as the contact), the documents sent with
+ * it and its version, which a decision must name (a replaced request is a
+ * newer version).
+ */
+export const staffChangeRequestSchema = z.object({
+  id: z.uuid(),
+  requestNo: z.int().positive(),
+  status: z.enum(['pending', 'approved', 'rejected']),
+  fields: changeRequestFieldsSchema,
+  documents: z.array(
+    z.object({ fileId: z.uuid(), documentType: z.enum(CHANGE_REQUEST_DOCUMENTS) }),
+  ),
+  version: z.int().positive(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type StaffChangeRequest = z.infer<typeof staffChangeRequestSchema>;
+
+/**
  * `GET /workspaces/:id/leads/:leadId`. For a caller who cannot see contacts,
  * `contact` is empty, `form` is null and `activities`, `tasks`, `related`,
  * `identities` and `documents` are empty: linking requests to one person is
@@ -200,6 +226,8 @@ export const getWorkspaceLeadResponseSchema = z.object({
   documents: z.array(leadDocumentSchema).default([]),
   /** The stages staff may move the lead to from where it is now. */
   allowedMoves: z.array(leadStageSchema).default([]),
+  /** The customer's pending change request; null when there is none or without contact access. */
+  changeRequest: staffChangeRequestSchema.nullable().default(null),
   access: leadAccessSchema,
   requestId: requestIdSchema,
 });
@@ -416,3 +444,26 @@ export const listWorkspaceTasksResponseSchema = z.object({
   requestId: requestIdSchema,
 });
 export type ListWorkspaceTasksResponse = z.infer<typeof listWorkspaceTasksResponseSchema>;
+
+/** `POST …/change-requests/:changeRequestId/approve|reject`: the version staff saw. */
+export const resolveChangeRequestRequestSchema = z
+  .object({ expectedVersion: z.int().positive() })
+  .strict();
+export type ResolveChangeRequestRequest = z.infer<typeof resolveChangeRequestRequestSchema>;
+
+/** Why a change decision's email was not queued (the decision itself stands). */
+export const changeDecisionEmailSkippedSchema = z.object({
+  template: z.enum(['change_approved', 'change_rejected']),
+  reason: z.enum(['no_sender', 'no_customer_email', 'missing_fill_in']),
+  missing: z.array(z.enum(EMAIL_FILL_IN_KEYS)).optional(),
+});
+export type ChangeDecisionEmailSkipped = z.infer<typeof changeDecisionEmailSkippedSchema>;
+
+export const resolveChangeRequestResponseSchema = z.object({
+  lead: leadDetailSchema,
+  activities: z.array(leadActivitySchema),
+  allowedMoves: z.array(leadStageSchema),
+  emailSkipped: changeDecisionEmailSkippedSchema.optional(),
+  requestId: requestIdSchema,
+});
+export type ResolveChangeRequestResponse = z.infer<typeof resolveChangeRequestResponseSchema>;

@@ -218,6 +218,8 @@ describe('a pre-rendered customer email', () => {
     'activated',
     'cancelled',
     'sim_number_ready',
+    'change_approved',
+    'change_rejected',
   ] as const)('sends the %s message exactly as rendered, from its own sender', async (template) => {
     const { adapter, send } = adapterWithStub();
     expect(await adapter.send({ ...message, template })).toEqual({
@@ -239,15 +241,18 @@ describe('a pre-rendered customer email', () => {
     );
   });
 
-  it('refuses a site-content template that arrives without its rendered message', async () => {
-    const { adapter, send } = adapterWithStub();
-    const { rendered: _rendered, ...unrendered } = message;
-    expect(await adapter.send({ ...unrendered, template: 'dispatched' })).toEqual({
-      status: 'uncertain',
-      errorCode: 'rendered_message_missing',
-    });
-    expect(send).not.toHaveBeenCalled();
-  });
+  it.each(['dispatched', 'change_approved', 'change_rejected'] as const)(
+    'refuses the site-content template %s when it arrives without its rendered message',
+    async (template) => {
+      const { adapter, send } = adapterWithStub();
+      const { rendered: _rendered, ...unrendered } = message;
+      expect(await adapter.send({ ...unrendered, template })).toEqual({
+        status: 'uncertain',
+        errorCode: 'rendered_message_missing',
+      });
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it('falls back to the workspace’s sender, then the deployment’s, for a message without one', async () => {
     const { adapter, send } = adapterWithStub();
