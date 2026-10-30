@@ -903,8 +903,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         requestId: req.id,
         leadId: params.id,
         template: body.data.template,
-        siteUrl: mail.fallback(params.workspaceId)?.siteUrl,
-        contactHash: (email) => mail.environment.contactHash(email),
       });
       if (outcome.status === 'not_found') {
         sendDomainError(res, req.id, 'lead_not_found', 404);
@@ -912,6 +910,10 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       }
       if (outcome.status === 'trashed') {
         sendDomainError(res, req.id, 'lead_trashed', 409);
+        return;
+      }
+      if (outcome.status === 'no_sender') {
+        sendDomainError(res, req.id, 'feature_not_ready', 409);
         return;
       }
       if (outcome.status === 'missing') {

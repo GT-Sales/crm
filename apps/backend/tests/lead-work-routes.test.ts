@@ -714,18 +714,16 @@ describe('staff lead work routes', () => {
       workspaceId: WORKSPACE,
       leadId: LEAD,
       template: 'sim_number_ready',
-      siteUrl: 'https://site.example',
     });
-    expect(input?.contactHash('a@example.test')).toBe('hash:a@example.test');
 
     expect((await send({ template: 'something_else' })).status).toBe(400);
 
-    work.queueCustomerEmail.mockResolvedValueOnce({ status: 'missing', missing: 'simNumber' });
+    work.queueCustomerEmail.mockResolvedValueOnce({ status: 'missing', missing: ['SIM number'] });
     const missing = await send();
     expect(missing.status).toBe(409);
     expect(await errorCode(missing)).toMatchObject({
       code: 'conflict',
-      details: { missing: 'simNumber' },
+      details: { missing: ['SIM number'] },
     });
 
     work.queueCustomerEmail.mockResolvedValueOnce({ status: 'trashed' });

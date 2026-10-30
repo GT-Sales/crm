@@ -8,6 +8,7 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  automationsForSubmit,
   initialLeadStage,
   isOrderLeadType,
   leadContactSchema,
@@ -28,6 +29,12 @@ import {
   type RawAttribution,
 } from '@gt-sales/contracts';
 
+import { readAutomationLead, runAutomations } from '../automations/run.js';
+import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
+import {
+  customerEmailEnvironmentFromEnv,
+  type CustomerEmailEnvironment,
+} from '../email/senders.js';
 import { loadPlanForFreeze } from '../plans/store.js';
 import { sanitizeAttribution } from './attribution.js';
 import {
@@ -308,7 +315,35 @@ function resumedOrder(leadType: string, stored: unknown): { order?: LeadOrderInt
 }
 
 export class DatabaseLeadStore implements LeadStore {
-  constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
+  constructor(
+    private readonly database: LeadDatabase = defaultLeadDatabase,
+    /** What customer mail needs from the deployment: the provider, the hash secret, fallback senders. */
+    private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
+    private readonly automations: AutomationStore = new DatabaseAutomationStore(database),
+  ) {}
+
+  /**
+   * The rules a website submission fires, once per lead (`submitted`), as
+   * the website's credential. Their skips are recorded as runs; nobody on
+   * the website is told. A replayed submit never reaches here.
+   */
+  private async fireSubmitAutomations(
+    tx: TenantTransaction,
+    input: { workspaceId: string; actorId: string; requestId: string },
+    leadId: string,
+    leadType: string,
+  ): Promise<void> {
+    const automations = automationsForSubmit(leadType);
+    if (automations.length === 0) return;
+    await runAutomations(tx, {
+      ...input,
+      lead: await readAutomationLead(tx, input.workspaceId, leadId),
+      automations,
+      occurrence: 'submitted',
+      environment: this.emailEnvironment,
+      store: this.automations,
+    });
+  }
 
   async readLead(
     input: Pick<UpdateLeadInput, 'workspaceId' | 'actorId' | 'leadId' | 'grantToken'>,
@@ -431,6 +466,9 @@ export class DatabaseLeadStore implements LeadStore {
             ...(orderDetails ? { order: orderDetails } : {}),
           },
         });
+        if (input.submit) {
+          await this.fireSubmitAutomations(tx, input, leadRow.id, input.leadType);
+        }
 
         if (claimId) {
           await completeIdempotencyKey(tx, {
@@ -623,6 +661,9 @@ export class DatabaseLeadStore implements LeadStore {
             ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
           },
         });
+        if (input.submit) {
+          await this.fireSubmitAutomations(tx, input, input.leadId, grant.leadType);
+        }
 
         if (claimId) {
           await completeIdempotencyKey(tx, {
