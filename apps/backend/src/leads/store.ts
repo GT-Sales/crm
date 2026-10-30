@@ -219,6 +219,13 @@ async function intakeOrder(
     : { planId: input.order.planId, quantity: input.order.quantity };
 }
 
+/** The plan and quantity a draft of an order type was saved with, when it names a plan. */
+function resumedOrder(leadType: string, stored: unknown): { order?: LeadOrderIntake } {
+  if (!isOrderLeadType(leadType)) return {};
+  const order = toLeadOrder(stored);
+  return order.planId === null ? {} : { order: { planId: order.planId, quantity: order.quantity } };
+}
+
 export class DatabaseLeadStore implements LeadStore {
   constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
 
@@ -265,6 +272,7 @@ export class DatabaseLeadStore implements LeadStore {
               countryCode: row.lead.countryCode ?? undefined,
             }),
             form: row.lead.payload === null ? null : leadFormSchema.parse(row.lead.payload),
+            ...resumedOrder(row.lead.leadType, row.lead.orderDetails),
           },
         };
       },

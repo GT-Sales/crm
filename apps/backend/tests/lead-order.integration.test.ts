@@ -4,6 +4,7 @@ import {
   DEFAULT_LEAD_ORDER,
   freezePlan,
   leadOrderIntakeSchema,
+  readLeadResponseSchema,
   type CreatePlanRequest,
   type LeadOrder,
   type Plan,
@@ -362,6 +363,28 @@ databaseTest('order details on leads', () => {
         catalog,
       });
       expect(page?.lead.order).toEqual({ ...DEFAULT_LEAD_ORDER, planId: plan.id, quantity: 2 });
+      // The website resuming the draft gets its plan and quantity back, never a price.
+      const resumed = await leadStore.readLead({
+        ...ctx,
+        leadId: draft.lead.id,
+        grantToken: draft.grant.token,
+      });
+      if (resumed.status !== 'read') throw new Error(`got ${resumed.status}`);
+      expect(resumed.draft.order).toEqual({ planId: plan.id, quantity: 2 });
+      expect(
+        readLeadResponseSchema.parse({ draft: resumed.draft, requestId: REQUEST }).draft.order,
+      ).toEqual({ planId: plan.id, quantity: 2 });
+
+      // A draft with no plan reads with no order.
+      const planless = await leadStore.createLead(base());
+      if (!planless.grant) throw new Error('expected a draft grant');
+      const planlessRead = await leadStore.readLead({
+        ...ctx,
+        leadId: planless.lead.id,
+        grantToken: planless.grant.token,
+      });
+      if (planlessRead.status !== 'read') throw new Error(`got ${planlessRead.status}`);
+      expect(planlessRead.draft).not.toHaveProperty('order');
 
       // The price changes while the customer is still filling in the form.
       const edited = await planStore.update(ctx, plan.id, {

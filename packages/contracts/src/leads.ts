@@ -193,6 +193,13 @@ export const leadDraftSchema = z.object({
   leadType: leadTypeSchema,
   contact: leadContactSchema,
   form: leadFormSchema.nullable(),
+  /**
+   * For an order lead type whose draft holds a plan: the plan and quantity it
+   * was last saved with, so a resumed checkout picks up where it was. Absent
+   * when the draft names no plan; never a price (the plan is frozen at
+   * submission).
+   */
+  order: leadOrderIntakeSchema.optional(),
 });
 export type LeadDraft = z.infer<typeof leadDraftSchema>;
 export const readLeadResponseSchema = z.object({
