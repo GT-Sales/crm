@@ -186,6 +186,7 @@ function toSummary(row: {
     id: row.id,
     workspaceId: row.workspaceId,
     status: leadStatusSchema.parse(row.status),
+    externalRef: null,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

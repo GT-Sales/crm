@@ -42,6 +42,57 @@ export const internetLeadPayloadSchema = z
   .strict();
 export type InternetLeadPayload = z.infer<typeof internetLeadPayloadSchema>;
 
+/** How a Get Canada Sim order reaches the customer: an eSIM, or `pickup`, a physical SIM mailed to them. */
+export const SIM_ORDER_DELIVERIES = ['esim', 'pickup'] as const;
+/** Get Canada Sim's visa / permit types. */
+export const SIM_ORDER_PERMIT_TYPES = ['newcomer', 'student', 'worker', 'tourist'] as const;
+
+/**
+ * Get Canada Sim's SIM order (`sim_order`), the website's two-step checkout.
+ * Every key is optional so a draft saves whatever step 1 has; what a
+ * submission must carry is the backend registry's submit check. `planId` is
+ * the website's own plan slug, kept as submitted (the plan sold is the
+ * order's CRM plan). The SIM number and customer notes are staff fields and
+ * the email travels in `contact`, so none of them is accepted here.
+ */
+export const simOrderLeadPayloadSchema = z
+  .object({
+    planId: optional(60),
+    planLabel: optional(80),
+    delivery: z.enum(SIM_ORDER_DELIVERIES).optional(),
+    arrivalDate: isoDate.optional(),
+    permitType: z.enum(SIM_ORDER_PERMIT_TYPES).optional(),
+    gotVisa: z.boolean().optional(),
+    flightBooked: z.boolean().optional(),
+    /** Where a mailed SIM goes (`delivery: 'pickup'`). */
+    shippingAddress: optional(400),
+    canadaAddress: optional(300),
+    /** Who referred the customer, as they typed it (a partner's email or name). */
+    reference: optional(120),
+  })
+  .strict();
+export type SimOrderLeadPayload = z.infer<typeof simOrderLeadPayloadSchema>;
+
+/**
+ * A SIM order's number as customers and staff read it: `MS-<n>`, the lead's
+ * `externalRef`. Imported orders keep their old `order_no`; new ones take the
+ * next number from the site's counter.
+ */
+export const SIM_ORDER_REF_PREFIX = 'MS-';
+const SIM_ORDER_REF = /^MS-([1-9]\d{0,8})$/;
+
+/** `simOrderRef(153)` is `MS-153`. Throws for anything but a whole number from 1. */
+export function simOrderRef(n: number): string {
+  if (!Number.isSafeInteger(n) || n < 1) throw new RangeError('order number must be 1 or more');
+  return `${SIM_ORDER_REF_PREFIX}${n}`;
+}
+
+/** The number of an `MS-<n>` reference (no leading zero, up to nine digits), else undefined. */
+export function parseSimOrderRef(ref: string): number | undefined {
+  const digits = SIM_ORDER_REF.exec(ref)?.[1];
+  return digits === undefined ? undefined : Number(digits);
+}
+
 /**
  * The working stages staff move a lead through, per type, in board order.
  * The one source for the backend (which refuses a stage a type does not list)

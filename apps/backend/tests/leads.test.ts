@@ -74,13 +74,25 @@ class FakeLeadStore implements LeadStore {
     if (this.createError) throw this.createError;
     if (input.submit) {
       return {
-        lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'submitted', updatedAt: NOW },
+        lead: {
+          id: LEAD_A,
+          workspaceId: input.workspaceId,
+          status: 'submitted',
+          externalRef: input.externalRef ?? null,
+          updatedAt: NOW,
+        },
         grant: null,
         replayed: this.createReplayed,
       };
     }
     return {
-      lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'incomplete', updatedAt: NOW },
+      lead: {
+        id: LEAD_A,
+        workspaceId: input.workspaceId,
+        status: 'incomplete',
+        externalRef: input.externalRef ?? null,
+        updatedAt: NOW,
+      },
       grant: { token: VALID_GRANT_A, expiresAt: new Date(Date.now() + 60_000).toISOString() },
       replayed: this.createReplayed,
     };
@@ -99,6 +111,7 @@ class FakeLeadStore implements LeadStore {
         id: input.leadId,
         workspaceId: input.workspaceId,
         status: 'incomplete',
+        externalRef: null,
         updatedAt: NOW,
       },
     };
@@ -679,7 +692,13 @@ describe('Idempotency-Key on website submission', () => {
   it('marks a replayed update 200 with replayed true', async () => {
     leadStore.updateOutcome = {
       status: 'updated',
-      lead: { id: LEAD_A, workspaceId: WORKSPACE, status: 'submitted', updatedAt: NOW },
+      lead: {
+        id: LEAD_A,
+        workspaceId: WORKSPACE,
+        status: 'submitted',
+        externalRef: null,
+        updatedAt: NOW,
+      },
       replayed: true,
     };
     const response = await patch({ 'idempotency-key': KEY });
