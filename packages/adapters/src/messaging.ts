@@ -3,10 +3,25 @@ import { z } from 'zod';
 /**
  * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
  * plus `sim_number_ready`, Get Canada Sim's "your Canadian number is ready"
- * mail to a SIM order's customer. `abandoned_form_marketing` is the one
+ * mail to a SIM order's customer, plus the site-content templates a site's
+ * staff edit. `abandoned_form_marketing` is the one
  * marketing template; every other template is transactional and is never
  * gated on marketing opt-out.
  */
+/**
+ * A site's own mails (Settings → Email), besides `sim_number_ready`: the backend
+ * renders them from the site's template when it queues the mail and
+ * `EmailMessage.rendered` carries the result, so no copy for them lives here.
+ */
+const siteContentEmailTemplates = [
+  'tracking_code',
+  'order_received',
+  'information_needed',
+  'dispatched',
+  'activated',
+  'cancelled',
+] as const;
+
 export const emailTemplates = [
   'order_acknowledgement',
   'tracking_otp',
@@ -16,6 +31,7 @@ export const emailTemplates = [
   'order_activation',
   'abandoned_form_marketing',
   'sim_number_ready',
+  ...siteContentEmailTemplates,
 ] as const;
 export type EmailTemplate = (typeof emailTemplates)[number];
 
@@ -51,6 +67,23 @@ export interface EmailMessage {
   unsubscribeUrl?: string;
   /** Small, bounded template variables. Never raw documents or full personal payloads. */
   variables?: Readonly<Record<string, string>>;
+  /**
+   * The sender the message was queued with (a site's own, chosen when staff
+   * queued it). Absent for the built-in mails, which use the workspace's or
+   * the deployment's sender.
+   */
+  sender?: SenderIdentity;
+  /**
+   * The message as the backend rendered it. When present it is sent exactly as
+   * given, with nothing appended; the adapter never renders it again.
+   */
+  rendered?: RenderedEmail;
+}
+
+export interface RenderedEmail {
+  subject: string;
+  html: string;
+  text: string;
 }
 
 export type ProviderDeliveryResult =
@@ -131,16 +164,15 @@ export class SesEmailAdapter implements EmailAdapter {
   async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
     const { SendEmailCommand } = await import('@aws-sdk/client-sesv2');
     const client = await this.getClient();
-    const { subject, text, html } = renderTemplate(message, this.config.sender.fromName);
+    const sender = message.sender ?? this.config.sender;
+    const content = contentFor(message, sender.fromName);
+    if (!content) return { status: 'uncertain', errorCode: 'rendered_message_missing' };
+    const { subject, text, html } = content;
     try {
       const result = await client.send(
         new SendEmailCommand({
-          FromEmailAddress: this.config.sender.replyToAddress
-            ? `${this.config.sender.fromName} <${this.config.sender.fromAddress}>`
-            : `${this.config.sender.fromName} <${this.config.sender.fromAddress}>`,
-          ReplyToAddresses: this.config.sender.replyToAddress
-            ? [this.config.sender.replyToAddress]
-            : undefined,
+          FromEmailAddress: `${sender.fromName} <${sender.fromAddress}>`,
+          ReplyToAddresses: sender.replyToAddress ? [sender.replyToAddress] : undefined,
           ConfigurationSetName: this.config.configurationSetName,
           Destination: { ToAddresses: [message.toAddress] },
           Content: {
@@ -195,8 +227,11 @@ export class ResendEmailAdapter implements EmailAdapter {
   }
 
   async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
-    const sender = this.config.senderForWorkspace?.(message.workspaceId) ?? this.config.sender;
-    const { subject, text, html } = renderTemplate(message, sender.fromName);
+    const sender =
+      message.sender ?? this.config.senderForWorkspace?.(message.workspaceId) ?? this.config.sender;
+    const content = contentFor(message, sender.fromName);
+    if (!content) return { status: 'uncertain', errorCode: 'rendered_message_missing' };
+    const { subject, text, html } = content;
     try {
       const response = await fetch(`${this.config.apiUrl ?? 'https://api.resend.com'}/emails`, {
         method: 'POST',
@@ -234,6 +269,20 @@ export class ResendEmailAdapter implements EmailAdapter {
       return { status: 'uncertain', errorCode };
     }
   }
+}
+
+/**
+ * The subject and body to send: a rendered message exactly as given, else the
+ * built-in copy for the template (`undefined` for a site-content template that
+ * arrived without its rendered message).
+ */
+function contentFor(
+  message: EmailMessage,
+  senderName: string,
+): { subject: string; text: string; html?: string } | undefined {
+  if (message.rendered) return message.rendered;
+  if (siteContentEmailTemplates.some((template) => template === message.template)) return undefined;
+  return renderTemplate(message, senderName);
 }
 
 /**
@@ -387,6 +436,14 @@ function renderTemplateBody(
         subject: `Your service for order ${ref} is active`,
         text: `Good news — the service for order ${ref} is now active.`,
       };
+    case 'tracking_code':
+    case 'order_received':
+    case 'information_needed':
+    case 'dispatched':
+    case 'activated':
+    case 'cancelled':
+      // Never reached: `contentFor` refuses these without a rendered message.
+      throw new Error('rendered_message_missing');
     case 'abandoned_form_marketing':
       return {
         subject: `Still interested in a Canadian plan?`,

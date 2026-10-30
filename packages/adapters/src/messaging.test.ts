@@ -169,3 +169,92 @@ describe('order_dispatch copy', () => {
     expect(body.text).toContain('Reference from the provider: ROG-12345.');
   });
 });
+
+describe('a pre-rendered customer email', () => {
+  const message = {
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+    messageId: '22222222-2222-4222-8222-222222222222',
+    toAddress: 'customer@example.test',
+    sender: {
+      fromName: 'Get Canada Sim',
+      fromAddress: 'order@getcanadasim.example',
+      replyToAddress: 'help@getcanadasim.example',
+    },
+    rendered: {
+      subject: 'Your SIM is on its way',
+      html: '<p>Hello Arjun</p>',
+      text: 'Hello Arjun',
+    },
+  };
+
+  function adapterWithStub() {
+    const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'provider-email-id' }));
+    vi.stubGlobal('fetch', send);
+    const adapter = new ResendEmailAdapter({
+      apiKey: 'synthetic-key',
+      sender: { fromAddress: 'deployment@example.test', fromName: 'Deployment' },
+      senderForWorkspace: () => ({
+        fromAddress: 'registry@example.test',
+        fromName: 'Registry',
+      }),
+    });
+    return { adapter, send };
+  }
+
+  const bodySchema = z.object({
+    from: z.string(),
+    reply_to: z.string().optional(),
+    to: z.array(z.string()),
+    subject: z.string(),
+    text: z.string(),
+    html: z.string(),
+  });
+
+  it.each([
+    'tracking_code',
+    'order_received',
+    'information_needed',
+    'dispatched',
+    'activated',
+    'cancelled',
+    'sim_number_ready',
+  ] as const)('sends the %s message exactly as rendered, from its own sender', async (template) => {
+    const { adapter, send } = adapterWithStub();
+    expect(await adapter.send({ ...message, template })).toEqual({
+      status: 'delivered',
+      providerId: 'provider-email-id',
+    });
+    const options = send.mock.calls[0]![1]!;
+    expect(bodySchema.parse(JSON.parse(String(options.body)))).toEqual({
+      from: 'Get Canada Sim <order@getcanadasim.example>',
+      reply_to: 'help@getcanadasim.example',
+      to: ['customer@example.test'],
+      subject: 'Your SIM is on its way',
+      // Nothing is appended to the rendered text, unlike the built-in copy.
+      text: 'Hello Arjun',
+      html: '<p>Hello Arjun</p>',
+    });
+    expect(new Headers(options.headers).get('Idempotency-Key')).toBe(
+      `${message.workspaceId}/${message.messageId}`,
+    );
+  });
+
+  it('refuses a site-content template that arrives without its rendered message', async () => {
+    const { adapter, send } = adapterWithStub();
+    const { rendered: _rendered, ...unrendered } = message;
+    expect(await adapter.send({ ...unrendered, template: 'dispatched' })).toEqual({
+      status: 'uncertain',
+      errorCode: 'rendered_message_missing',
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('uses a message’s sender over the workspace’s and the deployment’s, only when it has one', async () => {
+    const { adapter, send } = adapterWithStub();
+    const { sender: _sender, ...withoutSender } = message;
+    await adapter.send({ ...withoutSender, template: 'dispatched' });
+    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body))).from).toBe(
+      'Registry <registry@example.test>',
+    );
+  });
+});

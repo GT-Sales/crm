@@ -23,6 +23,7 @@ export {
   type EmailMessageClass,
   type EmailTemplate,
   type ProviderDeliveryResult,
+  type RenderedEmail,
   type SenderIdentity,
   type SuppressionLedgerEvent,
   type SuppressionLedgerPublisher,
