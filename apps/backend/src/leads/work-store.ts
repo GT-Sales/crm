@@ -363,6 +363,38 @@ const ORDER_DETAIL_FIELDS = [
 ] as const;
 
 /**
+ * The stored order as the audit trail keeps it: without the dispatch and
+ * activation details, whose activation number is the customer's phone and
+ * whose account and tracking number identify them too. The edit's
+ * `changedFields` names which of them changed; nothing scrubs an audit row.
+ */
+function auditedOrder(stored: unknown): Record<string, unknown> {
+  const details: ReadonlySet<string> = new Set(ORDER_DETAIL_FIELDS);
+  return Object.fromEntries(
+    Object.entries(storedObject(stored)).filter(([key]) => !details.has(key)),
+  );
+}
+
+/** One staff audit event on a lead. */
+async function auditLead(
+  tx: TenantTransaction,
+  scope: WriteScope & { leadId: string },
+  action: string,
+  values: { before?: Record<string, unknown>; after: Record<string, unknown> },
+): Promise<void> {
+  await tx.insert(auditEvents).values({
+    workspaceId: scope.workspaceId,
+    actorId: scope.actorId,
+    actorLabel: 'staff actor',
+    action,
+    entity: 'lead',
+    entityId: scope.leadId,
+    requestId: scope.requestId,
+    ...values,
+  });
+}
+
+/**
  * Staff's change to a lead's order: a new plan is frozen from the site's
  * current plan (it must be active and of the lead's type, else the `plan`
  * field is refused), null clears the link and the copy, and the quantity, the
@@ -637,8 +669,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       }
       if (storedOrder) {
         set.orderDetails = storedOrder;
-        before['order'] = lead.orderDetails;
-        after['order'] = storedOrder;
+        before['order'] = auditedOrder(lead.orderDetails);
+        after['order'] = auditedOrder(storedOrder);
       }
 
       // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
@@ -678,26 +710,9 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           })),
         )
         .returning(ACTIVITY_RETURNING);
-      await tx.insert(auditEvents).values({
-        workspaceId: input.workspaceId,
-        actorId: input.actorId,
-        actorLabel: 'staff actor',
-        action: 'lead.updated',
-        entity: 'lead',
-        entityId: input.leadId,
-        requestId: input.requestId,
-        before,
-        after,
-      });
+      await auditLead(tx, input, 'lead.updated', { before, after });
       if (override) {
-        await tx.insert(auditEvents).values({
-          workspaceId: input.workspaceId,
-          actorId: input.actorId,
-          actorLabel: 'staff actor',
-          action: 'lead.documents_overridden',
-          entity: 'lead',
-          entityId: input.leadId,
-          requestId: input.requestId,
+        await auditLead(tx, input, 'lead.documents_overridden', {
           after: {
             from: lead.stage,
             to: input.stage,

@@ -338,6 +338,24 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
     expect(page?.activities.filter((activity) => activity.kind === 'document')).toHaveLength(2);
   });
 
+  test('a review of a file on a restricted lead writes no timeline entry', async () => {
+    const lead = await order();
+    const input = imported(lead);
+    await store.insertImportedFile(input);
+    await admin`update app.leads set customer_data_restricted_at = now() where id = ${lead}`;
+    expect(
+      await store.recordReview({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        requestId: REQUEST,
+        fileId: input.fileId,
+        decision: 'approved',
+      }),
+    ).toMatchObject({ status: 'recorded' });
+    const entries = await admin`select 1 from app.lead_activities where lead_id = ${lead}`;
+    expect(entries).toHaveLength(0);
+  });
+
   test('a review of a file on another kind of record writes no lead timeline entry', async () => {
     // Even an order record that shares the id of a lead is not that lead.
     const recordId = await order();

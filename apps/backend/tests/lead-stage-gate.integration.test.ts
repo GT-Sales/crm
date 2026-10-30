@@ -414,6 +414,27 @@ databaseTest('stage moves, their gates and the documents override', () => {
         ],
       }),
     ]);
+    // The audit names the changed details and keeps none of their values.
+    const [audit] = await admin<{ after: { changedFields: string[]; order: object } }[]>`
+      select after from app.audit_events
+      where entity_id = ${leadId} and action = 'lead.updated'
+    `;
+    expect(audit?.after.changedFields).toEqual([
+      'courier',
+      'trackingNumber',
+      'dispatchedAt',
+      'activatedAt',
+      'activationNumber',
+      'activationAccount',
+    ]);
+    expect(audit?.after.order).toMatchObject({ planId: gatedPlan.id, quantity: 1 });
+    for (const field of ['courier', 'trackingNumber', 'activationNumber', 'activationAccount']) {
+      expect(audit?.after.order).not.toHaveProperty(field);
+    }
+    for (const value of ['Canada Post', 'LX123456789CA', '6475550123', 'Rogers 1001']) {
+      expect(JSON.stringify(audit)).not.toContain(value);
+    }
+
     // Null clears one detail; the others stay.
     const cleared = await work.updateLead({
       ...ctx,

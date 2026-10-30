@@ -500,6 +500,14 @@ databaseTest('order details on leads', () => {
   });
 
   describe('staff order edits', () => {
+    const DETAIL_KEYS: readonly string[] = [
+      'courier',
+      'trackingNumber',
+      'dispatchedAt',
+      'activatedAt',
+      'activationNumber',
+      'activationAccount',
+    ];
     const auditOf = async (leadId: string) => {
       const [row] = await admin<{ before: unknown; after: unknown }[]>`
         select before, after from app.audit_events
@@ -531,11 +539,16 @@ databaseTest('order details on leads', () => {
       expect(replanned.activities).toEqual([
         expect.objectContaining({ kind: 'edit', fields: ['plan'] }),
       ]);
+      // The audit keeps the order without its dispatch and activation details.
+      const audited = (stored: unknown) =>
+        Object.fromEntries(
+          Object.entries(stored ?? {}).filter(([key]) => !DETAIL_KEYS.includes(key)),
+        );
       const audit = await auditOf(leadId);
-      expect(audit?.before).toEqual({ order: first });
+      expect(audit?.before).toEqual({ order: audited(first) });
       expect(audit?.after).toEqual({
         changedFields: ['plan'],
-        order: await orderDetails(leadId),
+        order: audited(await orderDetails(leadId)),
       });
 
       // The same plan again, unchanged since, keeps the copy and writes nothing.
