@@ -16,6 +16,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   unpriced_lead_required: 'Current pricing could not be verified. Save an unpriced callback lead.',
   priced_checkout_disabled: 'Priced checkout is disabled until the withdrawal policy is confirmed.',
   idempotency_conflict: 'This idempotency key was already used with a different request.',
+  idempotency_in_progress:
+    'A request with this idempotency key is still being processed. Retry shortly.',
   quote_not_found: 'The quote does not exist for this draft.',
   quote_expired: 'The quote has expired. Request a new quote and confirm it.',
   quote_withdrawn: 'The quoted offer was withdrawn before submission.',

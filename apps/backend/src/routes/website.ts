@@ -1,4 +1,10 @@
-import { isOrderLeadType, websiteBotActions, type WebsiteBotAction } from '@gt-sales/contracts';
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  idempotencyKeySchema,
+  isOrderLeadType,
+  websiteBotActions,
+  type WebsiteBotAction,
+} from '@gt-sales/contracts';
 import { Router, type Request, type Response } from 'express';
 import { rateLimitHit, resolveWebsiteCredential } from '@gt-sales/db';
 import {
@@ -21,6 +27,12 @@ import type { DocumentService } from '../documents/service.js';
 
 import { sendDomainError } from '../http/domain-errors.js';
 import { isConnectionLevelError, logRequestError } from '../http/logger.js';
+import {
+  idempotencyKeyHash,
+  IdempotencyError,
+  requestFingerprint,
+  type IdempotencyInput,
+} from '../leads/idempotency.js';
 import {
   DatabaseIdentityStore,
   LEGACY_IDENTITY_BUCKET,
@@ -170,6 +182,28 @@ function failRequest(req: Request, res: Response, route: string, error: unknown)
   sendDomainError(res, req.id, 'internal_error', 500);
 }
 
+/**
+ * The optional `Idempotency-Key` header: absent is fine, malformed is a 400
+ * (the caller asked for a guarantee it cannot get). Only the key's hash goes
+ * further; the raw value is never logged, stored or put in an error.
+ */
+function readIdempotencyKey(req: Request): { ok: true; keyHash?: string } | { ok: false } {
+  const header = req.get(IDEMPOTENCY_KEY_HEADER);
+  if (header === undefined) return { ok: true };
+  const key = idempotencyKeySchema.safeParse(header);
+  return key.success ? { ok: true, keyHash: idempotencyKeyHash(key.data) } : { ok: false };
+}
+
+/** A keyed request the store refused; `in_progress` tells the caller when to retry. */
+function sendIdempotencyRefusal(
+  res: Response,
+  requestId: string,
+  code: IdempotencyError['code'],
+): void {
+  if (code === 'idempotency_in_progress') res.setHeader('retry-after', '2');
+  sendDomainError(res, requestId, code, 409);
+}
+
 function requireDraftGrant(req: Request): string | undefined {
   return parseDraftGrantToken(req.get('x-draft-grant'));
 }
@@ -202,6 +236,16 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         sendDomainError(res, req.id, 'validation_error', 400);
         return;
       }
+      const key = readIdempotencyKey(req);
+      if (!key.ok) {
+        sendDomainError(res, req.id, 'validation_error', 400, { field: IDEMPOTENCY_KEY_HEADER });
+        return;
+      }
+      const idempotency: IdempotencyInput | undefined =
+        key.keyHash === undefined
+          ? undefined
+          : { keyHash: key.keyHash, fingerprint: requestFingerprint(body.data) };
+
       // The registry decides what a lead of this type must carry. The detail
       // names the refused part only, never a submitted value.
       const intake = checkLeadIntake(body.data);
@@ -229,13 +273,19 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           consentVersion: body.data.consentVersion,
           submit: body.data.submit,
           order: body.data.order,
+          idempotency,
         });
         res.status(201).json({
           lead: result.lead,
           draftGrant: result.grant,
+          ...(result.replayed ? { replayed: true } : {}),
           requestId: req.id,
         });
       } catch (error) {
+        if (error instanceof IdempotencyError) {
+          sendIdempotencyRefusal(res, req.id, error.code);
+          return;
+        }
         if (error instanceof OrderIntakeError) {
           sendDomainError(res, req.id, error.code, 400, { field: 'order' });
           return;
@@ -316,6 +366,20 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         return;
       }
 
+      const key = readIdempotencyKey(req);
+      if (!key.ok) {
+        sendDomainError(res, req.id, 'validation_error', 400, { field: IDEMPOTENCY_KEY_HEADER });
+        return;
+      }
+      // Only a submission is made once; a plain save is already repeatable.
+      const idempotency: IdempotencyInput | undefined =
+        key.keyHash === undefined || body.data.submit !== true
+          ? undefined
+          : {
+              keyHash: key.keyHash,
+              fingerprint: requestFingerprint({ leadId: leadId.data, body: body.data }),
+            };
+
       const grantToken = requireDraftGrant(req);
       if (!grantToken) {
         sendDomainError(res, req.id, 'draft_not_found', 401);
@@ -336,6 +400,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           consentVersion: body.data.consentVersion,
           order: body.data.order,
           submit: body.data.submit,
+          idempotency,
         });
 
         if (outcome.status === 'grant_invalid') {
@@ -356,11 +421,19 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           sendDomainError(res, req.id, code, 400, { field: 'order' });
           return;
         }
-        // This route sends the store no idempotency key yet, so neither key
-        // outcome can arise here.
-        if (outcome.status !== 'updated') throw new Error(`unexpected outcome: ${outcome.status}`);
+        if (
+          outcome.status === 'idempotency_conflict' ||
+          outcome.status === 'idempotency_in_progress'
+        ) {
+          sendIdempotencyRefusal(res, req.id, outcome.status);
+          return;
+        }
 
-        res.json({ lead: outcome.lead, requestId: req.id });
+        res.json({
+          lead: outcome.lead,
+          ...(outcome.replayed ? { replayed: true } : {}),
+          requestId: req.id,
+        });
       } catch (error) {
         failRequest(req, res, '/api/v1/website/leads/:leadId', error);
       }
