@@ -576,11 +576,15 @@ applied to the hosted project yet** (§5.1), so this is not deployed.
    on a sensitive, hidden or unknown key is ever written) and returned
    cleaned again (a property hidden or deleted since the view was saved drops
    out of that response; the stored row is untouched).
-4. **Admin.** `components/crm/` holds the view bar, menus, side panel and page
-   header, with light tokens in `app/crm-theme.css` and a 220 px sidebar.
-   The leads inbox is a compact table or board on that view bar, with the
-   saved view switcher (`saved-view-switcher.tsx`: save, rename, delete,
-   dirty state). Its URL now carries `layout=` (`table` or `board`; the old
+4. **Admin.** `components/crm/` holds the menus, filter chip, side panel and
+   page header, with light and dark tokens in `app/crm-theme.css` (the shell
+   keeps the shared 256 px sidebar and 56 px top bar). The leads inbox is the
+   roomy table or the board under one toolbar (search, stage, assignee, Add
+   filter, Follow-ups due, then Sort, Columns and View options as outline
+   buttons; active filters as chips in a row of their own), with the saved
+   view switcher at the right end of the type tabs
+   (`saved-view-switcher.tsx`: save, rename, delete, dirty state). Its URL
+   now carries `layout=` (`table` or `board`; the old
    `view=board` still works), `hide=` (hidden table columns, which replaces
    the browser setting `gt-table-hidden-cols`: it is read once, moved into the
    URL and forgotten), `view=` (a saved view's id), `lead=` (the record open in
