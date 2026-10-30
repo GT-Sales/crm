@@ -722,7 +722,11 @@ page and the lead page's changes are merged on the branch. Migrations 0013 and
 0014 were applied to the hosted project on 2026-10-30 (§5.1,
 [RUNBOOKS/database.md](RUNBOOKS/database.md#0013_order_tools)), before the
 branch's backend was deployed (it reads the six new tables and
-`email_messages.template_version`).
+`email_messages.template_version`). PR #6 merged 2026-10-30 15:19 UTC
+(`acb9266`); Railway deployment `862df29a` succeeded, health 200; the Vercel
+admin built from `main`. Live check after the deploy: no `app.automations`
+rows (every rule off), no saved templates or email settings, no idempotency
+keys, 920 leads untouched.
 
 Owner rulings of 2026-10-30 on the plan's first draft:
 
