@@ -263,6 +263,21 @@ databaseTest('email settings store', () => {
         body: '[button: One](https://a.example)\n\n[button: Two](https://b.example)',
       }),
     ).toEqual({ kind: 'invalid', error: 'invalid_email_markup', reason: 'two_buttons' });
+    // A fill-in in a typed address would be sent as braces; one in a button label is checked.
+    expect(
+      await store.putTemplate(write, 'cancelled', {
+        expectedVersion: 0,
+        subject: 'Cancelled',
+        body: '[button: Shop again](https://a.example/?for={first name})',
+      }),
+    ).toEqual({ kind: 'invalid', error: 'invalid_email_markup', reason: 'bad_link' });
+    expect(
+      await store.putTemplate(write, 'cancelled', {
+        expectedVersion: 0,
+        subject: 'Cancelled',
+        body: '[button: Ask {courier}](https://a.example)',
+      }),
+    ).toEqual({ kind: 'invalid', error: 'invalid_fill_in', fillIn: 'courier', where: 'body' });
     expect(await versionRows(SITE, 'cancelled')).toEqual([]);
     const [templates] = await admin<{ total: number }[]>`
       select count(*)::int as total from app.email_templates where workspace_id = ${SITE}

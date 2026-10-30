@@ -73,6 +73,28 @@ describe('renderCustomerEmail', () => {
     expect(mail.text).toContain('Track your order: https://shop.example/track?a=1&b=2');
   });
 
+  it('fills the button label, escaped in the HTML and raw in the text', () => {
+    const mail = rendered({
+      body: '[button: Track {first name}’s order]({tracking link})',
+      values: { 'first name': '<b>Ann</b>', 'tracking link': 'https://a.test/track' },
+    });
+    expect(mail.html).toContain('>Track &lt;b&gt;Ann&lt;/b&gt;’s order</a>');
+    expect(mail.html).not.toContain('{first name}');
+    expect(mail.text).toContain('Track <b>Ann</b>’s order: https://a.test/track');
+  });
+
+  it('refuses a button label whose fill-in has no value', () => {
+    expect(
+      renderCustomerEmail({
+        template: 'dispatched',
+        subject: 'Hello',
+        body: '[button: Track {first name}’s order](https://a.test)',
+        branding,
+        values: {},
+      }),
+    ).toEqual({ ok: false, missing: ['first name'] });
+  });
+
   it('writes a link as its label then its address in the text', () => {
     const mail = rendered({ body: 'Read [the **guide**](https://example.test/g) today.' });
     expect(mail.html).toContain(

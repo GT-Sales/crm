@@ -401,6 +401,7 @@ describe('staff email settings routes', () => {
     expect(body.text).toContain('Hi Nadia');
     expect(body.html).toContain('Hi Nadia');
     expect(body.html).toContain('#0a7f4f');
+    expect(body.html).toContain('>Track your order</a>');
     expect(body.html).toContain('Get Canada Sim');
 
     expect(withTenantTx).not.toHaveBeenCalled();
@@ -439,6 +440,22 @@ describe('staff email settings routes', () => {
     const error = await errorOf(bad);
     expect(error.code).toBe('invalid_fill_in');
     expect(error.details).toEqual({ fillIn: 'tracking nmber', where: 'body' });
+
+    const braces = await call(emailUrl('/templates/dispatched/preview'), {
+      method: 'POST',
+      body: { subject: 'Sent', body: '[Track](https://a.test/t?p={plan})' },
+    });
+    expect(braces.status).toBe(400);
+    const bracesError = await errorOf(braces);
+    expect(bracesError.code).toBe('invalid_email_markup');
+    expect(bracesError.details).toEqual({ reason: 'bad_link' });
+
+    const label = await call(emailUrl('/templates/dispatched/preview'), {
+      method: 'POST',
+      body: { subject: 'Sent', body: '[button: Track {frist name}]({tracking link})' },
+    });
+    expect(label.status).toBe(400);
+    expect((await errorOf(label)).details).toEqual({ fillIn: 'frist name', where: 'body' });
 
     const unknown = await call(emailUrl('/templates/nope/preview'), {
       method: 'POST',
