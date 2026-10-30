@@ -15,7 +15,11 @@ const LEAD_SUBMISSION_SCOPE = 'lead_submission';
 type CanonicalJson =
   null | boolean | number | string | CanonicalJson[] | { [key: string]: CanonicalJson };
 
-/** JSON with object keys sorted at every depth and `undefined` members dropped. */
+/** Code-unit order: the same on every runtime, whatever its locale or ICU data. */
+const byCodeUnit = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
+/** JSON with object keys sorted (by code unit) at every depth and `undefined` members dropped. */
 function canonicalize(value: unknown): CanonicalJson {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
   if (typeof value === 'number') {
@@ -26,7 +30,7 @@ function canonicalize(value: unknown): CanonicalJson {
   if (typeof value === 'object') {
     const result: { [key: string]: CanonicalJson } = {};
     for (const [key, child] of Object.entries(value).sort(([left], [right]) =>
-      left.localeCompare(right),
+      byCodeUnit(left, right),
     )) {
       if (child !== undefined) result[key] = canonicalize(child);
     }
