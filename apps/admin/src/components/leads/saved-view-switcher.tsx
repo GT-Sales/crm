@@ -218,7 +218,7 @@ export function SavedViewSwitcher({
             <ChevronDownIcon aria-hidden="true" />
           </BarButton>
         </PopoverTrigger>
-        <MenuPanel className="max-h-96 w-64 overflow-y-auto">
+        <MenuPanel align="end" className="max-h-96 w-64 overflow-y-auto">
           <MenuItem selected={active === undefined} onClick={() => choose(undefined)}>
             All leads
           </MenuItem>

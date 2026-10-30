@@ -884,6 +884,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className={TOOLBAR_BUTTON}>
           <ArrowUpDownIcon aria-hidden="true" className={TOOLBAR_ICON} /> Sort
+          {query.sort ? (
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+          ) : null}
         </Button>
       </PopoverTrigger>
       <MenuPanel align="end" className="max-h-96 overflow-y-auto">
@@ -1345,12 +1348,12 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           )}
         </div>
         {/* Beside the list the panel stays in view while the list scrolls; a phone gets a
-            sheet. Its height leaves room for the 3.5rem top bar and the page's 1.5rem padding
-            above and below, so it never outgrows the viewport. */}
+            sheet. The window scrolls (the top bar scrolls away with it), so once the panel
+            sticks at the page's 1.5rem padding its height leaves that much above and below. */}
         <div
           className={cn(
             'sticky top-6 flex self-start',
-            query.lead !== undefined && 'md:h-[calc(100dvh-3.5rem-3rem)]',
+            query.lead !== undefined && 'md:h-[calc(100dvh-3rem)]',
           )}
         >
           <SidePanel

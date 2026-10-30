@@ -1,27 +1,21 @@
 /**
- * CRM surface tokens for the admin: the quiet greys and the red-tinted
- * selection/chip colours used by the page header, side panel and filter chips.
+ * CRM surface tokens for the admin: the header grey and the red-tinted chip
+ * colours used by the page header, side panel and filter chips.
  * The admin always renders dark (`<html class="dark">`), so the `.dark` block
  * is the palette in use; the `:root` values are the light equivalents.
  */
 
 :root {
   --crm-header: oklch(0.985 0 0);
-  --crm-row-border: oklch(0.94 0 0);
-  --crm-row-hover: oklch(0.975 0 0);
-  --crm-selected: oklch(0.97 0.02 27);
   --crm-chip: oklch(0.96 0.03 27);
   --crm-chip-border: oklch(0.88 0.06 27);
   --crm-chip-foreground: var(--primary);
 }
 
-/* Dark: a header a shade above the background, subtle grey rules and hovers
-   from the shared dark palette, and a dim red chip with light red text. */
+/* Dark: a header a shade above the background and a dim red chip with light
+   red text. */
 .dark {
   --crm-header: oklch(0.18 0 0);
-  --crm-row-border: oklch(1 0 0 / 10%);
-  --crm-row-hover: oklch(0.205 0 0);
-  --crm-selected: oklch(0.24 0.03 27);
   --crm-chip: oklch(0.26 0.06 27);
   --crm-chip-border: oklch(0.4 0.1 27);
   --crm-chip-foreground: oklch(0.88 0.06 20);
@@ -29,9 +23,6 @@
 
 @theme inline {
   --color-crm-header: var(--crm-header);
-  --color-crm-row-border: var(--crm-row-border);
-  --color-crm-row-hover: var(--crm-row-hover);
-  --color-crm-selected: var(--crm-selected);
   --color-crm-chip: var(--crm-chip);
   --color-crm-chip-border: var(--crm-chip-border);
   --color-crm-chip-foreground: var(--crm-chip-foreground);
