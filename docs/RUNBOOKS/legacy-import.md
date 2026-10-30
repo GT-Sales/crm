@@ -74,29 +74,65 @@ mirror suite under an advisory lock).
 row **under its own id**, the same way and with the same re-run rules as the
 CanadaWide import above (it reads `public`, writes only `app`).
 
-| Get Canada Sim                                                                            | CRM                                                                                                                           |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| an order                                                                                  | a `sim_order` lead; `MS-<order_no>` is its external reference                                                                 |
-| `status`                                                                                  | `stage` (sim_order's stages are Get Canada Sim's statuses); `incomplete` is also the lead's status, the rest are `submitted`  |
-| `archived_at`                                                                             | `deleted_at` (the CRM trash, restorable): the archive holds dismissed pending, incomplete and cancelled orders                |
-| name, email, phone, `country_code`                                                        | the lead's contact fields, and a contact found or created by `lower(btrim(email))`; contacts are shared by every site         |
-| plan, SIM type, arrival, permit, visa, flight, addresses, reference, the customer's note  | `payload` as `{ schemaVersion: 1, payload }`; the plan label as `data.ts` names it today; an address kept in `notes`          |
-| `partner_id`                                                                              | `attribution.partnerCode` = `PT-<partner_no>`                                                                                 |
-| `admin_note`, `partner_note`                                                              | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                         |
-| `reminder_at`, `reminder_note`, `reminder_done_at`                                        | a task, as for CanadaWide                                                                                                     |
-| a partner application                                                                     | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                                |
-| `sim_number`                                                                              | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                              |
-| `viewed_at` (the old admin's "New" badge)                                                 | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                             |
-| `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`, `license_path` | files on the lead's Documents card (`passport`, `visa`, `sim_photo`, `billing_contract`, `business_licence`), copied verified |
-| `order_edit_requests` (`/track` change requests)                                          | timeline entries: the request by the customer (its fields and documents, never values) and the old admin's decision           |
-| commission, invoices, IP address                                                          | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                           |
+| Get Canada Sim                                                                            | CRM                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| an order                                                                                  | a `sim_order` lead; `MS-<order_no>` is its external reference                                                                                                                  |
+| `status`                                                                                  | `stage` (sim_order's stages are Get Canada Sim's statuses, but `paid` → `pending`, `invoiced` → `completed`); `incomplete` is also the lead's status, the rest are `submitted` |
+| `status`, `commission_status`                                                             | `order_details` (migration 0012's mapping): no plan link, quantity 1, the payment status and carrier commission below                                                          |
+| `archived_at`                                                                             | `deleted_at` (the CRM trash, restorable): the archive holds dismissed pending, incomplete and cancelled orders                                                                 |
+| name, email, phone, `country_code`                                                        | the lead's contact fields, and a contact found or created by `lower(btrim(email))`; contacts are shared by every site                                                          |
+| plan, SIM type, arrival, permit, visa, flight, addresses, reference, the customer's note  | `payload` as `{ schemaVersion: 1, payload }`; the plan label as `data.ts` names it today; an address kept in `notes`                                                           |
+| `partner_id`                                                                              | `attribution.partnerCode` = `PT-<partner_no>`                                                                                                                                  |
+| `admin_note`, `partner_note`                                                              | `note` timeline entries by the "Old admin", dated `admin_note_at` / `partner_note_at`                                                                                          |
+| `reminder_at`, `reminder_note`, `reminder_done_at`                                        | a task, as for CanadaWide                                                                                                                                                      |
+| a partner application                                                                     | a `partner_application` lead (stage = its status); `PT-<partner_no>` is its external reference                                                                                 |
+| `sim_number`                                                                              | the staff-only `simNumber` in `payload` (shown in the lead page's Staff details)                                                                                               |
+| `viewed_at` (the old admin's "New" badge)                                                 | an `opened` system entry by the "Old admin" at that time; every partner application is opened too                                                                              |
+| `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`, `license_path` | files on the lead's Documents card (`passport`, `visa`, `sim_photo`, `billing_contract`, `business_licence`), copied verified                                                  |
+| `order_edit_requests` (`/track` change requests)                                          | timeline entries: the request by the customer (its fields and documents, never values) and the old admin's decision                                                            |
+| partner commission, invoices, IP address                                                  | **not imported yet**: they stay in Get Canada Sim's admin until the CRM models them                                                                                            |
+
+Since phase 3 an order's payment and the carrier's commission are the
+order's, not stages: an order's `order_details.paymentStatus` is `paid` for
+the statuses paid, verified, delivered, activated, completed and invoiced,
+`not_needed` for cancelled and on_hold, otherwise `pending`; its
+`carrierCommission` is `invoiced` for an invoiced order, else from
+`commission_status` (`invoiced`, `commission_received` → `received`,
+`claw_back` → `clawback`), else `not_yet`. The form no longer carries
+`commissionStatus`. Migration 0012 gave the orders already imported the same
+order details and stages, but it leaves the old `commissionStatus` key in
+their form. So the first import run after 0012 removes that key from every
+order that had one (and only from orders nobody has worked in the CRM, as
+below). Order details and stages already match, unless the old admin changed
+the order since. **Apply 0011 and 0012 first** (the script writes
+`order_details`).
+
+**No import from `main`'s old script between 0012 and the phase 3 deploy.**
+The script on `main` before phase 3 writes the old admin's `orders.status`
+straight into `stage`: run after 0012, it would put the 20 orders 0012 moved
+back on `paid`, and 0012 cannot repair them (its data step only touches leads
+whose `order_details` is still `'{}'`, and it never runs twice). In the same
+window staff should not move SIM orders in the old admin. After the deploy,
+re-run verification select 7 of
+[`manual/0011-0012-plans.sql`](manual/0011-0012-plans.sql): `old_stages_left`
+must be `0`. If not, run this branch's import (it maps the statuses), or remap
+the stragglers by hand; for a `paid` row:
+
+```sql
+UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';
+```
+
+(an `invoiced` row becomes `completed`, with `paymentStatus` `paid` and
+`carrierCommission` `invoiced`).
 
 A later run also carries approved customer edits (name, phone, the order
-form) over, unless someone worked the lead in the CRM. An unfinished
+form) and the old admin's status (stage and order details) over, unless
+someone worked the lead in the CRM. An unfinished
 checkout falls under the CRM's 90-day rule for abandoned forms (SEC-12): its
 contact details are erased from the CRM's copy 90 days after its last change.
-The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`.
-The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
+The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`
+(`stage_mismatches` compares with the mapping applied: a `paid` order on a
+`pending` lead matches). The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
 
 **Documents** are not copied by the script itself: it queues one
 `legacy_document_import` outbox job per file Get Canada Sim keeps in the

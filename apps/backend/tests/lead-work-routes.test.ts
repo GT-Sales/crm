@@ -42,6 +42,7 @@ const MEMBERSHIP = '30000000-0000-4000-8000-000000000e01';
 const LEAD = '90000000-0000-4000-8000-000000000e01';
 const TASK = '91000000-0000-4000-8000-000000000e01';
 const NOW = '2026-10-26T12:00:00.000Z';
+const PLAN = '93000000-0000-4000-8000-000000000e01';
 
 const workspace: StaffWorkspace = {
   id: WORKSPACE,
@@ -73,6 +74,13 @@ const lead: LeadDetail = {
   updatedAt: NOW,
   form: { schemaVersion: 1, payload: { planId: 'ab-1gbps', dateOfBirth: '1990-04-12' } },
   customValues: { custom_ref: 'R-77', custom_paid: true },
+  order: {
+    planId: PLAN,
+    plan: null,
+    quantity: 2,
+    paymentStatus: 'pending',
+    carrierCommission: 'not_yet',
+  },
 };
 
 const note: LeadActivity = {
@@ -124,7 +132,7 @@ const leadDocument: LeadDocument = {
   createdAt: NOW,
 };
 
-const { form: _form, customValues: _customValues, ...baseListItem } = lead;
+const { form: _form, customValues: _customValues, order: _order, ...baseListItem } = lead;
 const listItem = { ...baseListItem, properties: { city: 'Calgary' } };
 
 class TokenVerifier implements StaffSessionVerifier {
@@ -180,7 +188,7 @@ function memoryWorkStore() {
   return {
     summary: vi.fn<LeadWorkStore['summary']>(async () => ({
       types: [{ leadType: 'internet', total: 1 }],
-      trash: 0,
+      archived: 2,
     })),
     stats: vi.fn<LeadWorkStore['stats']>(async () => ({
       total: 3,
@@ -210,15 +218,15 @@ function memoryWorkStore() {
       lead: { ...lead, stage: input.stage ?? lead.stage },
       activities: [],
     })),
-    setTrashed: vi.fn<LeadWorkStore['setTrashed']>(async (input) => ({
+    setArchived: vi.fn<LeadWorkStore['setArchived']>(async (input) => ({
       status: 'changed',
-      lead: { ...lead, deletedAt: input.trashed ? NOW : null },
+      lead: { ...lead, deletedAt: input.archived ? NOW : null },
       activity: {
         id: '92000000-0000-4000-8000-000000000e02',
         actorId: ACTOR,
         createdAt: NOW,
         kind: 'system',
-        event: input.trashed ? 'trashed' : 'restored',
+        event: input.archived ? 'trashed' : 'restored',
       },
     })),
     markOpened: vi.fn<LeadWorkStore['markOpened']>(async () => ({
@@ -264,6 +272,7 @@ function propertyRow(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key'>)
     staffOnly: false,
     sensitive: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     position: 0,
     version: 1,
@@ -600,9 +609,10 @@ describe('staff lead work routes', () => {
   it('routes /summary and /board before the lead id', async () => {
     const summary = await call(`${leadsUrl()}/summary`);
     expect(summary.status).toBe(200);
-    expect(leadsSummaryResponseSchema.parse(await summary.json()).types).toEqual([
-      { leadType: 'internet', total: 1 },
-    ]);
+    const summaryBody = leadsSummaryResponseSchema.parse(await summary.json());
+    expect(summaryBody.types).toEqual([{ leadType: 'internet', total: 1 }]);
+    // `trash` is the deprecated twin of `archived`.
+    expect(summaryBody).toMatchObject({ archived: 2, trash: 2 });
 
     const board = await call(`${leadsUrl()}/board?type=internet&perStage=10`);
     expect(board.status).toBe(200);
@@ -653,7 +663,9 @@ describe('staff lead work routes', () => {
     expect(body.lead.contact).toEqual({});
     expect(body.lead.form).toBeNull();
     expect(body.lead.customValues).toBeUndefined();
+    expect(body.lead.order).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('R-77');
+    expect(JSON.stringify(body)).not.toContain(PLAN);
     expect(body.lead.countdownDate).toBeNull();
     expect(body.activities).toEqual([]);
     expect(body.tasks).toEqual([]);
@@ -762,7 +774,7 @@ describe('staff lead work routes', () => {
     }
     expect(work.updateLead).not.toHaveBeenCalled();
     expect(work.addNote).not.toHaveBeenCalled();
-    expect(work.setTrashed).not.toHaveBeenCalled();
+    expect(work.setArchived).not.toHaveBeenCalled();
 
     store.access = { ...store.access, roles: ['leads'] };
     const allowed = await call(`${leadsUrl()}/${LEAD}`, {
@@ -853,6 +865,47 @@ describe('staff lead work routes', () => {
     expect(viewer.status).toBe(403);
   });
 
+  it('passes order edits through, names a refused order field, and shows the order to a lead worker', async () => {
+    const page = await call(`${leadsUrl()}/${LEAD}`);
+    expect(getWorkspaceLeadResponseSchema.parse(await page.json()).lead.order).toEqual(lead.order);
+
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { order: { planId: PLAN, quantity: 3, paymentStatus: 'paid' } },
+    });
+    expect(response.status).toBe(200);
+    expect(work.updateLead).toHaveBeenCalledWith(
+      expect.objectContaining({ order: { planId: PLAN, quantity: 3, paymentStatus: 'paid' } }),
+    );
+    expect(updateWorkspaceLeadResponseSchema.parse(await response.json()).lead.order).toEqual(
+      lead.order,
+    );
+
+    work.updateLead.mockResolvedValueOnce({ status: 'invalid_field', field: 'plan' });
+    const refused = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { order: { planId: null } },
+    });
+    expect(refused.status).toBe(400);
+    expect(await errorCode(refused)).toMatchObject({
+      code: 'validation_error',
+      details: { field: 'plan' },
+    });
+
+    for (const order of [{}, { quantity: 0 }, { paymentStatus: 'refunded' }, { price: 1 }]) {
+      const invalid = await call(`${leadsUrl()}/${LEAD}`, { method: 'PATCH', body: { order } });
+      expect(invalid.status).toBe(400);
+    }
+    expect(work.updateLead).toHaveBeenCalledTimes(2);
+  });
+
+  it('lists the archive under view=archived and its old name view=trash', async () => {
+    for (const view of ['archived', 'trash'] as const) {
+      expect((await call(`${leadsUrl()}?view=${view}`)).status).toBe(200);
+      expect(leadStore.listCalls.at(-1)).toMatchObject({ view });
+    }
+  });
+
   it('refuses an update that changes nothing or names an unknown field', async () => {
     for (const body of [
       {},
@@ -929,9 +982,17 @@ describe('staff lead work routes', () => {
       kind: 'system',
       event: 'trashed',
     });
+    const archived = await call(`${leadsUrl()}/${LEAD}/archive`, { method: 'POST' });
+    expect(archived.status).toBe(200);
+    expect(leadTrashResponseSchema.parse(await archived.json()).lead.deletedAt).toBe(NOW);
     const restored = await call(`${leadsUrl()}/${LEAD}/restore`, { method: 'POST' });
     expect(leadTrashResponseSchema.parse(await restored.json()).lead.deletedAt).toBeNull();
-    expect(work.setTrashed.mock.calls.map(([input]) => input.trashed)).toEqual([true, false]);
+    // `trash` and `archive` share one handler: both archive.
+    expect(work.setArchived.mock.calls.map(([input]) => input.archived)).toEqual([
+      true,
+      true,
+      false,
+    ]);
   });
 
   it("lists the caller's open tasks by default, and only for roles that see contacts", async () => {

@@ -3,10 +3,13 @@ import { contextWorkspaceId, properties, type TenantTransaction } from '@gt-sale
 import {
   buildPropertyCatalog,
   propertyRowSchema,
+  type BuildCatalogOptions,
   type PropertyCatalog,
   type PropertyObject,
   type PropertyRow,
 } from '@gt-sales/contracts';
+
+import { loadPlanOptions } from '../plans/options.js';
 
 /** A row of app.properties as Drizzle reads it. */
 export type PropertyRecord = typeof properties.$inferSelect;
@@ -23,6 +26,7 @@ export function toPropertyRow(record: PropertyRecord): PropertyRow {
     staffOnly: record.staffOnly,
     sensitive: record.sensitive,
     hidden: record.hidden,
+    websiteVisible: record.websiteVisible,
     leadTypes: record.leadTypes,
     position: record.position,
     version: record.version,
@@ -54,10 +58,26 @@ export async function loadPropertyRows(
   return records.map(toPropertyRow);
 }
 
-/** The site's catalogue of one object: the code catalogue merged with its rows. */
+/**
+ * The catalogue options of one object: for leads, the site's plans (the
+ * order's `plan` property offers them); plans need none.
+ */
+export async function loadCatalogOptions(
+  tx: TenantTransaction,
+  object: PropertyObject,
+): Promise<BuildCatalogOptions> {
+  return object === 'lead' ? { plans: await loadPlanOptions(tx) } : {};
+}
+
+/**
+ * The site's catalogue of one object: the code catalogue merged with its rows
+ * and, for leads, the site's plans (unless `options` are given).
+ */
 export async function loadPropertyCatalog(
   tx: TenantTransaction,
   object: PropertyObject = 'lead',
+  options?: BuildCatalogOptions,
 ): Promise<PropertyCatalog> {
-  return buildPropertyCatalog(await loadPropertyRows(tx, object), object);
+  const rows = await loadPropertyRows(tx, object);
+  return buildPropertyCatalog(rows, object, options ?? (await loadCatalogOptions(tx, object)));
 }

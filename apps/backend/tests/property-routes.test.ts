@@ -45,6 +45,7 @@ function propertyRow(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key'>)
     staffOnly: false,
     sensitive: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     position: 0,
     version: 1,
@@ -268,6 +269,50 @@ describe('property routes', () => {
     });
   });
 
+  it('GET /properties offers the site plans on the order plan property', async () => {
+    const plans = [
+      {
+        id: '70000000-0000-4000-8000-000000000f01',
+        name: 'Unlimited 50',
+        active: true,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000f02',
+        name: 'Old',
+        active: false,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000f03',
+        name: 'Talk and text',
+        active: true,
+        leadType: 'mobility',
+      },
+    ];
+    properties.model.mockResolvedValueOnce({
+      rows: [],
+      layouts: [],
+      plans,
+    });
+    const body = propertyModelResponseSchema.parse(await (await call(propertiesUrl())).json());
+    expect(body.properties.find((property) => property.key === 'plan')?.options).toEqual([
+      { value: '70000000-0000-4000-8000-000000000f01', label: 'Unlimited 50', hidden: false },
+      { value: '70000000-0000-4000-8000-000000000f02', label: 'Old', hidden: true },
+      { value: '70000000-0000-4000-8000-000000000f03', label: 'Talk and text', hidden: false },
+    ]);
+    // Each plan with its lead type, so the admin scopes the options per type.
+    expect(body.plans).toEqual(plans);
+  });
+
+  it('GET /properties?object=plan carries no plans', async () => {
+    properties.model.mockResolvedValueOnce({ rows: [], layouts: [] });
+    const response = await call(`${propertiesUrl()}?object=plan`);
+    expect(response.status).toBe(200);
+    const body = propertyModelResponseSchema.parse(await response.json());
+    expect(body.plans).toBeUndefined();
+  });
+
   it('GET /properties is 403 for someone outside the site and 400 for a bad site id', async () => {
     store.access = { ...store.access, status: 'revoked' };
     expect((await call(propertiesUrl())).status).toBe(403);
@@ -300,6 +345,7 @@ describe('property routes', () => {
       options: [],
       staffOnly: true,
       sensitive: false,
+      websiteVisible: false,
       leadTypes: [],
     });
 
@@ -462,5 +508,194 @@ describe('property routes', () => {
     store.access = { ...store.access, roles: ['leads'] };
     expect((await call(url, { method: 'PATCH', body: { layout } })).status).toBe(403);
     expect(properties.saveLayout).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('property routes for plans (?object=plan)', () => {
+  const network = propertyRow({
+    object: 'plan',
+    key: 'custom_network',
+    label: 'Network',
+    websiteVisible: true,
+  });
+  const cost = propertyRow({
+    object: 'plan',
+    key: 'custom_cost',
+    label: 'Cost',
+    kind: 'number',
+    position: 1,
+  });
+  const planLayout = { sections: [{ id: 'main', label: 'Main', keys: ['custom_network'] }] };
+
+  it('GET returns the plan catalogue with website visibility and one layout keyed by no type', async () => {
+    properties.model.mockResolvedValueOnce({ rows: [network, cost], layouts: [] });
+    const response = await call(`${propertiesUrl()}?object=plan`);
+    expect(response.status).toBe(200);
+    const body = propertyModelResponseSchema.parse(await response.json());
+    expect(properties.model).toHaveBeenCalledWith(ownerContext, 'plan');
+    expect(body.properties.map((property) => property.key)).toEqual([
+      'custom_network',
+      'custom_cost',
+    ]);
+    expect(body.properties.map((property) => [property.key, property.websiteVisible])).toEqual([
+      ['custom_network', true],
+      ['custom_cost', false],
+    ]);
+    expect(body.layouts).toEqual({
+      '': {
+        object: 'plan',
+        leadType: '',
+        layout: {
+          sections: [{ id: 'custom', label: 'Custom', keys: ['custom_network', 'custom_cost'] }],
+        },
+        version: 0,
+        updatedAt: null,
+      },
+    });
+
+    const saved = {
+      object: 'plan',
+      leadType: '',
+      layout: planLayout,
+      version: 2,
+      updatedAt: NOW,
+    } as const;
+    properties.model.mockResolvedValueOnce({ rows: [network], layouts: [saved] });
+    const withSaved = propertyModelResponseSchema.parse(
+      await (await call(`${propertiesUrl()}?object=plan`)).json(),
+    );
+    expect(withSaved.layouts).toEqual({ '': saved });
+
+    // With no plan properties the default still has one (empty) section.
+    properties.model.mockResolvedValueOnce({ rows: [], layouts: [] });
+    const empty = propertyModelResponseSchema.parse(
+      await (await call(`${propertiesUrl()}?object=plan`)).json(),
+    );
+    expect(empty.layouts['']?.layout).toEqual({
+      sections: [{ id: 'custom', label: 'Custom', keys: [] }],
+    });
+
+    for (const query of ['?object=order', '?object=plan&object=lead']) {
+      const bad = await call(`${propertiesUrl()}${query}`);
+      expect(bad.status, query).toBe(400);
+      expect((await errorOf(bad)).code).toBe('invalid_request');
+    }
+  });
+
+  it('websiteVisible is accepted on plan properties only', async () => {
+    properties.create.mockResolvedValueOnce({ kind: 'created', property: network });
+    const created = await call(`${propertiesUrl()}?object=plan`, {
+      method: 'POST',
+      body: { label: 'Network', kind: 'text', websiteVisible: true },
+    });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      property: { key: 'custom_network', websiteVisible: true },
+    });
+    expect(properties.create).toHaveBeenCalledWith(ownerContext, 'plan', {
+      label: 'Network',
+      kind: 'text',
+      options: [],
+      staffOnly: false,
+      sensitive: false,
+      leadTypes: [],
+      websiteVisible: true,
+    });
+
+    properties.update.mockResolvedValueOnce({
+      kind: 'updated',
+      property: { ...network, websiteVisible: false, version: 2 },
+    });
+    const updated = await call(`${propertiesUrl()}/custom_network?object=plan`, {
+      method: 'PATCH',
+      body: { expectedVersion: 1, websiteVisible: false },
+    });
+    expect(updated.status).toBe(200);
+    expect(properties.update).toHaveBeenCalledWith(ownerContext, 'plan', 'custom_network', {
+      expectedVersion: 1,
+      websiteVisible: false,
+    });
+
+    const leadCreate = await call(propertiesUrl(), {
+      method: 'POST',
+      body: { label: 'Network', kind: 'text', websiteVisible: true },
+    });
+    expect(leadCreate.status).toBe(400);
+    expect((await errorOf(leadCreate)).code).toBe('invalid_request');
+    const leadUpdate = await call(`${propertiesUrl()}/custom_referral_code?object=lead`, {
+      method: 'PATCH',
+      body: { expectedVersion: 1, websiteVisible: true },
+    });
+    expect(leadUpdate.status).toBe(400);
+    expect((await errorOf(leadUpdate)).code).toBe('invalid_request');
+    // Off (the default) is no change on a lead property, so it passes.
+    const leadOff = await call(propertiesUrl(), {
+      method: 'POST',
+      body: { label: 'Network', kind: 'text', websiteVisible: false },
+    });
+    expect(leadOff.status).toBe(201);
+    const notBoolean = await call(`${propertiesUrl()}?object=plan`, {
+      method: 'POST',
+      body: { label: 'Network', kind: 'text', websiteVisible: 'yes' },
+    });
+    expect(notBoolean.status).toBe(400);
+    expect(properties.create).toHaveBeenCalledTimes(2);
+    expect(properties.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('DELETE reaches the plan object and reports plan usage', async () => {
+    properties.remove.mockResolvedValueOnce({
+      kind: 'in_use',
+      leadCount: 0,
+      active: 3,
+      trashed: 0,
+      restricted: 0,
+      planCount: 3,
+    });
+    const inUse = await call(`${propertiesUrl()}/custom_network?object=plan`, {
+      method: 'DELETE',
+    });
+    expect(inUse.status).toBe(409);
+    const error = await errorOf(inUse);
+    expect(error.code).toBe('property_in_use');
+    expect(propertyUsageSchema.parse(error.details)).toEqual({
+      leadCount: 0,
+      active: 3,
+      trashed: 0,
+      restricted: 0,
+      planCount: 3,
+    });
+    expect(properties.remove).toHaveBeenCalledWith(ownerContext, 'plan', 'custom_network');
+  });
+
+  it('the plan layout is saved under no lead type', async () => {
+    for (const path of ['/layouts?object=plan', '/layouts/?object=plan']) {
+      const saved = await call(`${propertiesUrl()}${path}`, {
+        method: 'PATCH',
+        body: { layout: planLayout },
+      });
+      expect(saved.status, path).toBe(200);
+      expect(propertyLayoutResponseSchema.parse(await saved.json()).layout).toMatchObject({
+        object: 'plan',
+        leadType: '',
+      });
+    }
+    expect(properties.saveLayout).toHaveBeenCalledWith(
+      ownerContext,
+      'plan',
+      '',
+      planLayout,
+      undefined,
+    );
+
+    for (const path of ['/layouts/sim_order?object=plan', '/layouts', '/layouts?object=lead']) {
+      const refused = await call(`${propertiesUrl()}${path}`, {
+        method: 'PATCH',
+        body: { layout: planLayout },
+      });
+      expect(refused.status, path).toBe(400);
+      expect((await errorOf(refused)).code).toBe('invalid_request');
+    }
+    expect(properties.saveLayout).toHaveBeenCalledTimes(2);
   });
 });

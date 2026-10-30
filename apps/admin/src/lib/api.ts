@@ -3,7 +3,13 @@ import {
   createBackendClient,
   type CreateDownloadLinkResponse,
   type CreateSavedViewRequestInput,
+  type CreatePlanRequestInput,
   type DeletePropertyResponse,
+  type ListPlansQueryInput,
+  type ListPlansResponse,
+  type PlanResponse,
+  type PropertyObject,
+  type UpdatePlanRequest,
   type DeleteSavedViewResponse,
   type ListSavedViewsResponse,
   type PropertyLayoutResponse,
@@ -70,6 +76,11 @@ function client(accessToken: string) {
 }
 
 type StaffClient = ReturnType<typeof client>['staff'];
+
+/** The `object` query of the property calls; nothing for a lead's, which is the backend's default. */
+function objectQuery(object: PropertyObject | undefined): { object: PropertyObject } | undefined {
+  return object === undefined ? undefined : { object };
+}
 
 /** Public liveness check; no session required. */
 export async function getHealth(): Promise<HealthResponse> {
@@ -202,14 +213,15 @@ export async function markLeadOpened(
   return client(accessToken).staff.markLeadOpened(workspaceId, leadId);
 }
 
-export async function setLeadTrashed(
+/** Moves the lead to the archive (`POST …/archive`) or back (`POST …/restore`); both idempotent. */
+export async function setLeadArchived(
   accessToken: string,
   workspaceId: string,
   leadId: string,
-  trashed: boolean,
+  archived: boolean,
 ): Promise<LeadTrashResponse> {
   const staff = client(accessToken).staff;
-  return trashed ? staff.trashLead(workspaceId, leadId) : staff.restoreLead(workspaceId, leadId);
+  return archived ? staff.archiveLead(workspaceId, leadId) : staff.restoreLead(workspaceId, leadId);
 }
 
 export async function addLeadNote(
@@ -279,22 +291,25 @@ export async function resolveUncertainWorkspaceJob(
 }
 
 // ---- Site properties and their record layouts; who may change them is
-// checked server-side. ----
+// checked server-side. `object` names whose properties: a lead's (the default)
+// or a plan's. ----
 
 /** The site's property catalogue (hidden and sensitive included) and its saved layouts. */
 export async function getPropertyModel(
   accessToken: string,
   workspaceId: string,
+  object?: PropertyObject,
 ): Promise<PropertyModelResponse> {
-  return client(accessToken).staff.getPropertyModel(workspaceId);
+  return client(accessToken).staff.getPropertyModel(workspaceId, objectQuery(object));
 }
 
 export async function createProperty(
   accessToken: string,
   workspaceId: string,
   body: Parameters<StaffClient['createProperty']>[1],
+  object?: PropertyObject,
 ): Promise<PropertyResponse> {
-  return client(accessToken).staff.createProperty(workspaceId, body);
+  return client(accessToken).staff.createProperty(workspaceId, body, objectQuery(object));
 }
 
 export async function updateProperty(
@@ -302,16 +317,18 @@ export async function updateProperty(
   workspaceId: string,
   key: string,
   body: UpdateProperty,
+  object?: PropertyObject,
 ): Promise<PropertyResponse> {
-  return client(accessToken).staff.updateProperty(workspaceId, key, body);
+  return client(accessToken).staff.updateProperty(workspaceId, key, body, objectQuery(object));
 }
 
 export async function deleteProperty(
   accessToken: string,
   workspaceId: string,
   key: string,
+  object?: PropertyObject,
 ): Promise<DeletePropertyResponse> {
-  return client(accessToken).staff.deleteProperty(workspaceId, key);
+  return client(accessToken).staff.deleteProperty(workspaceId, key, objectQuery(object));
 }
 
 export async function savePropertyLayout(
@@ -319,8 +336,42 @@ export async function savePropertyLayout(
   workspaceId: string,
   leadType: string,
   body: SavePropertyLayoutRequest,
+  object?: PropertyObject,
 ): Promise<PropertyLayoutResponse> {
-  return client(accessToken).staff.savePropertyLayout(workspaceId, leadType, body);
+  return client(accessToken).staff.savePropertyLayout(
+    workspaceId,
+    leadType,
+    body,
+    objectQuery(object),
+  );
+}
+
+// ---- Plans the site sells. Reading needs workspace access; adding and
+// changing need order.manage, checked server-side. ----
+
+export async function listPlans(
+  accessToken: string,
+  workspaceId: string,
+  query?: ListPlansQueryInput,
+): Promise<ListPlansResponse> {
+  return client(accessToken).staff.listPlans(workspaceId, query);
+}
+
+export async function createPlan(
+  accessToken: string,
+  workspaceId: string,
+  body: CreatePlanRequestInput,
+): Promise<PlanResponse> {
+  return client(accessToken).staff.createPlan(workspaceId, body);
+}
+
+export async function updatePlan(
+  accessToken: string,
+  workspaceId: string,
+  planId: string,
+  body: UpdatePlanRequest,
+): Promise<PlanResponse> {
+  return client(accessToken).staff.updatePlan(workspaceId, planId, body);
 }
 
 // ---- Private saved views: the caller's own, never anyone else's. ----

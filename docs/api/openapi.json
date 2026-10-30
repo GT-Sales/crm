@@ -156,7 +156,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -349,7 +353,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -507,7 +515,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -728,7 +740,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -892,7 +908,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1093,7 +1113,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1293,7 +1317,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1488,7 +1516,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1676,7 +1708,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1864,7 +1900,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1895,7 +1935,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads": {
       "get": {
         "operationId": "listWorkspaceLeads",
-        "summary": "List leads with filters (type, stage, assignee, search, trash, follow-ups due) and attribution.",
+        "summary": "List leads with filters (type, stage, assignee, search, archive, follow-ups due) and attribution.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -1953,7 +1993,7 @@
             "name": "view",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["active", "trash"] }
+            "schema": { "type": "string", "enum": ["active", "archived", "trash"] }
           },
           {
             "name": "dueBy",
@@ -2307,7 +2347,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2338,7 +2382,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads/summary": {
       "get": {
         "operationId": "getWorkspaceLeadsSummary",
-        "summary": "Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the trash.",
+        "summary": "Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the archive.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -2389,6 +2433,7 @@
                         "additionalProperties": false
                       }
                     },
+                    "archived": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                     "trash": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                     "access": {
                       "type": "object",
@@ -2408,7 +2453,7 @@
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
-                  "required": ["types", "trash", "access", "requestId"],
+                  "required": ["types", "archived", "trash", "access", "requestId"],
                   "additionalProperties": false
                 }
               }
@@ -2515,7 +2560,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2758,7 +2807,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3165,7 +3218,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3376,6 +3433,102 @@
                             "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                           },
                           "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "plan": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    "priceMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000000
+                                    },
+                                    "currency": { "type": "string", "const": "CAD" },
+                                    "billingPeriod": {
+                                      "type": "string",
+                                      "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                                    },
+                                    "paymentRequired": { "type": "boolean" },
+                                    "requiredDocuments": {
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "additionalProperties": {
+                                        "type": ["string", "number", "boolean"]
+                                      }
+                                    },
+                                    "frozenAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": [
+                                    "planId",
+                                    "name",
+                                    "priceMinor",
+                                    "currency",
+                                    "billingPeriod",
+                                    "paymentRequired",
+                                    "requiredDocuments",
+                                    "properties",
+                                    "frozenAt"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                            "paymentStatus": {
+                              "type": "string",
+                              "enum": ["not_needed", "pending", "paid"]
+                            },
+                            "carrierCommission": {
+                              "type": "string",
+                              "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            }
+                          },
+                          "required": [
+                            "planId",
+                            "plan",
+                            "quantity",
+                            "paymentStatus",
+                            "carrierCommission"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -3593,7 +3746,8 @@
                                   "maxLength": 64,
                                   "pattern": "^[a-z0-9_]+$"
                                 }
-                              }
+                              },
+                              "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "event"],
                             "additionalProperties": false
@@ -3974,7 +4128,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4183,6 +4341,102 @@
                             "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                           },
                           "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "plan": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    "priceMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000000
+                                    },
+                                    "currency": { "type": "string", "const": "CAD" },
+                                    "billingPeriod": {
+                                      "type": "string",
+                                      "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                                    },
+                                    "paymentRequired": { "type": "boolean" },
+                                    "requiredDocuments": {
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "additionalProperties": {
+                                        "type": ["string", "number", "boolean"]
+                                      }
+                                    },
+                                    "frozenAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": [
+                                    "planId",
+                                    "name",
+                                    "priceMinor",
+                                    "currency",
+                                    "billingPeriod",
+                                    "paymentRequired",
+                                    "requiredDocuments",
+                                    "properties",
+                                    "frozenAt"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                            "paymentStatus": {
+                              "type": "string",
+                              "enum": ["not_needed", "pending", "paid"]
+                            },
+                            "carrierCommission": {
+                              "type": "string",
+                              "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            }
+                          },
+                          "required": [
+                            "planId",
+                            "plan",
+                            "quantity",
+                            "paymentStatus",
+                            "carrierCommission"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -4400,7 +4654,8 @@
                                   "maxLength": 64,
                                   "pattern": "^[a-z0-9_]+$"
                                 }
-                              }
+                              },
+                              "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "event"],
                             "additionalProperties": false
@@ -4521,7 +4776,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4606,6 +4865,31 @@
                         { "type": "null" }
                       ]
                     }
+                  },
+                  "order": {
+                    "type": "object",
+                    "properties": {
+                      "planId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          { "type": "null" }
+                        ]
+                      },
+                      "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                      "paymentStatus": {
+                        "type": "string",
+                        "enum": ["not_needed", "pending", "paid"]
+                      },
+                      "carrierCommission": {
+                        "type": "string",
+                        "enum": ["not_yet", "invoiced", "received", "clawback"]
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": false
@@ -4615,10 +4899,10 @@
         }
       }
     },
-    "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/trash": {
+    "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/archive": {
       "post": {
-        "operationId": "trashWorkspaceLead",
-        "summary": "Move a lead to the trash; it can be restored (lead management).",
+        "operationId": "archiveWorkspaceLead",
+        "summary": "Archive a lead; it can be restored (lead management).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -4798,6 +5082,102 @@
                             "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                           },
                           "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "plan": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    "priceMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000000
+                                    },
+                                    "currency": { "type": "string", "const": "CAD" },
+                                    "billingPeriod": {
+                                      "type": "string",
+                                      "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                                    },
+                                    "paymentRequired": { "type": "boolean" },
+                                    "requiredDocuments": {
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "additionalProperties": {
+                                        "type": ["string", "number", "boolean"]
+                                      }
+                                    },
+                                    "frozenAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": [
+                                    "planId",
+                                    "name",
+                                    "priceMinor",
+                                    "currency",
+                                    "billingPeriod",
+                                    "paymentRequired",
+                                    "requiredDocuments",
+                                    "properties",
+                                    "frozenAt"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                            "paymentStatus": {
+                              "type": "string",
+                              "enum": ["not_needed", "pending", "paid"]
+                            },
+                            "carrierCommission": {
+                              "type": "string",
+                              "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            }
+                          },
+                          "required": [
+                            "planId",
+                            "plan",
+                            "quantity",
+                            "paymentStatus",
+                            "carrierCommission"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -5015,7 +5395,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -5138,7 +5519,663 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/trash": {
+      "post": {
+        "operationId": "trashWorkspaceLead",
+        "summary": "Deprecated alias of archiveWorkspaceLead (lead management).",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lead": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "workspaceId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "leadType": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9_]+$"
+                        },
+                        "status": { "type": "string", "enum": ["incomplete", "submitted"] },
+                        "stage": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9_]+$"
+                        },
+                        "contact": {
+                          "type": "object",
+                          "properties": {
+                            "fullName": { "type": "string", "minLength": 1, "maxLength": 160 },
+                            "email": {
+                              "type": "string",
+                              "maxLength": 254,
+                              "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+                            },
+                            "phone": { "type": "string", "maxLength": 40 },
+                            "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" }
+                          },
+                          "additionalProperties": false
+                        },
+                        "contactId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "assignedActorId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "externalRef": {
+                          "anyOf": [
+                            { "type": "string", "minLength": 1, "maxLength": 128 },
+                            { "type": "null" }
+                          ]
+                        },
+                        "source": { "type": "string", "minLength": 1, "maxLength": 160 },
+                        "attribution": {
+                          "type": "object",
+                          "properties": {
+                            "utmSource": { "type": "string", "maxLength": 120 },
+                            "utmMedium": { "type": "string", "maxLength": 120 },
+                            "utmCampaign": { "type": "string", "maxLength": 120 },
+                            "utmTerm": { "type": "string", "maxLength": 120 },
+                            "utmContent": { "type": "string", "maxLength": 120 },
+                            "partnerCode": { "type": "string", "maxLength": 64 },
+                            "partnerCodeMatched": { "type": "boolean" },
+                            "landingPath": { "type": "string", "maxLength": 512 },
+                            "referrerHost": { "type": "string", "maxLength": 253 }
+                          },
+                          "additionalProperties": false
+                        },
+                        "consentVersion": {
+                          "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }]
+                        },
+                        "openTaskCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "nextTaskDueAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "isNew": { "type": "boolean" },
+                        "countdownDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "properties": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "deletedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "form": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "payload": {
+                                  "type": "object",
+                                  "propertyNames": { "type": "string" },
+                                  "additionalProperties": {}
+                                }
+                              },
+                              "required": ["schemaVersion", "payload"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "customValues": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                          },
+                          "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "plan": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    "priceMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000000
+                                    },
+                                    "currency": { "type": "string", "const": "CAD" },
+                                    "billingPeriod": {
+                                      "type": "string",
+                                      "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                                    },
+                                    "paymentRequired": { "type": "boolean" },
+                                    "requiredDocuments": {
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "additionalProperties": {
+                                        "type": ["string", "number", "boolean"]
+                                      }
+                                    },
+                                    "frozenAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": [
+                                    "planId",
+                                    "name",
+                                    "priceMinor",
+                                    "currency",
+                                    "billingPeriod",
+                                    "paymentRequired",
+                                    "requiredDocuments",
+                                    "properties",
+                                    "frozenAt"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                            "paymentStatus": {
+                              "type": "string",
+                              "enum": ["not_needed", "pending", "paid"]
+                            },
+                            "carrierCommission": {
+                              "type": "string",
+                              "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            }
+                          },
+                          "required": [
+                            "planId",
+                            "plan",
+                            "quantity",
+                            "paymentStatus",
+                            "carrierCommission"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "workspaceId",
+                        "leadType",
+                        "status",
+                        "stage",
+                        "contact",
+                        "contactId",
+                        "assignedActorId",
+                        "externalRef",
+                        "source",
+                        "attribution",
+                        "consentVersion",
+                        "openTaskCount",
+                        "nextTaskDueAt",
+                        "deletedAt",
+                        "createdAt",
+                        "updatedAt",
+                        "form"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "activity": {
+                      "anyOf": [
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "note" },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "body"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "status_change" },
+                                "from": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "to": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "from", "to"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "assignment" },
+                                "from": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "to": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "from", "to"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "edit" },
+                                "fields": {
+                                  "minItems": 1,
+                                  "maxItems": 200,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "fields"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "system" },
+                                "event": {
+                                  "type": "string",
+                                  "enum": [
+                                    "trashed",
+                                    "restored",
+                                    "opened",
+                                    "customer_emailed",
+                                    "change_requested",
+                                    "change_approved",
+                                    "change_rejected",
+                                    "unknown"
+                                  ]
+                                },
+                                "template": { "type": "string", "enum": ["sim_number_ready"] },
+                                "requestNo": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "fields": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "documents": {
+                                  "maxItems": 10,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9_]+$"
+                                  }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "event"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["lead", "activity", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5299,7 +6336,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5538,7 +6579,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -5661,7 +6703,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5692,7 +6738,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/restore": {
       "post": {
         "operationId": "restoreWorkspaceLead",
-        "summary": "Bring a lead back from the trash (lead management).",
+        "summary": "Bring a lead back from the archive (lead management).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -5872,6 +6918,102 @@
                             "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                           },
                           "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "plan": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    "priceMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000000
+                                    },
+                                    "currency": { "type": "string", "const": "CAD" },
+                                    "billingPeriod": {
+                                      "type": "string",
+                                      "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                                    },
+                                    "paymentRequired": { "type": "boolean" },
+                                    "requiredDocuments": {
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "additionalProperties": {
+                                        "type": ["string", "number", "boolean"]
+                                      }
+                                    },
+                                    "frozenAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": [
+                                    "planId",
+                                    "name",
+                                    "priceMinor",
+                                    "currency",
+                                    "billingPeriod",
+                                    "paymentRequired",
+                                    "requiredDocuments",
+                                    "properties",
+                                    "frozenAt"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                            "paymentStatus": {
+                              "type": "string",
+                              "enum": ["not_needed", "pending", "paid"]
+                            },
+                            "carrierCommission": {
+                              "type": "string",
+                              "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            }
+                          },
+                          "required": [
+                            "planId",
+                            "plan",
+                            "quantity",
+                            "paymentStatus",
+                            "carrierCommission"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -6089,7 +7231,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -6212,7 +7355,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6443,7 +7590,8 @@
                                 "maxLength": 64,
                                 "pattern": "^[a-z0-9_]+$"
                               }
-                            }
+                            },
+                            "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "event"],
                           "additionalProperties": false
@@ -6563,7 +7711,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6807,7 +7959,8 @@
                                 "maxLength": 64,
                                 "pattern": "^[a-z0-9_]+$"
                               }
-                            }
+                            },
+                            "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "event"],
                           "additionalProperties": false
@@ -6927,7 +8080,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7174,7 +8331,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7443,7 +8604,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7832,7 +8997,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7867,7 +9036,13 @@
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
-          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -7916,10 +9091,15 @@
                             }
                           },
                           "origin": { "type": "string", "enum": ["builtin", "custom"] },
-                          "storage": { "type": "string", "enum": ["form", "custom"] },
+                          "storage": { "type": "string", "enum": ["form", "custom", "order"] },
+                          "storageKey": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                          },
                           "sensitive": { "type": "boolean" },
                           "staffOnly": { "type": "boolean" },
                           "hidden": { "type": "boolean" },
+                          "websiteVisible": { "type": "boolean" },
                           "leadTypes": {
                             "maxItems": 20,
                             "type": "array",
@@ -7962,9 +9142,33 @@
                           "sensitive",
                           "staffOnly",
                           "hidden",
+                          "websiteVisible",
                           "leadTypes",
                           "editable"
                         ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "plans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                          "active": { "type": "boolean" },
+                          "leadType": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          }
+                        },
+                        "required": ["id", "name", "active", "leadType"],
                         "additionalProperties": false
                       }
                     },
@@ -8147,7 +9351,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8180,7 +9388,13 @@
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
-          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "201": {
@@ -8227,10 +9441,12 @@
                           }
                         },
                         "origin": { "type": "string", "enum": ["builtin", "custom"] },
-                        "storage": { "type": "string", "enum": ["form", "custom"] },
+                        "storage": { "type": "string", "enum": ["form", "custom", "order"] },
+                        "storageKey": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
                         "sensitive": { "type": "boolean" },
                         "staffOnly": { "type": "boolean" },
                         "hidden": { "type": "boolean" },
+                        "websiteVisible": { "type": "boolean" },
                         "leadTypes": {
                           "maxItems": 20,
                           "type": "array",
@@ -8273,6 +9489,7 @@
                         "sensitive",
                         "staffOnly",
                         "hidden",
+                        "websiteVisible",
                         "leadTypes",
                         "editable"
                       ],
@@ -8391,7 +9608,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8457,6 +9678,7 @@
                   },
                   "staffOnly": { "default": false, "type": "boolean" },
                   "sensitive": { "default": false, "type": "boolean" },
+                  "websiteVisible": { "default": false, "type": "boolean" },
                   "leadTypes": {
                     "default": [],
                     "maxItems": 20,
@@ -8485,7 +9707,13 @@
         "security": [{ "staffSession": [] }],
         "parameters": [
           { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -8532,10 +9760,12 @@
                           }
                         },
                         "origin": { "type": "string", "enum": ["builtin", "custom"] },
-                        "storage": { "type": "string", "enum": ["form", "custom"] },
+                        "storage": { "type": "string", "enum": ["form", "custom", "order"] },
+                        "storageKey": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
                         "sensitive": { "type": "boolean" },
                         "staffOnly": { "type": "boolean" },
                         "hidden": { "type": "boolean" },
+                        "websiteVisible": { "type": "boolean" },
                         "leadTypes": {
                           "maxItems": 20,
                           "type": "array",
@@ -8578,6 +9808,7 @@
                         "sensitive",
                         "staffOnly",
                         "hidden",
+                        "websiteVisible",
                         "leadTypes",
                         "editable"
                       ],
@@ -8696,7 +9927,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8752,6 +9987,7 @@
                   "staffOnly": { "type": "boolean" },
                   "sensitive": { "type": "boolean" },
                   "hidden": { "type": "boolean" },
+                  "websiteVisible": { "type": "boolean" },
                   "leadTypes": {
                     "maxItems": 20,
                     "type": "array",
@@ -8778,7 +10014,13 @@
         "security": [{ "staffSession": [] }],
         "parameters": [
           { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -8902,7 +10144,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8933,12 +10179,18 @@
     "/api/v1/staff/workspaces/{workspaceId}/properties/layouts/{leadType}": {
       "patch": {
         "operationId": "savePropertyLayout",
-        "summary": "Save the record layout of one lead type (property management).",
+        "summary": "Save the record layout of one lead type, or with `object=plan` the plan record layout (no lead type in the path) (property management).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
           { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "leadType", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "leadType", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -9113,7 +10365,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9232,7 +10488,7 @@
                                 "maxLength": 64,
                                 "pattern": "^[a-z0-9_]+$"
                               },
-                              "trash": { "type": "boolean" },
+                              "archived": { "type": "boolean" },
                               "stage": {
                                 "type": "string",
                                 "minLength": 1,
@@ -9330,7 +10586,7 @@
                             },
                             "required": [
                               "layout",
-                              "trash",
+                              "archived",
                               "due",
                               "where",
                               "columns",
@@ -9466,7 +10722,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9529,7 +10789,7 @@
                               "maxLength": 64,
                               "pattern": "^[a-z0-9_]+$"
                             },
-                            "trash": { "type": "boolean" },
+                            "archived": { "type": "boolean" },
                             "stage": {
                               "type": "string",
                               "minLength": 1,
@@ -9624,7 +10884,7 @@
                           },
                           "required": [
                             "layout",
-                            "trash",
+                            "archived",
                             "due",
                             "where",
                             "columns",
@@ -9759,7 +11019,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9804,7 +11068,7 @@
                         "maxLength": 64,
                         "pattern": "^[a-z0-9_]+$"
                       },
-                      "trash": { "type": "boolean" },
+                      "archived": { "type": "boolean" },
                       "stage": {
                         "type": "string",
                         "minLength": 1,
@@ -9882,7 +11146,7 @@
                         }
                       }
                     },
-                    "required": ["layout", "trash", "due", "where", "columns", "hiddenColumns"],
+                    "required": ["layout", "archived", "due", "where", "columns", "hiddenColumns"],
                     "additionalProperties": false
                   }
                 },
@@ -9932,7 +11196,7 @@
                               "maxLength": 64,
                               "pattern": "^[a-z0-9_]+$"
                             },
-                            "trash": { "type": "boolean" },
+                            "archived": { "type": "boolean" },
                             "stage": {
                               "type": "string",
                               "minLength": 1,
@@ -10027,7 +11291,7 @@
                           },
                           "required": [
                             "layout",
-                            "trash",
+                            "archived",
                             "due",
                             "where",
                             "columns",
@@ -10162,7 +11426,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10211,7 +11479,7 @@
                         "maxLength": 64,
                         "pattern": "^[a-z0-9_]+$"
                       },
-                      "trash": { "type": "boolean" },
+                      "archived": { "type": "boolean" },
                       "stage": {
                         "type": "string",
                         "minLength": 1,
@@ -10289,7 +11557,7 @@
                         }
                       }
                     },
-                    "required": ["layout", "trash", "due", "where", "columns", "hiddenColumns"],
+                    "required": ["layout", "archived", "due", "where", "columns", "hiddenColumns"],
                     "additionalProperties": false
                   }
                 },
@@ -10435,7 +11703,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10457,6 +11729,834 @@
                   "required": ["error"],
                   "additionalProperties": false
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/plans": {
+      "get": {
+        "operationId": "listPlans",
+        "summary": "List the site's plans, active only unless asked for inactive ones too.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "leadType",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["sim_order", "internet", "mobility"] }
+          },
+          {
+            "name": "includeInactive",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "false", "type": "string", "enum": ["true", "false"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plans": {
+                      "maxItems": 200,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "leadType": {
+                            "type": "string",
+                            "enum": ["sim_order", "internet", "mobility"]
+                          },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                          "priceMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1000000000000
+                          },
+                          "currency": { "type": "string", "const": "CAD" },
+                          "billingPeriod": {
+                            "type": "string",
+                            "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                          },
+                          "paymentRequired": { "type": "boolean" },
+                          "active": { "type": "boolean" },
+                          "requiredDocuments": {
+                            "maxItems": 16,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9_]+$"
+                            }
+                          },
+                          "customValues": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                            },
+                            "additionalProperties": { "type": ["string", "number", "boolean"] }
+                          },
+                          "position": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "leadType",
+                          "name",
+                          "priceMinor",
+                          "currency",
+                          "billingPeriod",
+                          "paymentRequired",
+                          "active",
+                          "requiredDocuments",
+                          "customValues",
+                          "position",
+                          "version",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["plans", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPlan",
+        "summary": "Add a plan the site sells for one order lead type.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plan": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "leadType": {
+                          "type": "string",
+                          "enum": ["sim_order", "internet", "mobility"]
+                        },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
+                        "currency": { "type": "string", "const": "CAD" },
+                        "billingPeriod": {
+                          "type": "string",
+                          "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                        },
+                        "paymentRequired": { "type": "boolean" },
+                        "active": { "type": "boolean" },
+                        "requiredDocuments": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          }
+                        },
+                        "customValues": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                          },
+                          "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "position": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "leadType",
+                        "name",
+                        "priceMinor",
+                        "currency",
+                        "billingPeriod",
+                        "paymentRequired",
+                        "active",
+                        "requiredDocuments",
+                        "customValues",
+                        "position",
+                        "version",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["plan", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "leadType": { "type": "string", "enum": ["sim_order", "internet", "mobility"] },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                  "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
+                  "billingPeriod": {
+                    "type": "string",
+                    "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                  },
+                  "paymentRequired": { "type": "boolean" },
+                  "requiredDocuments": {
+                    "maxItems": 16,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    }
+                  },
+                  "active": { "default": true, "type": "boolean" },
+                  "customValues": {
+                    "default": {},
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
+                    "additionalProperties": { "type": ["string", "number", "boolean"] }
+                  }
+                },
+                "required": [
+                  "leadType",
+                  "name",
+                  "priceMinor",
+                  "billingPeriod",
+                  "paymentRequired",
+                  "requiredDocuments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/plans/{planId}": {
+      "patch": {
+        "operationId": "updatePlan",
+        "summary": "Change, reorder, deactivate or reactivate one of the site plans.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plan": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "leadType": {
+                          "type": "string",
+                          "enum": ["sim_order", "internet", "mobility"]
+                        },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
+                        "currency": { "type": "string", "const": "CAD" },
+                        "billingPeriod": {
+                          "type": "string",
+                          "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                        },
+                        "paymentRequired": { "type": "boolean" },
+                        "active": { "type": "boolean" },
+                        "requiredDocuments": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          }
+                        },
+                        "customValues": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                          },
+                          "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "position": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "leadType",
+                        "name",
+                        "priceMinor",
+                        "currency",
+                        "billingPeriod",
+                        "paymentRequired",
+                        "active",
+                        "requiredDocuments",
+                        "customValues",
+                        "position",
+                        "version",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["plan", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                  "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
+                  "billingPeriod": {
+                    "type": "string",
+                    "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                  },
+                  "paymentRequired": { "type": "boolean" },
+                  "active": { "type": "boolean" },
+                  "requiredDocuments": {
+                    "maxItems": 16,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    }
+                  },
+                  "customValues": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
+                    "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+                  },
+                  "position": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["expectedVersion"],
+                "additionalProperties": false
               }
             }
           }
@@ -10656,7 +12756,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10821,7 +12925,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10986,7 +13094,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11186,7 +13298,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11487,7 +13603,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11667,7 +13787,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11893,7 +14017,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11968,7 +14096,20 @@
                     "required": ["schemaVersion", "payload"]
                   },
                   "consentVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
-                  "submit": { "type": "boolean" }
+                  "submit": { "type": "boolean" },
+                  "order": {
+                    "type": "object",
+                    "properties": {
+                      "planId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "quantity": { "default": 1, "type": "integer", "minimum": 1, "maximum": 99 }
+                    },
+                    "required": ["planId"],
+                    "additionalProperties": false
+                  }
                 },
                 "required": ["leadType", "consentVersion"]
               }
@@ -12151,7 +14292,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12218,7 +14363,21 @@
                     "propertyNames": { "type": "string" },
                     "additionalProperties": {}
                   },
-                  "consentVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
+                  "consentVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+                  "order": {
+                    "type": "object",
+                    "properties": {
+                      "planId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "quantity": { "default": 1, "type": "integer", "minimum": 1, "maximum": 99 }
+                    },
+                    "required": ["planId"],
+                    "additionalProperties": false
+                  },
+                  "submit": { "type": "boolean" }
                 }
               }
             }
@@ -12304,6 +14463,24 @@
                             },
                             { "type": "null" }
                           ]
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "quantity": {
+                              "default": 1,
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 99
+                            }
+                          },
+                          "required": ["planId", "quantity"],
+                          "additionalProperties": false
                         }
                       },
                       "required": ["leadId", "leadType", "contact", "form"],
@@ -12422,7 +14599,244 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/website/plans": {
+      "get": {
+        "operationId": "listWebsitePlans",
+        "summary": "List the site's active plans with their website-visible values, for its storefront.",
+        "tags": ["website"],
+        "security": [{ "websiteCredential": [] }],
+        "parameters": [
+          {
+            "name": "X-Website-Visitor-Id",
+            "in": "header",
+            "required": false,
+            "description": "Server-owned keyed visitor digest from the authenticated website; never raw browser forwarding headers.",
+            "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          {
+            "name": "leadType",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["sim_order", "internet", "mobility"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "leadType": {
+                            "type": "string",
+                            "enum": ["sim_order", "internet", "mobility"]
+                          },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                          "priceMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1000000000000
+                          },
+                          "currency": { "type": "string", "const": "CAD" },
+                          "billingPeriod": {
+                            "type": "string",
+                            "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                          },
+                          "paymentRequired": { "type": "boolean" },
+                          "requiredDocuments": {
+                            "maxItems": 16,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9_]+$"
+                            }
+                          },
+                          "properties": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                            },
+                            "additionalProperties": { "type": ["string", "number", "boolean"] }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "leadType",
+                          "name",
+                          "priceMinor",
+                          "currency",
+                          "billingPeriod",
+                          "paymentRequired",
+                          "requiredDocuments",
+                          "properties"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["plans", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12611,7 +15025,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12820,7 +15238,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13052,7 +15474,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13328,7 +15754,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13527,7 +15957,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },

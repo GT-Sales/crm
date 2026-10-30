@@ -21,7 +21,7 @@ const VIEW_ID = '40000000-0000-4000-8000-000000000001';
 const FULL_STATE: SavedViewState = {
   layout: 'table',
   leadType: 'sim_order',
-  trash: false,
+  archived: false,
   stage: 'pending',
   assignee: 'me',
   due: false,
@@ -37,7 +37,7 @@ const FULL_STATE: SavedViewState = {
 function fullQuery(): InboxQuery {
   return {
     type: 'internet',
-    trash: false,
+    archived: false,
     layout: 'table',
     view: VIEW_ID,
     stage: 'contacted',
@@ -58,7 +58,7 @@ describe('inboxQueryToViewState', () => {
     expect(state).toEqual({
       layout: 'table',
       leadType: 'internet',
-      trash: false,
+      archived: false,
       stage: 'contacted',
       assignee: 'me',
       due: false,
@@ -100,7 +100,7 @@ describe('viewStateToInboxQuery', () => {
     expect(inboxQueryToViewState(reparsed)).toEqual(FULL_STATE);
   });
 
-  it('round-trips a board view and a trash view', () => {
+  it('round-trips a board view and an archive view', () => {
     const board: SavedViewState = {
       ...DEFAULT_LEAD_VIEW_STATE,
       layout: 'board',
@@ -111,11 +111,25 @@ describe('viewStateToInboxQuery', () => {
     );
     expect(inboxQueryToViewState(boardQuery)).toEqual(board);
 
-    const trash: SavedViewState = { ...DEFAULT_LEAD_VIEW_STATE, trash: true };
-    const trashQuery = parseInboxQuery(
-      new URLSearchParams(inboxSearch(viewStateToInboxQuery(trash, VIEW_ID)).slice(1)),
+    const archive: SavedViewState = { ...DEFAULT_LEAD_VIEW_STATE, archived: true };
+    const archiveQuery = parseInboxQuery(
+      new URLSearchParams(inboxSearch(viewStateToInboxQuery(archive, VIEW_ID)).slice(1)),
     );
-    expect(inboxQueryToViewState(trashQuery)).toEqual(trash);
+    expect(inboxQueryToViewState(archiveQuery)).toEqual(archive);
+  });
+
+  it('opens a view saved before Archive replaced Trash in the archive, written as archived=1', () => {
+    const legacy = savedViewStateSchema.parse({
+      layout: 'table',
+      trash: true,
+      due: false,
+      where: [],
+      columns: [],
+      hiddenColumns: [],
+    });
+    const query = viewStateToInboxQuery(legacy, VIEW_ID);
+    expect(query.archived).toBe(true);
+    expect(inboxSearch(query)).toBe(`?archived=1&view=${VIEW_ID}`);
   });
 
   it('never carries a search, even from a state that came from a query that had one', () => {
@@ -158,7 +172,7 @@ describe('isViewDirty', () => {
     );
   });
 
-  it('notices a changed filter value, sort, stage, assignee, layout, due, trash and type', () => {
+  it('notices a changed filter value, sort, stage, assignee, layout, due, archive and type', () => {
     const [first, second] = FULL_STATE.where;
     if (!first || !second) throw new Error('fixture');
     expect(
@@ -172,7 +186,7 @@ describe('isViewDirty', () => {
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, assignee: 'none' })).toBe(true);
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, layout: 'board' })).toBe(true);
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, due: true })).toBe(true);
-    expect(isViewDirty(FULL_STATE, { ...FULL_STATE, trash: true })).toBe(true);
+    expect(isViewDirty(FULL_STATE, { ...FULL_STATE, archived: true })).toBe(true);
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, leadType: 'mobility' })).toBe(true);
   });
 

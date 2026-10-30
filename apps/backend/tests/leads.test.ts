@@ -1,6 +1,10 @@
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiErrorResponseSchema, createLeadResponseSchema } from '@gt-sales/contracts';
+import {
+  apiErrorResponseSchema,
+  createLeadResponseSchema,
+  readLeadResponseSchema,
+} from '@gt-sales/contracts';
 import type { WebsiteCredentialResolution } from '@gt-sales/db';
 
 import { createApp } from '../src/app.js';
@@ -12,6 +16,7 @@ import type {
   UpdateLeadInput,
   UpdateLeadOutcome,
 } from '../src/leads/store.js';
+import { OrderIntakeError } from '../src/leads/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 import { generateServiceSecret } from '../src/website/credential.js';
@@ -51,8 +56,14 @@ class FakeLeadStore implements LeadStore {
     [LEAD_B, 'incomplete'],
   ]);
 
+  /** What the next create throws, as the real store does inside its transaction. */
+  createError: Error | undefined;
+  /** What the next update answers once its grant checks pass. */
+  updateOutcome: UpdateLeadOutcome | undefined;
+
   async createLead(input: CreateLeadInput): Promise<CreateLeadResult> {
     this.createCalls.push(input);
+    if (this.createError) throw this.createError;
     if (input.submit) {
       return {
         lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'submitted', updatedAt: NOW },
@@ -71,6 +82,7 @@ class FakeLeadStore implements LeadStore {
     if (!grant || grant.leadId !== input.leadId) return { status: 'grant_invalid' };
     if (grant.revoked || grant.expiresAt <= Date.now()) return { status: 'grant_expired' };
     if (this.leadStatus.get(input.leadId) !== 'incomplete') return { status: 'draft_submitted' };
+    if (this.updateOutcome) return this.updateOutcome;
     return {
       status: 'updated',
       lead: {
@@ -447,6 +459,26 @@ describe('GET /api/v1/website/leads/:leadId', () => {
     ).toBe(401);
   });
 
+  it('returns the plan and quantity a draft order was saved with', async () => {
+    const draft = {
+      leadId: LEAD_A,
+      leadType: 'sim_order',
+      contact: { fullName: 'Saved customer' },
+      form: null,
+      order: { planId: '70000000-0000-4000-8000-000000000001', quantity: 2 },
+    };
+    leadStore.readLead = async () => ({ status: 'read', draft });
+    const response = await request('GET', `/api/v1/website/leads/${LEAD_A}`, {
+      'x-draft-grant': VALID_GRANT_A,
+    });
+    expect(response.status).toBe(200);
+    const body = readLeadResponseSchema.parse(await response.json());
+    expect(body.draft.order).toEqual({
+      planId: '70000000-0000-4000-8000-000000000001',
+      quantity: 2,
+    });
+  });
+
   it.each(['grant_expired', 'draft_submitted'] as const)(
     'does not expose a %s draft',
     async (status) => {
@@ -556,5 +588,90 @@ describe('PATCH /api/v1/website/leads/:leadId', () => {
     expect(leadStore.updateCalls.every((call) => call.leadId === LEAD_A)).toBe(true);
     expect(leadStore.updateCalls[0]?.contact).toEqual({ fullName: 'Jane Doe' });
     expect(leadStore.updateCalls[1]?.contact).toEqual({ email: 'jane@example.test' });
+  });
+});
+
+describe('order intake', () => {
+  const PLAN = '93000000-0000-4000-8000-000000000301';
+  const simOrder = (extra: Record<string, unknown> = {}) => ({
+    leadType: 'sim_order',
+    consentVersion: 'gcs-v1',
+    contact: { email: 'traveller@example.test' },
+    ...extra,
+  });
+
+  async function errorOf(response: Response) {
+    return apiErrorResponseSchema.parse(await response.json()).error;
+  }
+
+  it('passes the plan through with quantity 1 by default, never a price', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      simOrder({ submit: true, order: { planId: PLAN } }),
+    );
+    expect(response.status).toBe(201);
+    expect(leadStore.createCalls[0]?.order).toEqual({ planId: PLAN, quantity: 1 });
+
+    for (const order of [
+      { planId: PLAN, priceMinor: 100 },
+      { planId: PLAN, quantity: 0 },
+      { planId: 'not-a-uuid' },
+    ]) {
+      const refused = await request('POST', '/api/v1/website/leads', {}, simOrder({ order }));
+      expect(refused.status).toBe(400);
+    }
+    expect(leadStore.createCalls).toHaveLength(1);
+  });
+
+  it('refuses a plan on a type that takes no order before the store', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      simOrder({ leadType: 'contact_message', order: { planId: PLAN } }),
+    );
+    expect(response.status).toBe(400);
+    expect(await errorOf(response)).toMatchObject({
+      code: 'invalid_request',
+      details: { field: 'order' },
+    });
+    expect(leadStore.createCalls).toHaveLength(0);
+  });
+
+  it('answers a plan the site does not sell with 400 plan_not_available', async () => {
+    leadStore.createError = new OrderIntakeError('plan_not_available');
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      simOrder({ submit: true, order: { planId: PLAN, quantity: 2 } }),
+    );
+    expect(response.status).toBe(400);
+    expect(await errorOf(response)).toMatchObject({
+      code: 'plan_not_available',
+      details: { field: 'order' },
+    });
+  });
+
+  it('passes the plan and the submission of a draft save through, and maps the refusals', async () => {
+    const save = (body: unknown) =>
+      request('PATCH', `/api/v1/website/leads/${LEAD_A}`, { 'x-draft-grant': VALID_GRANT_A }, body);
+    expect((await save({ order: { planId: PLAN, quantity: 3 }, submit: true })).status).toBe(200);
+    expect(leadStore.updateCalls[0]).toMatchObject({
+      order: { planId: PLAN, quantity: 3 },
+      submit: true,
+    });
+
+    for (const [status, code] of [
+      ['plan_not_available', 'plan_not_available'],
+      ['order_not_allowed', 'invalid_request'],
+    ] as const) {
+      leadStore.updateOutcome = { status };
+      const response = await save({ order: { planId: PLAN } });
+      expect(response.status).toBe(400);
+      expect(await errorOf(response)).toMatchObject({ code, details: { field: 'order' } });
+    }
   });
 });

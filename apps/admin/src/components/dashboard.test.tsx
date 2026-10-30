@@ -157,6 +157,7 @@ describe('Dashboard totals', () => {
         { leadType: 'partner_application', total: 5, unopened: 0, followUpsDue: 0 },
         { leadType: 'sim_order', total: 138, unopened: 0, followUpsDue: 2 },
       ],
+      archived: 44,
       trash: 44,
       access: { contacts: true, manage: true },
       requestId: '00000000-0000-4000-8000-000000000001',

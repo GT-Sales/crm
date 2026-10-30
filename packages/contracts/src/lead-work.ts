@@ -20,6 +20,7 @@ import {
   leadStageSchema,
 } from './workspace-leads';
 import { propertyKeySchema } from './properties';
+import { leadOrderEditSchema, leadOrderSchema } from './plans';
 
 /**
  * Staff working a lead — the lead page, its timeline, notes and tasks, and
@@ -107,6 +108,11 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     fields: z.array(activityFieldKeySchema).max(50).optional(),
     /** For `change_requested`: the documents sent with it. */
     documents: z.array(documentChecklistKeySchema).max(10).optional(),
+    /**
+     * For an `unknown` entry a data migration wrote (the 0012 stage clean-up):
+     * what it changed, in words, for the timeline to show. Never personal data.
+     */
+    body: z.string().min(1).max(4000).optional(),
   }),
 ]);
 export type LeadActivity = z.infer<typeof leadActivitySchema>;
@@ -137,6 +143,8 @@ export const leadDetailSchema = leadListItemSchema.extend({
   form: leadFormSchema.nullable(),
   /** Values of the site's custom properties (`leads.custom_values`), by property key. */
   customValues: z.record(propertyKeySchema, leadPropertyValueSchema).optional(),
+  /** The order details of an order lead type (`orderLeadTypes`); only with contact access. */
+  order: leadOrderSchema.optional(),
 });
 export type LeadDetail = z.infer<typeof leadDetailSchema>;
 
@@ -199,9 +207,10 @@ export const leadContactEditSchema = z
 export type LeadContactEdit = z.infer<typeof leadContactEditSchema>;
 
 /**
- * `PATCH /workspaces/:id/leads/:leadId`: any of stage, assignee, contact and
- * form corrections, at least one. `form` holds the type's editable fields
- * (`leadFields`), each a new value or null to clear it.
+ * `PATCH /workspaces/:id/leads/:leadId`: any of stage, assignee, contact,
+ * form corrections, custom values and order details, at least one. `form`
+ * holds the type's editable fields (`leadFields`), each a new value or null
+ * to clear it.
  */
 export const updateWorkspaceLeadRequestSchema = z
   .object({
@@ -214,6 +223,8 @@ export const updateWorkspaceLeadRequestSchema = z
       .record(propertyKeySchema, z.union([z.string().max(4000), z.number(), z.boolean(), z.null()]))
       .refine((values) => Object.keys(values).length <= 100)
       .optional(),
+    /** Order details of an order lead type; a new `planId` re-freezes the plan. */
+    order: leadOrderEditSchema.optional(),
   })
   .strict()
   .refine(
@@ -222,7 +233,8 @@ export const updateWorkspaceLeadRequestSchema = z
       value.assignedActorId !== undefined ||
       value.contact !== undefined ||
       value.form !== undefined ||
-      value.customValues !== undefined,
+      value.customValues !== undefined ||
+      value.order !== undefined,
     { message: 'nothing to change' },
   );
 export type UpdateWorkspaceLeadRequest = z.infer<typeof updateWorkspaceLeadRequestSchema>;

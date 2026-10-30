@@ -40,9 +40,9 @@ import {
   updateLeadResponseSchema,
   readLeadResponseSchema,
   type ReadLeadResponse,
-  type CreateLeadRequest,
+  type CreateLeadRequestInput,
   type CreateLeadResponse,
-  type UpdateLeadRequest,
+  type UpdateLeadRequestInput,
   type UpdateLeadResponse,
 } from './leads';
 import {
@@ -114,11 +114,26 @@ import {
   propertyResponseSchema,
   savePropertyLayoutRequestSchema,
   type DeletePropertyResponse,
+  type PropertyObjectQueryInput,
   type PropertyLayoutResponse,
   type PropertyModelResponse,
   type PropertyResponse,
   type SavePropertyLayoutRequest,
 } from './property-layouts';
+import {
+  createPlanRequestSchema,
+  listPlansResponseSchema,
+  listWebsitePlansResponseSchema,
+  planResponseSchema,
+  updatePlanRequestSchema,
+  type CreatePlanRequestInput,
+  type ListPlansQueryInput,
+  type ListPlansResponse,
+  type ListWebsitePlansQuery,
+  type ListWebsitePlansResponse,
+  type PlanResponse,
+  type UpdatePlanRequest,
+} from './plans';
 import {
   createSavedViewRequestSchema,
   deleteSavedViewResponseSchema,
@@ -239,10 +254,10 @@ export interface BackendClient {
   health(): Promise<HealthResponse>;
   leads: {
     read(leadId: string, options: { draftGrant: string }): Promise<ReadLeadResponse>;
-    create(body: CreateLeadRequest, proof?: WebsiteBotProof): Promise<CreateLeadResponse>;
+    create(body: CreateLeadRequestInput, proof?: WebsiteBotProof): Promise<CreateLeadResponse>;
     update(
       leadId: string,
-      body: UpdateLeadRequest,
+      body: UpdateLeadRequestInput,
       options: { draftGrant: string } & WebsiteBotProof,
     ): Promise<UpdateLeadResponse>;
     /** The ID step: a signed PUT for the customer's licence photo. */
@@ -257,6 +272,10 @@ export interface BackendClient {
       body: SubmitLeadIdentityRequest,
       proof?: WebsiteBotProof,
     ): Promise<SubmitLeadIdentityResponse>;
+  };
+  plans: {
+    /** The site's active plans, as its storefront shows them. */
+    list(query?: ListWebsitePlansQuery): Promise<ListWebsitePlansResponse>;
   };
   uploads: {
     createIntent(
@@ -307,6 +326,8 @@ export interface BackendClient {
       leadId: string,
       body: UpdateWorkspaceLeadRequest,
     ): Promise<UpdateWorkspaceLeadResponse>;
+    archiveLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
+    /** @deprecated Use `archiveLead`. */
     trashLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
     markLeadOpened(workspaceId: string, leadId: string): Promise<MarkLeadOpenedResponse>;
     emailLeadCustomer(
@@ -334,21 +355,33 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceTasksQuery,
     ): Promise<ListWorkspaceTasksResponse>;
-    getPropertyModel(workspaceId: string): Promise<PropertyModelResponse>;
+    /** `query.object` picks lead (the default) or plan properties on these five. */
+    getPropertyModel(
+      workspaceId: string,
+      query?: PropertyObjectQueryInput,
+    ): Promise<PropertyModelResponse>;
     createProperty(
       workspaceId: string,
       body: z.input<typeof createCustomPropertySchema>,
+      query?: PropertyObjectQueryInput,
     ): Promise<PropertyResponse>;
     updateProperty(
       workspaceId: string,
       key: string,
       body: UpdateProperty,
+      query?: PropertyObjectQueryInput,
     ): Promise<PropertyResponse>;
-    deleteProperty(workspaceId: string, key: string): Promise<DeletePropertyResponse>;
+    deleteProperty(
+      workspaceId: string,
+      key: string,
+      query?: PropertyObjectQueryInput,
+    ): Promise<DeletePropertyResponse>;
+    /** For plans pass `leadType` `''`: the plan record has one layout. */
     savePropertyLayout(
       workspaceId: string,
       leadType: string,
       body: SavePropertyLayoutRequest,
+      query?: PropertyObjectQueryInput,
     ): Promise<PropertyLayoutResponse>;
     /** The caller's own saved views; no one else's are ever returned. */
     listSavedViews(
@@ -365,6 +398,9 @@ export interface BackendClient {
       body: UpdateSavedViewRequest,
     ): Promise<SavedViewResponse>;
     deleteSavedView(workspaceId: string, viewId: string): Promise<DeleteSavedViewResponse>;
+    listPlans(workspaceId: string, query?: ListPlansQueryInput): Promise<ListPlansResponse>;
+    createPlan(workspaceId: string, body: CreatePlanRequestInput): Promise<PlanResponse>;
+    updatePlan(workspaceId: string, planId: string, body: UpdatePlanRequest): Promise<PlanResponse>;
     listJobs(workspaceId: string): Promise<ListWorkspaceJobsResponse>;
     retryJob(workspaceId: string, jobId: string): Promise<RetryWorkspaceJobResponse>;
     resolveUncertainJob(
@@ -518,6 +554,16 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: submitLeadIdentityRequestSchema.parse(body),
           headers: proofHeader(proof),
           responseSchema: submitLeadIdentityResponseSchema,
+        }),
+    },
+
+    plans: {
+      list: (query) =>
+        call({
+          method: 'GET',
+          path: '/api/v1/website/plans',
+          query: { leadType: query?.leadType },
+          responseSchema: listWebsitePlansResponseSchema,
         }),
     },
 
@@ -696,6 +742,12 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: queueCustomerEmailRequestSchema.parse(body),
           responseSchema: queueCustomerEmailResponseSchema,
         }),
+      archiveLead: (workspaceId, leadId) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/archive`,
+          responseSchema: leadTrashResponseSchema,
+        }),
       trashLead: (workspaceId, leadId) =>
         call({
           method: 'POST',
@@ -742,36 +794,41 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           },
           responseSchema: listWorkspaceTasksResponseSchema,
         }),
-      getPropertyModel: (workspaceId) =>
+      getPropertyModel: (workspaceId, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties`,
+          query: { object: query?.object },
           responseSchema: propertyModelResponseSchema,
         }),
-      createProperty: (workspaceId, body) =>
+      createProperty: (workspaceId, body, query) =>
         call({
           method: 'POST',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties`,
+          query: { object: query?.object },
           body: createCustomPropertySchema.parse(body),
           responseSchema: propertyResponseSchema,
         }),
-      updateProperty: (workspaceId, key, body) =>
+      updateProperty: (workspaceId, key, body, query) =>
         call({
           method: 'PATCH',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/${encode(key)}`,
+          query: { object: query?.object },
           body: updatePropertySchema.parse(body),
           responseSchema: propertyResponseSchema,
         }),
-      deleteProperty: (workspaceId, key) =>
+      deleteProperty: (workspaceId, key, query) =>
         call({
           method: 'DELETE',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/${encode(key)}`,
+          query: { object: query?.object },
           responseSchema: deletePropertyResponseSchema,
         }),
-      savePropertyLayout: (workspaceId, leadType, body) =>
+      savePropertyLayout: (workspaceId, leadType, body, query) =>
         call({
           method: 'PATCH',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/layouts/${encode(leadType)}`,
+          query: { object: query?.object },
           body: savePropertyLayoutRequestSchema.parse(body),
           responseSchema: propertyLayoutResponseSchema,
         }),
@@ -801,6 +858,27 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           method: 'DELETE',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/views/${encode(viewId)}`,
           responseSchema: deleteSavedViewResponseSchema,
+        }),
+      listPlans: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans`,
+          query: { leadType: query?.leadType, includeInactive: query?.includeInactive },
+          responseSchema: listPlansResponseSchema,
+        }),
+      createPlan: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans`,
+          body: createPlanRequestSchema.parse(body),
+          responseSchema: planResponseSchema,
+        }),
+      updatePlan: (workspaceId, planId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans/${encode(planId)}`,
+          body: updatePlanRequestSchema.parse(body),
+          responseSchema: planResponseSchema,
         }),
       listJobs: (workspaceId) =>
         call({

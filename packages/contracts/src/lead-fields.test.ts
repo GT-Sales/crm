@@ -84,7 +84,7 @@ const expectedLeadFieldCatalog: Readonly<Record<string, readonly LeadFieldDefini
   sim_order: [
     {
       key: 'planId',
-      label: 'Plan',
+      label: 'Plan (as submitted)',
       kind: 'choice',
       options: SIM_PLANS,
       labelKey: 'planLabel',
@@ -141,18 +141,6 @@ const expectedLeadFieldCatalog: Readonly<Record<string, readonly LeadFieldDefini
       staffOnly: true,
       maxLength: 40,
     },
-    {
-      key: 'commissionStatus',
-      label: 'Carrier commission',
-      kind: 'choice',
-      options: [
-        { value: 'invoiced', label: 'Invoiced' },
-        { value: 'commission_received', label: 'Commission received' },
-        { value: 'claw_back', label: 'Clawback' },
-      ],
-      editable: true,
-      staffOnly: true,
-    },
   ],
   partner_application: [
     { key: 'company', label: 'Company', kind: 'text' },
@@ -174,17 +162,40 @@ const order = {
 };
 
 describe('lead field definitions and shared property catalogue', () => {
-  it('keeps leadFieldCatalog and leadFields() byte-for-byte identical for all four types', () => {
+  it('keeps leadFieldCatalog and leadFields() byte-for-byte identical for the three unchanged types', () => {
     expect(Object.keys(leadFieldCatalog)).toEqual([
       'internet',
       'mobility',
       'sim_order',
       'partner_application',
     ]);
-    for (const type of ['internet', 'mobility', 'sim_order', 'partner_application']) {
+    for (const type of ['internet', 'mobility', 'partner_application']) {
       expect(leadFields(type)).toEqual(expectedLeadFieldCatalog[type]);
       expect(JSON.stringify(leadFields(type))).toBe(JSON.stringify(expectedLeadFieldCatalog[type]));
     }
+  });
+
+  it('lists the SIM order fields without the carrier commission, the old plan as submitted', () => {
+    // Phase 3: the carrier commission is an order detail now, and the plan
+    // a site manages replaces the form's plan slug, kept as the customer sent it.
+    expect(leadFields('sim_order')).toEqual(expectedLeadFieldCatalog['sim_order']);
+    expect(leadFields('sim_order').map((field) => field.key)).toEqual([
+      'planId',
+      'delivery',
+      'arrivalDate',
+      'permitType',
+      'gotVisa',
+      'flightBooked',
+      'shippingAddress',
+      'canadaAddress',
+      'reference',
+      'customerNotes',
+      'simNumber',
+    ]);
+    expect(leadFields('sim_order').find((field) => field.key === 'planId')?.label).toBe(
+      'Plan (as submitted)',
+    );
+    expect(leadProperty('commissionStatus')).toBeUndefined();
   });
 
   it('describes only catalogued types, each key once', () => {
@@ -264,7 +275,7 @@ describe('lead field definitions and shared property catalogue', () => {
     const simFilterable = filterableLeadProperties('sim_order');
     const simPlan = simFilterable.find((entry) => entry.key === 'planId');
     expect(simPlan?.kind).toBe('choice');
-    expect(simPlan?.label).toBe('Plan');
+    expect(simPlan?.label).toBe('Plan (as submitted)');
     expect(simPlan?.options).toEqual(SIM_PLANS);
 
     const allFilterable = filterableLeadProperties();
@@ -465,16 +476,10 @@ describe('applyLeadFormEdit', () => {
     ).toMatchObject({ ok: true, changed: ['simNumber'] });
   });
 
-  it('tracks the carrier commission by its states, and clears it', () => {
-    const invoiced = applyLeadFormEdit('sim_order', order, { commissionStatus: 'invoiced' });
-    expect(invoiced).toMatchObject({ ok: true, payload: { commissionStatus: 'invoiced' } });
-    expect(applyLeadFormEdit('sim_order', order, { commissionStatus: 'paid' })).toEqual({
+  it('no longer edits the carrier commission as a form field (it is an order detail)', () => {
+    expect(applyLeadFormEdit('sim_order', order, { commissionStatus: 'invoiced' })).toEqual({
       ok: false,
       field: 'commissionStatus',
     });
-    if (!invoiced.ok) throw new Error('unreachable');
-    const cleared = applyLeadFormEdit('sim_order', invoiced.payload, { commissionStatus: null });
-    expect(cleared).toMatchObject({ ok: true, changed: ['commissionStatus'] });
-    expect(cleared.ok && 'commissionStatus' in cleared.payload).toBe(false);
   });
 });

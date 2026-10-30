@@ -15,7 +15,7 @@ Playwright starts the production server itself.
 Staff working leads in a real browser against the real backend: the inbox's
 type tabs, counts and search; a board move that survives a reload; the lead
 page's assignment, note and task; completing that task from My tasks; and the
-trash and restore.
+archive and restore.
 
 `pnpm --filter admin test:e2e:leads` builds the admin into `.next-e2e` with a
 browser-test session seam, then `playwright.leads.config.ts` starts two

@@ -17,6 +17,7 @@ import {
   finalizeUploadResponseSchema,
   getWorkspaceLeadResponseSchema,
   identityLeadTypes,
+  initialLeadStage,
   isLeadStage,
   isValidDateOfBirth,
   isValidSin,
@@ -32,6 +33,10 @@ import {
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
   versionedFormSchema,
+  endpoints,
+  leadViewSchema,
+  leadsSummaryResponseSchema,
+  normalizeLeadView,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -455,7 +460,8 @@ describe('lead-type catalogue', () => {
       // A SIM order begins as Get Canada Sim's unfinished checkout.
       expect(entry.stages[0]?.key).toBe(leadType === 'sim_order' ? 'incomplete' : 'new');
     }
-    // Get Canada Sim's order statuses, one for one, in its admin's order.
+    // Get Canada Sim's order statuses in its admin's order, without the
+    // money states (`invoiced`, `paid`), which are order details now.
     expect(leadTypeCatalog.sim_order.stages.map((entry) => entry.key)).toEqual([
       'incomplete',
       'pending',
@@ -464,15 +470,57 @@ describe('lead-type catalogue', () => {
       'delivered',
       'activated',
       'completed',
-      'invoiced',
-      'paid',
       'cancelled',
     ]);
-    expect(leadStageLabel('sim_order', 'on_hold')).toBe('On Hold');
+    expect(leadTypeCatalog.sim_order.stages.map((entry) => entry.label)).toEqual([
+      'Incomplete',
+      'Pending',
+      'Verified',
+      'On hold',
+      'Delivered',
+      'Activated',
+      'Completed',
+      'Cancelled',
+    ]);
+    expect(leadStageLabel('sim_order', 'on_hold')).toBe('On hold');
+    expect(isLeadStage('sim_order', 'paid')).toBe(false);
+    expect(isLeadStage('sim_order', 'invoiced')).toBe(false);
+    expect(initialLeadStage('sim_order')).toBe('incomplete');
     expect(leadStageLabel('internet', 'existing_shaw')).toBe('Existing Shaw');
     expect(leadStageLabel('internet', 'mystery')).toBe('mystery');
     expect(isLeadStage('mobility', 'activated')).toBe(true);
     expect(isLeadStage('internet', 'activated')).toBe(false);
     expect(isLeadStage('unknown_type', 'new')).toBe(false);
+  });
+});
+
+describe('archive aliases', () => {
+  it('accepts archived and the legacy trash view and normalizes them', () => {
+    for (const view of ['active', 'archived', 'trash']) {
+      expect(leadViewSchema.safeParse(view).success).toBe(true);
+    }
+    expect(leadViewSchema.safeParse('deleted').success).toBe(false);
+    expect(normalizeLeadView(undefined)).toBe('active');
+    expect(normalizeLeadView('active')).toBe('active');
+    expect(normalizeLeadView('archived')).toBe('archived');
+    expect(normalizeLeadView('trash')).toBe('archived');
+  });
+
+  it('counts the archive in the summary and keeps trash as the deprecated twin', () => {
+    const base = { types: [], access: { contacts: true, manage: true }, requestId: UUID_C };
+    expect(leadsSummaryResponseSchema.safeParse({ ...base, archived: 2, trash: 2 }).success).toBe(
+      true,
+    );
+    expect(leadsSummaryResponseSchema.safeParse({ ...base, trash: 2 }).success).toBe(false);
+  });
+
+  it('registers archiveWorkspaceLead and the deprecated trashWorkspaceLead with one response', () => {
+    const archive = endpoints.find((entry) => entry.operationId === 'archiveWorkspaceLead');
+    const trash = endpoints.find((entry) => entry.operationId === 'trashWorkspaceLead');
+    expect(archive?.method).toBe('POST');
+    expect(archive?.path).toBe('/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/archive');
+    expect(trash?.path).toBe('/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/trash');
+    expect(trash?.summary).toContain('Deprecated alias');
+    expect(archive?.response).toBe(trash?.response);
   });
 });

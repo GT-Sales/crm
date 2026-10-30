@@ -26,10 +26,13 @@ import {
 export interface InboxQuery {
   /** One lead type, or every type when absent. */
   type?: string;
-  /** The trash instead of active leads. */
-  trash: boolean;
   /**
-   * `?layout=board`; the board needs one type, so with none (or in the trash)
+   * The archive instead of active leads (`?archived=1`; links from before
+   * Archive replaced Trash said `?trash=1`, which still reads as the archive).
+   */
+  archived: boolean;
+  /**
+   * `?layout=board`; the board needs one type, so with none (or in the archive)
    * it is the table. Links from before saved views said `?view=board`.
    */
   layout: 'table' | 'board';
@@ -126,13 +129,14 @@ export function parseInboxQuery(
   params: ReadableParams,
   catalog: PropertyCatalog = codePropertyCatalog,
 ): InboxQuery {
-  const trash = params.get('trash') === '1';
-  const type = trash ? undefined : parsed(leadTypeSchema.safeParse(params.get('type')));
-  const due = !trash && params.get('due') === '1';
+  // `trash` is the legacy name of `archived`, read so old links and bookmarks still work.
+  const archived = params.get('archived') === '1' || params.get('trash') === '1';
+  const type = archived ? undefined : parsed(leadTypeSchema.safeParse(params.get('type')));
+  const due = !archived && params.get('due') === '1';
   const page = Number.parseInt(params.get('page') ?? '1', 10);
-  const where = trash ? undefined : parseWhereParam(params.get('where'), type, catalog);
-  const sort = trash ? undefined : parseSortParam(params.get('sort'), type, catalog);
-  const columns = trash
+  const where = archived ? undefined : parseWhereParam(params.get('where'), type, catalog);
+  const sort = archived ? undefined : parseSortParam(params.get('sort'), type, catalog);
+  const columns = archived
     ? undefined
     : parseColumnsParam(params.get('cols') ?? params.get('columns'), type, catalog);
   const viewParam = params.get('view');
@@ -143,7 +147,7 @@ export function parseInboxQuery(
   const lead = leadParam && UUID.test(leadParam) ? leadParam.toLowerCase() : undefined;
   return {
     type,
-    trash,
+    archived,
     due,
     layout: layout === 'board' && type !== undefined && !due ? 'board' : 'table',
     ...(view ? { view } : {}),
@@ -186,21 +190,21 @@ export function filterQueryForLeadType(
 
 export function inboxSearch(query: InboxQuery): string {
   const params = new URLSearchParams();
-  if (query.trash) params.set('trash', '1');
+  if (query.archived) params.set('archived', '1');
   else if (query.type) params.set('type', query.type);
-  if (query.due && !query.trash) params.set('due', '1');
-  else if (query.layout === 'board' && query.type && !query.trash) params.set('layout', 'board');
+  if (query.due && !query.archived) params.set('due', '1');
+  else if (query.layout === 'board' && query.type && !query.archived) params.set('layout', 'board');
   if (query.view) params.set('view', query.view);
   if (query.stage && query.type) params.set('stage', query.stage);
   if (query.assignee) params.set('assignee', query.assignee);
   if (query.q) params.set('q', query.q);
-  if (query.where && query.where.length > 0 && !query.trash) {
+  if (query.where && query.where.length > 0 && !query.archived) {
     params.set('where', JSON.stringify(query.where));
   }
-  if (query.sort && !query.trash && query.layout === 'table') {
+  if (query.sort && !query.archived && query.layout === 'table') {
     params.set('sort', query.sort);
   }
-  if (query.columns && query.columns.length > 0 && !query.trash && query.layout === 'table') {
+  if (query.columns && query.columns.length > 0 && !query.archived && query.layout === 'table') {
     params.set('cols', query.columns.join(','));
   }
   const hide = parseHiddenColumns(query.hide);

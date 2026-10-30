@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import {
+  ORDER_PROPERTY_KEYS,
   PROPERTY_OBJECTS,
+  planOptionSchema,
   propertyKeySchema,
   sitePropertySchema,
   type PropertyCatalog,
@@ -93,22 +95,25 @@ export const savePropertyLayoutRequestSchema = z
 export type SavePropertyLayoutRequest = z.infer<typeof savePropertyLayoutRequestSchema>;
 
 /**
- * The layout a site gets before it saves one: Request (built-in, not
- * staff-only), Staff details (built-in, staff-only) and Custom (custom
- * properties of the type). Empty sections are dropped; a type with no
- * properties at all (`contact_message`) gets one empty Request section, since
- * a layout holds at least one section.
+ * The layout a site gets before it saves one: Order (an order type's order
+ * properties), Request (built-in, not staff-only), Staff details (built-in,
+ * staff-only) and Custom (custom properties of the type). Empty sections are
+ * dropped; a type with no properties at all (`contact_message`) gets one empty
+ * Request section, since a layout holds at least one section.
  */
 export function defaultPropertyLayout(leadType: string, catalog: PropertyCatalog): PropertyLayout {
+  const order: string[] = [];
   const request: string[] = [];
   const staff: string[] = [];
   const custom: string[] = [];
   for (const property of catalog.forType(leadType)) {
     if (property.origin === 'custom') custom.push(property.key);
+    else if (property.storage === 'order') order.push(property.key);
     else if (property.staffOnly) staff.push(property.key);
     else request.push(property.key);
   }
   const sections: LayoutSection[] = [
+    { id: 'order', label: 'Order', keys: order },
     { id: 'request', label: 'Request', keys: request },
     { id: 'staff', label: 'Staff details', keys: staff },
     { id: 'custom', label: 'Custom', keys: custom },
@@ -126,7 +131,10 @@ export interface RenderedSection {
 /**
  * Resolves a layout's keys against the catalogue: unknown and hidden keys are
  * skipped; visible properties of the type missing from the layout go in a
- * final "Other" section so nothing a site adds is ever unreachable.
+ * final "Other" section so nothing a site adds is ever unreachable. A layout
+ * saved before order types had order properties (phase 2) places none of
+ * them: for such a layout the order properties open the record in an "Order"
+ * section, as the default layout has them, rather than trail under "Other".
  */
 export function renderPropertyLayout(
   layout: PropertyLayout,
@@ -136,7 +144,27 @@ export function renderPropertyLayout(
   const visible = catalog.forType(leadType);
   const byKey = new Map(visible.map((property) => [property.key, property]));
   const placed = new Set<string>();
-  const rendered: RenderedSection[] = layout.sections.map((section) => {
+  const orderKeys: ReadonlySet<string> = new Set(ORDER_PROPERTY_KEYS);
+  const placesOrder = layout.sections.some((section) =>
+    section.keys.some((key) => orderKeys.has(key)),
+  );
+  const order = placesOrder
+    ? []
+    : ORDER_PROPERTY_KEYS.flatMap((key) => {
+        const property = byKey.get(key);
+        return property && property.storage === 'order' ? [property] : [];
+      });
+  const rendered: RenderedSection[] = [];
+  if (order.length > 0) {
+    for (const property of order) placed.add(property.key);
+    const taken = new Set(layout.sections.map((section) => section.id));
+    rendered.push({
+      id: taken.has('order') ? 'order-details' : 'order',
+      label: 'Order',
+      properties: order,
+    });
+  }
+  for (const section of layout.sections) {
     const properties: SiteProperty[] = [];
     for (const key of section.keys) {
       const property = byKey.get(key);
@@ -145,16 +173,33 @@ export function renderPropertyLayout(
         properties.push(property);
       }
     }
-    return { id: section.id, label: section.label, properties };
-  });
+    rendered.push({ id: section.id, label: section.label, properties });
+  }
   const unplaced = visible.filter((property) => !placed.has(property.key));
   if (unplaced.length > 0) rendered.push({ id: 'other', label: 'Other', properties: unplaced });
   return rendered;
 }
 
+/**
+ * `?object=` on the five property routes: whose properties and layouts, the
+ * lead's (the default) or the plan's. Plans have one layout, keyed `''`
+ * (`PATCH /properties/layouts?object=plan`).
+ */
+export const propertyObjectQuerySchema = z.object({
+  object: z.enum(PROPERTY_OBJECTS).default('lead'),
+});
+export type PropertyObjectQuery = z.infer<typeof propertyObjectQuerySchema>;
+export type PropertyObjectQueryInput = z.input<typeof propertyObjectQuerySchema>;
+
 /** `GET /properties`: the site's catalogue (hidden and sensitive included) and every saved layout by lead type. */
 export const propertyModelResponseSchema = z.object({
   properties: z.array(sitePropertySchema),
+  /**
+   * Leads only: the site's plans, each with its lead type, which the order's
+   * `plan` property offers (only a type's own on that type's record and
+   * filters). Absent for plans.
+   */
+  plans: z.array(planOptionSchema).optional(),
   layouts: z.record(z.string(), propertyLayoutRowSchema),
   capabilities: z.object({ canManage: z.boolean() }),
   requestId: requestIdSchema,

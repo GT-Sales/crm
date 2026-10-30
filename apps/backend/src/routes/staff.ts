@@ -53,6 +53,7 @@ import {
   type TaskOutcome,
 } from '../leads/work-store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
+import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
 import type { PropertyStore } from '../properties/store.js';
 import {
   createAuthorize,
@@ -71,6 +72,7 @@ import {
   type WebsiteCredentialStore,
 } from '../website/store.js';
 
+import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 
 export interface StaffRouteDependencies {
@@ -100,6 +102,8 @@ export interface StaffRouteDependencies {
    * database store when this is omitted.
    */
   propertyStore?: PropertyStore;
+  /** The site's plans; `createApp` supplies the database store when this is omitted. */
+  planStore?: PlanStore;
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -115,6 +119,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     identityStore: identityStoreFromEnv(),
     customerEmail: customerEmailFromEnv(),
     savedViewStore: new DatabaseSavedViewStore(),
+    planStore: new DatabasePlanStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -141,6 +146,14 @@ const unconfiguredSavedViewStore: SavedViewStore = {
   create: () => notConfigured('saved view store'),
   update: () => notConfigured('saved view store'),
   delete: () => notConfigured('saved view store'),
+};
+const unconfiguredPlanStore: PlanStore = {
+  list: () => notConfigured('plan store'),
+  get: () => notConfigured('plan store'),
+  create: () => notConfigured('plan store'),
+  update: () => notConfigured('plan store'),
+  listForWebsite: () => notConfigured('plan store'),
+  options: () => notConfigured('plan store'),
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 
@@ -245,9 +258,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     return { ...rest, contact: {}, countdownDate: null };
   }
 
-  // Custom values travel with contact visibility, as the form does.
+  // Custom values and the order travel with contact visibility, as the form does.
   function withoutPersonalDetails(lead: LeadDetail): LeadDetail {
-    const { customValues: _customValues, ...rest } = lead;
+    const { customValues: _customValues, order: _order, ...rest } = lead;
     return { ...withoutContact(rest), form: null };
   }
 
@@ -454,7 +467,13 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         actorId: actor.actorId,
         dueBy: query.data.dueBy,
       });
-      res.json({ ...summary, access: leadAccessOf(decision.access), requestId: req.id });
+      res.json({
+        ...summary,
+        // `trash` is the deprecated twin of `archived`: the same number.
+        trash: summary.archived,
+        access: leadAccessOf(decision.access),
+        requestId: req.id,
+      });
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
@@ -623,6 +642,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         contact: body.data.contact,
         form: body.data.form,
         customValues: body.data.customValues,
+        order: body.data.order,
         catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       switch (outcome.status) {
@@ -651,7 +671,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
-  for (const [path, trashed] of [
+  // `trash` is the old name of `archive`; both archive the lead with one handler.
+  for (const [path, archived] of [
+    ['archive', true],
     ['trash', true],
     ['restore', false],
   ] as const) {
@@ -666,12 +688,12 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         }
         const store = leadWork(req, res);
         if (!store) return;
-        const outcome = await store.setTrashed({
+        const outcome = await store.setArchived({
           workspaceId: params.workspaceId,
           actorId: actor.actorId,
           requestId: req.id,
           leadId: params.id,
-          trashed,
+          archived,
         });
         if (outcome.status === 'not_found') {
           sendDomainError(res, req.id, 'lead_not_found', 404);
@@ -1361,6 +1383,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   });
 
   router.use(createPropertyRoutes({ store: propertyStore, decide, reportFailure }));
+
+  router.use(
+    createPlanRoutes({
+      store: dependencies.planStore ?? unconfiguredPlanStore,
+      decide,
+      reportFailure,
+    }),
+  );
 
   router.use(
     createSavedViewRoutes({

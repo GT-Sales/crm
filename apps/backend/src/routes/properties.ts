@@ -6,10 +6,13 @@ import {
   leadTypeCatalog,
   leadTypeEntry,
   propertyKeySchema,
+  propertyObjectQuerySchema,
   savePropertyLayoutRequestSchema,
   updatePropertySchema,
   type PropertyCatalog,
+  type PropertyLayout,
   type PropertyLayoutRow,
+  type PropertyObject,
   type PropertyRow,
   type PropertyUsage,
   type SiteProperty,
@@ -40,20 +43,36 @@ export interface PropertyRouteDependencies {
   reportFailure: (req: Request, error: unknown) => void;
 }
 
-/** Leads are the only object with properties staff manage today. */
-const OBJECT = 'lead';
+/** The one layout key of an object without lead types (plans). */
+const PLAN_LAYOUT_TYPE = '';
 
-/** The `details` of an in-use refusal: the lead count and its split (`propertyUsageSchema`). */
+/**
+ * Only a plan property is shown on the website; turning it on for a lead
+ * property is refused (off, the create default, passes).
+ */
+function refusesWebsiteVisible(
+  object: PropertyObject,
+  body: { websiteVisible?: boolean },
+): boolean {
+  return object !== 'plan' && body.websiteVisible === true;
+}
+
+/** The `details` of an in-use refusal: the record count and its split (`propertyUsageSchema`). */
 function usageDetails(usage: PropertyUsage): PropertyUsage {
   return {
     leadCount: usage.leadCount,
     active: usage.active,
     trashed: usage.trashed,
     restricted: usage.restricted,
+    ...(usage.planCount !== undefined ? { planCount: usage.planCount } : {}),
   };
 }
 
-/** The wire form of a row the store just wrote: the row resolved as the catalogue resolves it. */
+/**
+ * The wire form of a row the store just wrote: the row resolved as the
+ * catalogue resolves it (the order's `plan` property without its options;
+ * the admin reloads the model after a change).
+ */
 function siteProperty(row: PropertyRow): SiteProperty {
   const property = buildPropertyCatalog([row], row.object).get(row.key);
   if (!property) throw new Error('a stored property row did not resolve to a property');
@@ -77,19 +96,33 @@ function withKnownKeys(row: PropertyLayoutRow, catalog: PropertyCatalog): Proper
   };
 }
 
-/** Every lead type's layout: the site's saved one, else the default at version 0. */
+/** The plan record before a site saves its own: every visible plan property in one section. */
+function defaultPlanLayout(catalog: PropertyCatalog): PropertyLayout {
+  const keys = catalog.all.filter((property) => !property.hidden).map((property) => property.key);
+  return { sections: [{ id: 'custom', label: 'Custom', keys }] };
+}
+
+/**
+ * Every layout of the object: for leads one per lead type, for plans the one
+ * keyed `''`; the site's saved one, else the default at version 0.
+ */
 function layoutsByType(
+  object: PropertyObject,
   saved: readonly PropertyLayoutRow[],
   catalog: PropertyCatalog,
 ): Record<string, PropertyLayoutRow> {
   const layouts: Record<string, PropertyLayoutRow> = {};
-  for (const row of saved) layouts[row.leadType] = withKnownKeys(row, catalog);
-  for (const leadType of Object.keys(leadTypeCatalog)) {
+  const leadTypes = object === 'plan' ? [PLAN_LAYOUT_TYPE] : Object.keys(leadTypeCatalog);
+  for (const row of saved) {
+    if (leadTypes.includes(row.leadType)) layouts[row.leadType] = withKnownKeys(row, catalog);
+  }
+  for (const leadType of leadTypes) {
     if (Object.hasOwn(layouts, leadType)) continue;
     layouts[leadType] = {
-      object: OBJECT,
+      object,
       leadType,
-      layout: defaultPropertyLayout(leadType, catalog),
+      layout:
+        object === 'plan' ? defaultPlanLayout(catalog) : defaultPropertyLayout(leadType, catalog),
       version: 0,
       updatedAt: null,
     };
@@ -99,9 +132,9 @@ function layoutsByType(
 
 /**
  * A site's property definitions and record layouts, under
- * `/workspaces/:workspaceId/properties`. Everyone who reads the site reads
- * the model (the record page and the list need it); only `property.manage`
- * changes it.
+ * `/workspaces/:workspaceId/properties`, for leads or (`?object=plan`) for
+ * plans. Everyone who reads the site reads the model (the record page and the
+ * list need it); only `property.manage` changes it.
  */
 export function createPropertyRoutes(dependencies: PropertyRouteDependencies): Router {
   const router = Router();
@@ -117,10 +150,20 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
     return workspaceId.success ? workspaceId.data : undefined;
   }
 
-  function keyParams(req: Request): { workspaceId: string; key: string } | undefined {
+  function objectOf(req: Request): PropertyObject | undefined {
+    const query = propertyObjectQuerySchema.safeParse({ object: req.query['object'] });
+    return query.success ? query.data.object : undefined;
+  }
+
+  function keyParams(
+    req: Request,
+  ): { workspaceId: string; key: string; object: PropertyObject } | undefined {
     const workspaceId = workspaceIdOf(req);
     const key = propertyKeySchema.safeParse(req.params['key']);
-    return workspaceId && key.success ? { workspaceId, key: key.data } : undefined;
+    const object = objectOf(req);
+    return workspaceId && key.success && object
+      ? { workspaceId, key: key.data, object }
+      : undefined;
   }
 
   /** The store context of a caller allowed `action` on the site, or the 403 already sent. */
@@ -143,19 +186,26 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
 
   router.get('/workspaces/:workspaceId/properties', async (req, res) => {
     const workspaceId = workspaceIdOf(req);
-    if (!workspaceId) {
+    const object = objectOf(req);
+    if (!workspaceId || !object) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
     try {
       const allowed = await allowedContext(req, res, workspaceId, 'workspace.read');
       if (!allowed) return;
-      const model = await store.model(allowed.ctx, OBJECT);
+      const model = await store.model(allowed.ctx, object);
       // The catalogue from the same rows, so properties and layouts agree.
-      const catalog = buildPropertyCatalog(model.rows, OBJECT);
+      const catalog = buildPropertyCatalog(
+        model.rows,
+        object,
+        model.plans ? { plans: model.plans } : {},
+      );
       res.json({
         properties: catalog.all,
-        layouts: layoutsByType(model.layouts, catalog),
+        // Each plan with its lead type, so the admin scopes the plan options per type.
+        ...(model.plans ? { plans: model.plans } : {}),
+        layouts: layoutsByType(object, model.layouts, catalog),
         // Decided on the snapshot this request already loaded: no second membership read.
         capabilities: { canManage: decideAccess(allowed.access, 'property.manage').allowed },
         requestId: req.id,
@@ -167,15 +217,16 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
 
   router.post('/workspaces/:workspaceId/properties', async (req, res) => {
     const workspaceId = workspaceIdOf(req);
+    const object = objectOf(req);
     const body = createCustomPropertySchema.safeParse(req.body);
-    if (!workspaceId || !body.success) {
+    if (!workspaceId || !object || !body.success || refusesWebsiteVisible(object, body.data)) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
     try {
       const allowed = await allowedContext(req, res, workspaceId, 'property.manage');
       if (!allowed) return;
-      const outcome = await store.create(allowed.ctx, OBJECT, body.data);
+      const outcome = await store.create(allowed.ctx, object, body.data);
       switch (outcome.kind) {
         case 'created':
           res.status(201).json({ property: siteProperty(outcome.property), requestId: req.id });
@@ -189,17 +240,25 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
     }
   });
 
-  // Registered before `/properties/:key`; the extra segment keeps them apart either way.
-  router.patch('/workspaces/:workspaceId/properties/layouts/:leadType', async (req, res) => {
+  /**
+   * The layout key of the request: a known lead type for leads; for plans no
+   * type at all (`/layouts` or `/layouts/`), stored as `''`.
+   */
+  function layoutTypeOf(object: PropertyObject, leadType: unknown): string | undefined {
+    if (object === 'plan') return leadType === undefined ? PLAN_LAYOUT_TYPE : undefined;
+    return typeof leadType === 'string' && leadTypeEntry(leadType) !== undefined
+      ? leadType
+      : undefined;
+  }
+
+  // Registered before `/properties/:key`, so `/properties/layouts` (the plan
+  // layout) never reaches the property routes.
+  router.patch('/workspaces/:workspaceId/properties/layouts{/:leadType}', async (req, res) => {
     const workspaceId = workspaceIdOf(req);
-    const leadType = req.params['leadType'];
+    const object = objectOf(req);
+    const leadType = object ? layoutTypeOf(object, req.params['leadType']) : undefined;
     const body = savePropertyLayoutRequestSchema.safeParse(req.body);
-    if (
-      !workspaceId ||
-      typeof leadType !== 'string' ||
-      leadTypeEntry(leadType) === undefined ||
-      !body.success
-    ) {
+    if (!workspaceId || !object || leadType === undefined || !body.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
@@ -208,7 +267,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
       if (!allowed) return;
       const outcome = await store.saveLayout(
         allowed.ctx,
-        OBJECT,
+        object,
         leadType,
         body.data.layout,
         body.data.expectedVersion,
@@ -232,14 +291,14 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
   router.patch('/workspaces/:workspaceId/properties/:key', async (req, res) => {
     const params = keyParams(req);
     const body = updatePropertySchema.safeParse(req.body);
-    if (!params || !body.success) {
+    if (!params || !body.success || refusesWebsiteVisible(params.object, body.data)) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
     try {
       const allowed = await allowedContext(req, res, params.workspaceId, 'property.manage');
       if (!allowed) return;
-      const outcome = await store.update(allowed.ctx, OBJECT, params.key, body.data);
+      const outcome = await store.update(allowed.ctx, params.object, params.key, body.data);
       switch (outcome.kind) {
         case 'updated':
           res.json({ property: siteProperty(outcome.property), requestId: req.id });
@@ -277,7 +336,7 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
     try {
       const allowed = await allowedContext(req, res, params.workspaceId, 'property.manage');
       if (!allowed) return;
-      const outcome = await store.remove(allowed.ctx, OBJECT, params.key);
+      const outcome = await store.remove(allowed.ctx, params.object, params.key);
       switch (outcome.kind) {
         case 'deleted':
           res.json({ key: params.key, requestId: req.id });

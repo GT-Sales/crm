@@ -9,6 +9,7 @@ import {
 } from '@gt-sales/db';
 import {
   initialLeadStage,
+  isOrderLeadType,
   leadContactSchema,
   leadFormSchema,
   leadStatusSchema,
@@ -18,6 +19,7 @@ import {
   type LeadForm,
   type LeadDraft,
   type LeadListItem,
+  type LeadOrderIntake,
   type LeadPropertyFilter,
   type LeadStatus,
   type LeadSummary,
@@ -26,12 +28,28 @@ import {
   type RawAttribution,
 } from '@gt-sales/contracts';
 
+import { loadPlanForFreeze } from '../plans/store.js';
 import { sanitizeAttribution } from './attribution.js';
+import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
 
 /** Long enough for a customer to leave and resume the form later. */
 const DEFAULT_DRAFT_GRANT_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+/**
+ * Why a website lead with an order was refused: `invalid_request`, its type
+ * takes no order; `plan_not_available`, the plan is not one this site sells
+ * for the type right now (another site's, inactive or of another type). Thrown
+ * inside the intake transaction, so nothing is stored, and kept out of
+ * `CreateLeadResult` so every caller keeps reading the lead it created.
+ */
+export class OrderIntakeError extends Error {
+  constructor(readonly code: 'invalid_request' | 'plan_not_available') {
+    super(`lead order refused: ${code}`);
+    this.name = 'OrderIntakeError';
+  }
+}
 
 export interface CreateLeadInput {
   workspaceId: string;
@@ -45,6 +63,8 @@ export interface CreateLeadInput {
   consentVersion: string;
   /** Create the lead already `submitted`, with no draft grant (a one-shot form). */
   submit?: boolean;
+  /** An order lead type's plan; frozen when the lead is submitted. */
+  order?: LeadOrderIntake;
 }
 
 export interface CreateLeadResult {
@@ -57,7 +77,11 @@ export type UpdateLeadOutcome =
   | { status: 'updated'; lead: LeadSummary }
   | { status: 'grant_invalid' }
   | { status: 'grant_expired' }
-  | { status: 'draft_submitted' };
+  | { status: 'draft_submitted' }
+  /** The lead's type takes no order. */
+  | { status: 'order_not_allowed' }
+  /** The plan named, or the one the draft holds at submission, is not one the site sells now. */
+  | { status: 'plan_not_available' };
 
 export interface UpdateLeadInput {
   workspaceId: string;
@@ -69,6 +93,10 @@ export interface UpdateLeadInput {
   form?: LeadForm;
   attribution?: RawAttribution;
   consentVersion?: string;
+  /** An order lead type's plan; replaces the draft's, frozen at submission. */
+  order?: LeadOrderIntake;
+  /** Submit the draft with this save: its plan is frozen and the grant edits nothing more. */
+  submit?: boolean;
 }
 
 export interface ListLeadsInput {
@@ -172,6 +200,32 @@ export async function upsertContact(
   return row.id;
 }
 
+/**
+ * The order a new website lead stores, or undefined when it names no plan:
+ * submitted, the plan frozen now; a draft, the plan and quantity only (frozen
+ * at its submission). Throws `OrderIntakeError` for a type with no order or a
+ * plan the site does not sell for it now.
+ */
+async function intakeOrder(
+  tx: TenantTransaction,
+  input: CreateLeadInput,
+): Promise<Record<string, unknown> | undefined> {
+  if (!input.order) return undefined;
+  if (!isOrderLeadType(input.leadType)) throw new OrderIntakeError('invalid_request');
+  const found = await loadPlanForFreeze(tx, input.workspaceId, input.order.planId);
+  if (!isPlanAvailable(found, input.leadType)) throw new OrderIntakeError('plan_not_available');
+  return input.submit
+    ? submittedOrder(found, input.order.quantity, new Date())
+    : { planId: input.order.planId, quantity: input.order.quantity };
+}
+
+/** The plan and quantity a draft of an order type was saved with, when it names a plan. */
+function resumedOrder(leadType: string, stored: unknown): { order?: LeadOrderIntake } {
+  if (!isOrderLeadType(leadType)) return {};
+  const order = toLeadOrder(stored);
+  return order.planId === null ? {} : { order: { planId: order.planId, quantity: order.quantity } };
+}
+
 export class DatabaseLeadStore implements LeadStore {
   constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
 
@@ -218,6 +272,7 @@ export class DatabaseLeadStore implements LeadStore {
               countryCode: row.lead.countryCode ?? undefined,
             }),
             form: row.lead.payload === null ? null : leadFormSchema.parse(row.lead.payload),
+            ...resumedOrder(row.lead.leadType, row.lead.orderDetails),
           },
         };
       },
@@ -230,6 +285,7 @@ export class DatabaseLeadStore implements LeadStore {
       async (tx) => {
         const attribution = sanitizeAttribution(input.attribution);
         const status = input.submit ? 'submitted' : 'incomplete';
+        const orderDetails = await intakeOrder(tx, input);
         const contactId = input.contact?.email
           ? await upsertContact(tx, { ...input.contact, email: input.contact.email })
           : null;
@@ -250,6 +306,7 @@ export class DatabaseLeadStore implements LeadStore {
             payload: input.form ?? null,
             attribution,
             consentVersion: input.consentVersion,
+            ...(orderDetails ? { orderDetails } : {}),
           })
           .returning({
             id: leads.id,
@@ -273,6 +330,7 @@ export class DatabaseLeadStore implements LeadStore {
             externalRef: input.externalRef ?? null,
             contactId,
             consentVersion: input.consentVersion,
+            ...(orderDetails ? { order: orderDetails } : {}),
           },
         });
 
@@ -312,6 +370,8 @@ export class DatabaseLeadStore implements LeadStore {
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
             leadEmail: leads.email,
+            leadType: leads.leadType,
+            orderDetails: leads.orderDetails,
           })
           .from(draftGrants)
           .innerJoin(
@@ -338,8 +398,26 @@ export class DatabaseLeadStore implements LeadStore {
         // lead's contact, form or attribution.
         if (grant.leadStatus !== 'incomplete') return { status: 'draft_submitted' };
 
+        // The order is settled before anything is written, so a refused plan changes nothing.
         const updates: Partial<typeof leads.$inferInsert> = { updatedAt: new Date() };
         const changedFields: string[] = [];
+        if (input.order && !isOrderLeadType(grant.leadType)) return { status: 'order_not_allowed' };
+        const draftOrder = toLeadOrder(grant.orderDetails);
+        const planId = input.order?.planId ?? draftOrder.planId;
+        const quantity = input.order?.quantity ?? draftOrder.quantity;
+        if (planId !== null && (input.order || input.submit)) {
+          const found = await loadPlanForFreeze(tx, input.workspaceId, planId);
+          if (!isPlanAvailable(found, grant.leadType)) return { status: 'plan_not_available' };
+          // A draft keeps the plan and quantity only; submission freezes the plan as sold now.
+          updates.orderDetails = input.submit
+            ? submittedOrder(found, quantity, new Date())
+            : { planId, quantity };
+          changedFields.push('order');
+        }
+        if (input.submit) {
+          updates.status = 'submitted';
+          changedFields.push('status');
+        }
         if (input.contact) {
           if (input.contact.fullName !== undefined) updates.fullName = input.contact.fullName;
           if (input.contact.email !== undefined) updates.email = input.contact.email;
@@ -391,7 +469,10 @@ export class DatabaseLeadStore implements LeadStore {
           entity: 'lead',
           entityId: input.leadId,
           requestId: input.requestId,
-          after: { changedFields },
+          after: {
+            changedFields,
+            ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
+          },
         });
 
         return { status: 'updated', lead: toSummary(row) };

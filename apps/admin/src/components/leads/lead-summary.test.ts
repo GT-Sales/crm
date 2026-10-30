@@ -99,13 +99,11 @@ describe('leadSummaryText', () => {
     expect(lines).toContain('Stage: Verified');
     expect(lines).toContain('Customer: Arjun Kumar Patel');
     expect(lines).toContain('Phone: +91 99999 00001');
-    expect(lines).toContain('Plan: 75GB · $35, Fido');
+    expect(lines).toContain('Plan (as submitted): 75GB · $35, Fido');
     expect(lines).toContain('SIM type: Physical SIM (mailed)');
     expect(lines).toContain('SIM number: 4165550104');
     expect(lines).toContain('Documents: Passport');
     expect(lines.at(-1)).toBe('Source: partner:PT-7');
-    // An empty staff field is left out rather than copied as a dash.
-    expect(text).not.toContain('Carrier commission');
   });
 
   it('leaves out what the reader was not shown', () => {

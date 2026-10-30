@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildPropertyCatalog,
   codePropertyCatalog,
   DEFAULT_LEAD_VIEW_STATE,
+  savedViewStateSchema,
+  type PlanOption,
   type SavedView,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -81,6 +84,7 @@ function customProperty(
     sensitive: false,
     staffOnly: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     editable: true,
     version: 1,
@@ -89,9 +93,13 @@ function customProperty(
 }
 
 /** `GET /properties` as the backend answers it: the whole catalogue, built-ins first. */
-function propertyModel(properties: readonly SiteProperty[] = codePropertyCatalog.all) {
+function propertyModel(
+  properties: readonly SiteProperty[] = codePropertyCatalog.all,
+  plans?: readonly PlanOption[],
+) {
   return {
     properties,
+    ...(plans ? { plans } : {}),
     layouts: {},
     capabilities: { canManage: true },
     requestId: 'req_test',
@@ -230,6 +238,7 @@ describe('LeadsInbox', () => {
         { leadType: 'internet', total: 665 },
         { leadType: 'mobility', total: 39 },
       ],
+      archived: 3,
       trash: 3,
       access: { contacts: true, manage: true },
     });
@@ -243,17 +252,144 @@ describe('LeadsInbox', () => {
     vi.useRealTimers();
   });
 
-  it('offers a tab per lead type the site has, with counts, and the trash', async () => {
+  it('offers a tab per lead type the site has, with counts, and the archive', async () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     expect(await screen.findByRole('tab', { name: /Internet\s*665/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /Mobility\s*39/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /All leads\s*704/ })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Trash\s*3/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Archive\s*3/ })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /trash/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: /Mobility/ }));
     expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=mobility', {
       scroll: false,
     });
+    fireEvent.click(screen.getByRole('tab', { name: /Archive/ }));
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?archived=1', {
+      scroll: false,
+    });
+  });
+
+  it('opens the archive from ?archived=1, with no board and no trash in its words', async () => {
+    navigation.search = 'archived=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const tab = await screen.findByRole('tab', { name: /Archive\s*3/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() =>
+      expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        expect.objectContaining({ view: 'archived' }),
+      ),
+    );
+    expect(await screen.findByText('The archive is empty.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Board/ }).getAttribute('title')).toBe(
+      'The archive has no board',
+    );
+    expect(document.body.textContent ?? '').not.toMatch(/trash/i);
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it('reads a link from before Archive, ?trash=1, as the archive and rewrites it as archived=1', async () => {
+    navigation.search = 'trash=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const tab = await screen.findByRole('tab', { name: /Archive\s*3/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith('/w/canadawide/leads?archived=1', {
+        scroll: false,
+      }),
+    );
+    expect(mocks.getStaffLeads).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      expect.objectContaining({ view: 'archived' }),
+    );
+  });
+
+  it('filters an order type by its plan, payment status, carrier commission and quantity', async () => {
+    const plans: PlanOption[] = [
+      {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Unlimited 50',
+        active: true,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000002',
+        name: 'Legacy 10',
+        active: false,
+        leadType: 'sim_order',
+      },
+      // Another type's plan: the SIM order filter does not list it.
+      {
+        id: '70000000-0000-4000-8000-000000000003',
+        name: 'Fibre 500',
+        active: true,
+        leadType: 'internet',
+      },
+    ];
+    mocks.getPropertyModel.mockResolvedValue(
+      propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
+    );
+    navigation.search = 'type=sim_order';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    const propertySelect = await screen.findByLabelText('Property');
+    const labels = Array.from(propertySelect.querySelectorAll('option')).map(
+      (opt) => opt.textContent,
+    );
+    expect(labels).toEqual(
+      expect.arrayContaining(['Plan', 'Quantity', 'Payment status', 'Carrier commission']),
+    );
+    fireEvent.change(propertySelect, { target: { value: 'paymentStatus' } });
+    expect(
+      Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+        (opt) => opt.textContent,
+      ),
+    ).toEqual(['Not needed', 'Pending', 'Paid']);
+    fireEvent.change(propertySelect, { target: { value: 'plan' } });
+    await waitFor(() =>
+      expect(
+        Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+          (opt) => opt.textContent,
+        ),
+      ).toEqual(['Unlimited 50', 'Legacy 10 (retired)']),
+    );
+  });
+
+  it('names each plan’s type in the filter across all types', async () => {
+    const plans: PlanOption[] = [
+      {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Basic',
+        active: true,
+        leadType: 'internet',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000002',
+        name: 'Basic',
+        active: true,
+        leadType: 'mobility',
+      },
+    ];
+    mocks.getPropertyModel.mockResolvedValue(
+      propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
+    );
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    const propertySelect = await screen.findByLabelText('Property');
+    await waitFor(() =>
+      expect(propertySelect.querySelector('option[value="plan"]')).not.toBeNull(),
+    );
+    fireEvent.change(propertySelect, { target: { value: 'plan' } });
+    await waitFor(() =>
+      expect(
+        Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+          (opt) => opt.textContent,
+        ),
+      ).toEqual(['Basic (Internet)', 'Basic (Mobility)']),
+    );
   });
 
   it('loads the table from the URL filters', async () => {
@@ -279,6 +415,7 @@ describe('LeadsInbox', () => {
         { leadType: 'internet', total: 665, followUpsDue: 2 },
         { leadType: 'mobility', total: 39, followUpsDue: 1 },
       ],
+      archived: 3,
       trash: 3,
       access: { contacts: true, manage: true },
     });
@@ -495,6 +632,7 @@ describe('LeadsInbox', () => {
   it('hides filter, column and sort controls when access.contacts is false', async () => {
     mocks.getLeadsSummary.mockResolvedValue({
       types: [{ leadType: 'internet', total: 10 }],
+      archived: 0,
       trash: 0,
       access: { contacts: false, manage: false },
     });
@@ -624,6 +762,28 @@ describe('LeadsInbox', () => {
     expect(navigation.replace).toHaveBeenCalledTimes(1);
   });
 
+  it('rewrites a legacy ?trash=1 link and moves the stored hidden columns in one change', async () => {
+    window.localStorage.setItem(
+      `gt-table-hidden-cols:${WORKSPACE}`,
+      JSON.stringify(['created', 'source']),
+    );
+    navigation.search = 'trash=1&q=avery';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith(
+        '/w/canadawide/leads?archived=1&q=avery&hide=source%2Ccreated',
+        { scroll: false },
+      ),
+    );
+    expect(navigation.replace).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(`gt-table-hidden-cols:${WORKSPACE}`)).toBeNull();
+    // The address it settled on keeps both.
+    const settled = new URLSearchParams(navigation.search);
+    expect(settled.get('archived')).toBe('1');
+    expect(settled.get('hide')).toBe('source,created');
+    expect(settled.has('trash')).toBe(false);
+  });
+
   it('sorts from the sort menu', async () => {
     navigation.search = 'type=internet';
     render(<LeadsInbox workspaceSlug="canadawide" />);
@@ -743,6 +903,33 @@ describe('LeadsInbox', () => {
         { scroll: false },
       );
       expect(screen.getByRole('searchbox')).toHaveProperty('value', '');
+    });
+
+    it('opens a view saved before Archive replaced Trash in the archive', async () => {
+      const OLD: SavedView = {
+        id: '40000000-0000-4000-8000-000000000003',
+        object: 'lead',
+        name: 'Old bin',
+        // As the contract reads a view saved with the legacy `trash` key.
+        state: savedViewStateSchema.parse({
+          layout: 'table',
+          trash: true,
+          due: false,
+          where: [],
+          columns: [],
+          hiddenColumns: [],
+        }),
+        version: 1,
+        updatedAt: '2026-10-26T10:00:00.000Z',
+      };
+      mocks.listSavedViews.mockResolvedValue({ views: [OLD], requestId: 'req_test' });
+      render(<LeadsInbox workspaceSlug="canadawide" />);
+      fireEvent.click(await trigger('All leads'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Old bin' }));
+      expect(navigation.replace).toHaveBeenLastCalledWith(
+        `/w/canadawide/leads?archived=1&view=${OLD.id}`,
+        { scroll: false },
+      );
     });
 
     it('goes back to All leads with the default state and no view id', async () => {
@@ -1042,6 +1229,7 @@ describe('LeadsInbox side panel', () => {
     mocks.getPropertyModel.mockResolvedValue(propertyModel());
     mocks.getLeadsSummary.mockResolvedValue({
       types: [{ leadType: 'internet', total: 1 }],
+      archived: 0,
       trash: 0,
       access: { contacts: true, manage: true },
     });
@@ -1163,5 +1351,43 @@ describe('LeadsInbox side panel', () => {
     view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
     expect(mocks.getStaffLeads).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for the counts again on close after a change in the panel, not after a close without one', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...row, stage: 'contacted', form: null, customValues: {} },
+      activities: [],
+      requestId: 'req_test',
+    });
+    navigation.search = `type=internet&lead=${LEAD_ID}`;
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    const panel = await screen.findByRole('complementary', { name: 'Lead' });
+    await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1));
+
+    // Nothing changed: closing asks for no counts.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
+    expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1);
+
+    // A change saved in the panel: closing asks for the counts once more.
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'internet', total: 0 }],
+      archived: 1,
+      trash: 1,
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = `type=internet&lead=${LEAD_ID}`;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    const reopened = await screen.findByRole('complementary', { name: 'Lead' });
+    fireEvent.change(await within(reopened).findByLabelText('Stage'), {
+      target: { value: 'contacted' },
+    });
+    await waitFor(() => expect(mocks.updateStaffLead).toHaveBeenCalledTimes(1));
+    expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('tab', { name: /Archive\s*1/ })).toBeTruthy();
   });
 });

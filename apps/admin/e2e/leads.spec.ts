@@ -4,11 +4,14 @@ import { expect, test, type Page } from '@playwright/test';
  * Staff working leads in a real browser against the real backend (see
  * playwright.leads.config.ts). The harness seeds CanadaWide with four internet
  * leads (two new, one contacted with an overdue task, one won) and one
- * mobility lead, plus Get Canada Sim with three SIM orders, signed in as the
- * owner "Takib" with a colleague "Sam". The journeys share those seeded sites
+ * mobility lead, plus Get Canada Sim with three SIM orders, two plans
+ * ("Rogers 60GB" $40 a month with payment required, "Fido 75GB" $35 a month
+ * without) and a fourth SIM order, Nadia Khan's, submitted with Rogers 60GB
+ * frozen on it, signed in as the owner "Takib" with a colleague "Sam". The journeys share those seeded sites
  * and run in order. A lead's name in the inbox opens it in the side panel
  * (`?lead=`); "Open full page" goes to its own page. The last journey adds a
- * custom property, a saved view and a hidden built-in, and puts them back.
+ * custom property, a saved view and a hidden built-in, and puts them back; the
+ * one after it adds a plan, works an order and archives and restores it.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -132,19 +135,19 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
   expect(errors).toEqual([]);
 });
 
-test('the trash hides a lead and restores it', async ({ page }) => {
+test('the archive hides a lead and restores it', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet');
   await page.getByRole('link', { name: 'Blake Sample' }).click();
   await page.getByRole('link', { name: 'Open full page' }).click();
-  await page.getByRole('button', { name: 'Move to trash' }).click();
-  await expect(page.getByText(/This lead is in the trash/)).toBeVisible();
+  await page.getByRole('button', { name: 'Archive' }).click();
+  await expect(page.getByText(/This lead is archived/)).toBeVisible();
   await expect(page.getByLabel('Stage')).toHaveCount(0);
 
   await page.goto('/w/canadawide/leads');
   await expect(page.getByRole('tab', { name: /All leads\s*4/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Blake Sample' })).toHaveCount(0);
-  await page.getByRole('tab', { name: /Trash\s*1/ }).click();
+  await page.getByRole('tab', { name: /Archive\s*1/ }).click();
   await page.getByRole('link', { name: 'Blake Sample' }).click();
   await page.getByRole('button', { name: 'Restore' }).click();
   await expect(page.getByLabel('Stage')).toBeVisible();
@@ -336,5 +339,120 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   await page.getByRole('button', { name: 'Delete Referral code' }).click();
   await page.getByRole('button', { name: 'Delete property' }).click();
   await expect(page.getByText('No custom properties yet.')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a plan is added, an order is marked paid, filtered on, archived and restored, and its stages are the order stages', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  const simStages = [
+    'Incomplete',
+    'Pending',
+    'Verified',
+    'On hold',
+    'Delivered',
+    'Activated',
+    'Completed',
+    'Cancelled',
+  ];
+
+  // Settings → Plans: the owner adds a SIM order plan beside the two seeded ones.
+  await page.goto('/w/getcanadasim/settings');
+  await page
+    .getByRole('navigation', { name: 'More settings' })
+    .getByRole('link', { name: 'Plans', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Plans' })).toBeVisible();
+  const simPlans = page.getByRole('list', { name: 'SIM order plans' });
+  await expect(simPlans).toContainText('Rogers 60GB');
+  await expect(simPlans).toContainText('Fido 75GB');
+  await page.getByRole('button', { name: 'Add SIM order plan' }).click();
+  const addPlan = page.getByRole('dialog', { name: 'Add plan' });
+  await addPlan.getByLabel('Name').fill('Chatr 25GB');
+  await addPlan.getByLabel('Price (CAD)').fill('35');
+  await expect(addPlan.getByLabel('Billing period')).toHaveValue('month');
+  await addPlan.getByRole('checkbox', { name: 'Payment required' }).click();
+  await expect(addPlan.getByRole('checkbox', { name: 'Payment required' })).toBeChecked();
+  await addPlan.getByRole('button', { name: 'Save plan' }).click();
+  await expect(addPlan).toHaveCount(0);
+  const chatr = simPlans.getByRole('listitem').filter({ hasText: 'Chatr 25GB' });
+  await expect(chatr).toContainText('$35.00 · Monthly · Payment required');
+  await expect(page.getByRole('checkbox', { name: 'Active Chatr 25GB' })).toBeChecked();
+
+  // The inbox opens the seeded order in the side panel: its plan as frozen, payment pending.
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await page.getByRole('link', { name: 'Nadia Khan' }).click();
+  await expect(page).toHaveURL(/lead=/);
+  const panel = page.getByRole('complementary', { name: 'Lead' });
+  await expect(panel.getByRole('heading', { name: 'Nadia Khan' })).toBeVisible();
+  const order = panel.getByRole('region', { name: 'Order' });
+  const orderValue = (label: string) => order.locator(`dt:text-is("${label}") + dd`);
+  await expect(orderValue('Plan')).toContainText('Rogers 60GB');
+  await expect(order.getByText(/^Frozen /)).toHaveText(
+    /^Frozen [A-Z][a-z]{2} \d{1,2}, \d{4}: Rogers 60GB, \$40\.00 \/ Monthly$/,
+  );
+  await expect(orderValue('Quantity')).toHaveText('1');
+  await expect(orderValue('Payment status')).toHaveText('Pending');
+
+  // Marked paid in the Order section; the new plan is on offer there too.
+  await order.getByRole('button', { name: 'Edit' }).click();
+  await expect(order.getByLabel('Plan')).toContainText('Chatr 25GB');
+  await order.getByLabel('Payment status').selectOption({ label: 'Paid' });
+  await order.getByRole('button', { name: 'Save' }).click();
+  await expect(order.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(orderValue('Payment status')).toHaveText('Paid');
+  await expect(order.getByText(/^Frozen /)).toContainText('Rogers 60GB, $40.00 / Monthly');
+  await panel.getByRole('button', { name: 'Close panel' }).click();
+  await expect(panel).toHaveCount(0);
+
+  // Filter on Payment status = Paid: the one order.
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByLabel('Property').selectOption('paymentStatus');
+  await page.getByLabel('Operator').selectOption('eq');
+  await page.getByLabel('Value').selectOption({ label: 'Paid' });
+  await page.getByRole('button', { name: 'Apply filter' }).click();
+  await expect(page.getByText('is Paid')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove filter Payment status' })).toBeVisible();
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Nadia Khan');
+
+  // Archived from the side panel, it leaves the list for the Archive tab.
+  await page.getByRole('link', { name: 'Nadia Khan' }).click();
+  await panel.getByRole('button', { name: 'Archive' }).click();
+  await expect(panel.getByText(/This lead is archived \(since /)).toBeVisible();
+  await expect(panel.getByLabel('Stage')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page.getByRole('link', { name: 'Nadia Khan' })).toHaveCount(0);
+
+  await page.getByRole('tab', { name: /Archive\s*1/ }).click();
+  await expect(page).toHaveURL(/archived=1/);
+  await page.getByRole('link', { name: 'Nadia Khan' }).click();
+  await expect(panel.getByText(/This lead is archived \(since /)).toBeVisible();
+  await panel.getByRole('button', { name: 'Restore' }).click();
+  await expect(panel.getByText(/This lead is archived/)).toHaveCount(0);
+
+  // Restored, its stage select offers the eight order stages, no payment stages.
+  const stage = panel.getByLabel('Stage');
+  await expect(stage).toBeVisible();
+  await expect(stage).toHaveValue('pending');
+  await expect(stage.locator('option')).toHaveText(simStages);
+  await expect(stage.locator('option', { hasText: /Paid|Invoiced/ })).toHaveCount(0);
+
+  // Clean up: payment back to pending, the new plan no longer sold (plans are never deleted).
+  await order.getByRole('button', { name: 'Edit' }).click();
+  await order.getByLabel('Payment status').selectOption({ label: 'Pending' });
+  await order.getByRole('button', { name: 'Save' }).click();
+  await expect(orderValue('Payment status')).toHaveText('Pending');
+  await panel.getByRole('button', { name: 'Close panel' }).click();
+
+  await page.goto('/w/getcanadasim/settings/plans');
+  const chatrActive = page.getByRole('checkbox', { name: 'Active Chatr 25GB' });
+  await chatrActive.click();
+  await expect(chatrActive).not.toBeChecked();
+  await expect(simPlans.getByRole('listitem').filter({ hasText: 'Chatr 25GB' })).toContainText(
+    'Inactive',
+  );
   expect(errors).toEqual([]);
 });

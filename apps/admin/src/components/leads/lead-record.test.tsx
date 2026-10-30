@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildPropertyCatalog,
   codePropertyCatalog,
   type AssignableMember,
   type GetWorkspaceLeadResponse,
@@ -8,6 +9,8 @@ import {
   type LeadIdentity,
   type LeadActivity,
   type LeadDetail,
+  type LeadOrder,
+  type PlanSnapshot,
   type PropertyLayout,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -27,7 +30,7 @@ const NOW = '2026-10-26T12:00:00.000Z';
 const mocks = vi.hoisted(() => ({
   getStaffLead: vi.fn(),
   updateStaffLead: vi.fn(),
-  setLeadTrashed: vi.fn(),
+  setLeadArchived: vi.fn(),
   addLeadNote: vi.fn(),
   createLeadTask: vi.fn(),
   updateLeadTask: vi.fn(),
@@ -164,7 +167,7 @@ describe('LeadRecord', () => {
       '/w/canadawide/leads/90000000-0000-4000-8000-000000000003',
     ]);
     expect(within(links[0] ?? list).getByText('Contacted')).toBeTruthy();
-    expect(within(links[1] ?? list).getByText('In trash')).toBeTruthy();
+    expect(within(links[1] ?? list).getByText('In archive')).toBeTruthy();
   });
 
   it('changes the stage and shows the new timeline entry', async () => {
@@ -246,13 +249,34 @@ describe('LeadRecord', () => {
     expect(await screen.findByText(/not the customer’s details/)).toBeTruthy();
     expect(screen.queryByLabelText('Stage')).toBeNull();
     expect(screen.queryByLabelText('Add a note')).toBeNull();
-    expect(screen.queryByRole('button', { name: /trash/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /archive/i })).toBeNull();
     expect(screen.getByText('New')).toBeTruthy();
   });
 
-  it('shows a trashed lead read-only with a way back', async () => {
+  it('archives the lead from the header and says so', async () => {
+    mocks.setLeadArchived.mockResolvedValue({
+      lead: { ...lead, deletedAt: NOW },
+      activity: {
+        id: '92000000-0000-4000-8000-000000000004',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'system',
+        event: 'trashed',
+      },
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    expect(await screen.findByText(/This lead is archived \(since/)).toBeTruthy();
+    expect(mocks.setLeadArchived).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, true);
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(within(timeline).getByText('archived this')).toBeTruthy();
+    expect(document.body.textContent ?? '').not.toMatch(/trash/i);
+  });
+
+  it('shows an archived lead read-only with a way back', async () => {
     mocks.getStaffLead.mockResolvedValue(response({ lead: { ...lead, deletedAt: NOW } }));
-    mocks.setLeadTrashed.mockResolvedValue({
+    mocks.setLeadArchived.mockResolvedValue({
       lead,
       activity: {
         id: '92000000-0000-4000-8000-000000000003',
@@ -264,12 +288,14 @@ describe('LeadRecord', () => {
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
-    expect(await screen.findByText(/This lead is in the trash/)).toBeTruthy();
+    expect(await screen.findByText(/This lead is archived \(since/)).toBeTruthy();
     expect(screen.queryByLabelText('Stage')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
-    await waitFor(() => expect(screen.queryByText(/This lead is in the trash/)).toBeNull());
-    expect(mocks.setLeadTrashed).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, false);
+    await waitFor(() => expect(screen.queryByText(/This lead is archived/)).toBeNull());
+    expect(mocks.setLeadArchived).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, false);
     expect(await screen.findByLabelText('Stage')).toBeTruthy();
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(within(timeline).getByText('restored this')).toBeTruthy();
   });
 
   it('says plainly when the lead does not exist', async () => {
@@ -520,7 +546,7 @@ describe('LeadRecord order details', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Copy info' }));
     await screen.findByRole('button', { name: 'Copied' });
     expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining('Plan: Unlimited Data · $40, Rogers'),
+      expect.stringContaining('Plan (as submitted): Unlimited Data · $40, Rogers'),
     );
 
     const letter = screen.getByRole('link', { name: 'Print delivery letter' });
@@ -811,6 +837,7 @@ describe('LeadRecord from the site layout', () => {
       sensitive: false,
       staffOnly: false,
       hidden: false,
+      websiteVisible: false,
       leadTypes: [],
       editable: true,
       version: 1,
@@ -1077,6 +1104,7 @@ describe('PropertySections', () => {
     sensitive: true,
     staffOnly: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     editable: true,
     version: 1,
@@ -1116,5 +1144,142 @@ describe('PropertySections', () => {
     expect(within(identity).getByText('X1234567')).toBeTruthy();
     expect(within(identity).getByText('Jan 31, 1990')).toBeTruthy();
     expect(within(identity).queryByText('••••')).toBeNull();
+  });
+});
+
+describe('LeadRecord order section', () => {
+  const ACTIVE_PLAN = '70000000-0000-4000-8000-000000000001';
+  const OLD_PLAN = '70000000-0000-4000-8000-000000000002';
+  const FROZEN_AT = '2026-10-20T15:00:00.000Z';
+  const MOBILITY_PLAN = '70000000-0000-4000-8000-000000000003';
+  const plans = [
+    { id: ACTIVE_PLAN, name: 'Unlimited 50', active: true, leadType: 'sim_order' },
+    { id: OLD_PLAN, name: 'Legacy 10', active: false, leadType: 'sim_order' },
+    // Another type's plan: a SIM order never offers it.
+    { id: MOBILITY_PLAN, name: 'Talk and text', active: true, leadType: 'mobility' },
+  ];
+  /** `GET /properties` as the backend answers it: the site's plans, each with its lead type. */
+  const model = {
+    properties: [...buildPropertyCatalog([], 'lead', { plans }).all],
+    plans,
+    layouts: {},
+    capabilities: { canManage: true },
+    requestId: NOW,
+  };
+  const frozenPlan: PlanSnapshot = {
+    planId: OLD_PLAN,
+    name: 'Legacy 10',
+    priceMinor: 2500,
+    currency: 'CAD',
+    billingPeriod: 'month',
+    paymentRequired: true,
+    requiredDocuments: [],
+    properties: {},
+    frozenAt: FROZEN_AT,
+  };
+  const frozenOrder: LeadOrder = {
+    planId: OLD_PLAN,
+    plan: frozenPlan,
+    quantity: 2,
+    paymentStatus: 'pending',
+    carrierCommission: 'not_yet',
+  };
+  const simOrder = (order: LeadOrder): LeadDetail => ({
+    ...lead,
+    leadType: 'sim_order',
+    stage: 'pending',
+    // The form's own plan field (as submitted) is not the order's plan.
+    form: { schemaVersion: 1, payload: { planId: 'website-plan-7', delivery: 'esim' } },
+    order,
+  });
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+    mocks.getPropertyModel.mockResolvedValue(model);
+  });
+
+  it('shows the four order fields and the copy frozen on the lead', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ lead: simOrder(frozenOrder) }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const order = await screen.findByRole('region', { name: 'Order' });
+    await within(order).findByText('Legacy 10');
+    const rows = Array.from(order.querySelectorAll('dt')).map((term) => term.textContent);
+    expect(rows).toEqual(['Plan', 'Quantity', 'Payment status', 'Carrier commission']);
+    expect(within(order).getByText('2')).toBeTruthy();
+    expect(within(order).getByText('Pending')).toBeTruthy();
+    expect(within(order).getByText('Not yet')).toBeTruthy();
+    const frozen = within(order).getByText(/^Frozen /);
+    expect(frozen.textContent).toMatch(/^Frozen Oct 20, 2026: Legacy 10, \$25\.00 \/ Monthly$/);
+  });
+
+  it('says when no plan is frozen yet', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: simOrder({ ...frozenOrder, planId: null, plan: null }) }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const order = await screen.findByRole('region', { name: 'Order' });
+    expect(await within(order).findByText('No plan frozen yet')).toBeTruthy();
+  });
+
+  it('offers the active plans, marks the current inactive one, and sends order edits', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ lead: simOrder(frozenOrder) }));
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: simOrder({
+        ...frozenOrder,
+        planId: ACTIVE_PLAN,
+        plan: { ...frozenPlan, planId: ACTIVE_PLAN, name: 'Unlimited 50', priceMinor: 5000 },
+        paymentStatus: 'paid',
+      }),
+      activities: [
+        {
+          id: '92000000-0000-4000-8000-000000000030',
+          actorId: SELF,
+          createdAt: NOW,
+          kind: 'edit',
+          fields: ['plan', 'paymentStatus'],
+        },
+      ],
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const order = await screen.findByRole('region', { name: 'Order' });
+    await within(order).findByText('Legacy 10');
+    fireEvent.click(within(order).getByRole('button', { name: 'Edit' }));
+    const plan = within(order).getByLabelText('Plan');
+    // Only the SIM order's own plans: the mobility plan is not offered.
+    expect(Array.from(plan.querySelectorAll('option')).map((option) => option.textContent)).toEqual(
+      ['—', 'Unlimited 50', 'Legacy 10 (inactive)'],
+    );
+    expect(within(order).getByText(/^Frozen /).textContent).toMatch(
+      /^Frozen Oct 20, 2026: Legacy 10/,
+    );
+    fireEvent.change(plan, { target: { value: ACTIVE_PLAN } });
+    fireEvent.change(within(order).getByLabelText('Payment status'), {
+      target: { value: 'paid' },
+    });
+    fireEvent.click(within(order).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        order: { planId: ACTIVE_PLAN, paymentStatus: 'paid' },
+      }),
+    );
+    await within(order).findByText('Unlimited 50');
+    expect(within(order).getByText(/^Frozen /).textContent).toMatch(
+      /^Frozen Oct 20, 2026: Unlimited 50, \$50\.00 \/ Monthly$/,
+    );
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(within(timeline).getByText('corrected the plan, payment status')).toBeTruthy();
+  });
+
+  it('leaves the order out of a lead the backend sent no order details for', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: { ...lead, leadType: 'sim_order', stage: 'pending' } }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalled());
+    expect(screen.queryByRole('region', { name: 'Order' })).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ function property(overrides: Partial<SiteProperty> & Pick<SiteProperty, 'kind'>)
     sensitive: false,
     staffOnly: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     editable: true,
     ...overrides,

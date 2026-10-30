@@ -51,6 +51,10 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'properties', label: 'Properties' },
   { id: 'layouts', label: 'Layouts' },
 ];
+// A plan has no record layout, so its one tab is the plan properties.
+const PLAN_TABS: readonly { id: Tab; label: string }[] = [
+  { id: 'properties', label: 'Plan properties' },
+];
 
 const leadsText = (count: number) => `${count} ${count === 1 ? 'lead' : 'leads'}`;
 
@@ -61,27 +65,34 @@ function detailUsage(error: BackendError): PropertyUsage | undefined {
 
 /**
  * Where the leads holding a value are, and what each group needs, e.g.
- * "Used on 5 leads: 2 active, 2 in the trash (restore, clear the value, trash
+ * "Used on 5 leads: 2 active, 2 in the archive (restore, clear the value, archive
  * again), 1 restricted (cannot be edited)". Groups with no lead are left out.
  */
 function usageText(usage: PropertyUsage): string {
   const parts: string[] = [];
   if (usage.active > 0) parts.push(`${usage.active} active`);
   if (usage.trashed > 0) {
-    parts.push(`${usage.trashed} in the trash (restore, clear the value, trash again)`);
+    parts.push(`${usage.trashed} in the archive (restore, clear the value, archive again)`);
   }
   if (usage.restricted > 0) parts.push(`${usage.restricted} restricted (cannot be edited)`);
   return `${leadsText(usage.leadCount)}: ${parts.join(', ')}`;
 }
 
 /** What went wrong with a write, in words staff can act on. */
-function writeError(error: unknown, subject: 'property' | 'layout'): string {
+function writeError(
+  error: unknown,
+  subject: 'property' | 'layout',
+  object: 'lead' | 'plan',
+): string {
   if (error instanceof BackendError) {
     const usage = detailUsage(error);
     switch (error.code) {
       case 'version_conflict':
         return `Someone else changed this ${subject}. The latest version is loaded.`;
       case 'property_in_use':
+        if (object === 'plan') {
+          return 'Plans still hold a value for this property. Clear the value on those plans first, or hide the property instead.';
+        }
         if (usage === undefined) {
           return 'Leads still hold a value for this property. Clear the value on those leads first, or hide the property instead.';
         }
@@ -92,6 +103,7 @@ function writeError(error: unknown, subject: 'property' | 'layout'): string {
       case 'property_option_in_use': {
         const option = error.details?.optionValue;
         const name = typeof option === 'string' ? option : 'This option';
+        if (object === 'plan') return `${name} is used on plans. Hide it instead of removing it.`;
         return usage === undefined
           ? `${name} is used on leads. Hide it instead of removing it.`
           : `Option ${name} is used on ${usageText(usage)}. Hide it instead of removing it.`;
@@ -115,12 +127,24 @@ function leadTypesText(property: SiteProperty): string {
  * Settings → Properties: the site's built-in and custom properties, and the
  * record layout per lead type. Every member can read it; the write controls
  * show only when the backend says this member can manage properties.
+ *
+ * With `object` 'plan' it is the plan properties instead: custom ones only
+ * (a plan has no built-ins, lead types or layout), each with a _Show on
+ * website_ switch.
  */
-export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string }): JSX.Element {
+export function PropertiesSettings({
+  workspaceSlug,
+  object = 'lead',
+}: {
+  workspaceSlug: string;
+  object?: 'lead' | 'plan';
+}): JSX.Element {
   const staff = useStaffSession();
   const workspaceId = staff.workspaces.find((item) => item.slug === workspaceSlug)?.id;
   const accessToken = staff.accessToken;
-  const { model, catalog, reload, error: loadError } = usePropertyModel(workspaceId);
+  const { model, catalog, reload, error: loadError } = usePropertyModel(workspaceId, object);
+  const isPlan = object === 'plan';
+  const tabs = isPlan ? PLAN_TABS : TABS;
 
   const [tab, setTab] = useState<Tab>('properties');
   const [leadType, setLeadType] = useState(LEAD_TYPES[0]?.key ?? 'internet');
@@ -141,6 +165,14 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
   const builtins = model?.properties.filter((property) => property.origin === 'builtin') ?? [];
   const customs = model?.properties.filter((property) => property.origin === 'custom') ?? [];
 
+  // The lead calls keep their original arguments; only a plan's carry the object.
+  const create = (token: string, id: string, input: CreateCustomProperty) =>
+    isPlan ? createProperty(token, id, input, object) : createProperty(token, id, input);
+  const update = (token: string, id: string, key: string, input: UpdateProperty) =>
+    isPlan ? updateProperty(token, id, key, input, object) : updateProperty(token, id, key, input);
+  const remove = (token: string, id: string, key: string) =>
+    isPlan ? deleteProperty(token, id, key, object) : deleteProperty(token, id, key);
+
   /**
    * One write, then a reload so the inbox and record read the change. Says why it failed, if it did;
    * `conflict` means someone else changed it first and the model has been reloaded.
@@ -157,7 +189,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
     } catch (caught) {
       const conflict = caught instanceof BackendError && caught.code === 'version_conflict';
       if (conflict) await reload();
-      return { reason: writeError(caught, subject), conflict };
+      return { reason: writeError(caught, subject, object), conflict };
     }
     await reload();
     return { conflict: false };
@@ -168,7 +200,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
     setPending(true);
     const { reason } = await write(
       (token, id) =>
-        updateProperty(token, id, property.key, {
+        update(token, id, property.key, {
           ...body,
           expectedVersion: property.version ?? 1,
         }),
@@ -199,8 +231,8 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
     const target = dialog?.property;
     setDialogNotice(undefined);
     const { reason, conflict } = await write(async (token, id) => {
-      if ('kind' in input) await createProperty(token, id, input);
-      else if (target) await updateProperty(token, id, target.key, input);
+      if ('kind' in input) await create(token, id, input);
+      else if (target) await update(token, id, target.key, input);
     }, 'property');
     if (conflict) {
       setDialogNotice(reason);
@@ -216,7 +248,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
     setDeleteError(undefined);
     setPending(true);
     const key = deleting.key;
-    const { reason } = await write((token, id) => deleteProperty(token, id, key), 'property');
+    const { reason } = await write((token, id) => remove(token, id, key), 'property');
     setPending(false);
     if (reason) setDeleteError(reason);
     else setDeleting(undefined);
@@ -226,7 +258,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
     const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
     if (step === 0) return;
     event.preventDefault();
-    const next = TABS[(index + step + TABS.length) % TABS.length];
+    const next = tabs[(index + step + tabs.length) % tabs.length];
     if (!next) return;
     setTab(next.id);
     document.getElementById(`properties-tab-${next.id}`)?.focus();
@@ -260,7 +292,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
   return (
     <div className="flex flex-col gap-4">
       <div role="tablist" aria-label="Property settings" className="flex gap-1 border-b">
-        {TABS.map((entry, index) => (
+        {tabs.map((entry, index) => (
           <button
             key={entry.id}
             id={`properties-tab-${entry.id}`}
@@ -278,7 +310,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
         ))}
       </div>
 
-      {tab === 'properties' ? (
+      {tab === 'properties' || isPlan ? (
         <div
           role="tabpanel"
           id="properties-panel-properties"
@@ -291,98 +323,100 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
             </p>
           ) : null}
 
-          <section aria-labelledby="builtin-heading" className="flex flex-col gap-2">
-            <div>
-              <h2 id="builtin-heading" className="text-base font-semibold">
-                Built-in properties
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                These come with every site. You can rename one or hide it from records, filters and
-                columns.
-              </p>
-            </div>
-            <ul aria-label="Built-in properties" className="divide-y rounded-md border">
-              {builtins.map((property) => (
-                <li
-                  key={property.key}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2"
-                >
-                  {renaming?.key === property.key ? (
-                    <div className="flex flex-1 flex-wrap items-center gap-2">
-                      <Input
-                        className="min-w-40 flex-1"
-                        aria-label={`Label for ${property.label}`}
-                        maxLength={80}
-                        value={renaming.label}
-                        onChange={(event) =>
-                          setRenaming({ key: property.key, label: event.target.value })
-                        }
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={pending}
-                        onClick={() => void saveLabel()}
-                      >
-                        Save label
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setRenaming(undefined)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="mr-auto min-w-0">
-                        <p className="text-sm font-medium">
-                          {property.label}
-                          {property.hidden ? (
-                            <Badge variant="secondary" className="ml-2">
-                              Hidden
-                            </Badge>
-                          ) : null}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {PROPERTY_KIND_LABELS[property.kind]} · {leadTypesText(property)}
-                        </p>
+          {isPlan ? null : (
+            <section aria-labelledby="builtin-heading" className="flex flex-col gap-2">
+              <div>
+                <h2 id="builtin-heading" className="text-base font-semibold">
+                  Built-in properties
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  These come with every site. You can rename one or hide it from records, filters
+                  and columns.
+                </p>
+              </div>
+              <ul aria-label="Built-in properties" className="divide-y rounded-md border">
+                {builtins.map((property) => (
+                  <li
+                    key={property.key}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2"
+                  >
+                    {renaming?.key === property.key ? (
+                      <div className="flex flex-1 flex-wrap items-center gap-2">
+                        <Input
+                          className="min-w-40 flex-1"
+                          aria-label={`Label for ${property.label}`}
+                          maxLength={80}
+                          value={renaming.label}
+                          onChange={(event) =>
+                            setRenaming({ key: property.key, label: event.target.value })
+                          }
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={pending}
+                          onClick={() => void saveLabel()}
+                        >
+                          Save label
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setRenaming(undefined)}
+                        >
+                          Cancel
+                        </Button>
                       </div>
-                      {canManage ? (
-                        <div className="flex gap-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={pending}
-                            aria-label={`Rename ${property.label}`}
-                            onClick={() => {
-                              setNotice(undefined);
-                              setRenaming({ key: property.key, label: property.label });
-                            }}
-                          >
-                            Rename
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={pending}
-                            aria-label={`${property.hidden ? 'Show' : 'Hide'} ${property.label}`}
-                            onClick={() => void change(property, { hidden: !property.hidden })}
-                          >
-                            {property.hidden ? 'Show' : 'Hide'}
-                          </Button>
+                    ) : (
+                      <>
+                        <div className="mr-auto min-w-0">
+                          <p className="text-sm font-medium">
+                            {property.label}
+                            {property.hidden ? (
+                              <Badge variant="secondary" className="ml-2">
+                                Hidden
+                              </Badge>
+                            ) : null}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {PROPERTY_KIND_LABELS[property.kind]} · {leadTypesText(property)}
+                          </p>
                         </div>
-                      ) : null}
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
+                        {canManage ? (
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={pending}
+                              aria-label={`Rename ${property.label}`}
+                              onClick={() => {
+                                setNotice(undefined);
+                                setRenaming({ key: property.key, label: property.label });
+                              }}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={pending}
+                              aria-label={`${property.hidden ? 'Show' : 'Hide'} ${property.label}`}
+                              onClick={() => void change(property, { hidden: !property.hidden })}
+                            >
+                              {property.hidden ? 'Show' : 'Hide'}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section aria-labelledby="custom-heading" className="flex flex-col gap-2">
             <div className="flex flex-wrap items-end justify-between gap-2">
@@ -391,7 +425,9 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                   Custom properties
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Extra details this site tracks on its leads.
+                  {isPlan
+                    ? 'Extra details this site keeps on each plan. Choose which ones the website shows.'
+                    : 'Extra details this site tracks on its leads.'}
                 </p>
               </div>
               {canManage ? (
@@ -432,6 +468,11 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                             Hidden
                           </Badge>
                         ) : null}
+                        {property.websiteVisible ? (
+                          <Badge variant="outline" className="ml-2">
+                            On website
+                          </Badge>
+                        ) : null}
                         {property.staffOnly ? (
                           <Badge variant="outline" className="ml-2">
                             Staff only
@@ -444,7 +485,9 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
                         ) : null}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {PROPERTY_KIND_LABELS[property.kind]} · {leadTypesText(property)}
+                        {isPlan
+                          ? PROPERTY_KIND_LABELS[property.kind]
+                          : `${PROPERTY_KIND_LABELS[property.kind]} · ${leadTypesText(property)}`}
                       </p>
                     </div>
                     {canManage ? (
@@ -578,9 +621,13 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
           <DialogHeader>
             <DialogTitle>{dialog?.property ? 'Edit property' : 'Add property'}</DialogTitle>
             <DialogDescription>
-              {dialog?.property
-                ? 'Change how this property is labelled and where it applies.'
-                : 'A custom property adds a detail staff can fill in on a lead.'}
+              {isPlan
+                ? dialog?.property
+                  ? 'Change how this property is labelled and whether the website shows it.'
+                  : 'A plan property adds a detail staff can fill in on each plan.'
+                : dialog?.property
+                  ? 'Change how this property is labelled and where it applies.'
+                  : 'A custom property adds a detail staff can fill in on a lead.'}
             </DialogDescription>
           </DialogHeader>
           {dialogNotice ? (
@@ -592,6 +639,7 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
             <PropertyEditor
               key={`${dialog.property?.key ?? 'new'}:${dialogEpoch}`}
               {...(editing ? { initial: editing } : {})}
+              object={object}
               leadTypes={LEAD_TYPES}
               onSave={saveEditor}
             />
@@ -607,8 +655,9 @@ export function PropertiesSettings({ workspaceSlug }: { workspaceSlug: string })
           <DialogHeader>
             <DialogTitle>Delete {deleting?.label}?</DialogTitle>
             <DialogDescription>
-              The property is removed from every record page and layout. It can be deleted only when
-              no lead holds a value for it; hide it to keep the values.
+              {isPlan
+                ? 'The property is removed from every plan. It can be deleted only when no plan holds a value for it; hide it to keep the values.'
+                : 'The property is removed from every record page and layout. It can be deleted only when no lead holds a value for it; hide it to keep the values.'}
             </DialogDescription>
           </DialogHeader>
           {deleteError ? (

@@ -87,7 +87,7 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Lead intake and store: `apps/backend/src/leads/` (`store.ts` does the contact
   merge and lead-type handling, `types.ts` the registry), routes in
   `src/routes/website.ts`.
-- Staff lead work (detail, stage, assignee, notes, tasks, board, trash):
+- Staff lead work (detail, stage, assignee, notes, tasks, board, archive):
   `src/leads/work-store.ts` for writes, `src/leads/staff-queries.ts` for reads
   (plain SQL with explicit aliases; see the comment at its top).
 - Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
@@ -101,11 +101,18 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   per-request catalogue) with routes in `src/routes/properties.ts`; staff
   private saved views in `src/views/store.ts` with routes in
   `src/routes/views.ts`.
+- Plans and order details: `apps/backend/src/plans/` (`store.ts` for the
+  site's plans and the freeze, `options.ts` for the catalogue's plan options)
+  with staff routes in `src/routes/plans.ts`, the website's plan list in
+  `src/routes/website.ts` and an order lead's details in `src/leads/order.ts`;
+  contracts in `packages/contracts/src/plans.ts`.
 - Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,settings}`
   (Settings → Properties at `settings/properties`); lead screens in
   `src/components/leads/`; the CRM view bar, menus, side panel and page header
   in `src/components/crm/` (tokens in `src/app/crm-theme.css`); property
   rendering, editing and the settings screens in `src/components/properties/`;
+  Settings → Plans in `src/components/plans/` (`settings/plans`, with plan
+  properties at `settings/plans/properties`);
   API client `apps/admin/src/lib/api.ts`.
 - Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
   (docs/RUNBOOKS/legacy-import.md).
@@ -139,9 +146,30 @@ no rows. Every list, board, filter, sort, column and record screen reads the
 catalogue, never the code list directly. A **layout** orders the sections and
 property keys of the lead record for one site and lead type
 (`app.property_layouts`). A **saved view** is one staff member's private copy
-of the leads inbox state (layout, type, stage, assignee, trash, due today,
+of the leads inbox state (layout, type, stage, assignee, archive, due today,
 filters, sort, property columns and hidden columns), never the free-text search or the page; `app.saved_views` is
 visible only to its owner, at most 30 per person per site.
+
+A **plan** is something a site sells, for one order lead type (`sim_order`,
+`internet` or `mobility`): a name, a price in cents (CAD), a billing period
+(`one_time`, `month`, `30_days`, `90_days` or `year`), whether payment is
+required, the documents it needs, custom values and a position, in
+`app.plans`. A plan is never deleted; `active` off hides it. Its extra
+details are **plan properties** (`?object=plan` on the property routes), each
+with a _Show on website_ switch (`websiteVisible`). The **order details** of an
+order lead (`leads.order_details`) are its plan link (`planId`), the **frozen
+plan**, `quantity` (1–99), **payment status** (`not_needed`, `pending`,
+`paid`) and **carrier commission** (`not_yet`, `invoiced`, `received`,
+`clawback`). The frozen plan is a snapshot of the plan taken when the website
+submits the lead and again whenever staff change the plan, so a later price or
+name change never rewrites an order already taken; the website sends a plan id
+and a quantity, never a price. The order details are properties too: a third
+storage, `order`, beside `form` and `custom`. Payment and the carrier's
+commission are order details, not stages: `sim_order` has no `paid` or
+`invoiced` stage and its form has no `commissionStatus`. To **archive** a lead
+is to soft-delete it (`deleted_at`); it can be restored. This replaces the word
+"trash" in the admin, but `/trash` routes, `view=trash` and the `trash=1` URL
+parameter are still accepted as aliases.
 
 ## Git
 

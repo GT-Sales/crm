@@ -9,7 +9,12 @@
  * Each start resets the e2e sites and seeds them: CanadaWide with two staff
  * (the signed-in owner and a colleague), internet and mobility leads in a few
  * stages, and one open task; plus Get Canada Sim with SIM orders for property
- * filter, sort and column checks, all written through the real stores.
+ * filter, sort and column checks, two plans ("Rogers 60GB", payment required,
+ * and "Fido 75GB", none) and one more SIM order that ordered Rogers 60GB, so
+ * its order details carry the frozen plan. All of it is written through the
+ * real stores: the plans through the plan store, and the ordered SIM order
+ * through `createLead` with `order` and `submit: true`, the call the website
+ * route `POST /website/leads` makes once it has checked the site's key.
  *
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
@@ -23,6 +28,7 @@ import { createApp } from '../../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../../src/auth/session.js';
 import { DatabaseLeadStore } from '../../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../../src/leads/work-store.js';
+import { DatabasePlanStore } from '../../src/plans/store.js';
 import { createDefaultStaffRouteDependencies } from '../../src/routes/staff.js';
 
 const PORT = Number(process.env['E2E_HARNESS_PORT'] ?? 4100);
@@ -201,6 +207,57 @@ async function seed(): Promise<void> {
       });
       await work.updateLead({ ...simOwner, leadId: created.lead.id, stage: 'pending' });
     }
+
+    // Two plans, then one SIM order that names the first: submitted, so the
+    // plan is frozen on it and its payment is pending.
+    const plansStore = new DatabasePlanStore(database);
+    const planIds: string[] = [];
+    for (const [name, priceMinor, paymentRequired] of [
+      ['Rogers 60GB', 4000, true],
+      ['Fido 75GB', 3500, false],
+    ] as const) {
+      const outcome = await plansStore.create(simOwner, {
+        leadType: 'sim_order',
+        name,
+        priceMinor,
+        billingPeriod: 'month',
+        paymentRequired,
+        active: true,
+        requiredDocuments: [],
+        customValues: {},
+      });
+      if (outcome.kind !== 'created') throw new Error(`seed plan ${name}: ${outcome.kind}`);
+      planIds.push(outcome.plan.id);
+    }
+    const [rogersPlanId] = planIds;
+    if (!rogersPlanId) throw new Error('seed plan Rogers 60GB was not created');
+    const ordered = await leads.createLead({
+      ...simWebsite,
+      leadType: 'sim_order',
+      contact: {
+        fullName: 'Nadia Khan',
+        email: 'nadia@example.test',
+        phone: '647 555 0204',
+        countryCode: 'IN',
+      },
+      form: {
+        schemaVersion: 1,
+        payload: {
+          planId: rogersPlanId,
+          planLabel: 'Rogers 60GB',
+          permitType: 'worker',
+          arrivalDate: '2026-11-20',
+          delivery: 'esim',
+          flightBooked: true,
+          gotVisa: true,
+        },
+      },
+      order: { planId: rogersPlanId, quantity: 1 },
+      attribution: { utmSource: 'google', utmMedium: 'cpc' },
+      consentVersion: 'gcs-e2e-2026-10',
+      submit: true,
+    });
+    await work.updateLead({ ...simOwner, leadId: ordered.lead.id, stage: 'pending' });
   } finally {
     await database.close();
   }

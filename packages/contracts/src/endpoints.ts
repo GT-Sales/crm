@@ -54,9 +54,19 @@ import {
   deletePropertyResponseSchema,
   propertyLayoutResponseSchema,
   propertyModelResponseSchema,
+  propertyObjectQuerySchema,
   propertyResponseSchema,
   savePropertyLayoutRequestSchema,
 } from './property-layouts';
+import {
+  createPlanRequestSchema,
+  listPlansQuerySchema,
+  listPlansResponseSchema,
+  listWebsitePlansQuerySchema,
+  listWebsitePlansResponseSchema,
+  planResponseSchema,
+  updatePlanRequestSchema,
+} from './plans';
 import {
   createSavedViewRequestSchema,
   deleteSavedViewResponseSchema,
@@ -236,7 +246,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads',
     summary:
-      'List leads with filters (type, stage, assignee, search, trash, follow-ups due) and attribution.',
+      'List leads with filters (type, stage, assignee, search, archive, follow-ups due) and attribution.',
     auth: 'staff',
     successStatus: 200,
     query: listWorkspaceLeadsQuerySchema,
@@ -247,7 +257,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads/summary',
     summary:
-      'Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the trash.',
+      'Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the archive.',
     auth: 'staff',
     successStatus: 200,
     query: leadsSummaryQuerySchema,
@@ -294,10 +304,19 @@ export const endpoints: readonly EndpointDef[] = [
     response: updateWorkspaceLeadResponseSchema,
   },
   {
+    operationId: 'archiveWorkspaceLead',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/archive',
+    summary: 'Archive a lead; it can be restored (lead management).',
+    auth: 'staff',
+    successStatus: 200,
+    response: leadTrashResponseSchema,
+  },
+  {
     operationId: 'trashWorkspaceLead',
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/trash',
-    summary: 'Move a lead to the trash; it can be restored (lead management).',
+    summary: 'Deprecated alias of archiveWorkspaceLead (lead management).',
     auth: 'staff',
     successStatus: 200,
     response: leadTrashResponseSchema,
@@ -325,7 +344,7 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'restoreWorkspaceLead',
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/restore',
-    summary: 'Bring a lead back from the trash (lead management).',
+    summary: 'Bring a lead back from the archive (lead management).',
     auth: 'staff',
     successStatus: 200,
     response: leadTrashResponseSchema,
@@ -391,6 +410,7 @@ export const endpoints: readonly EndpointDef[] = [
     summary: "The site's property catalogue and saved record layouts.",
     auth: 'staff',
     successStatus: 200,
+    query: propertyObjectQuerySchema,
     response: propertyModelResponseSchema,
   },
   {
@@ -400,6 +420,7 @@ export const endpoints: readonly EndpointDef[] = [
     summary: 'Add a custom property (property management).',
     auth: 'staff',
     successStatus: 201,
+    query: propertyObjectQuerySchema,
     request: createCustomPropertySchema,
     response: propertyResponseSchema,
   },
@@ -411,6 +432,7 @@ export const endpoints: readonly EndpointDef[] = [
       'Change a property: a custom one fully, a built-in only its label and whether it is hidden (property management).',
     auth: 'staff',
     successStatus: 200,
+    query: propertyObjectQuerySchema,
     request: updatePropertySchema,
     response: propertyResponseSchema,
   },
@@ -422,15 +444,18 @@ export const endpoints: readonly EndpointDef[] = [
       'Delete a custom property, leaving a tombstone so its key is never reused; refused with 409 `property_in_use` while any lead (trashed and restricted included) holds a value (property management).',
     auth: 'staff',
     successStatus: 200,
+    query: propertyObjectQuerySchema,
     response: deletePropertyResponseSchema,
   },
   {
     operationId: 'savePropertyLayout',
     method: 'PATCH',
     path: '/api/v1/staff/workspaces/{workspaceId}/properties/layouts/{leadType}',
-    summary: 'Save the record layout of one lead type (property management).',
+    summary:
+      'Save the record layout of one lead type, or with `object=plan` the plan record layout (no lead type in the path) (property management).',
     auth: 'staff',
     successStatus: 200,
+    query: propertyObjectQuerySchema,
     request: savePropertyLayoutRequestSchema,
     response: propertyLayoutResponseSchema,
   },
@@ -472,6 +497,38 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'staff',
     successStatus: 200,
     response: deleteSavedViewResponseSchema,
+  },
+
+  // Staff — plans
+  {
+    operationId: 'listPlans',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/plans',
+    summary: "List the site's plans, active only unless asked for inactive ones too.",
+    auth: 'staff',
+    successStatus: 200,
+    query: listPlansQuerySchema,
+    response: listPlansResponseSchema,
+  },
+  {
+    operationId: 'createPlan',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/plans',
+    summary: 'Add a plan the site sells for one order lead type.',
+    auth: 'staff',
+    successStatus: 201,
+    request: createPlanRequestSchema,
+    response: planResponseSchema,
+  },
+  {
+    operationId: 'updatePlan',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/plans/{planId}',
+    summary: 'Change, reorder, deactivate or reactivate one of the site plans.',
+    auth: 'staff',
+    successStatus: 200,
+    request: updatePlanRequestSchema,
+    response: planResponseSchema,
   },
 
   // Staff — outbox jobs
@@ -571,6 +628,18 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     response: readLeadResponseSchema,
     headers: [DRAFT_GRANT],
+  },
+
+  // Website — plans
+  {
+    operationId: 'listWebsitePlans',
+    method: 'GET',
+    path: '/api/v1/website/plans',
+    summary: "List the site's active plans with their website-visible values, for its storefront.",
+    auth: 'website',
+    successStatus: 200,
+    query: listWebsitePlansQuerySchema,
+    response: listWebsitePlansResponseSchema,
   },
 
   // Website — customer documents

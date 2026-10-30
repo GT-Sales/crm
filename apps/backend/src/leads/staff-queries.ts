@@ -1,8 +1,10 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { contextWorkspaceId, type TenantTransaction } from '@gt-sales/db';
 import {
+  DEFAULT_LEAD_ORDER,
   RELATED_LEADS_LIMIT,
   attributionSchema,
+  isOrderLeadType,
   leadActivitySchema,
   leadContactSchema,
   leadCountdownField,
@@ -15,6 +17,7 @@ import {
   leadTaskSchema,
   leadTypeEntry,
   leadTypeSchema,
+  normalizeLeadView,
   parseLeadSort,
   relatedLeadSchema,
   type LeadActivity,
@@ -37,8 +40,10 @@ import {
   type TaskAssigneeFilter,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
+import { orderLeadTypes } from '@gt-sales/types';
 import { z } from 'zod';
 
+import { toLeadOrder } from './order.js';
 import { deriveSource } from './source.js';
 
 /**
@@ -78,6 +83,7 @@ export interface LeadRow {
   countdownDate: unknown;
   formPayload?: unknown;
   customValues?: unknown;
+  orderDetails?: unknown;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -152,20 +158,33 @@ const OPEN_TASK_SUMMARY = sql.raw(`
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** The requested columns' values, each read from the form or the custom values its property names; never a sensitive one. */
+/**
+ * The requested columns' values, each read from the storage its property
+ * names (the form, the custom values, or the order details under the
+ * property's `storageKey`, with the order's defaults filled in for an order
+ * type); never a sensitive one.
+ */
 function extractRequestedProperties(
-  formPayload: unknown,
-  customValues: unknown,
+  row: Pick<LeadRow, 'leadType' | 'formPayload' | 'customValues' | 'orderDetails'>,
   columns: readonly string[],
   catalog: PropertyCatalog,
 ): Record<string, LeadPropertyValue> {
   const properties: Record<string, LeadPropertyValue> = {};
+  let order: Record<string, unknown> | undefined;
   for (const key of columns) {
     const property = catalog.get(key);
     if (!property || property.sensitive) continue;
-    const source = property.storage === 'custom' ? customValues : formPayload;
-    if (!isRecord(source) || !Object.hasOwn(source, key)) continue;
-    const raw = source[key];
+    let source: unknown;
+    if (property.storage === 'order') {
+      if (!isOrderLeadType(row.leadType)) continue;
+      order ??= { ...toLeadOrder(row.orderDetails) };
+      source = order;
+    } else {
+      source = property.storage === 'custom' ? row.customValues : row.formPayload;
+    }
+    const storedKey = property.storageKey ?? key;
+    if (!isRecord(source) || !Object.hasOwn(source, storedKey)) continue;
+    const raw = source[storedKey];
     if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
       properties[key] = raw;
     }
@@ -176,7 +195,7 @@ function extractRequestedProperties(
 /**
  * A lead's stored custom values; anything but a plain value is left out.
  * With the site's catalogue, only its custom properties' values (a write that
- * loads no catalogue, such as a trash, returns every stored value: the
+ * loads no catalogue, such as an archive, returns every stored value: the
  * property store refuses to delete a property a lead still holds, so the two
  * agree).
  */
@@ -226,12 +245,7 @@ export function toLeadListItem(
     countdownDate: calendarDay(row.countdownDate),
     ...(hasRequestedColumns
       ? {
-          properties: extractRequestedProperties(
-            row.formPayload,
-            row.customValues,
-            requested.columns,
-            requested.catalog,
-          ),
+          properties: extractRequestedProperties(row, requested.columns, requested.catalog),
         }
       : {}),
     deletedAt: row.deletedAt,
@@ -327,10 +341,43 @@ function customTyped(kind: SiteProperty['kind'], v: SQL, j: SQL): SQL {
   }
 }
 
-/** A custom property's condition: PR #1's per-kind rules over the kind-checked value. */
-function customFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
-  const v = sql`(l.custom_values ->> ${filter.key})`;
-  const j = sql`(l.custom_values -> ${filter.key})`;
+/** The order lead types, bound one value each, for the order storage's guard. */
+const ORDER_LEAD_TYPES = sql.join(
+  orderLeadTypes.map((leadType) => sql`${leadType}`),
+  sql`, `,
+);
+
+/** Each order field's default (`DEFAULT_LEAD_ORDER`) as JSON text, for a lead whose order lacks it. */
+const ORDER_DEFAULTS: ReadonlyMap<string, string> = new Map(
+  Object.entries(DEFAULT_LEAD_ORDER).map(([key, value]) => [key, JSON.stringify(value)]),
+);
+
+/**
+ * A property stored in a JSON column, as JSON (`j`) and as text (`v`):
+ * `l.custom_values` for a custom property, `l.order_details` for an order one,
+ * each under the key the property is stored as (`storageKey ?? key`, bound).
+ * An order field a lead of an order type lacks reads as its default, as the
+ * lead page shows it; a lead of any other type has no order, so every order
+ * field is SQL null there. A null matches `empty`, so that condition is
+ * limited to the order types too (`jsonFilterCondition`): a lead of another
+ * type matches no order condition, in a list of one type or across types.
+ */
+function jsonStoredValue(property: SiteProperty): { v: SQL; j: SQL } {
+  const key = property.storageKey ?? property.key;
+  if (property.storage === 'order') {
+    const fallback = ORDER_DEFAULTS.get(key) ?? 'null';
+    const j = sql`(case when l.lead_type in (${ORDER_LEAD_TYPES}) then coalesce(l.order_details -> ${key}, ${fallback}::jsonb) end)`;
+    return { j, v: sql`(${j} #>> '{}')` };
+  }
+  return { v: sql`(l.custom_values ->> ${key})`, j: sql`(l.custom_values -> ${key})` };
+}
+
+/**
+ * A JSON-stored property's condition (custom and order storage alike): PR
+ * #1's per-kind rules over the kind-checked value.
+ */
+function jsonFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
+  const { v, j } = jsonStoredValue(property);
   const typed = customTyped(property.kind, v, j);
   const isText =
     property.kind !== 'number' &&
@@ -340,7 +387,11 @@ function customFilterCondition(filter: LeadPropertyFilter, property: SitePropert
 
   if (filter.op === 'empty') {
     // No value at all, or a blank text; a malformed value is not empty either.
-    return sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
+    const empty = sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
+    // A lead of a type with no order is not an order with an empty field.
+    return property.storage === 'order'
+      ? sql`(l.lead_type in (${ORDER_LEAD_TYPES}) and ${empty})`
+      : empty;
   }
   if (filter.op === 'notEmpty') {
     return isText ? sql`coalesce(btrim(${typed}), '') <> ''` : sql`${typed} is not null`;
@@ -391,7 +442,7 @@ function customFilterCondition(filter: LeadPropertyFilter, property: SitePropert
       return sql`false`;
     }
     case 'dateTime':
-      // Not a custom kind: a custom property never has it.
+      // Neither a custom nor an order kind: no JSON-stored property has it.
       return sql`false`;
   }
 }
@@ -486,17 +537,22 @@ function formFilterCondition(filter: LeadPropertyFilter, property: SiteProperty)
 }
 
 function propertyFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
-  return property.storage === 'custom'
-    ? customFilterCondition(filter, property)
-    : formFilterCondition(filter, property);
+  return property.storage === 'form'
+    ? formFilterCondition(filter, property)
+    : jsonFilterCondition(filter, property);
 }
 
-/** The WHERE conditions for lead `l`. Restricted leads are never listed, whatever the view. */
+/**
+ * The WHERE conditions for lead `l`. Restricted leads are never listed,
+ * whatever the view; `archived` (and its old name `trash`) lists the archived
+ * ones.
+ */
 function leadConditions(filters: LeadFilters): SQL {
+  const archived = normalizeLeadView(filters.view) === 'archived';
   const conditions: SQL[] = [
     sql`l.workspace_id = ${filters.workspaceId}`,
     sql`l.customer_data_restricted_at is null`,
-    filters.view === 'trash' ? sql`l.deleted_at is not null` : sql`l.deleted_at is null`,
+    archived ? sql`l.deleted_at is not null` : sql`l.deleted_at is null`,
   ];
   if (filters.status) conditions.push(sql`l.status = ${filters.status}`);
   if (filters.leadType) conditions.push(sql`l.lead_type = ${filters.leadType}`);
@@ -553,12 +609,9 @@ const NEXT_DUE = sql.raw(`(
 
 /** A property's sort key: its value as its kind orders it, null (last) when absent or malformed. */
 function propertySortExpression(key: string, property: SiteProperty): SQL {
-  if (property.storage === 'custom') {
-    const typed = customTyped(
-      property.kind,
-      sql`(l.custom_values ->> ${key})`,
-      sql`(l.custom_values -> ${key})`,
-    );
+  if (property.storage !== 'form') {
+    const { v, j } = jsonStoredValue(property);
+    const typed = customTyped(property.kind, v, j);
     return property.kind === 'number' ||
       property.kind === 'money' ||
       property.kind === 'count' ||
@@ -609,13 +662,13 @@ function sortOrderOf(filters: LeadFilters): { pageOrder: SQL; rowOrder: SQL } {
     }
   }
 
-  const trash = filters.view === 'trash';
-  const pageOrder = trash
+  const archived = normalizeLeadView(filters.view) === 'archived';
+  const pageOrder = archived
     ? sql.raw('l.deleted_at desc, l.id')
     : filters.dueBy
       ? sql`${NEXT_DUE} asc, l.id`
       : sql.raw('l.updated_at desc, l.id');
-  const rowOrder = trash
+  const rowOrder = archived
     ? sql.raw('l.deleted_at desc, l.id')
     : filters.dueBy
       ? sql.raw('t.next_due asc, l.id')
@@ -624,7 +677,7 @@ function sortOrderOf(filters: LeadFilters): { pageOrder: SQL; rowOrder: SQL } {
 }
 
 /**
- * One page of leads, newest activity first (the trash: most recently deleted
+ * One page of leads, newest activity first (the archive: most recently archived
  * first; follow-ups due: the most overdue first; or an explicit `sort`). The
  * page's total rides on each row as a window count taken before the limit; the
  * task summary is joined after it, so only the page pays.
@@ -648,6 +701,9 @@ export async function selectLeadPage(
   const customValuesColumn = requestedProperties.some((property) => property.storage === 'custom')
     ? sql`, l.custom_values as "customValues"`
     : sql``;
+  const orderDetailsColumn = requestedProperties.some((property) => property.storage === 'order')
+    ? sql`, l.order_details as "orderDetails"`
+    : sql``;
 
   const rows = await tx.execute<LeadRow & { total: number }>(sql`
     with page as (
@@ -657,7 +713,7 @@ export async function selectLeadPage(
       order by ${pageOrder}
       limit ${pageSize} offset ${offset}
     )
-    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total${formPayloadColumn}${customValuesColumn}
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.total${formPayloadColumn}${customValuesColumn}${orderDetailsColumn}
     from page l
     ${OPEN_TASK_SUMMARY}
     order by ${rowOrder}
@@ -722,14 +778,14 @@ export async function selectLeadBoard(
 /**
  * Active leads per type (only types that have one), how many nobody has
  * opened, with `dueBy` how many have a follow-up due, and the size of the
- * trash, for the transaction's own site: the site comes from the tenant
+ * archive, for the transaction's own site: the site comes from the tenant
  * context and the day travels as a validated literal, so the statement binds
  * nothing and costs one round trip, not two.
  */
 export async function selectLeadSummary(
   tx: TenantTransaction,
   dueBy?: string,
-): Promise<{ types: LeadTypeCount[]; trash: number }> {
+): Promise<{ types: LeadTypeCount[]; archived: number }> {
   const followUpsDue = dueBy
     ? sql`count(*) filter (
         where l.deleted_at is null
@@ -779,7 +835,7 @@ export async function selectLeadSummary(
         unopened: row.unopened,
         ...(row.followUpsDue === null ? {} : { followUpsDue: row.followUpsDue }),
       })),
-    trash: rows.reduce((sum, row) => sum + row.trashed, 0),
+    archived: rows.reduce((sum, row) => sum + row.trashed, 0),
   };
 }
 
@@ -887,7 +943,12 @@ export async function selectLeadStats(
   return statsRowSchema.parse(row);
 }
 
-/** One lead with its form and custom values, for the lead page. Trashed leads are readable; restricted ones are not. */
+/** The detail's order: an order type's order details with the defaults filled in; nothing for any other type. */
+function orderOf(row: Pick<LeadRow, 'leadType' | 'orderDetails'>): Pick<LeadDetail, 'order'> {
+  return isOrderLeadType(row.leadType) ? { order: toLeadOrder(row.orderDetails) } : {};
+}
+
+/** One lead with its form, custom values and order, for the lead page. Archived leads are readable; restricted ones are not. */
 export async function selectLeadDetail(
   tx: TenantTransaction,
   workspaceId: string,
@@ -895,7 +956,8 @@ export async function selectLeadDetail(
   catalog?: PropertyCatalog,
 ): Promise<LeadDetail | undefined> {
   const [row] = await tx.execute<LeadRow & { payload: unknown; customValues: unknown }>(sql`
-    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.payload, l.custom_values as "customValues"
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}, l.payload, l.custom_values as "customValues",
+      l.order_details as "orderDetails"
     from app.leads l
     ${OPEN_TASK_SUMMARY}
     where l.workspace_id = ${workspaceId}
@@ -908,6 +970,7 @@ export async function selectLeadDetail(
     ...toLeadListItem(row),
     form: form.success ? form.data : null,
     customValues: toCustomValues(row.customValues, catalog),
+    ...orderOf(row),
   };
 }
 
@@ -939,12 +1002,17 @@ export function toLeadActivity(row: ActivityRow): LeadActivity {
     createdAt: row.createdAt,
   });
   if (parsed.success) return parsed.data;
+  // A data migration's entry (`data.migration`) says in its body what it
+  // changed, so the body is kept for the admin to show.
+  const migrationBody =
+    row.kind === 'system' && Object.hasOwn(data, 'migration') && row.body ? row.body : undefined;
   return {
     id: row.id,
     actorId: row.actorId,
     createdAt: row.createdAt,
     kind: 'system',
     event: 'unknown',
+    ...(migrationBody ? { body: migrationBody.slice(0, 4000) } : {}),
   };
 }
 
@@ -1032,6 +1100,7 @@ export async function selectLeadWithWork(
       ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS},
       l.payload,
       l.custom_values as "customValues",
+      l.order_details as "orderDetails",
       (
         select coalesce(json_agg(json_build_object(
           'id', a.id,
@@ -1137,6 +1206,7 @@ export async function selectLeadWithWork(
       ...toLeadListItem(row),
       form: form.success ? form.data : null,
       customValues: toCustomValues(row.customValues, catalog),
+      ...orderOf(row),
     },
     activities: row.activities.map(toLeadActivity),
     tasks: row.tasks.map(toLeadTask),

@@ -47,6 +47,7 @@ const textInput = (label: string): CreateCustomProperty => ({
   options: [],
   staffOnly: false,
   sensitive: false,
+  websiteVisible: false,
   leadTypes: [],
 });
 
@@ -450,6 +451,140 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     });
   });
 
+  it('order built-ins are relabelled or hidden like form ones, and the lead catalogue offers the site plans', async () => {
+    await expect(
+      store.update(ctx, 'lead', 'paymentStatus', { expectedVersion: 1, label: 'Paid?' }),
+    ).resolves.toMatchObject({
+      kind: 'updated',
+      property: { key: 'paymentStatus', origin: 'builtin', label: 'Paid?', version: 2 },
+    });
+    await expect(
+      store.update(ctx, 'lead', 'quantity', { expectedVersion: 1, hidden: true }),
+    ).resolves.toMatchObject({ kind: 'updated', property: { key: 'quantity', hidden: true } });
+    await expect(
+      store.update(ctx, 'lead', 'plan', { expectedVersion: 1, staffOnly: true }),
+    ).resolves.toEqual({ kind: 'builtin_locked' });
+    await expect(store.remove(ctx, 'lead', 'carrierCommission')).resolves.toEqual({
+      kind: 'builtin',
+    });
+
+    const [plan] = await admin<{ id: string }[]>`
+      insert into app.plans (workspace_id, lead_type, name, active, position)
+      values (${SITE}, 'sim_order', 'Unlimited 50', true, 0), (${SITE}, 'sim_order', 'Old', false, 1)
+      returning id
+    `;
+    const catalog = await store.catalog(ctx);
+    expect(catalog.get('paymentStatus')?.label).toBe('Paid?');
+    expect(catalog.get('quantity')?.hidden).toBe(true);
+    expect(catalog.get('plan')?.options).toEqual([
+      { value: plan?.id, label: 'Unlimited 50', hidden: false },
+      { value: expect.any(String), label: 'Old', hidden: true },
+    ]);
+    const model = await store.model(ctx, 'lead');
+    expect(model.plans?.map((option) => option.name)).toEqual(['Unlimited 50', 'Old']);
+    expect((await store.model(ctx, 'plan')).plans).toBeUndefined();
+    // Another site's plans are not offered here.
+    expect((await store.catalog(otherCtx)).get('plan')?.options).toEqual([]);
+  });
+
+  it('plan properties: website visibility, no built-ins, usage counted over plans, a layout keyed by no type', async () => {
+    const created = await store.create(ctx, 'plan', {
+      ...textInput('Network'),
+      websiteVisible: true,
+    });
+    expect(created).toMatchObject({
+      kind: 'created',
+      property: { object: 'plan', key: 'custom_network', websiteVisible: true },
+    });
+    // A lead property of the same label gets the same key: keys are per object.
+    expect(keyOf(await store.create(ctx, 'lead', textInput('Network')))).toBe('custom_network');
+    const [stored] = await admin<{ websiteVisible: boolean }[]>`
+      select website_visible as "websiteVisible" from app.properties
+      where workspace_id = ${SITE} and object = 'plan' and key = 'custom_network'
+    `;
+    expect(stored).toEqual({ websiteVisible: true });
+
+    await expect(
+      store.update(ctx, 'plan', 'custom_network', { expectedVersion: 1, websiteVisible: false }),
+    ).resolves.toMatchObject({ kind: 'updated', property: { websiteVisible: false, version: 2 } });
+    expect((await store.model(ctx, 'plan')).rows).toMatchObject([
+      { key: 'custom_network', websiteVisible: false },
+    ]);
+    // A lead built-in key is nothing on plans.
+    await expect(
+      store.update(ctx, 'plan', 'city', { expectedVersion: 1, label: 'Town' }),
+    ).resolves.toEqual({ kind: 'not_found' });
+    await expect(store.remove(ctx, 'plan', 'city')).resolves.toEqual({ kind: 'not_found' });
+
+    const tier = keyOf(
+      await store.create(ctx, 'plan', {
+        ...textInput('Tier'),
+        kind: 'choice',
+        options: [
+          { value: 'gold', label: 'Gold', hidden: false },
+          { value: 'silver', label: 'Silver', hidden: false },
+        ],
+      }),
+    );
+    // Plans hold the values; a lead holding the same key does not count for plans.
+    await insertLead(LEAD_1, SITE, { custom_network: 'Rogers', [tier]: 'gold' });
+    await admin`
+      insert into app.plans (workspace_id, lead_type, name, custom_values)
+      values
+        (${SITE}, 'sim_order', 'A', ${admin.json({ custom_network: 'Rogers', [tier]: 'gold' })}),
+        (${SITE}, 'internet', 'B', ${admin.json({ custom_network: 'Bell' })}),
+        (${SITE}, 'mobility', 'C', ${admin.json({ custom_network: null })}),
+        (${OTHER_SITE}, 'sim_order', 'D', ${admin.json({ custom_network: 'Fido' })})
+    `;
+    const usage = { leadCount: 0, active: 2, trashed: 0, restricted: 0, planCount: 2 };
+    await expect(store.remove(ctx, 'plan', 'custom_network')).resolves.toEqual({
+      kind: 'in_use',
+      ...usage,
+    });
+    await expect(
+      store.update(ctx, 'plan', tier, {
+        expectedVersion: 1,
+        options: [{ value: 'silver', label: 'Silver', hidden: false }],
+      }),
+    ).resolves.toEqual({
+      kind: 'option_in_use',
+      optionValue: 'gold',
+      leadCount: 0,
+      active: 1,
+      trashed: 0,
+      restricted: 0,
+      planCount: 1,
+    });
+
+    await admin`
+      update app.plans set custom_values = custom_values - 'custom_network'
+      where workspace_id = ${SITE}
+    `;
+    await expect(store.remove(ctx, 'plan', 'custom_network')).resolves.toEqual({
+      kind: 'deleted',
+    });
+    // The lead property of the same key is untouched.
+    expect((await store.catalog(ctx, 'lead')).get('custom_network')).toBeDefined();
+
+    const saved = await store.saveLayout(
+      ctx,
+      'plan',
+      '',
+      { sections: [{ id: 'main', label: 'Main', keys: [tier] }] },
+      undefined,
+    );
+    expect(saved).toMatchObject({ kind: 'saved', layout: { object: 'plan', leadType: '' } });
+    await expect(
+      store.saveLayout(
+        ctx,
+        'plan',
+        '',
+        { sections: [{ id: 'main', label: 'Main', keys: ['city'] }] },
+        1,
+      ),
+    ).resolves.toEqual({ kind: 'unknown_key', key: 'city' });
+  });
+
   it('saveLayout refuses an unknown key and guards the version', async () => {
     const key = keyOf(await store.create(ctx, 'lead', textInput('Hidden extra')));
     const hiddenOutcome = await store.update(ctx, 'lead', key, {
@@ -536,7 +671,11 @@ databaseTest('property store (custom properties, built-in overrides, layouts)', 
     const otherCatalog = await store.catalog(otherCtx);
     expect(otherCatalog.get(key)).toBeUndefined();
     expect(otherCatalog.get('city')?.label).toBe('City');
-    await expect(store.model(otherCtx, 'lead')).resolves.toEqual({ rows: [], layouts: [] });
+    await expect(store.model(otherCtx, 'lead')).resolves.toEqual({
+      rows: [],
+      layouts: [],
+      plans: [],
+    });
 
     // The other site's keys are its own: no suffix, and SITE's key is unknown there.
     expect(keyOf(await store.create(otherCtx, 'lead', textInput('Referral code')))).toBe(key);

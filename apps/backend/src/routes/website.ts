@@ -1,9 +1,10 @@
-import { websiteBotActions, type WebsiteBotAction } from '@gt-sales/contracts';
+import { isOrderLeadType, websiteBotActions, type WebsiteBotAction } from '@gt-sales/contracts';
 import { Router, type Request, type Response } from 'express';
 import { rateLimitHit, resolveWebsiteCredential } from '@gt-sales/db';
 import {
   createIdentityUploadRequestSchema,
   createLeadRequestSchema,
+  listWebsitePlansQuerySchema,
   createUploadIntentRequestSchema,
   finalizeUploadRequestSchema,
   submitLeadIdentityRequestSchema,
@@ -26,9 +27,10 @@ import {
   type IdentityStore,
   type RecordIdentityOutcome,
 } from '../leads/identity-store.js';
-import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
+import { DatabaseLeadStore, OrderIntakeError, type LeadStore } from '../leads/store.js';
 import { parseDraftGrantToken } from '../leads/token.js';
 import { checkLeadIntake } from '../leads/types.js';
+import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
 import { createTurnstileVerifier } from '../website/turnstile.js';
 import {
   loadEndpointRateLimits,
@@ -54,6 +56,8 @@ export interface WebsiteRouteDependencies {
   };
   /** The ID step; absent without `SENSITIVE_FIELDS_KEY`, which refuses it rather than store a SIN unsealed. */
   identities?: { store: IdentityStore };
+  /** The site's plans for its storefront; `createApp` supplies the staff plan store when omitted. */
+  plans?: { store: PlanStore };
 }
 
 /**
@@ -119,6 +123,7 @@ export function createDefaultWebsiteRouteDependencies(): WebsiteRouteDependencie
           : (req, action) => verifiers.get(action)?.(req.get('x-turnstile-token')) ?? false,
     },
     leads: { store: new DatabaseLeadStore() },
+    plans: { store: new DatabasePlanStore() },
     ...documentsDependencies(),
     ...identityDependencies(),
   };
@@ -204,6 +209,11 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         sendDomainError(res, req.id, 'validation_error', 400, { field: intake.problem });
         return;
       }
+      // Only an order type takes a plan; the store checks the plan itself.
+      if (body.data.order && !isOrderLeadType(body.data.leadType)) {
+        sendDomainError(res, req.id, 'invalid_request', 400, { field: 'order' });
+        return;
+      }
 
       try {
         const ctx = websiteContext(req);
@@ -218,6 +228,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           attribution: body.data.attribution,
           consentVersion: body.data.consentVersion,
           submit: body.data.submit,
+          order: body.data.order,
         });
         res.status(201).json({
           lead: result.lead,
@@ -225,10 +236,36 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           requestId: req.id,
         });
       } catch (error) {
+        if (error instanceof OrderIntakeError) {
+          sendDomainError(res, req.id, error.code, 400, { field: 'order' });
+          return;
+        }
         failRequest(req, res, '/api/v1/website/leads', error);
       }
     },
   );
+
+  // The storefront's plans: a read with no visitor behind it to prove, so no
+  // bot check; never cached, so a price change shows on the next request.
+  router.get('/plans', authenticate, requireScope('leads:write'), async (req, res) => {
+    res.setHeader('cache-control', 'no-store');
+    const query = listWebsitePlansQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      sendDomainError(res, req.id, 'validation_error', 400);
+      return;
+    }
+    try {
+      if (!dependencies.plans) throw new Error('plan store is not configured');
+      const ctx = websiteContext(req);
+      const plans = await dependencies.plans.store.listForWebsite(
+        { workspaceId: ctx.workspaceId, actorId: ctx.credentialId },
+        query.data.leadType,
+      );
+      res.json({ plans, requestId: req.id });
+    } catch (error) {
+      failRequest(req, res, '/api/v1/website/plans', error);
+    }
+  });
 
   router.get('/leads/:leadId', authenticate, requireScope('leads:write'), async (req, res) => {
     res.setHeader('cache-control', 'private, no-store');
@@ -297,6 +334,8 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           form: body.data.form,
           attribution: body.data.attribution,
           consentVersion: body.data.consentVersion,
+          order: body.data.order,
+          submit: body.data.submit,
         });
 
         if (outcome.status === 'grant_invalid') {
@@ -309,6 +348,12 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         }
         if (outcome.status === 'draft_submitted') {
           sendDomainError(res, req.id, 'draft_already_submitted', 409);
+          return;
+        }
+        if (outcome.status === 'order_not_allowed' || outcome.status === 'plan_not_available') {
+          const code =
+            outcome.status === 'order_not_allowed' ? 'invalid_request' : 'plan_not_available';
+          sendDomainError(res, req.id, code, 400, { field: 'order' });
           return;
         }
 
