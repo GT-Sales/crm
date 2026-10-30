@@ -24,6 +24,35 @@ vi.mock('./staff-session-provider', () => ({
   }),
 }));
 
+describe('ServiceCredentialsManager scopes', () => {
+  beforeEach(() => {
+    mocks.createServiceCredential.mockReset();
+    mocks.listServiceCredentials.mockResolvedValue({ credentials: [] });
+  });
+
+  it('offers order tracking as a scope, off until chosen', async () => {
+    render(<ServiceCredentialsManager workspaceSlug="site-1" />);
+    const tracking = await screen.findByRole('checkbox', { name: /Order tracking/ });
+    expect(tracking).toHaveProperty('checked', false);
+    // The scope's own name is still shown beside the label.
+    expect(screen.getByText('tracking')).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: /leads:write/ })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: /uploads:customer/ })).toBeTruthy();
+  });
+
+  it('issues a credential with the tracking scope when it is ticked', async () => {
+    mocks.createServiceCredential.mockResolvedValue({ secret: 'gtsk_example' });
+    render(<ServiceCredentialsManager workspaceSlug="site-1" />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Order tracking/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Issue credential' }));
+    await waitFor(() =>
+      expect(mocks.createServiceCredential).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+        scopes: ['leads:write', 'uploads:customer', 'tracking'],
+      }),
+    );
+  });
+});
+
 describe('ServiceCredentialsManager revocation', () => {
   beforeEach(() => {
     mocks.revokeServiceCredential.mockReset();

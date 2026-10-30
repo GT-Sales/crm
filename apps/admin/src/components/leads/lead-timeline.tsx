@@ -39,6 +39,9 @@ import { fieldLabel } from './lead-fields';
 
 const CONTACT_LABELS: Record<string, string> = { fullName: 'name', email: 'email', phone: 'phone' };
 
+/** A change request names the order's plan by `planId`; staff read it as "plan". */
+const REQUEST_KEY_LABELS: Record<string, string> = { ...CONTACT_LABELS, planId: 'plan' };
+
 type SystemActivity = Extract<LeadActivity, { kind: 'system' }>;
 
 /** `asked to change the phone, arrival in canada and sent a new passport (request #12)`. */
@@ -48,7 +51,7 @@ export function changeRequestText(
   catalog?: PropertyCatalog,
 ): string {
   const fields = (activity.fields ?? []).map(
-    (field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog),
+    (field) => REQUEST_KEY_LABELS[field] ?? fieldLabel(leadType, field, catalog),
   );
   const documents = (activity.documents ?? []).map((document) =>
     documentLabel(document).toLowerCase(),
@@ -63,8 +66,9 @@ export function changeRequestText(
 }
 
 /**
- * The newest change request the customer made that the old admin has not
- * decided yet, if any (activities come newest first).
+ * The newest change request carried over from the old admin that nobody has
+ * decided yet, if any (activities come newest first). Requests made through
+ * the CRM are not counted: the change request card decides those.
  */
 export function pendingChangeRequest(
   activities: readonly LeadActivity[],
@@ -72,6 +76,7 @@ export function pendingChangeRequest(
   const decided = new Set(
     activities.flatMap((activity) =>
       activity.kind === 'system' &&
+      activity.actorId === LEGACY_IMPORT_ACTOR_ID &&
       (activity.event === 'change_approved' || activity.event === 'change_rejected')
         ? [activity.requestNo]
         : [],
@@ -80,6 +85,7 @@ export function pendingChangeRequest(
   return activities.find(
     (activity): activity is SystemActivity =>
       activity.kind === 'system' &&
+      activity.actorId === LEGACY_IMPORT_ACTOR_ID &&
       activity.event === 'change_requested' &&
       activity.requestNo !== undefined &&
       !decided.has(activity.requestNo),
@@ -152,6 +158,14 @@ function describe(
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
       if (activity.event === 'change_requested') {
+        // Made through the CRM: the website's own credential is the actor, so no name is shown.
+        if (activity.actorId !== LEGACY_IMPORT_ACTOR_ID) {
+          return {
+            icon: <FilePenLineIcon />,
+            actor: null,
+            text: `The customer ${changeRequestText(activity, leadType, catalog)}`,
+          };
+        }
         return {
           icon: <FilePenLineIcon />,
           text: changeRequestText(activity, leadType, catalog),
@@ -159,11 +173,12 @@ function describe(
       }
       if (activity.event === 'change_approved' || activity.event === 'change_rejected') {
         const approved = activity.event === 'change_approved';
+        const number = activity.requestNo ? ` #${activity.requestNo}` : '';
+        // The CRM's own wording is plain; the old admin's carried-over entries keep theirs.
+        const customers = activity.actorId === LEGACY_IMPORT_ACTOR_ID ? 'customer’s' : "customer's";
         return {
           icon: approved ? <CheckIcon /> : <XIcon />,
-          text: `${approved ? 'approved' : 'rejected'} the customer’s change request${
-            activity.requestNo ? ` #${activity.requestNo}` : ''
-          }`,
+          text: `${approved ? 'approved' : 'rejected'} the ${customers} change request${number}`,
         };
       }
       if (activity.event === 'documents_override') {

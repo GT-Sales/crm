@@ -63,6 +63,7 @@ import {
   type ListWorkspaceJobsResponse,
   type ListWorkspaceLeadsQueryInput,
   type ListWorkspaceLeadsResponse,
+  type ResolveChangeRequestResponse,
   type ResolveUncertainJobResponse,
   type RetryWorkspaceJobResponse,
   type RevealLeadIdentityResponse,
@@ -523,6 +524,36 @@ export async function createFileDownloadLink(
   disposition: 'attachment' | 'inline' = 'attachment',
 ): Promise<CreateDownloadLinkResponse> {
   return client(accessToken).staff.fileDownloadLink(workspaceId, fileId, { disposition });
+}
+
+/**
+ * Applies the customer's pending change request. `expectedVersion` is the
+ * version staff were shown: a customer who changed the request meanwhile gets
+ * `version_conflict` instead.
+ */
+export async function approveChangeRequest(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  changeRequestId: string,
+  expectedVersion: number,
+): Promise<ResolveChangeRequestResponse> {
+  return client(accessToken).staff.approveChangeRequest(workspaceId, leadId, changeRequestId, {
+    expectedVersion,
+  });
+}
+
+/** Turns down the customer's pending change request (same `expectedVersion` rule). */
+export async function rejectChangeRequest(
+  accessToken: string,
+  workspaceId: string,
+  leadId: string,
+  changeRequestId: string,
+  expectedVersion: number,
+): Promise<ResolveChangeRequestResponse> {
+  return client(accessToken).staff.rejectChangeRequest(workspaceId, leadId, changeRequestId, {
+    expectedVersion,
+  });
 }
 
 /** An owner opening a lead's sealed SIN. The backend audits it; nothing here keeps it. */
