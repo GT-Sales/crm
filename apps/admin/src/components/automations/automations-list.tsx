@@ -18,12 +18,13 @@ import { useStaffSession } from '../staff-session-provider';
 import { AutomationRuns } from './automation-runs';
 import { useAutomations } from './use-automations';
 
-const OWNER_ONLY = 'Only the site owner can switch automations.';
+const NEEDS_INTEGRATIONS = 'This needs the Integrations permission (the owner has it).';
 const SIGNED_OUT = 'You are signed out. Sign in again to continue.';
 
 /** Why a switch did not take, in words staff can act on. */
 function toggleError(error: unknown): string {
-  if (error instanceof BackendError && error.code === 'permission_denied') return OWNER_ONLY;
+  if (error instanceof BackendError && error.code === 'permission_denied')
+    return NEEDS_INTEGRATIONS;
   return `The change was not saved. Reason: ${errorReason(error)}.`;
 }
 
@@ -36,14 +37,14 @@ function AutomationRow({
   workspaceSlug,
   automation,
   canManage,
-  ownerOnlyNoteId,
+  permissionNoteId,
   onToggle,
   loadRuns,
 }: {
   workspaceSlug: string;
   automation: Automation;
   canManage: boolean;
-  ownerOnlyNoteId: string;
+  permissionNoteId: string;
   onToggle(key: AutomationKey, enabled: boolean): Promise<string | undefined>;
   loadRuns(key: AutomationKey): Promise<AutomationRun[]>;
 }): JSX.Element {
@@ -103,7 +104,7 @@ function AutomationRow({
             role="switch"
             aria-checked={enabled}
             aria-label={automation.label}
-            aria-describedby={canManage ? undefined : ownerOnlyNoteId}
+            aria-describedby={canManage ? undefined : permissionNoteId}
             aria-disabled={pending || undefined}
             disabled={!canManage}
             onClick={() => void toggle()}
@@ -196,8 +197,8 @@ function AutomationRow({
 /**
  * The site's built-in rules, one row each: the rule, its on/off switch, when it
  * last ran, how many emails it has queued, a link to its email and its recent
- * runs, loaded when opened. Only members with `canManage` (the owner) can use
- * the switches; everyone else reads the page.
+ * runs, loaded when opened. Only members with `canManage` (the Integrations
+ * permission) can use the switches; everyone else reads the page.
  */
 export function AutomationsList({
   workspaceSlug,
@@ -210,7 +211,7 @@ export function AutomationsList({
   onToggle(key: AutomationKey, enabled: boolean): Promise<string | undefined>;
   loadRuns(key: AutomationKey): Promise<AutomationRun[]>;
 }): JSX.Element {
-  const ownerOnlyNoteId = useId();
+  const permissionNoteId = useId();
   return (
     <div className="flex flex-col gap-4">
       {data.hasSender ? null : (
@@ -219,8 +220,8 @@ export function AutomationsList({
         </p>
       )}
       {data.canManage ? null : (
-        <p id={ownerOnlyNoteId} className="text-sm text-muted-foreground">
-          {OWNER_ONLY}
+        <p id={permissionNoteId} className="text-sm text-muted-foreground">
+          {NEEDS_INTEGRATIONS}
         </p>
       )}
       <ul aria-label="Automations" className="divide-y rounded-md border">
@@ -230,7 +231,7 @@ export function AutomationsList({
             workspaceSlug={workspaceSlug}
             automation={automation}
             canManage={data.canManage}
-            ownerOnlyNoteId={ownerOnlyNoteId}
+            permissionNoteId={permissionNoteId}
             onToggle={onToggle}
             loadRuns={loadRuns}
           />

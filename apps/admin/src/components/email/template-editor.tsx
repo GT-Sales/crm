@@ -19,7 +19,8 @@ import { errorReason } from '../../lib/use-resource';
 export const PREVIEW_DELAY_MS = 400;
 
 /** What a 403 from any email call means, as Settings → Email says it. */
-export const OWNER_ONLY_MESSAGE = 'Only the site owner can change email settings.';
+export const INTEGRATIONS_PERMISSION_MESSAGE =
+  'This needs the Integrations permission (the owner has it).';
 
 const SUBJECT_MAX = 150;
 const BODY_MAX = 5000;
@@ -37,7 +38,7 @@ const MARKUP_PROBLEMS: Readonly<Record<string, string>> = {
  */
 export function templateProblem(error: unknown): string | undefined {
   if (!(error instanceof BackendError)) return undefined;
-  if (error.status === 403) return OWNER_ONLY_MESSAGE;
+  if (error.status === 403) return INTEGRATIONS_PERMISSION_MESSAGE;
   const details = error.details ?? {};
   if (error.code === 'invalid_fill_in') {
     const fillIn = typeof details['fillIn'] === 'string' ? details['fillIn'] : '';

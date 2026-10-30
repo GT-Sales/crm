@@ -198,13 +198,13 @@ describe('SiteAutomations', () => {
     );
   });
 
-  it('says a refused change needs the site owner', async () => {
+  it('says a refused change needs the Integrations permission', async () => {
     mocks.updateAutomation.mockRejectedValue(new mocks.FakeBackendError('permission_denied'));
     render(<SiteAutomations workspaceSlug="canadawide" />);
     fireEvent.click(await screen.findByRole('switch', { name: DISPATCHED }));
 
     expect((await within(row(DISPATCHED)).findByRole('alert')).textContent).toBe(
-      'Only the site owner can switch automations.',
+      'This needs the Integrations permission (the owner has it).',
     );
     expect(row(DISPATCHED).querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe(
       'false',
@@ -216,7 +216,9 @@ describe('SiteAutomations', () => {
       answer({ canManage: false, automations: rules({ order_received: { enabled: true } }) }),
     );
     render(<SiteAutomations workspaceSlug="canadawide" />);
-    const note = await screen.findByText('Only the site owner can switch automations.');
+    const note = await screen.findByText(
+      'This needs the Integrations permission (the owner has it).',
+    );
 
     for (const control of screen.getAllByRole('switch')) {
       expect(control.hasAttribute('disabled')).toBe(true);

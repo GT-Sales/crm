@@ -64,7 +64,7 @@ export function emailSkippedText(skipped: EmailSkipped): string {
   const lead = `The ${CUSTOMER_EMAIL_TEMPLATE_LABELS[skipped.template]} email was not sent`;
   switch (skipped.reason) {
     case 'no_sender':
-      return `${lead}: this site has no sender yet (Settings → Email).`;
+      return `${lead}: this site has no sender yet. Check Settings → Email, and that the deployment's email provider is configured.`;
     case 'no_customer_email':
       return `${lead}: the customer has no email address.`;
     case 'missing_fill_in':

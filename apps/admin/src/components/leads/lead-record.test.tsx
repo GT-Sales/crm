@@ -954,7 +954,7 @@ describe('LeadRecord stage moves', () => {
         .map((item) => item.textContent),
     ).toEqual([
       'The Dispatched email was not sent: it needs the SIM number and tracking number.',
-      'The Dispatched email was not sent: this site has no sender yet (Settings → Email).',
+      "The Dispatched email was not sent: this site has no sender yet. Check Settings → Email, and that the deployment's email provider is configured.",
       'The Dispatched email was not sent: the customer has no email address.',
     ]);
     const timeline = screen.getByRole('region', { name: 'Timeline' });

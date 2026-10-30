@@ -251,11 +251,11 @@ describe('EmailSettingsScreen', () => {
     expect(await within(dialog).findByText('A test was already sent this minute.')).toBeTruthy();
   });
 
-  it('says only the owner may change email settings when the site refuses', async () => {
+  it('says the Integrations permission is needed when the site refuses', async () => {
     mocks.getEmailSettings.mockRejectedValue(new mocks.FakeBackendError('permission_denied', 403));
     render(<EmailSettingsScreen workspaceSlug="canadawide" />);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'Only the site owner can change email settings.',
+      'This needs the Integrations permission (the owner has it).',
     );
     expect(screen.queryByRole('button', { name: 'Save settings' })).toBeNull();
   });
@@ -267,7 +267,8 @@ describe('EmailSettingsScreen', () => {
     render(<EmailSettingsScreen workspaceSlug="canadawide" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Save settings' }));
     expect(
-      (await screen.findAllByText('Only the site owner can change email settings.')).length,
+      (await screen.findAllByText('This needs the Integrations permission (the owner has it).'))
+        .length,
     ).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Save settings' })).toHaveProperty('disabled', true);
     expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull();
