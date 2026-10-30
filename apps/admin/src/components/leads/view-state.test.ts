@@ -21,7 +21,7 @@ const VIEW_ID = '40000000-0000-4000-8000-000000000001';
 const FULL_STATE: SavedViewState = {
   layout: 'table',
   leadType: 'sim_order',
-  trash: false,
+  archived: false,
   stage: 'pending',
   assignee: 'me',
   due: false,
@@ -58,7 +58,7 @@ describe('inboxQueryToViewState', () => {
     expect(state).toEqual({
       layout: 'table',
       leadType: 'internet',
-      trash: false,
+      archived: false,
       stage: 'contacted',
       assignee: 'me',
       due: false,
@@ -111,7 +111,7 @@ describe('viewStateToInboxQuery', () => {
     );
     expect(inboxQueryToViewState(boardQuery)).toEqual(board);
 
-    const trash: SavedViewState = { ...DEFAULT_LEAD_VIEW_STATE, trash: true };
+    const trash: SavedViewState = { ...DEFAULT_LEAD_VIEW_STATE, archived: true };
     const trashQuery = parseInboxQuery(
       new URLSearchParams(inboxSearch(viewStateToInboxQuery(trash, VIEW_ID)).slice(1)),
     );
@@ -172,7 +172,7 @@ describe('isViewDirty', () => {
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, assignee: 'none' })).toBe(true);
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, layout: 'board' })).toBe(true);
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, due: true })).toBe(true);
-    expect(isViewDirty(FULL_STATE, { ...FULL_STATE, trash: true })).toBe(true);
+    expect(isViewDirty(FULL_STATE, { ...FULL_STATE, archived: true })).toBe(true);
     expect(isViewDirty(FULL_STATE, { ...FULL_STATE, leadType: 'mobility' })).toBe(true);
   });
 

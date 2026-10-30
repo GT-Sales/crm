@@ -37,9 +37,17 @@ export type LeadStage = z.infer<typeof leadStageSchema>;
 export const leadAssigneeFilterSchema = z.union([z.enum(['me', 'none']), z.uuid()]);
 export type LeadAssigneeFilter = z.infer<typeof leadAssigneeFilterSchema>;
 
-/** Active leads, or the soft-deleted ones (the trash). */
-export const leadViewSchema = z.enum(['active', 'trash']);
+/**
+ * Active leads, or the soft-deleted ones (the archive). `trash` is the
+ * deprecated name of `archived`, still accepted so deployed clients work.
+ */
+export const leadViewSchema = z.enum(['active', 'archived', 'trash']);
 export type LeadView = z.infer<typeof leadViewSchema>;
+
+/** The view a request means: the legacy `trash` is `archived`; none is `active`. */
+export function normalizeLeadView(view: LeadView | undefined): 'active' | 'archived' {
+  return view === 'archived' || view === 'trash' ? 'archived' : 'active';
+}
 
 /** Free-text search over name, email, phone and external reference. */
 export const leadSearchSchema = z.string().trim().min(1).max(100);
@@ -403,8 +411,8 @@ export type LeadBoardResponse = z.infer<typeof leadBoardResponseSchema>;
 
 /**
  * Lead counts for the inbox's type tabs — `GET /workspaces/:id/leads/summary`.
- * Only types with at least one active lead appear; `trash` counts the
- * soft-deleted ones.
+ * Only types with at least one active lead appear; `archived` counts the
+ * soft-deleted ones (`trash` is the same number, deprecated).
  */
 export const leadTypeCountSchema = z.object({
   leadType: leadTypeSchema,
@@ -424,6 +432,8 @@ export type LeadsSummaryQuery = z.infer<typeof leadsSummaryQuerySchema>;
 
 export const leadsSummaryResponseSchema = z.object({
   types: z.array(leadTypeCountSchema),
+  archived: z.int().nonnegative(),
+  /** Deprecated: the same number as `archived`. */
   trash: z.int().nonnegative(),
   access: leadAccessSchema,
   requestId: requestIdSchema,

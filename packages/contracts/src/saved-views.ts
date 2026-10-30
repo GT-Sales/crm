@@ -35,11 +35,11 @@ export type LeadTableColumn = (typeof LEAD_TABLE_COLUMNS)[number];
 export const savedViewObjectSchema = z.enum(['lead']);
 export type SavedViewObject = z.infer<typeof savedViewObjectSchema>;
 
-export const savedViewStateSchema = z
+const savedViewStateObjectSchema = z
   .object({
     layout: z.enum(['table', 'board']),
     leadType: leadTypeSchema.optional(),
-    trash: z.boolean(),
+    archived: z.boolean(),
     stage: leadStageSchema.optional(),
     assignee: leadAssigneeFilterSchema.optional(),
     due: z.boolean(),
@@ -49,11 +49,24 @@ export const savedViewStateSchema = z
     hiddenColumns: z.array(z.enum(LEAD_TABLE_COLUMNS)).max(LEAD_TABLE_COLUMNS.length),
   })
   .strict();
+
+/**
+ * Views saved before Archive replaced Trash carry `trash` instead of
+ * `archived`: the key is renamed (never duplicated) before the strict parse.
+ * A state that has both keeps `archived`.
+ */
+export const savedViewStateSchema = z.preprocess((state) => {
+  if (typeof state !== 'object' || state === null || Array.isArray(state) || !('trash' in state)) {
+    return state;
+  }
+  const { trash, ...rest } = state;
+  return 'archived' in rest ? rest : { ...rest, archived: trash };
+}, savedViewStateObjectSchema);
 export type SavedViewState = z.infer<typeof savedViewStateSchema>;
 
 export const DEFAULT_LEAD_VIEW_STATE: SavedViewState = {
   layout: 'table',
-  trash: false,
+  archived: false,
   due: false,
   where: [],
   columns: [],
@@ -124,7 +137,7 @@ export type DeleteSavedViewResponse = z.infer<typeof deleteSavedViewResponseSche
  * A saved view as it can be applied today: drops filters, columns and the sort
  * whose property the catalogue does not know, hides, or marks sensitive (a
  * property may be hidden or deleted after the view was saved), and a stage the
- * view's lead type does not have. Assignee, due, trash and layout are never
+ * view's lead type does not have. Assignee, due, archived and layout are never
  * touched. Pure. The backend stores a view's state cleaned (create and
  * update) and cleans it again on every read; the admin cleans before applying.
  */

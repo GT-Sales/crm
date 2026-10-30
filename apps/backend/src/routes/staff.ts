@@ -454,7 +454,13 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         actorId: actor.actorId,
         dueBy: query.data.dueBy,
       });
-      res.json({ ...summary, access: leadAccessOf(decision.access), requestId: req.id });
+      res.json({
+        ...summary,
+        // `trash` is the deprecated twin of `archived`: the same number.
+        archived: summary.trash,
+        access: leadAccessOf(decision.access),
+        requestId: req.id,
+      });
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
