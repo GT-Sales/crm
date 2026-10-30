@@ -14,6 +14,7 @@ import type { StaffRoleName } from '@gt-sales/types';
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { AutomationStore, StoredAutomation } from '../src/automations/store.js';
+import type { CustomerEmailEnvironment } from '../src/email/senders.js';
 import type { LeadStore } from '../src/leads/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { StaffStore } from '../src/staff/store.js';
@@ -89,6 +90,14 @@ const noopCredentialStore: WebsiteCredentialStore = {
   revokeCredential: async () => ({ status: 'not_found' }),
 };
 
+const emailEnvironment: CustomerEmailEnvironment = {
+  providerReady: true,
+  contactHash: () => {
+    throw new Error('unused');
+  },
+  fallbackSenders: { forWorkspace: () => undefined },
+};
+
 const stored = (key: StoredAutomation['key'], enabled = false): StoredAutomation => ({
   key,
   enabled,
@@ -132,22 +141,16 @@ beforeEach(async () => {
   automations = memoryAutomationStore();
   senderReady = true;
   available.mockReset();
-  available.mockImplementation(() => senderReady);
+  available.mockImplementation(async () => senderReady);
   server = createApp({
     staff: {
       sessionVerifier: new TokenVerifier(),
       store: staff,
       credentialStore: noopCredentialStore,
       leadStore: unusedLeadStore,
-      customerEmail: {
-        available,
-        sender: () => undefined,
-        contactHash: () => {
-          throw new Error('unused');
-        },
-      },
+      automationStore: automations,
+      customerEmail: { environment: emailEnvironment, available, fallback: () => undefined },
     },
-    automations: { store: automations },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
@@ -214,11 +217,34 @@ describe('staff automation routes', () => {
     senderReady = false;
     const response = await call(automationsUrl());
     expect(listAutomationsResponseSchema.parse(await response.json()).hasSender).toBe(false);
-    expect(available).toHaveBeenCalledWith(WORKSPACE);
+    expect(available).toHaveBeenCalledWith(ownerScope);
 
     senderReady = true;
     const again = await call(automationsUrl());
     expect(listAutomationsResponseSchema.parse(await again.json()).hasSender).toBe(true);
+  });
+
+  it('GET /automations: a deployment without customer mail has no sender', async () => {
+    const bare = createApp({
+      staff: {
+        sessionVerifier: new TokenVerifier(),
+        store: staff,
+        credentialStore: noopCredentialStore,
+        leadStore: unusedLeadStore,
+        automationStore: automations,
+      },
+    }).listen(0);
+    try {
+      await new Promise<void>((resolve) => bare.once('listening', resolve));
+      const address = bare.address();
+      if (address === null || typeof address === 'string') throw new Error('expected TCP server');
+      const response = await call(
+        `http://127.0.0.1:${address.port}/api/v1/staff/workspaces/${WORKSPACE}/automations`,
+      );
+      expect(listAutomationsResponseSchema.parse(await response.json()).hasSender).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => bare.close(() => resolve()));
+    }
   });
 
   it('GET /automations: refuses a revoked member, a bad site id and a missing session', async () => {

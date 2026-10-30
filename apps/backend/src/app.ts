@@ -4,10 +4,8 @@ import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters
 import { sendStaffAuthError } from './http/staff-errors.js';
 import { requestLog } from './http/requestLog.js';
 import { requestId } from './requestId.js';
-import { DatabaseAutomationStore, type AutomationStore } from './automations/store.js';
 import { DatabasePlanStore } from './plans/store.js';
 import { DatabasePropertyStore } from './properties/store.js';
-import { createStaffAutomationRoutes } from './routes/automations.js';
 import { getHealth } from './routes/health.js';
 import {
   createDefaultStaffRouteDependencies,
@@ -36,8 +34,6 @@ export interface CreateAppOptions {
   website?: WebsiteRouteDependencies;
   jobs?: JobsRouteDependencies;
   email?: EmailRouteDependencies;
-  /** The automation rules' store; the database store when omitted. */
-  automations?: { store: AutomationStore };
   errorTracker?: ErrorTracker;
 }
 
@@ -130,18 +126,6 @@ export function createApp(options: CreateAppOptions = {}): Express {
       // Saved views are cleaned against the site's own catalogue.
       loadPropertyCatalog:
         staffDependencies.loadPropertyCatalog ?? ((ctx) => propertyStore.catalog(ctx)),
-    }),
-  );
-  app.use(
-    '/api/v1/staff',
-    createStaffAutomationRoutes({
-      store: options.automations?.store ?? new DatabaseAutomationStore(),
-      // One line to adapt if `CustomerEmail.available` takes the site and actor.
-      customerEmail: {
-        available: (ctx) => staffDependencies.customerEmail?.available(ctx.workspaceId) ?? false,
-      },
-      accessStore: staffDependencies.store,
-      errorTracker: staffDependencies.errorTracker ?? errorTracker,
     }),
   );
   // Website intake surface. Server-to-server, so CORS does not apply and is

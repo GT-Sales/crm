@@ -1,4 +1,3 @@
-import type { ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
 import {
   BUILT_IN_AUTOMATIONS,
@@ -11,43 +10,21 @@ import {
 import { z } from 'zod';
 
 import type { AutomationStore, StoredAutomation } from '../automations/store.js';
+import type { CustomerEmail } from '../email/senders.js';
 import { sendDomainError } from '../http/domain-errors.js';
-import { isConnectionLevelError, logRequestError } from '../http/logger.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
-import {
-  createAuthorize,
-  decideAccess,
-  denyReasonOf,
-  type StaffAccessSnapshot,
-  type StaffAccessStore,
-} from '../staff/authorization.js';
+import { decideAccess, denyReasonOf, type StaffAccessSnapshot } from '../staff/authorization.js';
 import type { Scope } from '../tenant-scope.js';
 import type { PlanRouteDependencies } from './plans.js';
 
-/**
- * The only thing these routes ask of customer mail: whether this site can
- * send. The staff router's `CustomerEmail.available` takes the site today; a
- * change of its signature (to the site and actor, asynchronously) is absorbed
- * where this is built, not here.
- */
-export interface SenderAvailability {
-  available(ctx: Scope): boolean | Promise<boolean>;
-}
-
 export interface AutomationRouteDependencies {
   store: AutomationStore;
-  customerEmail: SenderAvailability;
+  /** Absent (a deployment built without mail), no site has a sender. */
+  customerEmail: Pick<CustomerEmail, 'available'> | undefined;
   decide: PlanRouteDependencies['decide'];
   reportFailure: PlanRouteDependencies['reportFailure'];
   /** Whether the caller may see a lead's name, email and phone. */
   canSeeContacts(access: StaffAccessSnapshot): boolean;
-}
-
-/** The staff router's contact-detail rule: roles that work leads or money. */
-export function canSeeContacts(access: StaffAccessSnapshot): boolean {
-  return (['lead.manage', 'order.manage', 'financial.read'] as const).some(
-    (action) => decideAccess(access, action).allowed,
-  );
 }
 
 const RUN_LIST_LIMIT = 50;
@@ -117,7 +94,7 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
       const scope: Scope = { workspaceId, actorId: actor.actorId };
       const [rules, hasSender] = await Promise.all([
         store.list(scope),
-        dependencies.customerEmail.available(scope),
+        dependencies.customerEmail?.available(scope) ?? false,
       ]);
       res.json({
         automations: rules.flatMap((rule) => withState(rule) ?? []),
@@ -195,55 +172,4 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
   });
 
   return router;
-}
-
-export interface StaffAutomationRouteOptions {
-  store: AutomationStore;
-  customerEmail: SenderAvailability;
-  /** Reads the caller's live membership, as the staff router does. */
-  accessStore: StaffAccessStore;
-  errorTracker?: ErrorTracker | undefined;
-}
-
-/**
- * The automation routes for the staff API, with the same live authorization
- * and last-resort failure report as the staff router. Mounted after it on
- * `/api/v1/staff`, so its session check (and rate limit) has already run for
- * every request that reaches these routes.
- */
-export function createStaffAutomationRoutes(options: StaffAutomationRouteOptions): Router {
-  const authorize = createAuthorize({ accessStore: options.accessStore });
-  return createAutomationRoutes({
-    store: options.store,
-    customerEmail: options.customerEmail,
-    canSeeContacts,
-    async decide(req, workspaceId, action) {
-      const actor = req.staffSession;
-      if (!actor) throw new Error('staff session middleware did not run');
-      const decision = await authorize({ actorId: actor.actorId, workspaceId, action });
-      return { actor, decision };
-    },
-    reportFailure(req, error) {
-      const workspaceId =
-        typeof req.params['workspaceId'] === 'string' ? req.params['workspaceId'] : undefined;
-      const routePath: unknown = req.route?.path;
-      const route = `${req.baseUrl}${typeof routePath === 'string' ? routePath : req.path}`;
-      const connection = isConnectionLevelError(error);
-      logRequestError({
-        requestId: req.id,
-        workspaceId,
-        route,
-        code: connection ? 'persistence_unavailable' : 'internal_error',
-        flag: connection ? 'retryable' : 'not_retryable',
-      });
-      options.errorTracker?.captureException(error, {
-        requestId: req.id,
-        workspaceId,
-        actorId: req.staffSession?.actorId,
-        route,
-        release: process.env['RELEASE_SHA'] ?? 'unknown',
-        environment: process.env['DEPLOYMENT_ENV'] ?? process.env['NODE_ENV'],
-      });
-    },
-  });
 }
