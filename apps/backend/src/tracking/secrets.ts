@@ -8,7 +8,7 @@ import { openTrackingEmail, sealTrackingEmail } from '../crypto/cipher.js';
 /**
  * Tracking hashes, codes and the customer's grant (ported from Canadian
  * Plans' `tracking/secrets.ts`). Every stored value is a keyed hash bound to
- * the site and the normalized email (`normalizeContactEmail`, done by the
+ * the site and the normalized email (`normalizeTrackingEmail`, done by the
  * caller), so the six-digit code is never kept readable and a hash from one
  * site or email never matches another. The grant is a stateless HMAC-signed
  * token carrying the verified email sealed, so the backend can list that
@@ -16,6 +16,16 @@ import { openTrackingEmail, sealTrackingEmail } from '../crypto/cipher.js';
  *
  * Pure: no database and no environment read but `loadTrackingSecret`.
  */
+
+/**
+ * The email as tracking hashes and matches it: spaces trimmed from both ends,
+ * then lower case. Exactly the lookup's `lower(btrim(leads.email))` (btrim
+ * strips spaces only, so a tab or a no-break space stays here too), so the
+ * hashed email and the matched email are the same string.
+ */
+export function normalizeTrackingEmail(email: string): string {
+  return email.replace(/^ +| +$/g, '').toLowerCase();
+}
 
 function hmac(secret: string, value: string): string {
   return createHmac('sha256', secret).update(value).digest('hex');
@@ -84,8 +94,13 @@ export interface TrackingGrantIdentity {
   emailHash: string;
 }
 
+/** The grant's signing key, derived for this purpose only, as the cipher derives its keys. */
+function grantKey(secret: string): Buffer {
+  return createHmac('sha256', secret).update('gt-sales-crm:tracking-grant:v1').digest();
+}
+
 function sign(secret: string, body: string): string {
-  return createHmac('sha256', secret).update(body).digest('base64url');
+  return createHmac('sha256', grantKey(secret)).update(body).digest('base64url');
 }
 
 /** Signs a stateless 30-minute grant bound to the site and the verified email. */

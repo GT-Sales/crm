@@ -312,11 +312,17 @@ databaseTest('customer tracking tables, held files and migration 0018', () => {
     await insertRequest(admin, WORKSPACE_2, lead2, 20);
   });
 
-  it('refuses a resolved request without its time and resolver, a pending one with a time, and bad values', async () => {
+  it('refuses a resolved request without both its time and resolver, a pending one with either, and bad values', async () => {
     await admin`delete from app.change_requests where workspace_id in (${WORKSPACE_1}, ${WORKSPACE_2})`;
     for (const refused of [
       insertRequest(admin, WORKSPACE_1, lead1, 30, { status: 'approved' }),
       insertRequest(admin, WORKSPACE_1, lead1, 31, { status: 'rejected' }),
+      insertRequest(admin, WORKSPACE_1, lead1, 35, { status: 'approved', resolvedBy: ACTOR_A }),
+      insertRequest(admin, WORKSPACE_1, lead1, 36, {
+        status: 'approved',
+        resolvedAt: new Date(),
+      }),
+      insertRequest(admin, WORKSPACE_1, lead1, 37, { resolvedBy: ACTOR_A }),
       insertRequest(admin, WORKSPACE_1, lead1, 32, { resolvedAt: new Date() }),
       insertRequest(admin, WORKSPACE_1, lead1, 33, { status: 'cancelled' }),
       insertRequest(admin, WORKSPACE_1, lead1, 0),
@@ -383,6 +389,15 @@ databaseTest('customer tracking tables, held files and migration 0018', () => {
       select counter from app.site_counters where workspace_id = ${WORKSPACE_1}
     `;
     expect(counters).toEqual([{ counter: 'change_request_no' }]);
+  });
+
+  it("indexes a site's leads by normalized email for the tracking lookups", async () => {
+    const [index] = await admin<{ definition: string }[]>`
+      select indexdef as definition from pg_indexes
+      where schemaname = 'app' and tablename = 'leads' and indexname = 'leads_workspace_email_idx'
+    `;
+    expect(index?.definition).toContain('workspace_id');
+    expect(index?.definition).toContain('lower(btrim(email))');
   });
 
   it('a file is not held for a change request unless marked', async () => {

@@ -16,6 +16,7 @@ import {
   orderDateSchema,
   orderLeadTypeSchema,
   trackingCodeJobPayloadSchema,
+  trackingOrderSchema,
   trackingStageWord,
   type TrackingDocumentState,
   type TrackingOrder,
@@ -23,6 +24,7 @@ import {
 import { orderLeadTypes } from '@gt-sales/types';
 import { z } from 'zod';
 
+import { sanitizeLogIdentifier } from '../http/logger.js';
 import { LATEST_REVIEW, currentLeadDocuments } from '../leads/documents-check.js';
 import { toLeadOrder } from '../leads/order.js';
 import { hashesEqual } from './secrets.js';
@@ -265,6 +267,29 @@ function toTrackingOrder(row: TrackedLeadRow): TrackingOrder | undefined {
   };
 }
 
+/**
+ * The order as the contract allows it, or undefined when a stored value does
+ * not fit (an order number of spaces, a document type staff imported in
+ * another shape): that one order is left out, so it cannot break the
+ * customer's whole list, and a warning names only the lead and the failing
+ * path, never a value.
+ */
+function listable(workspaceId: string, row: TrackedLeadRow): TrackingOrder | undefined {
+  const built = toTrackingOrder(row);
+  const parsed = trackingOrderSchema.safeParse(built);
+  if (parsed.success) return parsed.data;
+  const path = built === undefined ? 'leadType' : parsed.error.issues[0]?.path.join('.');
+  console.warn(
+    JSON.stringify({
+      event: 'tracking_order_unlistable',
+      workspaceId: sanitizeLogIdentifier(workspaceId) ?? 'unknown',
+      leadId: sanitizeLogIdentifier(row.id) ?? 'unknown',
+      path: sanitizeLogIdentifier(path) ?? 'unknown',
+    }),
+  );
+  return undefined;
+}
+
 export class DatabaseTrackingStore implements TrackingStore {
   constructor(private readonly database: TrackingDatabase = { withTenantTx }) {}
 
@@ -436,7 +461,7 @@ export class DatabaseTrackingStore implements TrackingStore {
         limit ${MAX_TRACKED_ORDERS}
       `);
       return rows.flatMap((row) => {
-        const order = toTrackingOrder(row);
+        const order = listable(input.workspaceId, row);
         return order ? [order] : [];
       });
     });
