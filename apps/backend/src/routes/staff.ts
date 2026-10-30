@@ -258,9 +258,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     return { ...rest, contact: {}, countdownDate: null };
   }
 
-  // Custom values travel with contact visibility, as the form does.
+  // Custom values and the order travel with contact visibility, as the form does.
   function withoutPersonalDetails(lead: LeadDetail): LeadDetail {
-    const { customValues: _customValues, ...rest } = lead;
+    const { customValues: _customValues, order: _order, ...rest } = lead;
     return { ...withoutContact(rest), form: null };
   }
 
@@ -470,7 +470,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       res.json({
         ...summary,
         // `trash` is the deprecated twin of `archived`: the same number.
-        archived: summary.trash,
+        trash: summary.archived,
         access: leadAccessOf(decision.access),
         requestId: req.id,
       });
@@ -642,6 +642,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         contact: body.data.contact,
         form: body.data.form,
         customValues: body.data.customValues,
+        order: body.data.order,
         catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       switch (outcome.status) {
@@ -670,7 +671,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
-  for (const [path, trashed] of [
+  // `trash` is the old name of `archive`; both archive the lead with one handler.
+  for (const [path, archived] of [
+    ['archive', true],
     ['trash', true],
     ['restore', false],
   ] as const) {
@@ -685,12 +688,12 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         }
         const store = leadWork(req, res);
         if (!store) return;
-        const outcome = await store.setTrashed({
+        const outcome = await store.setArchived({
           workspaceId: params.workspaceId,
           actorId: actor.actorId,
           requestId: req.id,
           leadId: params.id,
-          trashed,
+          archived,
         });
         if (outcome.status === 'not_found') {
           sendDomainError(res, req.id, 'lead_not_found', 404);

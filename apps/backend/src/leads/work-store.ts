@@ -12,7 +12,9 @@ import {
 import {
   applyCustomValueEdits,
   applyLeadFormEdit,
+  freezePlan,
   isLeadStage,
+  isOrderLeadType,
   leadFormSchema,
   leadTypeEntry,
   type CustomerEmailTemplate,
@@ -22,6 +24,9 @@ import {
   type LeadContactEdit,
   type LeadDetail,
   type LeadForm,
+  type LeadOrder,
+  type LeadOrderEdit,
+  type PlanSnapshot,
   type LeadPropertyFilter,
   type LeadTask,
   type LeadTaskStatus,
@@ -32,6 +37,8 @@ import {
 } from '@gt-sales/contracts';
 
 import { draftCustomerEmail } from '../email/customer-emails.js';
+import { loadPlanForFreeze } from '../plans/store.js';
+import { isPlanAvailable, toLeadOrder } from './order.js';
 import {
   iso,
   selectLeadBoard,
@@ -51,9 +58,10 @@ import { upsertContact } from './store.js';
 
 /**
  * Staff working a lead: the lead page's reads and every write a staff member
- * makes (stage, assignee, contact corrections, notes, tasks, trash). Each
- * write runs in one tenant transaction that locks the lead, records what
- * changed on the append-only timeline, and writes an audit event. Neither the
+ * makes (stage, assignee, contact corrections, order details, notes, tasks,
+ * archive). Each write runs in one tenant transaction that locks the lead,
+ * records what changed on the append-only timeline, and writes an audit
+ * event. Neither the
  * timeline nor the audit trail stores contact values or note text a second
  * time: an edit records the field names, a note's audit event its id.
  */
@@ -75,7 +83,7 @@ export type UpdateLeadWorkOutcome =
   /** A form correction the type does not allow; names the field, never the value. */
   | { status: 'invalid_field'; field: string };
 
-export type TrashLeadOutcome =
+export type ArchiveLeadOutcome =
   | { status: 'changed' | 'unchanged'; lead: LeadDetail; activity: LeadActivity | null }
   | { status: 'not_found' };
 
@@ -112,6 +120,8 @@ export interface UpdateLeadWorkInput extends WriteScope {
   customValues?: Record<string, string | number | boolean | null>;
   /** The site's property catalogue, loaded once for the request; custom values are checked against it. */
   catalog: PropertyCatalog;
+  /** Order details of an order lead type: a new `planId` re-freezes the plan, null clears it. */
+  order?: LeadOrderEdit;
 }
 
 export interface CreateTaskInput extends WriteScope {
@@ -131,7 +141,7 @@ export interface UpdateTaskInput extends WriteScope {
 
 export interface LeadWorkStore {
   /** With `dueBy`, each type also counts its leads with a follow-up due by that day. */
-  summary(input: Scope & { dueBy?: string }): Promise<{ types: LeadTypeCount[]; trash: number }>;
+  summary(input: Scope & { dueBy?: string }): Promise<{ types: LeadTypeCount[]; archived: number }>;
   /** The dashboard's counts for one type, received in the last `days` days or ever. */
   stats(input: Scope & { leadType: string; days?: number }): Promise<LeadStats>;
   board(
@@ -153,7 +163,10 @@ export interface LeadWorkStore {
     input: Scope & { leadId: string; includeWork: boolean; catalog: PropertyCatalog },
   ): Promise<LeadWorkResult | undefined>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
-  setTrashed(input: WriteScope & { leadId: string; trashed: boolean }): Promise<TrashLeadOutcome>;
+  /** Archives a lead (or restores one); the timeline and audit keep the `trashed`/`restored` names. */
+  setArchived(
+    input: WriteScope & { leadId: string; archived: boolean },
+  ): Promise<ArchiveLeadOutcome>;
   /** The first open by someone who works leads; null activity when it was already opened. */
   markOpened(
     input: WriteScope & { leadId: string },
@@ -184,6 +197,7 @@ interface LockedLead {
   trashed: boolean;
   payload: unknown;
   customValues: unknown;
+  orderDetails: unknown;
 }
 
 const isStoredObject = (value: unknown): value is Record<string, unknown> =>
@@ -214,7 +228,8 @@ async function lockLead(
       l.external_ref as "externalRef",
       l.deleted_at is not null as trashed,
       l.payload,
-      l.custom_values as "customValues"
+      l.custom_values as "customValues",
+      l.order_details as "orderDetails"
     from app.leads l
     where l.workspace_id = ${workspaceId}
       and l.id = ${leadId}
@@ -295,6 +310,85 @@ function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
 const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
 type ContactField = (typeof CONTACT_FIELDS)[number];
 
+/** Each order field as the catalogue's order property names it (`plan` is stored as `planId`). */
+const ORDER_FIELD_KEYS: ReadonlyArray<readonly [keyof LeadOrderEdit, string]> = [
+  ['planId', 'plan'],
+  ['quantity', 'quantity'],
+  ['paymentStatus', 'paymentStatus'],
+  ['carrierCommission', 'carrierCommission'],
+];
+
+type OrderEditResult =
+  { ok: true; order: LeadOrder; changedKeys: string[] } | { ok: false; field: string };
+
+/** JSON text with every object's keys sorted: a stored copy comes back from JSONB in its own key order. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Two frozen copies of one plan are the same when only the moment they were taken differs. */
+function sameSnapshot(a: PlanSnapshot | null, b: PlanSnapshot | null): boolean {
+  if (a === null || b === null) return a === b;
+  return canonicalJson({ ...a, frozenAt: '' }) === canonicalJson({ ...b, frozenAt: '' });
+}
+
+/**
+ * Staff's change to a lead's order: a new plan is frozen from the site's
+ * current plan (it must be active and of the lead's type, else the `plan`
+ * field is refused), null clears the link and the copy, and the quantity and
+ * the two statuses are set as given. Names the changed catalogue keys.
+ */
+async function editOrder(
+  tx: TenantTransaction,
+  workspaceId: string,
+  lead: LockedLead,
+  edit: LeadOrderEdit,
+): Promise<OrderEditResult> {
+  if (!isOrderLeadType(lead.leadType)) return { ok: false, field: 'order' };
+  const current = toLeadOrder(lead.orderDetails);
+  const next: LeadOrder = { ...current };
+  const changed = new Set<keyof LeadOrderEdit>();
+
+  if (edit.planId === null) {
+    next.planId = null;
+    next.plan = null;
+  } else if (edit.planId !== undefined) {
+    const found = await loadPlanForFreeze(tx, workspaceId, edit.planId);
+    if (!isPlanAvailable(found, lead.leadType)) return { ok: false, field: 'plan' };
+    next.planId = found.plan.id;
+    next.plan = freezePlan(found.plan, found.visibleKeys, new Date());
+  }
+  if (next.planId !== current.planId || !sameSnapshot(next.plan, current.plan)) {
+    changed.add('planId');
+  }
+  if (edit.quantity !== undefined && edit.quantity !== current.quantity) {
+    next.quantity = edit.quantity;
+    changed.add('quantity');
+  }
+  if (edit.paymentStatus !== undefined && edit.paymentStatus !== current.paymentStatus) {
+    next.paymentStatus = edit.paymentStatus;
+    changed.add('paymentStatus');
+  }
+  if (
+    edit.carrierCommission !== undefined &&
+    edit.carrierCommission !== current.carrierCommission
+  ) {
+    next.carrierCommission = edit.carrierCommission;
+    changed.add('carrierCommission');
+  }
+  // A re-freeze of the same plan with nothing new keeps the copy already held.
+  if (!changed.has('planId')) next.plan = current.plan;
+  const changedKeys = ORDER_FIELD_KEYS.filter(([field]) => changed.has(field)).map(
+    ([, key]) => key,
+  );
+  return { ok: true, order: next, changedKeys };
+}
+
 type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 
 const defaultLeadDatabase: LeadDatabase = { withTenantTx };
@@ -342,8 +436,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       }
       const detail = await selectLeadDetail(tx, input.workspaceId, input.leadId, input.catalog);
       if (!detail) return undefined;
-      // Custom values travel with contact visibility, as the form does.
-      const { customValues: _customValues, ...rest } = detail;
+      // Custom values and the order travel with contact visibility, as the form does.
+      const { customValues: _customValues, order: _order, ...rest } = detail;
       const lead: LeadDetail = rest;
       return { lead, activities: [], tasks: [], related: [], identities: [], documents: [] };
     });
@@ -449,8 +543,20 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         }
       }
 
-      // One entry for the whole correction, naming the fields (built-in and custom) and never their values.
-      const changedFields = [...changed, ...changedForm, ...changedCustom];
+      const changedOrder: string[] = [];
+      if (input.order) {
+        const edit = await editOrder(tx, input.workspaceId, lead, input.order);
+        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+        if (edit.changedKeys.length > 0) {
+          set.orderDetails = edit.order;
+          changedOrder.push(...edit.changedKeys);
+          before['order'] = lead.orderDetails;
+          after['order'] = edit.order;
+        }
+      }
+
+      // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
+      const changedFields = [...changed, ...changedForm, ...changedCustom, ...changedOrder];
       if (changedFields.length > 0) {
         entries.push({ kind: 'edit', data: { fields: changedFields } });
         after['changedFields'] = changedFields;
@@ -526,11 +632,13 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     });
   }
 
-  setTrashed(input: WriteScope & { leadId: string; trashed: boolean }): Promise<TrashLeadOutcome> {
+  setArchived(
+    input: WriteScope & { leadId: string; archived: boolean },
+  ): Promise<ArchiveLeadOutcome> {
     return this.database.withTenantTx(input, async (tx) => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
       if (!lead) return { status: 'not_found' };
-      if (lead.trashed === input.trashed) {
+      if (lead.trashed === input.archived) {
         return {
           status: 'unchanged',
           lead: await requireDetail(tx, input.workspaceId, input.leadId),
@@ -538,12 +646,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         };
       }
 
-      // Trash is a visibility change, not work on the lead, so `updated_at`
-      // (the inbox's order) is left alone and a restored lead returns to its
-      // old place.
+      // Archiving is a visibility change, not work on the lead, so
+      // `updated_at` (the inbox's order) is left alone and a restored lead
+      // returns to its old place. Stored names stay `trashed`/`restored`.
       await tx
         .update(leads)
-        .set({ deletedAt: input.trashed ? new Date() : null })
+        .set({ deletedAt: input.archived ? new Date() : null })
         .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
       const [entry] = await tx
         .insert(leadActivities)
@@ -552,7 +660,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           leadId: input.leadId,
           actorId: input.actorId,
           kind: 'system',
-          data: { event: input.trashed ? 'trashed' : 'restored' },
+          data: { event: input.archived ? 'trashed' : 'restored' },
         })
         .returning(ACTIVITY_RETURNING);
       if (!entry) throw new Error('activity insert did not return a row');
@@ -560,12 +668,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         workspaceId: input.workspaceId,
         actorId: input.actorId,
         actorLabel: 'staff actor',
-        action: input.trashed ? 'lead.trashed' : 'lead.restored',
+        action: input.archived ? 'lead.trashed' : 'lead.restored',
         entity: 'lead',
         entityId: input.leadId,
         requestId: input.requestId,
         before: { trashed: lead.trashed },
-        after: { trashed: input.trashed },
+        after: { trashed: input.archived },
       });
 
       const [activity] = insertedActivities([entry]);
