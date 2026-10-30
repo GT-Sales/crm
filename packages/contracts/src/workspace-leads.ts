@@ -321,6 +321,10 @@ export const leadAccessSchema = z.object({
   emailCustomer: z.boolean().optional(),
   /** May view and download the lead's documents (`document.download`). Absent means no. */
   downloadDocuments: z.boolean().optional(),
+  /** May approve or reject the lead's documents (`order.manage`). Absent means no. */
+  reviewDocuments: z.boolean().optional(),
+  /** May move an order on without its documents approved (`order.override`). Absent means no. */
+  overrideDocuments: z.boolean().optional(),
 });
 export type LeadAccess = z.infer<typeof leadAccessSchema>;
 

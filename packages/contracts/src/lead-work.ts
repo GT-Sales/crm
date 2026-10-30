@@ -9,7 +9,7 @@ import {
   leadTypeSchema,
 } from './leads';
 import { automationKeySchema } from './automations';
-import { customerEmailTemplateSchema } from './customer-email';
+import { EMAIL_FILL_IN_KEYS, customerEmailTemplateSchema } from './customer-email';
 import { documentChecklistKeySchema } from './domain';
 import { fileReviewDecisionSchema, leadDocumentSchema } from './files';
 import { leadFormEditSchema } from './lead-fields';
@@ -198,6 +198,8 @@ export const getWorkspaceLeadResponseSchema = z.object({
   identities: z.array(leadIdentitySchema).default([]),
   /** The lead's current documents, one per type; empty without contact access. */
   documents: z.array(leadDocumentSchema).default([]),
+  /** The stages staff may move the lead to from where it is now. */
+  allowedMoves: z.array(leadStageSchema).default([]),
   access: leadAccessSchema,
   requestId: requestIdSchema,
 });
@@ -241,8 +243,18 @@ export const updateWorkspaceLeadRequestSchema = z
       .optional(),
     /** Order details of an order lead type; a new `planId` re-freezes the plan. */
     order: leadOrderEditSchema.optional(),
+    /**
+     * With `stage`: why the order moves on without its required documents
+     * approved (`order.override`). Not trimmed or required here: a blank reason
+     * reaches the store, which answers `document_override_reason_required`.
+     */
+    documentsOverrideReason: z.string().max(2000).optional(),
   })
   .strict()
+  .refine((value) => value.documentsOverrideReason === undefined || value.stage !== undefined, {
+    message: 'an override reason needs a stage',
+    path: ['documentsOverrideReason'],
+  })
   .refine(
     (value) =>
       value.stage !== undefined ||
@@ -255,10 +267,29 @@ export const updateWorkspaceLeadRequestSchema = z
   );
 export type UpdateWorkspaceLeadRequest = z.infer<typeof updateWorkspaceLeadRequestSchema>;
 
-/** The updated lead and the timeline entries the change wrote (none for a no-op). */
+/**
+ * A customer mail an automation rule did not queue when staff moved the lead,
+ * so the admin can say so: the rule, its template and why. `missing` lists
+ * the fill-ins the order lacked, for `missing_fill_in`.
+ */
+export const emailSkippedSchema = z.object({
+  automation: automationKeySchema,
+  template: customerEmailTemplateSchema,
+  reason: z.enum(['no_sender', 'no_customer_email', 'missing_fill_in']),
+  missing: z.array(z.enum(EMAIL_FILL_IN_KEYS)).optional(),
+});
+export type EmailSkipped = z.infer<typeof emailSkippedSchema>;
+
+/**
+ * The updated lead and the timeline entries the change wrote (none for a
+ * no-op), the stages it can move to now and the mails the move's rules
+ * skipped (one entry per skipped rule; absent when none).
+ */
 export const updateWorkspaceLeadResponseSchema = z.object({
   lead: leadDetailSchema,
   activities: z.array(leadActivitySchema),
+  allowedMoves: z.array(leadStageSchema),
+  emailSkipped: z.array(emailSkippedSchema).max(6).optional(),
   requestId: requestIdSchema,
 });
 export type UpdateWorkspaceLeadResponse = z.infer<typeof updateWorkspaceLeadResponseSchema>;

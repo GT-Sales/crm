@@ -34,8 +34,40 @@ import {
   type RetryWorkspaceJobResponse,
 } from './jobs';
 import {
+  automationResponseSchema,
+  listAutomationRunsResponseSchema,
+  listAutomationsResponseSchema,
+  updateAutomationRequestSchema,
+  type AutomationKey,
+  type AutomationResponse,
+  type ListAutomationRunsResponse,
+  type ListAutomationsResponse,
+  type UpdateAutomationRequest,
+} from './automations';
+import {
+  emailSettingsResponseSchema,
+  emailTemplateResponseSchema,
+  listEmailTemplatesResponseSchema,
+  previewEmailTemplateRequestSchema,
+  previewEmailTemplateResponseSchema,
+  sendTestEmailResponseSchema,
+  updateEmailSettingsRequestSchema,
+  updateEmailTemplateRequestSchema,
+  type CustomerEmailTemplate,
+  type EmailSettingsResponse,
+  type EmailTemplateResponse,
+  type ListEmailTemplatesResponse,
+  type PreviewEmailTemplateRequest,
+  type PreviewEmailTemplateResponse,
+  type SendTestEmailResponse,
+  type UpdateEmailSettingsRequestInput,
+  type UpdateEmailTemplateRequest,
+} from './customer-email';
+import {
+  IDEMPOTENCY_KEY_HEADER,
   createLeadRequestSchema,
   createLeadResponseSchema,
+  idempotencyKeySchema,
   updateLeadRequestSchema,
   updateLeadResponseSchema,
   readLeadResponseSchema,
@@ -229,7 +261,7 @@ type HeaderMap = Record<string, string | undefined>;
 type QueryMap = Record<string, string | number | undefined>;
 
 interface CallConfig<TResponse> {
-  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly path: string;
   readonly responseSchema: z.ZodType<TResponse>;
   readonly body?: unknown;
@@ -250,15 +282,26 @@ function assertApiPath(url: URL, origin: string): void {
   }
 }
 
+/**
+ * Sent as the `Idempotency-Key` header, so a retried submission returns the
+ * lead already created. A malformed key throws synchronously, before any request.
+ */
+export interface IdempotencyOption {
+  readonly idempotencyKey?: string;
+}
+
 export interface BackendClient {
   health(): Promise<HealthResponse>;
   leads: {
     read(leadId: string, options: { draftGrant: string }): Promise<ReadLeadResponse>;
-    create(body: CreateLeadRequestInput, proof?: WebsiteBotProof): Promise<CreateLeadResponse>;
+    create(
+      body: CreateLeadRequestInput,
+      options?: WebsiteBotProof & IdempotencyOption,
+    ): Promise<CreateLeadResponse>;
     update(
       leadId: string,
       body: UpdateLeadRequestInput,
-      options: { draftGrant: string } & WebsiteBotProof,
+      options: { draftGrant: string } & WebsiteBotProof & IdempotencyOption,
     ): Promise<UpdateLeadResponse>;
     /** The ID step: a signed PUT for the customer's licence photo. */
     createIdentityUpload(
@@ -401,6 +444,33 @@ export interface BackendClient {
     listPlans(workspaceId: string, query?: ListPlansQueryInput): Promise<ListPlansResponse>;
     createPlan(workspaceId: string, body: CreatePlanRequestInput): Promise<PlanResponse>;
     updatePlan(workspaceId: string, planId: string, body: UpdatePlanRequest): Promise<PlanResponse>;
+    getEmailSettings(workspaceId: string): Promise<EmailSettingsResponse>;
+    updateEmailSettings(
+      workspaceId: string,
+      body: UpdateEmailSettingsRequestInput,
+    ): Promise<EmailSettingsResponse>;
+    listEmailTemplates(workspaceId: string): Promise<ListEmailTemplatesResponse>;
+    updateEmailTemplate(
+      workspaceId: string,
+      key: CustomerEmailTemplate,
+      body: UpdateEmailTemplateRequest,
+    ): Promise<EmailTemplateResponse>;
+    previewEmailTemplate(
+      workspaceId: string,
+      key: CustomerEmailTemplate,
+      body: PreviewEmailTemplateRequest,
+    ): Promise<PreviewEmailTemplateResponse>;
+    sendTestEmail(workspaceId: string, key: CustomerEmailTemplate): Promise<SendTestEmailResponse>;
+    listAutomations(workspaceId: string): Promise<ListAutomationsResponse>;
+    updateAutomation(
+      workspaceId: string,
+      key: AutomationKey,
+      body: UpdateAutomationRequest,
+    ): Promise<AutomationResponse>;
+    listAutomationRuns(
+      workspaceId: string,
+      key: AutomationKey,
+    ): Promise<ListAutomationRunsResponse>;
     listJobs(workspaceId: string): Promise<ListWorkspaceJobsResponse>;
     retryJob(workspaceId: string, jobId: string): Promise<RetryWorkspaceJobResponse>;
     resolveUncertainJob(
@@ -511,6 +581,15 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
     };
   }
 
+  function idempotencyHeader(option?: IdempotencyOption): HeaderMap {
+    return {
+      [IDEMPOTENCY_KEY_HEADER]:
+        option?.idempotencyKey === undefined
+          ? undefined
+          : idempotencyKeySchema.parse(option.idempotencyKey),
+    };
+  }
+
   return {
     health: () =>
       call({ method: 'GET', path: '/api/v1/health', responseSchema: healthResponseSchema }),
@@ -523,12 +602,12 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           headers: { 'x-draft-grant': opts.draftGrant },
           responseSchema: readLeadResponseSchema,
         }),
-      create: (body, proof) =>
+      create: (body, opts) =>
         call({
           method: 'POST',
           path: '/api/v1/website/leads',
           body: createLeadRequestSchema.parse(body),
-          headers: proofHeader(proof),
+          headers: { ...proofHeader(opts), ...idempotencyHeader(opts) },
           responseSchema: createLeadResponseSchema,
         }),
       update: (leadId, body, opts) =>
@@ -536,7 +615,11 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           method: 'PATCH',
           path: `/api/v1/website/leads/${encode(leadId)}`,
           body: updateLeadRequestSchema.parse(body),
-          headers: { 'x-draft-grant': opts.draftGrant, ...proofHeader(opts) },
+          headers: {
+            'x-draft-grant': opts.draftGrant,
+            ...proofHeader(opts),
+            ...idempotencyHeader(opts),
+          },
           responseSchema: updateLeadResponseSchema,
         }),
       createIdentityUpload: (leadId, body, proof) =>
@@ -879,6 +962,64 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/plans/${encode(planId)}`,
           body: updatePlanRequestSchema.parse(body),
           responseSchema: planResponseSchema,
+        }),
+      getEmailSettings: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/settings`,
+          responseSchema: emailSettingsResponseSchema,
+        }),
+      updateEmailSettings: (workspaceId, body) =>
+        call({
+          method: 'PUT',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/settings`,
+          body: updateEmailSettingsRequestSchema.parse(body),
+          responseSchema: emailSettingsResponseSchema,
+        }),
+      listEmailTemplates: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates`,
+          responseSchema: listEmailTemplatesResponseSchema,
+        }),
+      updateEmailTemplate: (workspaceId, key, body) =>
+        call({
+          method: 'PUT',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}`,
+          body: updateEmailTemplateRequestSchema.parse(body),
+          responseSchema: emailTemplateResponseSchema,
+        }),
+      previewEmailTemplate: (workspaceId, key, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}/preview`,
+          body: previewEmailTemplateRequestSchema.parse(body),
+          responseSchema: previewEmailTemplateResponseSchema,
+        }),
+      sendTestEmail: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}/test`,
+          responseSchema: sendTestEmailResponseSchema,
+        }),
+      listAutomations: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations`,
+          responseSchema: listAutomationsResponseSchema,
+        }),
+      updateAutomation: (workspaceId, key, body) =>
+        call({
+          method: 'PUT',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}`,
+          body: updateAutomationRequestSchema.parse(body),
+          responseSchema: automationResponseSchema,
+        }),
+      listAutomationRuns: (workspaceId, key) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/runs`,
+          responseSchema: listAutomationRunsResponseSchema,
         }),
       listJobs: (workspaceId) =>
         call({

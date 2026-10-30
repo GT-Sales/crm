@@ -1,6 +1,7 @@
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
 import {
+  allowedStageMoves,
   areValidLeadColumns,
   areValidLeadPropertyFilters,
   createDownloadLinkRequestSchema,
@@ -647,7 +648,12 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       });
       switch (outcome.status) {
         case 'updated':
-          res.json({ lead: outcome.lead, activities: outcome.activities, requestId: req.id });
+          res.json({
+            lead: outcome.lead,
+            activities: outcome.activities,
+            allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
+            requestId: req.id,
+          });
           return;
         case 'invalid_field':
           sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
