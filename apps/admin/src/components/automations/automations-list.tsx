@@ -23,8 +23,9 @@ const SIGNED_OUT = 'You are signed out. Sign in again to continue.';
 
 /** Why a switch did not take, in words staff can act on. */
 function toggleError(error: unknown): string {
-  if (error instanceof BackendError && error.code === 'permission_denied')
+  if (error instanceof BackendError && error.code === 'permission_denied') {
     return NEEDS_INTEGRATIONS;
+  }
   return `The change was not saved. Reason: ${errorReason(error)}.`;
 }
 

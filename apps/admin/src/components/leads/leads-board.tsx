@@ -44,6 +44,8 @@ import { emailSkippedText, stageMoveRefusal } from './stage-move-dialog';
 import { useStoredList } from './view-preferences';
 
 const PER_STAGE = 50;
+const DRAG_TYPE = 'application/x-gt-lead';
+const COLUMN_DRAG_TYPE = 'application/x-gt-board-column';
 
 /**
  * What a move did about customer mail, one line each: that its rule queued
@@ -61,8 +63,6 @@ function customerMailNotes(result: UpdateWorkspaceLeadResponse): string[] {
     ...(result.emailSkipped ?? []).map(emailSkippedText),
   ];
 }
-const DRAG_TYPE = 'application/x-gt-lead';
-const COLUMN_DRAG_TYPE = 'application/x-gt-board-column';
 
 /** Animates board columns and lead cards smoothly between positions using FLIP. */
 function animateElementMove(element: HTMLElement, dx: number, dy: number) {
@@ -266,6 +266,7 @@ export function LeadsBoard({
 
   async function move(next: Move) {
     if (next.from === next.to) return;
+    setMailNotes([]);
     if (stageGates(query.type, next.to).length > 0) {
       setMessage(
         `Open the lead to move it to ${leadStageLabel(query.type, next.to)}: it needs details.`,
@@ -273,7 +274,6 @@ export function LeadsBoard({
       return;
     }
     setMessage(undefined);
-    setMailNotes([]);
     snapshotBoardPositions();
     board.mutate((current) => ({ ...current, columns: moveCard(current.columns, next) }));
     try {
