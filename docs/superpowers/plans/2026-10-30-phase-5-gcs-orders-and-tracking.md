@@ -14,6 +14,18 @@
 
 **Owner decision on the plan (2026-10-30), D10: one switch day, after both parts are live.** Part A's code still merges to `main` and deploys first with `CRM_ORDERS` off; the switch day (Task A11) runs only after Part B is deployed, and moves orders and `/track` to the CRM on the same day (`CRM_ORDERS` on, the final import, then `CRM_TRACKING` on). Customers never lose online change requests. This supersedes S4's interim read-only `/track` as a live state: Task A8 still builds it as the safe fallback, but no customer sees it unless a step of switch day fails. Task A11 runs after Task B15's deploy, and Task B15's `/track` switch becomes A11's last step.
 
+**Pre-flight corrections (controller, 2026-10-30), binding over the task text below:**
+
+- **PF1 (D10 carried through).** Waves row A4 ends at A10. Wave B6 ends "… → B14 → B15 → A11". B15 Step 6 deploys with `CRM_TRACKING` unset and stops; B15 Step 7 ("done when") moves to A11. A11 "Before the day" adds "B15's deploys live"; A11 gets Step 5 "owner sets `CRM_TRACKING=on`" after the test order and Step 6 "a real customer's change request approved in the CRM, recorded".
+- **PF2 (pre-switch test orders).** Before the first production test order (A11 "Before the day", B15 Step 5), run the SEED block with `+ 1000` in place of `+ 9`; the switch-day seed's `greatest` keeps the gap. A5 adds a test: a CRM order after a `+1000` seed, then `public.orders` rows numbered up to the gap, import with no unique violation.
+- **PF3 (change request numbers).** The SEED block of `docs/RUNBOOKS/manual/gcs-switch-day.sql` also seeds `change_request_no` from `max(public.order_edit_requests.request_no) + 9` (`+ 1000` before any pre-switch test request) with `greatest`; B7 adds a test; A11 Step 2 runs it with the order seed.
+- **PF4.** B10 moves to wave B2 (it shares four files with B1).
+- **PF5.** `trackingOrderSchema`, `trackingPendingChangeSchema` and their types move from B2 to B1; B5 consumes "B1 `TrackingOrder`".
+- **PF6.** B7: `attachDocument` joining a pending request sets `version + 1` and `updated_at`; a request it creates starts at 1; B7's test asserts version 2 after one `requestChange` and one `attachDocument`.
+- **PF7.** B5's "no code in the payload" test asserts the payload contains no `code` key and that the sealed value does not contain the issued code's six digits as a substring of any string field other than ids and hashes; never `/\d{6}/` over the whole payload.
+- **PF8 (wording).** A11 Step 3: the final import updates the CRM copies of imported orders from `public.orders` and adds missing ones (`on conflict (id) do update`); it is safe on switch day because staff worked those orders in the old admin until then.
+- The 23 minor findings in the SDD workspace's `preflight-scan.md` are corrections each implementer applies to its own tasks.
+
 **Rulings added by the planner** (each: ruling — why — cost if wrong):
 
 - **S1.** The switch-day seed sets the counter's last issued number to the highest `order_no` in `public.orders` plus 9, so the CRM's first order is that number plus 10; it only ever raises the counter (`greatest`). — An order started on the old checkout between the seed and the flag flip takes the next `order_no`; without a gap the CRM's first order would take the same number and the unique index on `(workspace_id, lead_type, external_ref)` would make the final import fail. — Up to nine numbers never used; numbers were never promised consecutive.
