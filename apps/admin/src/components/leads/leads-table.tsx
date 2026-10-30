@@ -31,11 +31,10 @@ import { propertyColumnLabel, propertyColumnProperty } from './lead-fields';
 
 const PAGE_SIZE = 50;
 
-// A compact, Twenty-style grid: 32px rows, 13px text, the lead's name pinned
-// while the rest scrolls sideways.
-const HEAD_CELL = 'h-8 px-3 text-left text-[12px] font-medium whitespace-nowrap';
-const CELL = 'h-8 px-3 whitespace-nowrap';
-const NAME_CELL = 'sticky left-0 z-10 border-r border-crm-row-border';
+// A roomy list: 14px text, the lead's name over its email or phone, a soft
+// rule between rows and no pinned column; wide tables scroll sideways whole.
+const HEAD_CELL = 'px-3 py-2 font-medium';
+const CELL = 'px-3 py-2';
 
 export const DUE_TONE_CLASS = {
   overdue: 'text-rose-300',
@@ -71,18 +70,16 @@ function SortableHeader({
   currentSort,
   canSort,
   onSort,
-  className,
 }: {
   label: string;
   field: string;
   currentSort: string | undefined;
   canSort: boolean;
   onSort?(next: string | undefined): void;
-  className?: string;
 }) {
   if (!canSort || !onSort) {
     return (
-      <th scope="col" className={cn(HEAD_CELL, className)}>
+      <th scope="col" className={HEAD_CELL}>
         {label}
       </th>
     );
@@ -97,7 +94,7 @@ function SortableHeader({
           onSort(cycleLeadSort(currentSort, field));
         }
       }}
-      className={cn(HEAD_CELL, className)}
+      className={HEAD_CELL}
     >
       <button
         type="button"
@@ -234,20 +231,16 @@ export function LeadsTable({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto rounded-md border border-crm-row-border">
-        <table
-          className="w-full min-w-[880px] border-separate border-spacing-0 text-[13px]"
-          aria-busy={leads.loading || waiting}
-        >
+      <div className="overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[880px] text-sm" aria-busy={leads.loading || waiting}>
           <thead>
-            <tr className="bg-crm-header text-muted-foreground [&>th]:border-b [&>th]:border-crm-row-border">
+            <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
               <SortableHeader
                 label="Lead"
                 field="fullName"
                 currentSort={query.sort}
                 canSort={canSort}
                 onSort={onSort}
-                className={cn(NAME_CELL, 'bg-crm-header')}
               />
               {query.type || !showCol('type') ? null : (
                 <th scope="col" className={HEAD_CELL}>
@@ -364,7 +357,7 @@ export function LeadsTable({
                   <tr
                     key={lead.id}
                     aria-current={panel?.openId === lead.id ? 'true' : undefined}
-                    className="group h-8 cursor-pointer transition-colors hover:bg-crm-row-hover aria-[current=true]:bg-crm-row-hover [&>td]:border-b [&>td]:border-crm-row-border last:[&>td]:border-b-0"
+                    className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 aria-[current=true]:bg-muted/60"
                     onClick={(event) => {
                       // Let a real link, a modifier-click or a text selection behave natively.
                       if (event.target instanceof HTMLElement && event.target.closest('a')) return;
@@ -372,18 +365,12 @@ export function LeadsTable({
                       openLead(lead);
                     }}
                   >
-                    <td
-                      className={cn(
-                        CELL,
-                        NAME_CELL,
-                        'max-w-[280px] bg-background group-hover:bg-crm-row-hover group-aria-[current=true]:bg-crm-row-hover',
-                      )}
-                    >
+                    <td className={cn(CELL, 'max-w-[260px]')}>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Link
                           href={leadHref(lead)}
                           data-lead-id={lead.id}
-                          className="min-w-0 shrink-0 truncate font-medium text-foreground hover:underline"
+                          className="min-w-0 truncate font-medium text-foreground hover:underline"
                           onClick={(event) => {
                             // A plain click opens the panel; a modifier-click opens a tab.
                             if (!panel || event.button !== 0) return;
@@ -397,15 +384,15 @@ export function LeadsTable({
                           {leadDisplayName(lead.contact)}
                         </Link>
                         {lead.isNew ? <NewBadge /> : null}
-                        {secondary ? (
-                          <span className="min-w-0 truncate text-[12px] text-muted-foreground">
-                            {secondary}
-                          </span>
-                        ) : null}
                       </span>
+                      {secondary ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {secondary}
+                        </span>
+                      ) : null}
                     </td>
                     {query.type || !showCol('type') ? null : (
-                      <td className={cn(CELL, 'text-muted-foreground')}>
+                      <td className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}>
                         {leadTypeLabel(lead.leadType)}
                       </td>
                     )}
@@ -424,7 +411,7 @@ export function LeadsTable({
                       </td>
                     ) : null}
                     {showCol('nextTask') ? (
-                      <td className={CELL}>
+                      <td className={cn(CELL, 'whitespace-nowrap')}>
                         {lead.nextTaskDueAt ? (
                           <span className={DUE_TONE_CLASS[dueTone(lead.nextTaskDueAt)]}>
                             {dueLabel(lead.nextTaskDueAt)}
@@ -438,12 +425,12 @@ export function LeadsTable({
                       </td>
                     ) : null}
                     {countdownField && showCol('countdown') ? (
-                      <td className={CELL}>
+                      <td className={cn(CELL, 'whitespace-nowrap')}>
                         {lead.countdownDate ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span>{dayLabel(lead.countdownDate)}</span>
-                            <CountdownLabel day={lead.countdownDate} className="text-[12px]" />
-                          </span>
+                          <>
+                            <span className="block">{dayLabel(lead.countdownDate)}</span>
+                            <CountdownLabel day={lead.countdownDate} className="block" />
+                          </>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
@@ -452,7 +439,7 @@ export function LeadsTable({
                     {propertyColumns.map((key) => {
                       const property = propertyColumnProperty(lead.leadType, key, catalog);
                       return (
-                        <td key={key} className={cn(CELL, 'max-w-[220px] truncate')}>
+                        <td key={key} className={cn(CELL, 'max-w-[200px] truncate')}>
                           <PropertyValueText
                             property={property ?? { kind: 'text' }}
                             value={lead.properties?.[key]}
@@ -467,7 +454,7 @@ export function LeadsTable({
                     ) : null}
                     {showCol('created') ? (
                       <td
-                        className={cn(CELL, 'text-muted-foreground')}
+                        className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}
                         title={dateTimeLabel(lead.createdAt)}
                       >
                         {relativeTime(lead.createdAt)}
@@ -475,7 +462,7 @@ export function LeadsTable({
                     ) : null}
                     {showCol('activity') ? (
                       <td
-                        className={cn(CELL, 'text-muted-foreground')}
+                        className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}
                         title={dateTimeLabel(lastChange)}
                       >
                         {relativeTime(lastChange)}
@@ -489,7 +476,7 @@ export function LeadsTable({
         </table>
       </div>
 
-      <nav aria-label="Lead pages" className="flex items-center gap-3 text-[13px]">
+      <nav aria-label="Lead pages" className="flex items-center gap-3 text-sm">
         <Button
           type="button"
           variant="outline"
