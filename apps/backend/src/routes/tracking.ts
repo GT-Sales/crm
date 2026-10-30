@@ -60,7 +60,10 @@ export interface TrackingRouteDependencies {
   tracking: TrackingService;
   changeRequests: ChangeRequestService;
   documents?: { service: Pick<DocumentService, 'createIntent' | 'finalize'> };
-  /** `TRACKING_HASH_SECRET`: keys the per-email rate buckets; whether tracking is on is `tracking.configured`. */
+  /**
+   * `TRACKING_HASH_SECRET`: keys the per-email rate buckets. Tracking is on
+   * only when this and `tracking.configured` both are.
+   */
   secret: string | undefined;
   /** The neutral code answer's floor, measured from the request's start. */
   minLatencyMs?: number;
@@ -114,24 +117,19 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
   const guard = [requireWebsiteCredential(auth), requireScope('tracking')];
   const limited = requireEndpointRateLimit(auth, 'tracking', endpointRateLimits.tracking);
 
-  /** A rate bucket's verdict; with no secret the per-email bucket has no key and admits. */
-  async function allowed(bucketKey: string | undefined, maxCount: number) {
-    if (bucketKey === undefined) return { allowed: true, retryAfterSeconds: 0 };
+  // One answer to "is tracking on": the service has its secret and so do the
+  // routes, which key the per-email buckets with it. Either missing, tracking
+  // is unconfigured, so a per-email bucket can never be skipped.
+  const secret = tracking.configured ? dependencies.secret : undefined;
+
+  /** A ten-minute rate bucket's verdict. */
+  function allowed(bucketKey: string, maxCount: number) {
     return auth.rateLimit({ bucketKey, windowSeconds: TRACKING_EMAIL_WINDOW_SECONDS, maxCount });
   }
 
-  const emailBucket = (
-    workspaceId: string,
-    normalizedEmail: string,
-    purpose: 'code' | 'verify' | 'write',
-  ) =>
-    dependencies.secret === undefined
-      ? undefined
-      : emailRateBucket(dependencies.secret, workspaceId, normalizedEmail, purpose);
-
   /** The grant's identity, or the answer already sent (409 unconfigured, 401 no valid grant). */
   function identity(req: Request, res: Response): TrackingGrantIdentity | undefined {
-    if (!tracking.configured) {
+    if (secret === undefined) {
       sendDomainError(res, req.id, 'feature_not_ready', 409);
       return undefined;
     }
@@ -177,8 +175,12 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
     res: Response,
     verified: TrackingGrantIdentity,
   ): Promise<boolean> {
+    if (secret === undefined) {
+      sendDomainError(res, req.id, 'feature_not_ready', 409);
+      return false;
+    }
     const limit = await allowed(
-      emailBucket(verified.workspaceId, verified.normalizedEmail, 'write'),
+      emailRateBucket(secret, verified.workspaceId, verified.normalizedEmail, 'write'),
       TRACKING_WRITES_PER_EMAIL,
     );
     if (limit.allowed) return true;
@@ -226,12 +228,12 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
       }
       const ctx = websiteContext(req);
       try {
-        if (tracking.configured) {
+        if (secret !== undefined) {
           const normalizedEmail = normalizeTrackingEmail(body.data.email);
           // Both buckets count every request, whether or not the email has orders.
           const [byEmail, byVisitor] = await Promise.all([
             allowed(
-              emailBucket(ctx.workspaceId, normalizedEmail, 'code'),
+              emailRateBucket(secret, ctx.workspaceId, normalizedEmail, 'code'),
               TRACKING_CODE_REQUESTS_PER_EMAIL,
             ),
             allowed(
@@ -286,7 +288,7 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
         sendDomainError(res, req.id, 'validation_error', 400);
         return;
       }
-      if (!tracking.configured) {
+      if (secret === undefined) {
         sendDomainError(res, req.id, 'feature_not_ready', 409);
         return;
       }
@@ -294,7 +296,7 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
         const ctx = websiteContext(req);
         const normalizedEmail = normalizeTrackingEmail(body.data.email);
         const byEmail = await allowed(
-          emailBucket(ctx.workspaceId, normalizedEmail, 'verify'),
+          emailRateBucket(secret, ctx.workspaceId, normalizedEmail, 'verify'),
           TRACKING_VERIFICATIONS_PER_EMAIL,
         );
         const byVisitor = await allowed(
@@ -457,6 +459,18 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
         const lead = await trackedLead(req, res, verified);
         if (!lead) return;
         const ctx = websiteContext(req);
+        // Only the order's own held upload: a customer grant never verifies,
+        // and so never makes current, any other file of the lead.
+        const held = await changeRequests.isHeldUpload({
+          workspaceId: ctx.workspaceId,
+          actorId: ctx.credentialId,
+          leadId: lead.leadId,
+          fileId: uploadId.data,
+        });
+        if (!held) {
+          sendDomainError(res, req.id, 'upload_not_found', 404);
+          return;
+        }
         const finalized = await documents.service.finalize({
           workspaceId: ctx.workspaceId,
           actorId: ctx.credentialId,

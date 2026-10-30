@@ -155,7 +155,14 @@ const heldFile = {
 /** Counts per bucket like app.rate_limit_hit. */
 class FakeRateLimiter {
   readonly counts = new Map<string, number>();
+  readonly inputs: RateLimitInput[] = [];
+  /** Buckets this test does not exercise (the per-visitor endpoint limit), always admitted. */
+  readonly exempt = new Set<string>();
   hit = async (input: RateLimitInput): Promise<RateLimitResult> => {
+    this.inputs.push(input);
+    if ([...this.exempt].some((prefix) => input.bucketKey.startsWith(prefix))) {
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
     const next = (this.counts.get(input.bucketKey) ?? 0) + 1;
     this.counts.set(input.bucketKey, next);
     return { allowed: next <= input.maxCount, retryAfterSeconds: next <= input.maxCount ? 0 : 42 };
@@ -173,6 +180,7 @@ let changeStore: {
   requestChange: ReturnType<typeof vi.fn<ChangeRequestStore['requestChange']>>;
   attachDocument: ReturnType<typeof vi.fn<ChangeRequestStore['attachDocument']>>;
   pendingForLead: ReturnType<typeof vi.fn<ChangeRequestStore['pendingForLead']>>;
+  isHeldUpload: ReturnType<typeof vi.fn<ChangeRequestStore['isHeldUpload']>>;
 };
 let documents: {
   createIntent: ReturnType<typeof vi.fn<DocumentService['createIntent']>>;
@@ -181,8 +189,16 @@ let documents: {
 let logged: string[];
 let resolvedLead: TrackedLeadRef | undefined;
 
-async function start(options: { secret?: string | undefined } = {}) {
+async function start(
+  options: {
+    secret?: string | undefined;
+    /** The service's secret when it differs from the route's (a misassembled deployment). */
+    serviceSecret?: string | undefined;
+    documents?: boolean;
+  } = {},
+) {
   const secret = 'secret' in options ? options.secret : SECRET;
+  const serviceSecret = 'serviceSecret' in options ? options.serviceSecret : secret;
   const resolution = (): WebsiteCredentialResolution => ({
     credentialId: CREDENTIAL,
     workspaceId: WORKSPACE,
@@ -216,11 +232,11 @@ async function start(options: { secret?: string | undefined } = {}) {
       minLatencyMs: MIN_LATENCY_MS,
       tracking: new TrackingService({
         store: trackingStore,
-        secret,
+        secret: serviceSecret,
         contactHash: (email) => `hash:${email.length}`,
       }),
       changeRequests: new ChangeRequestService({ store: changeStore, context }),
-      documents: { service: documents },
+      ...(options.documents === false ? {} : { documents: { service: documents } }),
     },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -276,6 +292,7 @@ beforeEach(async () => {
     requestChange: vi.fn<ChangeRequestStore['requestChange']>(async () => saved),
     attachDocument: vi.fn<ChangeRequestStore['attachDocument']>(async () => saved),
     pendingForLead: vi.fn<ChangeRequestStore['pendingForLead']>(async () => undefined),
+    isHeldUpload: vi.fn<ChangeRequestStore['isHeldUpload']>(async () => true),
   };
   documents = {
     createIntent: vi.fn<DocumentService['createIntent']>(async () => ({
@@ -351,6 +368,23 @@ describe('the code request', () => {
     expect(trackingStore.hasTrackableLeads).toHaveBeenCalledTimes(5);
   });
 
+  it('asks for at most 20 codes per visitor in 10 minutes, still answering neutrally', async () => {
+    // At once, so the floor is waited for once: each email is a different one.
+    const responses = await Promise.all(
+      Array.from({ length: 21 }, (_, index) =>
+        request('POST', '/tracking/code', { email: `visitor-${index}@example.test` }),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual(Array(21).fill(200));
+    // Each email is under its own budget; the visitor's 20 stop the 21st.
+    expect(trackingStore.hasTrackableLeads).toHaveBeenCalledTimes(20);
+    const visitorHits = limiter.inputs.filter((input) =>
+      input.bucketKey.startsWith(`tracking-code:visitor:${WORKSPACE}:`),
+    );
+    expect(visitorHits).toHaveLength(21);
+    expect(visitorHits[0]).toMatchObject({ windowSeconds: 600, maxCount: 20 });
+  });
+
   it('refuses a malformed body with 400', async () => {
     const response = await request('POST', '/tracking/code', { email: 'not-an-email' });
     expect(response.status).toBe(400);
@@ -363,6 +397,31 @@ describe('verification', () => {
     expect(response.status).toBe(200);
     const body = trackingVerifyResponseSchema.parse(await response.json());
     expect(body.grant.token.length).toBeGreaterThan(0);
+  });
+
+  it('limits verifications per visitor: the 41st in 10 minutes is 429 with retry-after', async () => {
+    // Past the 30-per-minute endpoint limit, to reach the 10-minute visitor bucket.
+    limiter.exempt.add('endpoint:tracking:');
+    trackingStore.consume.mockResolvedValue('invalid');
+    for (let index = 0; index < 40; index += 1) {
+      const response = await request('POST', '/tracking/verify', {
+        email: `visitor-${index}@example.test`,
+        code: CODE,
+      });
+      expect(response.status).toBe(400);
+    }
+    const response = await request('POST', '/tracking/verify', {
+      email: 'visitor-40@example.test',
+      code: CODE,
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('42');
+    expect(trackingStore.consume).toHaveBeenCalledTimes(40);
+    expect(
+      limiter.inputs.find((input) =>
+        input.bucketKey.startsWith(`tracking-verify:visitor:${WORKSPACE}:`),
+      ),
+    ).toMatchObject({ windowSeconds: 600, maxCount: 40 });
   });
 
   it.each(['invalid', 'expired', 'exhausted', 'not_found'] as const)(
@@ -420,6 +479,26 @@ describe('the tracking scope and an unconfigured deployment', () => {
       expect(response.status).toBe(409);
       expect((await errorOf(response)).code).toBe('feature_not_ready');
     }
+  });
+});
+
+describe('a deployment with a service secret but no route secret', () => {
+  it('answers as unconfigured, so no per-email bucket can fail open', async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await start({ secret: undefined, serviceSecret: SECRET });
+    expect((await request('POST', '/tracking/code', { email: JANE })).status).toBe(200);
+    expect(trackingStore.hasTrackableLeads).not.toHaveBeenCalled();
+    for (const [method, path, body] of [
+      ['POST', '/tracking/verify', { email: JANE, code: CODE }],
+      ['GET', '/tracking/orders', undefined],
+      ['POST', '/tracking/orders/MS-901/changes', { fields: { phone: '+1 437 555 0188' } }],
+    ] as const) {
+      const response = await request(method, path, body, withGrant());
+      expect(response.status).toBe(409);
+      expect((await errorOf(response)).code).toBe('feature_not_ready');
+    }
+    expect(trackingStore.consume).not.toHaveBeenCalled();
+    expect(trackingStore.listOrders).not.toHaveBeenCalled();
   });
 });
 
@@ -556,6 +635,68 @@ describe('documents', () => {
     });
     expect(response.status).toBe(409);
     expect((await errorOf(response)).code).toBe('change_request_not_allowed');
+  });
+
+  const passportIntent = {
+    documentType: 'passport',
+    contentType: 'application/pdf',
+    sizeBytes: 1000,
+  };
+  const finalize = () =>
+    request(
+      'POST',
+      `/tracking/orders/MS-901/uploads/${UPLOAD}/finalize`,
+      { checksumSha256: 'a'.repeat(64) },
+      withGrant(),
+    );
+
+  it.each([
+    [{ status: 'parent_not_found' }, 404, 'order_not_found'],
+    [{ status: 'too_large' }, 413, 'document_too_large'],
+    [{ status: 'checklist_mismatch' }, 409, 'checklist_mismatch'],
+  ] as const)('answers the intent outcome %j with %i %s', async (outcome, status, code) => {
+    documents.createIntent.mockResolvedValueOnce(outcome);
+    const response = await intent(passportIntent);
+    expect(response.status).toBe(status);
+    expect((await errorOf(response)).code).toBe(code);
+  });
+
+  it.each([
+    [
+      { status: 'rejected', file: null, reason: 'unsupported_signature' },
+      422,
+      'document_verification_failed',
+    ],
+    [{ status: 'in_progress' }, 409, 'verification_in_progress'],
+    [{ status: 'expired' }, 410, 'upload_expired'],
+    [{ status: 'not_found' }, 404, 'upload_not_found'],
+  ] as const)('answers the finalize outcome %j with %i %s', async (outcome, status, code) => {
+    documents.finalize.mockResolvedValueOnce(outcome);
+    const response = await finalize();
+    expect(response.status).toBe(status);
+    expect((await errorOf(response)).code).toBe(code);
+    expect(changeStore.attachDocument).not.toHaveBeenCalled();
+  });
+
+  it('refuses to finalize a file that is not a held upload of the order, before verifying it', async () => {
+    changeStore.isHeldUpload.mockResolvedValueOnce(false);
+    const response = await finalize();
+    expect(response.status).toBe(404);
+    expect((await errorOf(response)).code).toBe('upload_not_found');
+    expect(changeStore.isHeldUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: WORKSPACE, leadId: LEAD, fileId: UPLOAD }),
+    );
+    expect(documents.finalize).not.toHaveBeenCalled();
+    expect(changeStore.attachDocument).not.toHaveBeenCalled();
+  });
+
+  it('answers both upload routes 409 feature_not_ready without a document store', async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await start({ documents: false });
+    for (const response of [await intent(passportIntent), await finalize()]) {
+      expect(response.status).toBe(409);
+      expect((await errorOf(response)).code).toBe('feature_not_ready');
+    }
   });
 
   it('finalizes the lead’s own upload and joins it to the pending request', async () => {

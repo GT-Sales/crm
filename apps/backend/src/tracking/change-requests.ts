@@ -83,6 +83,8 @@ export interface ChangeRequestStore {
     workspaceId: string,
     leadId: string,
   ): Promise<ChangeRequestRow | undefined>;
+  /** The file is the lead's held upload (an intent or a finalized file), not deleted. */
+  isHeldUpload(input: WebsiteScope & { leadId: string; fileId: string }): Promise<boolean>;
 }
 
 /** The field keys asked for, in `CHANGEABLE_FIELD_KEYS` order. */
@@ -294,7 +296,9 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
               ),
             )
             .returning({ objectKey: files.objectKey });
-          if (gone?.objectKey) removedObjectKeys.push(gone.objectKey);
+          // Already gone (staff removed it): nothing to delete, nothing to audit.
+          if (!gone) continue;
+          if (gone.objectKey) removedObjectKeys.push(gone.objectKey);
           await tx.insert(auditEvents).values({
             workspaceId: input.workspaceId,
             actorId: input.actorId,
@@ -354,6 +358,26 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
     leadId: string,
   ): Promise<ChangeRequestRow | undefined> {
     return selectPending(tx, workspaceId, leadId, false);
+  }
+
+  isHeldUpload(input: WebsiteScope & { leadId: string; fileId: string }): Promise<boolean> {
+    return this.tx(input, async (tx) => {
+      const [file] = await tx
+        .select({ id: files.id })
+        .from(files)
+        .where(
+          and(
+            eq(files.workspaceId, input.workspaceId),
+            eq(files.id, input.fileId),
+            eq(files.recordType, 'lead'),
+            eq(files.recordId, input.leadId),
+            eq(files.heldForChangeRequest, true),
+            sql`${files.status} <> 'deleted'`,
+          ),
+        )
+        .limit(1);
+      return file !== undefined;
+    });
   }
 }
 
@@ -469,6 +493,11 @@ export class ChangeRequestService {
     return outcome;
   }
 
+  /** The file is the lead's held upload: the only file a customer grant may finalize. */
+  isHeldUpload(input: Parameters<ChangeRequestStore['isHeldUpload']>[0]): Promise<boolean> {
+    return this.dependencies.store.isHeldUpload(input);
+  }
+
   approve(input: DecideInput): Promise<DecisionOutcome> {
     return this.decide('approved', input);
   }
@@ -537,10 +566,12 @@ export class ChangeRequestService {
               ),
             );
           const event = decision === 'approved' ? 'change_approved' : 'change_rejected';
+          // Keys and document types only, as the request's own entries carry them.
           const keys = {
             requestNo: request.requestNo,
             changeRequestId: request.id,
-            ...(decision === 'approved' ? { fields, documents } : {}),
+            fields,
+            documents,
           };
           const [entry] = await tx
             .insert(leadActivities)

@@ -341,10 +341,10 @@ databaseTest('approving and rejecting change requests', () => {
     expect(audit.map((row) => row['action'])).toEqual(
       expect.arrayContaining(['lead.updated', 'lead.change_request_approved']),
     );
+    // Every audit row of the lead, the approval's lead.updated among them.
     const trail = JSON.stringify([
       entries,
-      await admin`select after from app.audit_events where entity_id = ${leadId}
-        and action <> 'lead.updated'`,
+      await admin`select action, before, after from app.audit_events where entity_id = ${leadId}`,
     ]);
     expect(trail).not.toContain('555 0188');
 
@@ -472,13 +472,20 @@ databaseTest('approving and rejecting change requests', () => {
     expect(deleted).toEqual([passport.objectKey]);
     expect(await requestRow(request.id)).toMatchObject({ status: 'rejected', resolvedBy: STAFF });
     expect((await requestRow(request.id))?.resolvedAt).toBeInstanceOf(Date);
-    expect(
-      (await timeline(leadId)).find((entry) => entry.data['event'] === 'change_rejected')?.data,
-    ).toEqual({
+    const rejected = (await timeline(leadId)).find(
+      (entry) => entry.data['event'] === 'change_rejected',
+    )?.data;
+    expect(rejected).toMatchObject({
       event: 'change_rejected',
       requestNo: request.requestNo,
       changeRequestId: request.id,
+      documents: ['passport'],
     });
+    // Keys and document types only, as the request and the approval carry them.
+    expect(sortedKeys(rejected?.['fields'])).toEqual(
+      ['arrivalDate', 'delivery', 'fullName', 'phone', 'planId', 'shippingAddress'].sort(),
+    );
+    expect(JSON.stringify(rejected)).not.toContain('555 0188');
     expect(await decisionJobs(leadId)).toEqual([
       { dedupeKey: `${leadId}:change_rejected:${request.id}`, template: 'change_rejected' },
     ]);

@@ -5,6 +5,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { InMemoryR2DocumentStore, sha256Hex } from '@gt-sales/adapters';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
+import { STAFF_SEED_IDS } from '@gt-sales/db/seed';
 import {
   LEGACY_IMPORT_ACTOR_ID,
   codePropertyCatalog,
@@ -150,7 +151,10 @@ const STORAGE_DDL = `
 `;
 
 // A distinct id range from every other integration test file sharing this database.
-const GCS_CANDIDATE = '15000000-0000-4000-8000-000000000a01';
+// The site itself is the synthetic seed's Get Canada Sim (same id, slug, name
+// and domain), so the db suite's seed finds its own workspace after this suite
+// made it.
+const GCS_CANDIDATE = STAFF_SEED_IDS.getCanadaSimWorkspace;
 const PARTNER = '15000000-0000-4000-8000-000000000a11';
 const PENDING = '15000000-0000-4000-8000-000000000a21';
 const OLD_CHECKOUT = '15000000-0000-4000-8000-000000000a22';
@@ -224,8 +228,8 @@ databaseTest('Get Canada Sim historical import', () => {
     await admin`delete from storage.objects where name like ${'%/15000000-0000-4000-8000-000000000a%'}`;
     // `getcanadasim` may already exist in a reused database; the import keys on the slug.
     await admin`
-      insert into app.workspaces (id, slug, name)
-      values (${GCS_CANDIDATE}, 'getcanadasim', 'Get Canada Sim')
+      insert into app.workspaces (id, slug, name, domain)
+      values (${GCS_CANDIDATE}, 'getcanadasim', 'Get Canada Sim', 'getcanadasim.com')
       on conflict do nothing
     `;
     const [row] = await admin<{ id: string }[]>`
@@ -852,8 +856,8 @@ databaseTest('Get Canada Sim switch day: the final import beside CRM orders', ()
     await admin.unsafe(GCS_TABLES_DDL);
     await admin.unsafe(STORAGE_DDL);
     await admin`
-      insert into app.workspaces (id, slug, name)
-      values (${GCS_CANDIDATE}, 'getcanadasim', 'Get Canada Sim')
+      insert into app.workspaces (id, slug, name, domain)
+      values (${GCS_CANDIDATE}, 'getcanadasim', 'Get Canada Sim', 'getcanadasim.com')
       on conflict do nothing
     `;
     const [row] = await admin<{ id: string }[]>`

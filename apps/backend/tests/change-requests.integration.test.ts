@@ -440,4 +440,63 @@ databaseTest('customer change requests and held documents', () => {
       }),
     ).toEqual({ status: 'not_found' });
   });
+
+  it('audits a replaced held file only when it was still there to tombstone', async () => {
+    const lead = await insertLead({ stage: 'pending' });
+    const first = await heldFile(lead);
+    const join = (fileId: string) =>
+      store.attachDocument({
+        ...scope,
+        requestId: crypto.randomUUID(),
+        leadId: lead,
+        fileId,
+        now: new Date(),
+      });
+    expect((await join(first.fileId)).status).toBe('saved');
+    // Gone already (staff removed it): replacing it deletes and audits nothing.
+    await admin`update app.files set status = 'deleted', deleted_at = now() where id = ${first.fileId}`;
+    const second = await heldFile(lead);
+    const replaced = await join(second.fileId);
+    if (replaced.status !== 'saved') throw new Error('not saved');
+    expect(replaced.removedObjectKeys).toEqual([]);
+    expect(
+      await admin`select 1 from app.audit_events where entity_id = ${first.fileId} and action = 'file.deleted'`,
+    ).toEqual([]);
+    // A held file still there is tombstoned and audited.
+    const third = await heldFile(lead);
+    expect((await join(third.fileId)).status).toBe('saved');
+    expect(
+      await admin`select 1 from app.audit_events where entity_id = ${second.fileId} and action = 'file.deleted'`,
+    ).toHaveLength(1);
+  });
+
+  it('knows a held upload of the lead from any other file', async () => {
+    const lead = await insertLead({ stage: 'pending' });
+    const other = await insertLead({ stage: 'pending' });
+    const held = await heldFile(lead);
+    const plain = await currentPassport(lead);
+    const isHeld = (leadId: string, fileId: string) =>
+      store.isHeldUpload({ ...scope, leadId, fileId });
+    expect(await isHeld(lead, held.fileId)).toBe(true);
+    expect(await isHeld(lead, plain)).toBe(false);
+    expect(await isHeld(other, held.fileId)).toBe(false);
+    expect(await isHeld(lead, crypto.randomUUID())).toBe(false);
+    // An intent not yet finalized is a held upload too.
+    const intent = await documents.createIntent({
+      ...scope,
+      requestId: crypto.randomUUID(),
+      recordType: 'lead',
+      recordId: lead,
+      documentType: 'visa',
+      bucket: 'documents',
+      stagingKey: `staging/${SITE}/${crypto.randomUUID()}`,
+      declaredContentType: 'application/pdf',
+      declaredSizeBytes: 100,
+      expiresAt: new Date(Date.now() + 60_000),
+      held: true,
+    });
+    expect(await isHeld(lead, intent.id)).toBe(true);
+    await admin`update app.files set status = 'deleted' where id = ${held.fileId}`;
+    expect(await isHeld(lead, held.fileId)).toBe(false);
+  });
 });

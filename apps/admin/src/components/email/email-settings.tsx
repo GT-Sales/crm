@@ -99,8 +99,9 @@ const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
 /**
  * The site's sender and the look of its mails: sender name and address,
  * reply-to, logo, brand colour, footer and site address. Until they are saved
- * the form starts from the sender the server is configured with, and says so. The whole form is sent on save, empty optional fields as null and the
- * colour in lower case. `onSave` answers why a save was refused, or nothing.
+ * the form starts empty and says the site sends no email until then. The
+ * whole form is sent on save, empty optional fields as null and the colour in
+ * lower case. `onSave` answers why a save was refused, or nothing.
  */
 export function EmailSettings({
   initial,
