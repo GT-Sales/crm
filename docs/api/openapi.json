@@ -9077,10 +9077,15 @@
                             }
                           },
                           "origin": { "type": "string", "enum": ["builtin", "custom"] },
-                          "storage": { "type": "string", "enum": ["form", "custom"] },
+                          "storage": { "type": "string", "enum": ["form", "custom", "order"] },
+                          "storageKey": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                          },
                           "sensitive": { "type": "boolean" },
                           "staffOnly": { "type": "boolean" },
                           "hidden": { "type": "boolean" },
+                          "websiteVisible": { "type": "boolean" },
                           "leadTypes": {
                             "maxItems": 20,
                             "type": "array",
@@ -9123,6 +9128,7 @@
                           "sensitive",
                           "staffOnly",
                           "hidden",
+                          "websiteVisible",
                           "leadTypes",
                           "editable"
                         ],
@@ -9392,10 +9398,12 @@
                           }
                         },
                         "origin": { "type": "string", "enum": ["builtin", "custom"] },
-                        "storage": { "type": "string", "enum": ["form", "custom"] },
+                        "storage": { "type": "string", "enum": ["form", "custom", "order"] },
+                        "storageKey": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
                         "sensitive": { "type": "boolean" },
                         "staffOnly": { "type": "boolean" },
                         "hidden": { "type": "boolean" },
+                        "websiteVisible": { "type": "boolean" },
                         "leadTypes": {
                           "maxItems": 20,
                           "type": "array",
@@ -9438,6 +9446,7 @@
                         "sensitive",
                         "staffOnly",
                         "hidden",
+                        "websiteVisible",
                         "leadTypes",
                         "editable"
                       ],
@@ -9626,6 +9635,7 @@
                   },
                   "staffOnly": { "default": false, "type": "boolean" },
                   "sensitive": { "default": false, "type": "boolean" },
+                  "websiteVisible": { "default": false, "type": "boolean" },
                   "leadTypes": {
                     "default": [],
                     "maxItems": 20,
@@ -9701,10 +9711,12 @@
                           }
                         },
                         "origin": { "type": "string", "enum": ["builtin", "custom"] },
-                        "storage": { "type": "string", "enum": ["form", "custom"] },
+                        "storage": { "type": "string", "enum": ["form", "custom", "order"] },
+                        "storageKey": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,63}$" },
                         "sensitive": { "type": "boolean" },
                         "staffOnly": { "type": "boolean" },
                         "hidden": { "type": "boolean" },
+                        "websiteVisible": { "type": "boolean" },
                         "leadTypes": {
                           "maxItems": 20,
                           "type": "array",
@@ -9747,6 +9759,7 @@
                         "sensitive",
                         "staffOnly",
                         "hidden",
+                        "websiteVisible",
                         "leadTypes",
                         "editable"
                       ],
@@ -9925,6 +9938,7 @@
                   "staffOnly": { "type": "boolean" },
                   "sensitive": { "type": "boolean" },
                   "hidden": { "type": "boolean" },
+                  "websiteVisible": { "type": "boolean" },
                   "leadTypes": {
                     "maxItems": 20,
                     "type": "array",

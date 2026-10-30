@@ -93,22 +93,25 @@ export const savePropertyLayoutRequestSchema = z
 export type SavePropertyLayoutRequest = z.infer<typeof savePropertyLayoutRequestSchema>;
 
 /**
- * The layout a site gets before it saves one: Request (built-in, not
- * staff-only), Staff details (built-in, staff-only) and Custom (custom
- * properties of the type). Empty sections are dropped; a type with no
- * properties at all (`contact_message`) gets one empty Request section, since
- * a layout holds at least one section.
+ * The layout a site gets before it saves one: Order (an order type's order
+ * properties), Request (built-in, not staff-only), Staff details (built-in,
+ * staff-only) and Custom (custom properties of the type). Empty sections are
+ * dropped; a type with no properties at all (`contact_message`) gets one empty
+ * Request section, since a layout holds at least one section.
  */
 export function defaultPropertyLayout(leadType: string, catalog: PropertyCatalog): PropertyLayout {
+  const order: string[] = [];
   const request: string[] = [];
   const staff: string[] = [];
   const custom: string[] = [];
   for (const property of catalog.forType(leadType)) {
     if (property.origin === 'custom') custom.push(property.key);
+    else if (property.storage === 'order') order.push(property.key);
     else if (property.staffOnly) staff.push(property.key);
     else request.push(property.key);
   }
   const sections: LayoutSection[] = [
+    { id: 'order', label: 'Order', keys: order },
     { id: 'request', label: 'Request', keys: request },
     { id: 'staff', label: 'Staff details', keys: staff },
     { id: 'custom', label: 'Custom', keys: custom },
