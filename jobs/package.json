@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@gt-sales/adapters": "workspace:*",
+    "@gt-sales/contracts": "workspace:*",
     "tsx": "catalog:",
     "zod": "catalog:"
   },

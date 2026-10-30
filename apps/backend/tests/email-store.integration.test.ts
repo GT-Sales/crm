@@ -351,6 +351,97 @@ describe.skipIf(!migrationUrl)('email persistence with restricted runtime RLS', 
       vi.unstubAllGlobals();
     }
   });
+  it('stores the template version a site-content email was rendered from, or null', async () => {
+    const versioned = crypto.randomUUID();
+    const plain = crypto.randomUUID();
+    for (const [messageId, templateVersion] of [
+      [versioned, 2],
+      [plain, undefined],
+    ] as const) {
+      await store.prepareDelivery({
+        workspaceId: A,
+        actorId: ACTOR,
+        messageId,
+        template: 'dispatched',
+        templateVersion,
+        messageClass: 'transactional',
+        contactHash: CONTACT,
+        provider: 'resend',
+        providerAccount: 'account-a',
+      });
+    }
+    // A retry of the same logical message keeps the version it was first written with.
+    await store.prepareDelivery({
+      workspaceId: A,
+      actorId: ACTOR,
+      messageId: versioned,
+      template: 'dispatched',
+      templateVersion: 2,
+      messageClass: 'transactional',
+      contactHash: CONTACT,
+      provider: 'resend',
+      providerAccount: 'account-a',
+    });
+    const rows = await admin<{ message_id: string; template_version: number | null }[]>`
+      select message_id, template_version from app.email_messages
+      where workspace_id = ${A} and message_id in (${versioned}, ${plain})`;
+    expect(rows.find((row) => row.message_id === versioned)?.template_version).toBe(2);
+    expect(rows.find((row) => row.message_id === plain)?.template_version).toBeNull();
+  });
+  it('sends a queued customer mail from its own sender with no EMAIL_SENDERS_JSON entry and records its version', async () => {
+    const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'customer-mail-id' }));
+    vi.stubGlobal('fetch', send);
+    try {
+      const handlers = createOutboxJobHandlers(
+        {
+          EMAIL_PROVIDER: 'resend',
+          RESEND_API_KEY: 'synthetic-key',
+          RESEND_ACCOUNT_ID: 'account-a',
+          RESEND_FROM_EMAIL: 'deployment@example.test',
+          RESEND_FROM_NAME: 'Deployment',
+          NODE_ENV: 'test',
+        },
+        store,
+      );
+      const messageId = crypto.randomUUID();
+      // Other tests suppress CONTACT; this customer is a different address.
+      const customer = hashContact('customer-mail@example.test', 'integration-contact-hash-secret');
+      const job = {
+        id: crypto.randomUUID(),
+        workspaceId: A,
+        actorId: ACTOR,
+        jobType: 'lead_customer_email',
+        messageId,
+        payloadVersion: 1,
+        payload: {
+          leadId: LEAD,
+          template: 'order_received',
+          templateVersion: 3,
+          toAddress: 'customer-mail@example.test',
+          contactHash: customer,
+          sender: { fromName: 'Site A', fromAddress: 'orders@site-a.example.test' },
+          rendered: { subject: 'We have your order', html: '<p>Thanks</p>', text: 'Thanks' },
+        },
+        attempts: 1,
+        leaseOwnerId: crypto.randomUUID(),
+      };
+      expect(await handlers.get(job.jobType)?.(job)).toMatchObject({
+        status: 'completed',
+        providerId: 'customer-mail-id',
+      });
+      expect(JSON.parse(String(send.mock.calls[0]?.[1]?.body))).toMatchObject({
+        from: 'Site A <orders@site-a.example.test>',
+        subject: 'We have your order',
+        text: 'Thanks',
+      });
+      const [row] = await admin<{ template_version: number; provider_account: string }[]>`
+        select template_version, provider_account from app.email_messages
+        where workspace_id = ${A} and message_id = ${messageId}`;
+      expect(row).toEqual({ template_version: 3, provider_account: 'account-a' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('does not create permanent suppression for temporary bounces', async () => {
     const hash = hashContact('temporary@example.test', 'integration-contact-hash-secret');
     const messageId = crypto.randomUUID();

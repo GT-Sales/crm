@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ResendEmailAdapter } from './messaging.js';
+import { formatFrom, ResendEmailAdapter } from './messaging.js';
 import { z } from 'zod';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -167,5 +167,154 @@ describe('order_dispatch copy', () => {
   it("includes the provider's confirmation number when staff recorded one", async () => {
     const body = await sentBody({ trackingReference: 'ROG-12345' });
     expect(body.text).toContain('Reference from the provider: ROG-12345.');
+  });
+});
+
+describe('a pre-rendered customer email', () => {
+  const message = {
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+    messageId: '22222222-2222-4222-8222-222222222222',
+    toAddress: 'customer@example.test',
+    sender: {
+      fromName: 'Get Canada Sim',
+      fromAddress: 'order@getcanadasim.example',
+      replyToAddress: 'help@getcanadasim.example',
+    },
+    rendered: {
+      subject: 'Your SIM is on its way',
+      html: '<p>Hello Arjun</p>',
+      text: 'Hello Arjun',
+    },
+  };
+
+  function adapterWithStub() {
+    const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'provider-email-id' }));
+    vi.stubGlobal('fetch', send);
+    const adapter = new ResendEmailAdapter({
+      apiKey: 'synthetic-key',
+      sender: { fromAddress: 'deployment@example.test', fromName: 'Deployment' },
+      senderForWorkspace: () => ({
+        fromAddress: 'registry@example.test',
+        fromName: 'Registry',
+      }),
+    });
+    return { adapter, send };
+  }
+
+  const bodySchema = z.object({
+    from: z.string(),
+    reply_to: z.string().optional(),
+    to: z.array(z.string()),
+    subject: z.string(),
+    text: z.string(),
+    html: z.string(),
+  });
+
+  it.each([
+    'tracking_code',
+    'order_received',
+    'information_needed',
+    'dispatched',
+    'activated',
+    'cancelled',
+    'sim_number_ready',
+  ] as const)('sends the %s message exactly as rendered, from its own sender', async (template) => {
+    const { adapter, send } = adapterWithStub();
+    expect(await adapter.send({ ...message, template })).toEqual({
+      status: 'delivered',
+      providerId: 'provider-email-id',
+    });
+    const options = send.mock.calls[0]![1]!;
+    expect(bodySchema.parse(JSON.parse(String(options.body)))).toEqual({
+      from: 'Get Canada Sim <order@getcanadasim.example>',
+      reply_to: 'help@getcanadasim.example',
+      to: ['customer@example.test'],
+      subject: 'Your SIM is on its way',
+      // Nothing is appended to the rendered text, unlike the built-in copy.
+      text: 'Hello Arjun',
+      html: '<p>Hello Arjun</p>',
+    });
+    expect(new Headers(options.headers).get('Idempotency-Key')).toBe(
+      `${message.workspaceId}/${message.messageId}`,
+    );
+  });
+
+  it('refuses a site-content template that arrives without its rendered message', async () => {
+    const { adapter, send } = adapterWithStub();
+    const { rendered: _rendered, ...unrendered } = message;
+    expect(await adapter.send({ ...unrendered, template: 'dispatched' })).toEqual({
+      status: 'uncertain',
+      errorCode: 'rendered_message_missing',
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the workspace’s sender, then the deployment’s, for a message without one', async () => {
+    const { adapter, send } = adapterWithStub();
+    const { sender: _sender, ...withoutSender } = message;
+    await adapter.send({ ...withoutSender, template: 'dispatched' });
+    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body))).from).toBe(
+      'Registry <registry@example.test>',
+    );
+
+    const bare = new ResendEmailAdapter({
+      apiKey: 'synthetic-key',
+      sender: { fromAddress: 'deployment@example.test', fromName: 'Deployment' },
+    });
+    await bare.send({ ...withoutSender, template: 'dispatched' });
+    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[1]![1]!.body))).from).toBe(
+      'Deployment <deployment@example.test>',
+    );
+  });
+
+  it('sends no reply_to when the sender has none', async () => {
+    const { adapter, send } = adapterWithStub();
+    await adapter.send({
+      ...message,
+      template: 'dispatched',
+      sender: { fromName: 'Get Canada Sim', fromAddress: 'order@getcanadasim.example' },
+    });
+    const body = bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body)));
+    expect(body.from).toBe('Get Canada Sim <order@getcanadasim.example>');
+    expect(body).not.toHaveProperty('reply_to');
+  });
+
+  it('quotes a display name with specials so the header stays one address', async () => {
+    const { adapter, send } = adapterWithStub();
+    await adapter.send({
+      ...message,
+      template: 'dispatched',
+      sender: { fromName: 'Acme, "Co" <x>', fromAddress: 'order@acme.example' },
+    });
+    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body))).from).toBe(
+      '"Acme, \\"Co\\" <x>" <order@acme.example>',
+    );
+  });
+});
+
+describe('formatFrom', () => {
+  const address = 'order@site.example';
+
+  it('leaves a plain name unquoted', () => {
+    expect(formatFrom({ fromName: 'Get Canada Sim', fromAddress: address })).toBe(
+      `Get Canada Sim <${address}>`,
+    );
+  });
+
+  it.each([
+    ['Acme, "Co" <x>', '"Acme, \\"Co\\" <x>"'],
+    ['Smith, Jones & Co', '"Smith, Jones & Co"'],
+    ['Joe "Best" SIMs', '"Joe \\"Best\\" SIMs"'],
+    ['Acme Inc.', '"Acme Inc."'],
+    ['back\\slash', '"back\\\\slash"'],
+    ['Café Mobile', '"Café Mobile"'],
+  ])('quotes %s', (fromName, quoted) => {
+    expect(formatFrom({ fromName, fromAddress: address })).toBe(`${quoted} <${address}>`);
+  });
+
+  it('drops control characters, so a name cannot add a header line', () => {
+    expect(formatFrom({ fromName: 'Site\r\nBcc: x@evil.example', fromAddress: address })).toBe(
+      `"SiteBcc: x@evil.example" <${address}>`,
+    );
   });
 });

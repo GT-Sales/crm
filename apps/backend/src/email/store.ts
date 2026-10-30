@@ -25,6 +25,8 @@ export interface QueueEmailMessageInput {
   actorId: string;
   messageId: string;
   template: string;
+  /** The site template version the mail was rendered from; absent for built-in copy. */
+  templateVersion?: number;
   messageClass: 'transactional' | 'marketing';
   contactHash: string;
   leadId?: string;
@@ -292,6 +294,7 @@ export class DatabaseEmailStore implements EmailStore {
             workspaceId: input.workspaceId,
             messageId: input.messageId,
             template: input.template,
+            templateVersion: input.templateVersion,
             messageClass: input.messageClass,
             leadId: input.leadId,
             contactHash: input.contactHash,
