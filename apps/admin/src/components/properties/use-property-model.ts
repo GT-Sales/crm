@@ -6,6 +6,7 @@ import {
   codePropertyCatalog,
   type PropertyCatalog,
   type PropertyModelResponse,
+  type PropertyObject,
   type PropertyRow,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -17,9 +18,9 @@ import { useStaffSession } from '../staff-session-provider';
 // The catalogue reads neither timestamp; a row needs them to be a row.
 const ROW_TIMESTAMP = '1970-01-01T00:00:00.000Z';
 
-function rowFor(property: SiteProperty, position: number): PropertyRow {
+function rowFor(property: SiteProperty, position: number, object: PropertyObject): PropertyRow {
   return {
-    object: 'lead',
+    object,
     key: property.key,
     origin: property.origin,
     label: property.label,
@@ -42,18 +43,23 @@ function rowFor(property: SiteProperty, position: number): PropertyRow {
  * order the backend lists them) and the built-ins it relabelled or hid, laid
  * over the code catalogue. A site that changed nothing reads exactly as code.
  */
-export function catalogFromModel(properties: readonly SiteProperty[]): PropertyCatalog {
+export function catalogFromModel(
+  properties: readonly SiteProperty[],
+  object: PropertyObject = 'lead',
+): PropertyCatalog {
   const rows: PropertyRow[] = [];
   for (const property of properties) {
     if (property.origin === 'custom') {
-      rows.push(rowFor(property, rows.length));
+      rows.push(rowFor(property, rows.length, object));
       continue;
     }
-    const code = codePropertyCatalog.get(property.key);
+    // A plan has no built-in properties; only a lead's can be relabelled or hidden.
+    const code = object === 'lead' ? codePropertyCatalog.get(property.key) : undefined;
     if (code && (code.label !== property.label || code.hidden !== property.hidden)) {
-      rows.push(rowFor(property, 0));
+      rows.push(rowFor(property, 0, object));
     }
   }
+  if (object === 'plan') return buildPropertyCatalog(rows, 'plan');
   return rows.length === 0 ? codePropertyCatalog : buildPropertyCatalog(rows);
 }
 
@@ -66,9 +72,13 @@ interface ModelState {
 /**
  * The site's property model, asked for once per site and kept here. Until it
  * arrives (or when it cannot be read) the catalogue is the code one, so
- * screens keep working with the built-in properties.
+ * screens keep working with the built-in properties. `object` names whose
+ * properties: a lead's (the default) or a plan's, whose catalogue starts empty.
  */
-export function usePropertyModel(workspaceId: string | undefined): {
+export function usePropertyModel(
+  workspaceId: string | undefined,
+  object: PropertyObject = 'lead',
+): {
   model: PropertyModelResponse | undefined;
   catalog: PropertyCatalog;
   reload(): Promise<void>;
@@ -84,22 +94,28 @@ export function usePropertyModel(workspaceId: string | undefined): {
   const [state, setState] = useState<ModelState>();
   const latest = useRef(0);
 
-  const load = useCallback(async (id: string) => {
-    const credential = token.current;
-    if (!credential) return;
-    const request = ++latest.current;
-    try {
-      const model = await getPropertyModel(credential, id);
-      if (latest.current === request) setState({ workspaceId: id, model });
-    } catch (caught) {
-      if (latest.current !== request) return;
-      setState((previous) => ({
-        workspaceId: id,
-        ...(previous?.workspaceId === id && previous.model ? { model: previous.model } : {}),
-        error: errorReason(caught),
-      }));
-    }
-  }, []);
+  const load = useCallback(
+    async (id: string) => {
+      const credential = token.current;
+      if (!credential) return;
+      const request = ++latest.current;
+      try {
+        const model =
+          object === 'plan'
+            ? await getPropertyModel(credential, id, object)
+            : await getPropertyModel(credential, id);
+        if (latest.current === request) setState({ workspaceId: id, model });
+      } catch (caught) {
+        if (latest.current !== request) return;
+        setState((previous) => ({
+          workspaceId: id,
+          ...(previous?.workspaceId === id && previous.model ? { model: previous.model } : {}),
+          error: errorReason(caught),
+        }));
+      }
+    },
+    [object],
+  );
 
   const hasToken = Boolean(accessToken);
   useEffect(() => {
@@ -109,8 +125,13 @@ export function usePropertyModel(workspaceId: string | undefined): {
   const current = state && state.workspaceId === workspaceId ? state : undefined;
   const model = current?.model;
   const catalog = useMemo(
-    () => (model ? catalogFromModel(model.properties) : codePropertyCatalog),
-    [model],
+    () =>
+      model
+        ? catalogFromModel(model.properties, object)
+        : object === 'plan'
+          ? buildPropertyCatalog([], 'plan')
+          : codePropertyCatalog,
+    [model, object],
   );
   const reload = useCallback(async () => {
     if (workspaceId) await load(workspaceId);

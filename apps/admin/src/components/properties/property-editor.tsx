@@ -78,15 +78,20 @@ function optionsFromDrafts(drafts: readonly OptionDraft[]): PropertyOption[] {
 /**
  * Adds a custom property, or edits one. The kind is chosen once: it is locked
  * on an existing property because leads already hold values of that kind.
- * `onSave` answers the reason a save was refused, or nothing when it worked.
+ * For a plan property (`object` 'plan') there are no lead types, and the
+ * _Show on website_ switch decides whether the website's plan listing carries
+ * the value. `onSave` answers the reason a save was refused, or nothing when
+ * it worked.
  */
 export function PropertyEditor({
   initial,
   leadTypes,
+  object = 'lead',
   onSave,
 }: {
   initial?: SiteProperty;
   leadTypes: readonly { key: string; label: string }[];
+  object?: 'lead' | 'plan';
   onSave(input: CreateCustomProperty | UpdateProperty): Promise<string | undefined>;
 }): JSX.Element {
   const [label, setLabel] = useState(initial?.label ?? '');
@@ -104,6 +109,7 @@ export function PropertyEditor({
   );
   const [staffOnly, setStaffOnly] = useState(initial?.staffOnly ?? false);
   const [sensitive, setSensitive] = useState(initial?.sensitive ?? false);
+  const [websiteVisible, setWebsiteVisible] = useState(initial?.websiteVisible ?? false);
   const [selectedTypes, setSelectedTypes] = useState<readonly string[]>(initial?.leadTypes ?? []);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -145,9 +151,9 @@ export function PropertyEditor({
         expectedVersion: initial.version ?? 1,
         label: label.trim(),
         ...(kind === 'choice' ? { options: built } : {}),
-        staffOnly,
-        sensitive,
-        leadTypes: selectedTypes,
+        ...(object === 'plan'
+          ? { websiteVisible }
+          : { staffOnly, sensitive, leadTypes: selectedTypes }),
       });
       if (!parsed.success) {
         setError('Check the fields and try again.');
@@ -159,9 +165,9 @@ export function PropertyEditor({
         label: label.trim(),
         kind,
         options: built,
-        staffOnly,
-        sensitive,
-        leadTypes: selectedTypes,
+        ...(object === 'plan'
+          ? { websiteVisible }
+          : { staffOnly, sensitive, leadTypes: selectedTypes }),
       });
       if (!parsed.success) {
         setError('Check the fields and try again.');
@@ -267,46 +273,65 @@ export function PropertyEditor({
         </fieldset>
       ) : null}
 
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="property-staff-only"
-          checked={staffOnly}
-          onCheckedChange={(checked) => setStaffOnly(checked === true)}
-        />
-        <Label htmlFor="property-staff-only">Staff only</Label>
-      </div>
-      <p className="-mt-3 text-sm text-muted-foreground">
-        Websites never send it; staff fill it in on the lead.
-      </p>
-
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="property-sensitive"
-          checked={sensitive}
-          onCheckedChange={(checked) => setSensitive(checked === true)}
-        />
-        <Label htmlFor="property-sensitive">Sensitive</Label>
-      </div>
-      <p className="-mt-3 text-sm text-muted-foreground">
-        Left out of filters, sorting and columns.
-      </p>
-
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-sm font-medium">Lead types</legend>
-        {leadTypes.map((leadType) => (
-          <div key={leadType.key} className="flex items-center gap-2">
+      {object === 'plan' ? (
+        <>
+          <div className="flex items-center gap-2">
             <Checkbox
-              id={`property-type-${leadType.key}`}
-              checked={selectedTypes.includes(leadType.key)}
-              onCheckedChange={(checked) => toggleType(leadType.key, checked === true)}
+              id="property-website-visible"
+              checked={websiteVisible}
+              onCheckedChange={(checked) => setWebsiteVisible(checked === true)}
             />
-            <Label htmlFor={`property-type-${leadType.key}`}>{leadType.label}</Label>
+            <Label htmlFor="property-website-visible">Show on website</Label>
           </div>
-        ))}
-        <p className="text-sm text-muted-foreground">
-          Leave all unchecked to use the property on every lead type.
-        </p>
-      </fieldset>
+          <p className="-mt-3 text-sm text-muted-foreground">
+            The website&rsquo;s plan listing carries this value. Leave it off for details only staff
+            should see, such as a carrier cost.
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="property-staff-only"
+              checked={staffOnly}
+              onCheckedChange={(checked) => setStaffOnly(checked === true)}
+            />
+            <Label htmlFor="property-staff-only">Staff only</Label>
+          </div>
+          <p className="-mt-3 text-sm text-muted-foreground">
+            Websites never send it; staff fill it in on the lead.
+          </p>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="property-sensitive"
+              checked={sensitive}
+              onCheckedChange={(checked) => setSensitive(checked === true)}
+            />
+            <Label htmlFor="property-sensitive">Sensitive</Label>
+          </div>
+          <p className="-mt-3 text-sm text-muted-foreground">
+            Left out of filters, sorting and columns.
+          </p>
+
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm font-medium">Lead types</legend>
+            {leadTypes.map((leadType) => (
+              <div key={leadType.key} className="flex items-center gap-2">
+                <Checkbox
+                  id={`property-type-${leadType.key}`}
+                  checked={selectedTypes.includes(leadType.key)}
+                  onCheckedChange={(checked) => toggleType(leadType.key, checked === true)}
+                />
+                <Label htmlFor={`property-type-${leadType.key}`}>{leadType.label}</Label>
+              </div>
+            ))}
+            <p className="text-sm text-muted-foreground">
+              Leave all unchecked to use the property on every lead type.
+            </p>
+          </fieldset>
+        </>
+      )}
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
