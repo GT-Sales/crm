@@ -10,9 +10,10 @@ import {
  * paragraphs split on blank lines, a single newline is a line break,
  * `**bold**`, `[label](https://…)` links, one `[button: Label](https://…)`
  * alone in its paragraph, and `{fill-ins}` the template may use. A link or
- * button goes to an `http(s)://` address or to `{tracking link}`. What is not
- * markup (an unclosed `**`, a `{` with no `}` on its line, brackets that are
- * not a link) stays literal text. The subject takes fill-ins only.
+ * button goes to an `http(s)://` address with no braces in it, or to
+ * `{tracking link}` as the whole address. What is not markup (an unclosed
+ * `**`, a `{` with no `}` on its line, brackets that are not a link) stays
+ * literal text. The subject and a button's label take fill-ins only.
  *
  * Pure: no database, no environment. The layout (`layout.ts`) renders the
  * blocks; the settings store validates a template with these parsers.
@@ -28,9 +29,13 @@ export type EmailInline =
   | { kind: 'link'; label: readonly EmailInline[]; href: EmailHref }
   | { kind: 'break' };
 
+/** Text and fill-ins, nothing else: a subject, or a button's label. */
+export type EmailTextPart =
+  { kind: 'text'; text: string } | { kind: 'fillIn'; key: EmailFillInKey };
+
 export type EmailBlock =
   | { kind: 'paragraph'; inlines: readonly EmailInline[] }
-  | { kind: 'button'; label: string; href: EmailHref };
+  | { kind: 'button'; label: readonly EmailTextPart[]; href: EmailHref };
 
 export type MarkupError =
   | { error: 'invalid_fill_in'; fillIn: string; where: 'subject' | 'body' }
@@ -38,11 +43,8 @@ export type MarkupError =
 
 type Failure = { ok: false } & MarkupError;
 
-export type EmailSubjectPart =
-  { kind: 'text'; text: string } | { kind: 'fillIn'; key: EmailFillInKey };
-
 /** A button as the inline reader finds it, before the paragraph check places it. */
-type ButtonToken = { kind: 'button'; label: string; href: EmailHref };
+type ButtonToken = { kind: 'button'; label: EmailTextPart[]; href: EmailHref };
 type Token = EmailInline | ButtonToken;
 
 interface Reader {
@@ -86,6 +88,8 @@ function readHref(address: string, reader: Reader): { ok: true; href: EmailHref 
     const fillIn = readFillIn(inner, reader);
     return fillIn.ok ? { ok: true, href: { kind: 'fillIn', key: 'tracking link' } } : fillIn;
   }
+  // A typed address is sent as written: a fill-in inside it would reach the customer as braces.
+  if (/[{}]/.test(address)) return markupError('bad_link');
   return isHttpUrl(address)
     ? { ok: true, href: { kind: 'url', url: address } }
     : markupError('bad_link');
@@ -120,6 +124,33 @@ function matchBracket(
     }
   }
   return undefined;
+}
+
+/** Text and fill-ins only (a subject, a button's label): any other markup stays literal. */
+function readTextParts(
+  source: string,
+  reader: Reader,
+): { ok: true; parts: EmailTextPart[] } | Failure {
+  const parts: EmailTextPart[] = [];
+  let text = '';
+  let index = 0;
+  while (index < source.length) {
+    FILL_IN.lastIndex = index;
+    const match = source.charAt(index) === '{' ? FILL_IN.exec(source) : null;
+    if (match) {
+      const fillIn = readFillIn(match[1] ?? '', reader);
+      if (!fillIn.ok) return fillIn;
+      if (text !== '') parts.push({ kind: 'text', text });
+      text = '';
+      parts.push({ kind: 'fillIn', key: fillIn.key });
+      index += match[0].length;
+      continue;
+    }
+    text += source.charAt(index);
+    index += 1;
+  }
+  if (text !== '') parts.push({ kind: 'text', text });
+  return { ok: true, parts };
 }
 
 function isInline(token: Token): token is EmailInline {
@@ -178,15 +209,15 @@ function readInlines(
         const label =
           buttonLabel === ''
             ? readInlines(bracket.label, reader, { ...inside, link: true })
-            : undefined;
-        if (label && !label.ok) return label;
+            : readTextParts(buttonLabel, reader);
+        if (!label.ok) return label;
         const href = readHref(bracket.address, reader);
         if (!href.ok) return href;
         flush();
         tokens.push(
-          label
+          'tokens' in label
             ? { kind: 'link', label: label.tokens.filter(isInline), href: href.href }
-            : { kind: 'button', label: buttonLabel, href: href.href },
+            : { kind: 'button', label: label.parts, href: href.href },
         );
         index = bracket.end;
         continue;
@@ -231,7 +262,8 @@ function paragraphsOf(body: string): string[] {
 /**
  * The blocks of a template's body, or the first problem in it: a fill-in the
  * template may not use (`invalid_fill_in`, naming what was typed in the
- * braces), a link that is not `http(s)://` or `{tracking link}` (`bad_link`),
+ * braces, in the text or a button's label), a link that is not `http(s)://`
+ * with no braces or `{tracking link}` (`bad_link`),
  * a second button (`two_buttons`) or a button sharing its paragraph
  * (`button_not_alone`).
  */
@@ -263,26 +295,9 @@ export function parseEmailBody(
 export function parseEmailSubject(
   subject: string,
   template: CustomerEmailTemplate,
-): { ok: true; parts: EmailSubjectPart[] } | Failure {
-  const reader: Reader = { allowed: new Set(fillInsForTemplate(template)), where: 'subject' };
-  const parts: EmailSubjectPart[] = [];
-  let text = '';
-  let index = 0;
-  while (index < subject.length) {
-    FILL_IN.lastIndex = index;
-    const match = subject.charAt(index) === '{' ? FILL_IN.exec(subject) : null;
-    if (match) {
-      const fillIn = readFillIn(match[1] ?? '', reader);
-      if (!fillIn.ok) return fillIn;
-      if (text !== '') parts.push({ kind: 'text', text });
-      text = '';
-      parts.push({ kind: 'fillIn', key: fillIn.key });
-      index += match[0].length;
-      continue;
-    }
-    text += subject.charAt(index);
-    index += 1;
-  }
-  if (text !== '') parts.push({ kind: 'text', text });
-  return { ok: true, parts };
+): { ok: true; parts: EmailTextPart[] } | Failure {
+  return readTextParts(subject, {
+    allowed: new Set(fillInsForTemplate(template)),
+    where: 'subject',
+  });
 }

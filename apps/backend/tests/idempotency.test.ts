@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -16,6 +18,14 @@ describe('requestFingerprint', () => {
     expect(requestFingerprint({ a: 1, b: { c: [1, { d: 2, e: 3 }], f: 'x' } })).toBe(
       requestFingerprint({ b: { f: 'x', c: [1, { e: 3, d: 2 }] }, a: 1 }),
     );
+  });
+
+  it('sorts keys by code unit, never by locale', () => {
+    // Code-unit order puts `B` (66) before `_` (95) before `a` (97); a
+    // locale-aware sort would not, and would vary with the runtime's ICU.
+    const canonical = '{"B":2,"_":3,"a":{"Z":5,"b":4}}';
+    const expected = `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+    expect(requestFingerprint({ a: { b: 4, Z: 5 }, _: 3, B: 2 })).toBe(expected);
   });
 
   it('drops undefined members', () => {

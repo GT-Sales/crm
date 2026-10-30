@@ -211,6 +211,8 @@ interface LockedLead {
   [key: string]: unknown;
   id: string;
   leadType: string;
+  /** `incomplete` until the customer submits the form, then `submitted`. */
+  status: string;
   stage: string;
   assignedActorId: string | null;
   fullName: string | null;
@@ -243,6 +245,7 @@ async function lockLead(
     select
       l.id,
       l.lead_type as "leadType",
+      l.status,
       l.stage,
       l.assigned_actor_id as "assignedActorId",
       l.full_name as "fullName",
@@ -562,6 +565,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
 
       // The order edit to write: the one given, with the dates a move defaults.
       let orderEdit = input.order;
+      let checkDocuments = false;
+      const reason = input.documentsOverrideReason?.trim();
       let override: { reason: string; missing: string[] } | undefined;
       if (input.stage !== undefined && input.stage !== lead.stage) {
         if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
@@ -575,25 +580,39 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           today: todayInToronto(new Date()),
         });
         if (!move.ok) return move.refusal;
-        const reason = input.documentsOverrideReason?.trim();
         if (reason === '') return { status: 'document_override_reason_required' };
-        if (move.gates.includes('documents')) {
-          // What the frozen plan requires; no plan, or a plan from before the field, requires nothing.
-          const missing = await findMissingDocuments(tx, {
-            workspaceId: input.workspaceId,
-            leadId: input.leadId,
-            required: current.plan?.requiredDocuments ?? [],
-          });
-          if (missing.length > 0) {
-            if (reason === undefined) return { status: 'documents_incomplete', missing };
-            override = { reason, missing };
-          }
-        }
+        checkDocuments = move.gates.includes('documents');
         orderEdit = move.order;
         set.stage = input.stage;
         entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
         before['stage'] = lead.stage;
         after['stage'] = input.stage;
+      }
+
+      // The order as this change leaves it, worked out before anything is
+      // written, so the documents check sees the plan the lead will have.
+      const changedOrder: string[] = [];
+      let storedOrder: Record<string, unknown> | undefined;
+      if (orderEdit) {
+        const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
+        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+        if (edit.changedKeys.length > 0) {
+          storedOrder = edit.stored;
+          changedOrder.push(...edit.changedKeys);
+        }
+      }
+      if (checkDocuments) {
+        // What that frozen plan requires; no plan, or a plan from before the field, requires nothing.
+        const plan = toLeadOrder(storedOrder ?? lead.orderDetails).plan;
+        const missing = await findMissingDocuments(tx, {
+          workspaceId: input.workspaceId,
+          leadId: input.leadId,
+          required: plan?.requiredDocuments ?? [],
+        });
+        if (missing.length > 0) {
+          if (reason === undefined) return { status: 'documents_incomplete', missing };
+          override = { reason, missing };
+        }
       }
 
       if (input.assignedActorId !== undefined && input.assignedActorId !== lead.assignedActorId) {
@@ -677,16 +696,6 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         }
       }
 
-      const changedOrder: string[] = [];
-      let storedOrder: Record<string, unknown> | undefined;
-      if (orderEdit) {
-        const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
-        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
-        if (edit.changedKeys.length > 0) {
-          storedOrder = edit.stored;
-          changedOrder.push(...edit.changedKeys);
-        }
-      }
       if (override) {
         // Only a move that actually went past missing documents records an override.
         storedOrder = {

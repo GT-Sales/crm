@@ -1,5 +1,6 @@
 import type { TenantTransaction } from '@gt-sales/db';
 import {
+  customerEmailJobPayloadSchema,
   type CustomerEmailJobPayload,
   type CustomerEmailTemplate,
   type EmailFillInKey,
@@ -18,6 +19,10 @@ import { readEmailTemplate } from './settings-store.js';
  * Whether to send is the caller's decision (an automation rule that is on, a
  * staff click); the composer only says whether the mail can be made, and if
  * not, why. Runs in the caller's tenant transaction and writes nothing.
+ *
+ * A mail that does not parse, or does not fit the job (a long name can push a
+ * subject past its limit), throws: the worker would refuse it for good, so it
+ * is never queued. The error names the template only, never a value.
  */
 
 export type ComposeRecipient =
@@ -79,17 +84,18 @@ export async function composeCustomerEmail(
     throw new Error(`stored ${input.template} template v${stored.version} does not parse`);
   }
 
-  return {
-    kind: 'ready',
-    payload: {
-      ...(recipient.kind === 'lead' ? { leadId: recipient.lead.id } : {}),
-      template: input.template,
-      templateVersion: stored.version,
-      toAddress,
-      contactHash: environment.contactHash(toAddress),
-      sender: site.sender,
-      rendered: { subject: rendered.subject, html: rendered.html, text: rendered.text },
-      ...(recipient.kind === 'staff_test' ? { test: true as const } : {}),
-    },
-  };
+  const payload = customerEmailJobPayloadSchema.safeParse({
+    ...(recipient.kind === 'lead' ? { leadId: recipient.lead.id } : {}),
+    template: input.template,
+    templateVersion: stored.version,
+    toAddress,
+    contactHash: environment.contactHash(toAddress),
+    sender: site.sender,
+    rendered: { subject: rendered.subject, html: rendered.html, text: rendered.text },
+    ...(recipient.kind === 'staff_test' ? { test: true as const } : {}),
+  });
+  if (!payload.success) {
+    throw new Error(`composed ${input.template} mail does not fit its job payload`);
+  }
+  return { kind: 'ready', payload: payload.data };
 }

@@ -108,7 +108,7 @@ describe('email body markup', () => {
         },
         {
           kind: 'button',
-          label: 'Track your order',
+          label: [{ kind: 'text', text: 'Track your order' }],
           href: { kind: 'url', url: 'https://example.test/track' },
         },
       ],
@@ -202,7 +202,63 @@ describe('email body markup', () => {
     });
     expect(parseEmailBody('[button: Track]({Tracking  Link})', 'dispatched')).toEqual({
       ok: true,
-      blocks: [{ kind: 'button', label: 'Track', href: { kind: 'fillIn', key: 'tracking link' } }],
+      blocks: [
+        {
+          kind: 'button',
+          label: [{ kind: 'text', text: 'Track' }],
+          href: { kind: 'fillIn', key: 'tracking link' },
+        },
+      ],
+    });
+  });
+
+  it('reads fill-ins in a button label as body text does', () => {
+    expect(
+      parseEmailBody("[button: Track {First Name}'s {plan}](https://a.test/track)", 'dispatched'),
+    ).toEqual({
+      ok: true,
+      blocks: [
+        {
+          kind: 'button',
+          label: [
+            { kind: 'text', text: 'Track ' },
+            { kind: 'fillIn', key: 'first name' },
+            { kind: 'text', text: "'s " },
+            { kind: 'fillIn', key: 'plan' },
+          ],
+          href: { kind: 'url', url: 'https://a.test/track' },
+        },
+      ],
+    });
+  });
+
+  it('refuses an unknown or disallowed fill-in in a button label', () => {
+    expect(parseEmailBody('[button: Hi {frist name}](https://a.test)', 'dispatched')).toEqual({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'frist name',
+      where: 'body',
+    });
+    expect(parseEmailBody('[button: With {courier}](https://a.test)', 'cancelled')).toEqual({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'courier',
+      where: 'body',
+    });
+  });
+
+  it.each([
+    '[x](https://a.test/t?p={plan})',
+    '[button: Go](https://a.test/{courier})',
+    '[x](https://a.test/?a={)',
+    '[x](https://a.test/})',
+    '[button: Go]({tracking link}/more)',
+    '[x](https://a.test/{tracking link})',
+  ])('refuses braces in the typed address in %s', (body) => {
+    expect(parseEmailBody(body, 'dispatched')).toEqual({
+      ok: false,
+      error: 'invalid_email_markup',
+      reason: 'bad_link',
     });
   });
 

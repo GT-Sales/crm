@@ -23,11 +23,13 @@ import { enabledAutomationKeys, type AutomationStore } from './store.js';
  * composes its template from the lead as now stored and queues it, or records
  * why it could not. A rule that is off does nothing at all. The mail is
  * queued once per occurrence (the move's `status_change` entry, or
- * `submitted`), so a retried write never mails twice.
+ * `submitted`), so a retried write never mails twice. A lead the customer
+ * never submitted (`status` still `incomplete`, an abandoned checkout) is not
+ * an order: moving it fires no stage rule at all.
  */
 
-/** The lead a rule writes to: its fill-ins and its address. */
-export type AutomationLead = FillInLead & { id: string; email: string | null };
+/** The lead a rule writes to: its fill-ins, its address and whether the customer submitted it. */
+export type AutomationLead = FillInLead & { id: string; email: string | null; submitted: boolean };
 
 export interface RunAutomationsInput {
   workspaceId: string;
@@ -54,14 +56,18 @@ export async function runAutomations(
   input: RunAutomationsInput,
 ): Promise<RunAutomationsResult> {
   const { workspaceId, lead } = input;
+  // As if every stage rule were off: no mail, no run, no skip.
+  const rules = lead.submitted
+    ? input.automations
+    : input.automations.filter((rule) => rule.trigger.kind !== 'stage_entered');
   const enabled = await enabledAutomationKeys(
     tx,
     workspaceId,
-    input.automations.map((rule) => rule.key),
+    rules.map((rule) => rule.key),
   );
   const skipped: EmailSkipped[] = [];
   const activities: LeadActivity[] = [];
-  for (const rule of input.automations) {
+  for (const rule of rules) {
     if (!enabled.has(rule.key)) continue;
     const template = rule.action.template;
 
@@ -126,6 +132,7 @@ export async function runAutomations(
 export function automationLeadOf(row: {
   id: string;
   leadType: string;
+  status: string;
   fullName: string | null;
   email: string | null;
   payload: unknown;
@@ -136,6 +143,7 @@ export function automationLeadOf(row: {
     id: row.id,
     fullName: row.fullName,
     email: row.email,
+    submitted: row.status !== 'incomplete',
     form: form.success ? form.data.payload : {},
     order: isOrderLeadType(row.leadType) ? toLeadOrder(row.orderDetails) : null,
   };
@@ -151,6 +159,7 @@ export async function readAutomationLead(
     .select({
       id: leads.id,
       leadType: leads.leadType,
+      status: leads.status,
       fullName: leads.fullName,
       email: leads.email,
       payload: leads.payload,

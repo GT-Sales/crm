@@ -10,7 +10,7 @@ import {
   type EmailBlock,
   type EmailHref,
   type EmailInline,
-  type EmailSubjectPart,
+  type EmailTextPart,
   type MarkupError,
 } from './markup.js';
 
@@ -79,15 +79,28 @@ function hrefFillIns(href: EmailHref): EmailFillInKey[] {
   return href.kind === 'fillIn' ? [href.key] : [];
 }
 
+function textPartFillIns(parts: readonly EmailTextPart[]): EmailFillInKey[] {
+  return parts.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : []));
+}
+
+/** Text parts with their fill-ins replaced; raw, for the caller to escape where it needs to. */
+function filledText(parts: readonly EmailTextPart[], values: FillInValues): string {
+  return parts
+    .map((part) => (part.kind === 'text' ? part.text : (present(values, part.key) ?? '')))
+    .join('');
+}
+
 /** Every fill-in used, subject first, in order of first use. */
 function fillInsUsed(
-  subject: readonly EmailSubjectPart[],
+  subject: readonly EmailTextPart[],
   blocks: readonly EmailBlock[],
 ): EmailFillInKey[] {
   const keys = [
-    ...subject.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : [])),
+    ...textPartFillIns(subject),
     ...blocks.flatMap((block) =>
-      block.kind === 'button' ? hrefFillIns(block.href) : inlineFillIns(block.inlines),
+      block.kind === 'button'
+        ? [...textPartFillIns(block.label), ...hrefFillIns(block.href)]
+        : inlineFillIns(block.inlines),
     ),
   ];
   return [...new Set(keys)];
@@ -150,13 +163,13 @@ class Drawing {
     if (block.kind === 'paragraph') {
       return `<p style="margin:0 0 16px;">${this.html(block.inlines)}</p>`;
     }
-    return `<p style="margin:8px 0 24px;"><a href="${escapeHtml(this.address(block.href))}" style="display:inline-block;background:${this.brandColor};color:#ffffff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold;">${escapeHtml(block.label)}</a></p>`;
+    return `<p style="margin:8px 0 24px;"><a href="${escapeHtml(this.address(block.href))}" style="display:inline-block;background:${this.brandColor};color:#ffffff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold;">${escapeHtml(filledText(block.label, this.values))}</a></p>`;
   }
 
   textBlock(block: EmailBlock): string {
     return block.kind === 'paragraph'
       ? this.text(block.inlines)
-      : `${block.label}: ${this.address(block.href)}`;
+      : `${filledText(block.label, this.values)}: ${this.address(block.href)}`;
   }
 }
 
@@ -210,9 +223,7 @@ export function renderCustomerEmail(input: {
     `--\n${footerLines.join('\n')}`,
   ].join('\n\n');
 
-  const filledSubject = subject.parts
-    .map((part) => (part.kind === 'text' ? part.text : (present(input.values, part.key) ?? '')))
-    .join('')
+  const filledSubject = filledText(subject.parts, input.values)
     .replace(/\s*[\r\n]+\s*/g, ' ')
     .trim();
 
