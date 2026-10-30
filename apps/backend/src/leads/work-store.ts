@@ -10,6 +10,8 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  ORDER_PROPERTY_KEYS,
+  ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
   applyLeadFormEdit,
   freezePlan,
@@ -310,16 +312,21 @@ function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
 const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
 type ContactField = (typeof CONTACT_FIELDS)[number];
 
-/** Each order field as the catalogue's order property names it (`plan` is stored as `planId`). */
-const ORDER_FIELD_KEYS: ReadonlyArray<readonly [keyof LeadOrderEdit, string]> = [
-  ['planId', 'plan'],
-  ['quantity', 'quantity'],
-  ['paymentStatus', 'paymentStatus'],
-  ['carrierCommission', 'carrierCommission'],
-];
-
 type OrderEditResult =
-  { ok: true; order: LeadOrder; changedKeys: string[] } | { ok: false; field: string };
+  | {
+      ok: true;
+      /** The stored object with only the changed fields written over it. */
+      stored: Record<string, unknown>;
+      changedKeys: string[];
+    }
+  | { ok: false; field: string };
+
+/** The stored `order_details` as an object to write over; anything else reads as empty. */
+function storedObject(stored: unknown): Record<string, unknown> {
+  return typeof stored === 'object' && stored !== null && !Array.isArray(stored)
+    ? Object.fromEntries(Object.entries(stored))
+    : {};
+}
 
 /** JSON text with every object's keys sorted: a stored copy comes back from JSONB in its own key order. */
 function canonicalJson(value: unknown): string {
@@ -342,6 +349,9 @@ function sameSnapshot(a: PlanSnapshot | null, b: PlanSnapshot | null): boolean {
  * current plan (it must be active and of the lead's type, else the `plan`
  * field is refused), null clears the link and the copy, and the quantity and
  * the two statuses are set as given. Names the changed catalogue keys.
+ * Only the changed fields are written over the stored object: a key the
+ * parse does not know, or a stored value it cannot read, survives an
+ * unrelated edit, and so does the frozen copy while the plan stays the same.
  */
 async function editOrder(
   tx: TenantTransaction,
@@ -381,12 +391,23 @@ async function editOrder(
     next.carrierCommission = edit.carrierCommission;
     changed.add('carrierCommission');
   }
-  // A re-freeze of the same plan with nothing new keeps the copy already held.
-  if (!changed.has('planId')) next.plan = current.plan;
-  const changedKeys = ORDER_FIELD_KEYS.filter(([field]) => changed.has(field)).map(
-    ([, key]) => key,
-  );
-  return { ok: true, order: next, changedKeys };
+  // Each changed field under its stored name (`ORDER_STORAGE_KEYS`: `plan` is
+  // `planId`); a new plan writes its frozen copy with it. A re-freeze of the
+  // same plan with nothing new keeps the copy already held, as stored.
+  const written: Record<string, unknown> = {};
+  const changedKeys: string[] = [];
+  for (const key of ORDER_PROPERTY_KEYS) {
+    const field = ORDER_STORAGE_KEYS[key];
+    if (!changed.has(field)) continue;
+    changedKeys.push(key);
+    written[field] = next[field];
+    if (field === 'planId') written['plan'] = next.plan;
+  }
+  return {
+    ok: true,
+    stored: { ...storedObject(lead.orderDetails), ...written },
+    changedKeys,
+  };
 }
 
 type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
@@ -548,10 +569,10 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         const edit = await editOrder(tx, input.workspaceId, lead, input.order);
         if (!edit.ok) return { status: 'invalid_field', field: edit.field };
         if (edit.changedKeys.length > 0) {
-          set.orderDetails = edit.order;
+          set.orderDetails = edit.stored;
           changedOrder.push(...edit.changedKeys);
           before['order'] = lead.orderDetails;
-          after['order'] = edit.order;
+          after['order'] = edit.stored;
         }
       }
 

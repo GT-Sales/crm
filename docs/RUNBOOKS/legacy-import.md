@@ -107,6 +107,24 @@ below). Order details and stages already match, unless the old admin changed
 the order since. **Apply 0011 and 0012 first** (the script writes
 `order_details`).
 
+**No import from `main`'s old script between 0012 and the phase 3 deploy.**
+The script on `main` before phase 3 writes the old admin's `orders.status`
+straight into `stage`: run after 0012, it would put the 20 orders 0012 moved
+back on `paid`, and 0012 cannot repair them (its data step only touches leads
+whose `order_details` is still `'{}'`, and it never runs twice). In the same
+window staff should not move SIM orders in the old admin. After the deploy,
+re-run verification select 7 of
+[`manual/0011-0012-plans.sql`](manual/0011-0012-plans.sql): `old_stages_left`
+must be `0`. If not, run this branch's import (it maps the statuses), or remap
+the stragglers by hand; for a `paid` row:
+
+```sql
+UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';
+```
+
+(an `invoiced` row becomes `completed`, with `paymentStatus` `paid` and
+`carrierCommission` `invoiced`).
+
 A later run also carries approved customer edits (name, phone, the order
 form) and the old admin's status (stage and order details) over, unless
 someone worked the lead in the CRM. An unfinished

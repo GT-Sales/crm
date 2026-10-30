@@ -203,6 +203,8 @@ export function createPropertyRoutes(dependencies: PropertyRouteDependencies): R
       );
       res.json({
         properties: catalog.all,
+        // Each plan with its lead type, so the admin scopes the plan options per type.
+        ...(model.plans ? { plans: model.plans } : {}),
         layouts: layoutsByType(object, model.layouts, catalog),
         // Decided on the snapshot this request already loaded: no second membership read.
         capabilities: { canManage: decideAccess(allowed.access, 'property.manage').allowed },

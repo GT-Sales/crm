@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { orderLeadTypes } from '@gt-sales/types';
+import { orderLeadTypes, type OrderLeadType } from '@gt-sales/types';
 
 import { isoDateTimeSchema } from './common';
 import {
@@ -11,6 +11,7 @@ import {
   type LeadPropertyDefinition,
   type LeadTypePropertyUse,
 } from './lead-properties';
+import { leadTypeLabel } from './lead-types';
 import { leadTypeSchema } from './leads';
 
 /**
@@ -269,12 +270,32 @@ export const sitePropertySchema = z.object({
   version: z.number().int().positive().optional(),
 });
 
-/** A site's plan as the catalogue offers it for the order's `plan` property. */
+/**
+ * A site's plan as the catalogue offers it for the order's `plan` property.
+ * A plan belongs to one order lead type (`leadType`), and its name is unique
+ * only within that type, so a type's record and filter offer only its own.
+ */
 export interface PlanOption {
   readonly id: string;
   readonly name: string;
   readonly active: boolean;
+  readonly leadType: string;
 }
+
+/**
+ * The longest plan name: a plan's name is the label of its option on the
+ * order's `plan` property, and an option label is at most 80 characters
+ * (`propertyOptionSchema`), so a longer name would fail the property model.
+ */
+export const PLAN_NAME_MAX = 80;
+
+/** The wire form of `PlanOption` (`GET /properties` carries the site's plans as `plans`). */
+export const planOptionSchema = z.object({
+  id: z.uuid(),
+  name: z.string().min(1).max(PLAN_NAME_MAX),
+  active: z.boolean(),
+  leadType: leadTypeSchema,
+});
 
 export interface BuildCatalogOptions {
   /** The site's plans; without them the order's `plan` property has no options. */
@@ -322,18 +343,36 @@ export const orderPropertyCatalog: Readonly<Record<string, LeadPropertyDefinitio
   },
 };
 
-/** The `order_details` field of each order property. */
-const ORDER_STORAGE_KEYS: Readonly<Record<OrderPropertyKey, string>> = {
+/**
+ * The `order_details` field of each order property: the one place `plan` is
+ * mapped to `planId` (the catalogue's `storageKey`, the backend's order edit
+ * and the admin's save all read it).
+ */
+export const ORDER_STORAGE_KEYS: {
+  readonly plan: 'planId';
+  readonly quantity: 'quantity';
+  readonly paymentStatus: 'paymentStatus';
+  readonly carrierCommission: 'carrierCommission';
+} = {
   plan: 'planId',
   quantity: 'quantity',
   paymentStatus: 'paymentStatus',
   carrierCommission: 'carrierCommission',
 };
+export type OrderStorageKey = (typeof ORDER_STORAGE_KEYS)[OrderPropertyKey];
 
-const isOrderPropertyKey = (key: string): key is OrderPropertyKey =>
+export const isOrderPropertyKey = (key: string): key is OrderPropertyKey =>
   ORDER_PROPERTY_KEYS.some((entry) => entry === key);
 
-const isOrderType = (leadType: string) => orderLeadTypes.some((entry) => entry === leadType);
+/** The `order_details` field an order property is stored under, or `undefined` for any other key. */
+export function orderStorageKey(key: string): OrderStorageKey | undefined {
+  return isOrderPropertyKey(key) ? ORDER_STORAGE_KEYS[key] : undefined;
+}
+
+/** Whether leads of this type carry order details (`orderLeadTypes`). */
+export function isOrderLeadType(leadType: string): leadType is OrderLeadType {
+  return orderLeadTypes.some((entry) => entry === leadType);
+}
 
 export interface PropertyCatalog {
   readonly object: PropertyObject;
@@ -394,6 +433,32 @@ function builtinTypesByKey(): Map<string, string[]> {
 /** Each plan as an option of the order's `plan` property; an inactive plan stays readable as a hidden option. */
 const planOptions = (plans: readonly PlanOption[]): PropertyOption[] =>
   plans.map((plan) => ({ value: plan.id, label: plan.name, hidden: !plan.active }));
+
+/**
+ * The `plan` options of one lead type: its own plans (an inactive one hidden),
+ * then, with `others`, every other type's plan as a hidden option, so a value
+ * that names one still reads while nobody picks it.
+ */
+const planOptionsForType = (
+  plans: readonly PlanOption[],
+  leadType: string,
+  others: boolean,
+): PropertyOption[] => [
+  ...planOptions(plans.filter((plan) => plan.leadType === leadType)),
+  ...(others
+    ? plans
+        .filter((plan) => plan.leadType !== leadType)
+        .map((plan) => ({ value: plan.id, label: plan.name, hidden: true }))
+    : []),
+];
+
+/** Across types a plan's name is not unique: each option names its type, `Basic (Mobility)`. */
+const planOptionsAcrossTypes = (plans: readonly PlanOption[]): PropertyOption[] =>
+  plans.map((plan) => ({
+    value: plan.id,
+    label: `${plan.name} (${leadTypeLabel(plan.leadType)})`,
+    hidden: !plan.active,
+  }));
 
 function orderProperties(
   overrides: ReadonlyMap<string, PropertyRow>,
@@ -577,8 +642,23 @@ export function buildPropertyCatalog(
     return result;
   };
 
-  const orderForType = (leadType: string) =>
-    isOrderType(leadType) ? resolve().order.filter((property) => !property.hidden) : [];
+  const plans = options.plans ?? [];
+  /**
+   * The order properties of one type. Its `plan` offers only the type's own
+   * plans; the record (`others`) keeps every other type's plan as a hidden
+   * option so a value that names one still reads, while a filter of the type
+   * lists only its own (a chip still reads a stale value through `forType`).
+   */
+  const orderForType = (leadType: string, others: boolean): SiteProperty[] =>
+    isOrderLeadType(leadType)
+      ? resolve()
+          .order.filter((property) => !property.hidden)
+          .map((property) =>
+            property.key === 'plan'
+              ? { ...property, options: planOptionsForType(plans, leadType, others) }
+              : property,
+          )
+      : [];
 
   const customForType = (leadType: string) =>
     resolve().custom.filter((property) => !property.hidden && appliesTo(property, leadType));
@@ -627,7 +707,17 @@ export function buildPropertyCatalog(
         ...(property.maxLength !== undefined ? { maxLength: property.maxLength } : {}),
       });
     }
-    for (const property of [...order, ...custom]) {
+    for (const property of order) {
+      if (property.hidden || property.sensitive) continue;
+      result.push(
+        toFilterable(
+          property.key === 'plan'
+            ? { ...property, options: planOptionsAcrossTypes(plans) }
+            : property,
+        ),
+      );
+    }
+    for (const property of custom) {
       if (!property.hidden && !property.sensitive) result.push(toFilterable(property));
     }
     return result;
@@ -644,7 +734,7 @@ export function buildPropertyCatalog(
     forType(leadType) {
       return [
         ...builtinForType(leadType).map((entry) => entry.property),
-        ...orderForType(leadType),
+        ...orderForType(leadType, true),
         ...customForType(leadType),
       ];
     },
@@ -654,7 +744,7 @@ export function buildPropertyCatalog(
         ...builtinForType(leadType)
           .filter((entry) => !entry.property.sensitive)
           .map((entry) => toFilterable(entry.field)),
-        ...orderForType(leadType).map(toFilterable),
+        ...orderForType(leadType, false).map(toFilterable),
         ...customForType(leadType)
           .filter((property) => !property.sensitive)
           .map(toFilterable),

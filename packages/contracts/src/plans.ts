@@ -5,13 +5,12 @@ import {
   carrierCommissionStatuses,
   orderLeadTypes,
   paymentStatuses,
-  type OrderLeadType,
   type PaymentStatus,
 } from '@gt-sales/types';
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import { documentChecklistKeySchema } from './domain';
-import { propertyKeySchema } from './properties';
+import { PLAN_NAME_MAX, propertyKeySchema } from './properties';
 import { leadPropertyValueSchema } from './workspace-leads';
 
 /**
@@ -28,6 +27,8 @@ import { leadPropertyValueSchema } from './workspace-leads';
  */
 
 export { leadOrderIntakeSchema, type LeadOrderIntake, type LeadOrderIntakeInput } from './leads';
+/** Whether leads of this type carry order details; defined beside the order properties. */
+export { isOrderLeadType } from './properties';
 
 /** The most plans one site keeps, across its order lead types. */
 export const PLAN_LIMIT = 200;
@@ -40,7 +41,10 @@ export const carrierCommissionStatusSchema = z.enum(carrierCommissionStatuses);
 /** A document the plan's orders must carry, as the lead's document checklist names it. */
 export const planRequiredDocumentSchema = documentChecklistKeySchema;
 
-const planNameSchema = z.string().trim().min(1).max(120);
+/** A plan's name, at most `PLAN_NAME_MAX` (80) characters, as its option label in the lead catalogue. */
+const planNameSchema = z.string().trim().min(1).max(PLAN_NAME_MAX);
+/** A frozen copy keeps the name as it was taken; the database allows 120, so an older copy still reads. */
+const snapshotNameSchema = z.string().trim().min(1).max(120);
 const planPriceMinorSchema = z.number().int().min(0).max(1e12);
 const planRequiredDocumentsSchema = z.array(planRequiredDocumentSchema).max(16);
 const planPositionSchema = z.number().int().min(0);
@@ -133,7 +137,7 @@ export type PlanResponse = z.infer<typeof planResponseSchema>;
 export const planSnapshotSchema = z
   .object({
     planId: z.uuid(),
-    name: planNameSchema,
+    name: snapshotNameSchema,
     priceMinor: planPriceMinorSchema,
     currency: z.literal('CAD'),
     billingPeriod: billingPeriodSchema,
@@ -206,11 +210,6 @@ export const leadOrderEditSchema = z
     message: 'at least one order field',
   });
 export type LeadOrderEdit = z.infer<typeof leadOrderEditSchema>;
-
-/** Whether leads of this type carry order details (`orderLeadTypes`). */
-export function isOrderLeadType(leadType: string): leadType is OrderLeadType {
-  return orderLeadTypes.some((entry) => entry === leadType);
-}
 
 /** Where a new order's payment starts: owed when its plan takes a payment, else not needed. */
 export function initialPaymentStatus(plan: Pick<Plan, 'paymentRequired'> | null): PaymentStatus {

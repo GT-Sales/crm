@@ -358,7 +358,9 @@ const ORDER_DEFAULTS: ReadonlyMap<string, string> = new Map(
  * each under the key the property is stored as (`storageKey ?? key`, bound).
  * An order field a lead of an order type lacks reads as its default, as the
  * lead page shows it; a lead of any other type has no order, so every order
- * field is SQL null there and matches no condition.
+ * field is SQL null there. A null matches `empty`, so that condition is
+ * limited to the order types too (`jsonFilterCondition`): a lead of another
+ * type matches no order condition, in a list of one type or across types.
  */
 function jsonStoredValue(property: SiteProperty): { v: SQL; j: SQL } {
   const key = property.storageKey ?? property.key;
@@ -385,7 +387,11 @@ function jsonFilterCondition(filter: LeadPropertyFilter, property: SiteProperty)
 
   if (filter.op === 'empty') {
     // No value at all, or a blank text; a malformed value is not empty either.
-    return sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
+    const empty = sql`(${j} is null or ${j} = 'null'::jsonb or (jsonb_typeof(${j}) = 'string' and btrim(${v}) = ''))`;
+    // A lead of a type with no order is not an order with an empty field.
+    return property.storage === 'order'
+      ? sql`(l.lead_type in (${ORDER_LEAD_TYPES}) and ${empty})`
+      : empty;
   }
   if (filter.op === 'notEmpty') {
     return isText ? sql`coalesce(btrim(${typed}), '') <> ''` : sql`${typed} is not null`;

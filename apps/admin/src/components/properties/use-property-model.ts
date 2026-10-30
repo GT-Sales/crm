@@ -40,30 +40,16 @@ function rowFor(property: SiteProperty, position: number, object: PropertyObject
 }
 
 /**
- * The site's plans as `GET /properties` offers them: the options of the
- * order's `plan` property, an inactive plan as a hidden option.
- */
-function plansFromModel(properties: readonly SiteProperty[]): PlanOption[] {
-  const plan = properties.find(
-    (property) => property.storage === 'order' && property.key === 'plan',
-  );
-  return (plan?.options ?? []).map((option) => ({
-    id: option.value,
-    name: option.label,
-    active: !option.hidden,
-  }));
-}
-
-/**
  * The site's catalogue from `GET /properties`: its custom properties (in the
  * order the backend lists them) and the built-ins it relabelled or hid, laid
- * over the code catalogue, with the site's plans as the order's `plan`
- * options. A site that changed nothing and sells no plans reads exactly as
- * code.
+ * over the code catalogue, with the site's plans (`plans`, each with its lead
+ * type) as the order's `plan` options, so each order type offers only its
+ * own. A site that changed nothing and sells no plans reads exactly as code.
  */
 export function catalogFromModel(
   properties: readonly SiteProperty[],
   object: PropertyObject = 'lead',
+  plans: readonly PlanOption[] = [],
 ): PropertyCatalog {
   const rows: PropertyRow[] = [];
   for (const property of properties) {
@@ -78,7 +64,6 @@ export function catalogFromModel(
     }
   }
   if (object === 'plan') return buildPropertyCatalog(rows, 'plan');
-  const plans = plansFromModel(properties);
   return rows.length === 0 && plans.length === 0
     ? codePropertyCatalog
     : buildPropertyCatalog(rows, 'lead', { plans });
@@ -148,7 +133,7 @@ export function usePropertyModel(
   const catalog = useMemo(
     () =>
       model
-        ? catalogFromModel(model.properties, object)
+        ? catalogFromModel(model.properties, object, model.plans)
         : object === 'plan'
           ? buildPropertyCatalog([], 'plan')
           : codePropertyCatalog,

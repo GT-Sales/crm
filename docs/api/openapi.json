@@ -9149,6 +9149,29 @@
                         "additionalProperties": false
                       }
                     },
+                    "plans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                          "active": { "type": "boolean" },
+                          "leadType": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9_]+$"
+                          }
+                        },
+                        "required": ["id", "name", "active", "leadType"],
+                        "additionalProperties": false
+                      }
+                    },
                     "layouts": {
                       "type": "object",
                       "propertyNames": { "type": "string" },
@@ -11756,7 +11779,7 @@
                             "type": "string",
                             "enum": ["sim_order", "internet", "mobility"]
                           },
-                          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
                           "priceMinor": {
                             "type": "integer",
                             "minimum": 0,
@@ -11999,7 +12022,7 @@
                           "type": "string",
                           "enum": ["sim_order", "internet", "mobility"]
                         },
-                        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
                         "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
                         "currency": { "type": "string", "const": "CAD" },
                         "billingPeriod": {
@@ -12216,7 +12239,7 @@
                 "type": "object",
                 "properties": {
                   "leadType": { "type": "string", "enum": ["sim_order", "internet", "mobility"] },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 80 },
                   "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
                   "billingPeriod": {
                     "type": "string",
@@ -12286,7 +12309,7 @@
                           "type": "string",
                           "enum": ["sim_order", "internet", "mobility"]
                         },
-                        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
                         "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
                         "currency": { "type": "string", "const": "CAD" },
                         "billingPeriod": {
@@ -12507,7 +12530,7 @@
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 80 },
                   "priceMinor": { "type": "integer", "minimum": 0, "maximum": 1000000000000 },
                   "billingPeriod": {
                     "type": "string",
@@ -14440,6 +14463,24 @@
                             },
                             { "type": "null" }
                           ]
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "quantity": {
+                              "default": 1,
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 99
+                            }
+                          },
+                          "required": ["planId", "quantity"],
+                          "additionalProperties": false
                         }
                       },
                       "required": ["leadId", "leadType", "contact", "form"],
@@ -14633,7 +14674,7 @@
                             "type": "string",
                             "enum": ["sim_order", "internet", "mobility"]
                           },
-                          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
                           "priceMinor": {
                             "type": "integer",
                             "minimum": 0,

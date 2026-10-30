@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import {
   defaultPropertyLayout,
   leadOrderEditSchema,
+  orderStorageKey,
   leadTypeEntry,
   leadTypeLabel,
   type GetWorkspaceLeadResponse,
@@ -284,18 +285,19 @@ export function LeadRecord({
 
   /**
    * A section's save: its built-in answers, custom values and order details
-   * in one change. Order edits come keyed by property; the order's `plan` is
-   * sent as `planId`, which re-freezes the plan.
+   * in one change. Order edits come keyed by property and go out under their
+   * stored names (`orderStorageKey`: the order's `plan` is sent as `planId`,
+   * which re-freezes the plan).
    */
   async function saveProperties(edits: PropertyEdits): Promise<string | undefined> {
     if (!accessToken || !workspaceId) return 'The change was not saved. Sign in again.';
     let order: UpdateWorkspaceLeadRequest['order'];
     if (edits.order) {
-      const { plan, ...rest } = edits.order;
-      const parsed = leadOrderEditSchema.safeParse({
-        ...rest,
-        ...(plan !== undefined ? { planId: plan } : {}),
-      });
+      const parsed = leadOrderEditSchema.safeParse(
+        Object.fromEntries(
+          Object.entries(edits.order).map(([key, value]) => [orderStorageKey(key) ?? key, value]),
+        ),
+      );
       if (!parsed.success) return 'Check the order: a quantity and both statuses are needed.';
       order = parsed.data;
     }

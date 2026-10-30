@@ -1151,13 +1151,17 @@ describe('LeadRecord order section', () => {
   const ACTIVE_PLAN = '70000000-0000-4000-8000-000000000001';
   const OLD_PLAN = '70000000-0000-4000-8000-000000000002';
   const FROZEN_AT = '2026-10-20T15:00:00.000Z';
+  const MOBILITY_PLAN = '70000000-0000-4000-8000-000000000003';
   const plans = [
-    { id: ACTIVE_PLAN, name: 'Unlimited 50', active: true },
-    { id: OLD_PLAN, name: 'Legacy 10', active: false },
+    { id: ACTIVE_PLAN, name: 'Unlimited 50', active: true, leadType: 'sim_order' },
+    { id: OLD_PLAN, name: 'Legacy 10', active: false, leadType: 'sim_order' },
+    // Another type's plan: a SIM order never offers it.
+    { id: MOBILITY_PLAN, name: 'Talk and text', active: true, leadType: 'mobility' },
   ];
-  /** `GET /properties` as the backend answers it: the order's plan offers the site's plans. */
+  /** `GET /properties` as the backend answers it: the site's plans, each with its lead type. */
   const model = {
     properties: [...buildPropertyCatalog([], 'lead', { plans }).all],
+    plans,
     layouts: {},
     capabilities: { canManage: true },
     requestId: NOW,
@@ -1243,6 +1247,7 @@ describe('LeadRecord order section', () => {
     await within(order).findByText('Legacy 10');
     fireEvent.click(within(order).getByRole('button', { name: 'Edit' }));
     const plan = within(order).getByLabelText('Plan');
+    // Only the SIM order's own plans: the mobility plan is not offered.
     expect(Array.from(plan.querySelectorAll('option')).map((option) => option.textContent)).toEqual(
       ['—', 'Unlimited 50', 'Legacy 10 (inactive)'],
     );

@@ -1,6 +1,10 @@
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiErrorResponseSchema, createLeadResponseSchema } from '@gt-sales/contracts';
+import {
+  apiErrorResponseSchema,
+  createLeadResponseSchema,
+  readLeadResponseSchema,
+} from '@gt-sales/contracts';
 import type { WebsiteCredentialResolution } from '@gt-sales/db';
 
 import { createApp } from '../src/app.js';
@@ -453,6 +457,26 @@ describe('GET /api/v1/website/leads/:leadId', () => {
       (await request('GET', `/api/v1/website/leads/${LEAD_B}`, { 'x-draft-grant': VALID_GRANT_A }))
         .status,
     ).toBe(401);
+  });
+
+  it('returns the plan and quantity a draft order was saved with', async () => {
+    const draft = {
+      leadId: LEAD_A,
+      leadType: 'sim_order',
+      contact: { fullName: 'Saved customer' },
+      form: null,
+      order: { planId: '70000000-0000-4000-8000-000000000001', quantity: 2 },
+    };
+    leadStore.readLead = async () => ({ status: 'read', draft });
+    const response = await request('GET', `/api/v1/website/leads/${LEAD_A}`, {
+      'x-draft-grant': VALID_GRANT_A,
+    });
+    expect(response.status).toBe(200);
+    const body = readLeadResponseSchema.parse(await response.json());
+    expect(body.draft.order).toEqual({
+      planId: '70000000-0000-4000-8000-000000000001',
+      quantity: 2,
+    });
   });
 
   it.each(['grant_expired', 'draft_submitted'] as const)(

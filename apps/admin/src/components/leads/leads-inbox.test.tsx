@@ -5,6 +5,7 @@ import {
   codePropertyCatalog,
   DEFAULT_LEAD_VIEW_STATE,
   savedViewStateSchema,
+  type PlanOption,
   type SavedView,
   type SiteProperty,
 } from '@gt-sales/contracts';
@@ -92,9 +93,13 @@ function customProperty(
 }
 
 /** `GET /properties` as the backend answers it: the whole catalogue, built-ins first. */
-function propertyModel(properties: readonly SiteProperty[] = codePropertyCatalog.all) {
+function propertyModel(
+  properties: readonly SiteProperty[] = codePropertyCatalog.all,
+  plans?: readonly PlanOption[],
+) {
   return {
     properties,
+    ...(plans ? { plans } : {}),
     layouts: {},
     capabilities: { canManage: true },
     requestId: 'req_test',
@@ -303,15 +308,29 @@ describe('LeadsInbox', () => {
   });
 
   it('filters an order type by its plan, payment status, carrier commission and quantity', async () => {
+    const plans: PlanOption[] = [
+      {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Unlimited 50',
+        active: true,
+        leadType: 'sim_order',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000002',
+        name: 'Legacy 10',
+        active: false,
+        leadType: 'sim_order',
+      },
+      // Another type's plan: the SIM order filter does not list it.
+      {
+        id: '70000000-0000-4000-8000-000000000003',
+        name: 'Fibre 500',
+        active: true,
+        leadType: 'internet',
+      },
+    ];
     mocks.getPropertyModel.mockResolvedValue(
-      propertyModel(
-        buildPropertyCatalog([], 'lead', {
-          plans: [
-            { id: '70000000-0000-4000-8000-000000000001', name: 'Unlimited 50', active: true },
-            { id: '70000000-0000-4000-8000-000000000002', name: 'Legacy 10', active: false },
-          ],
-        }).all,
-      ),
+      propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
     );
     navigation.search = 'type=sim_order';
     render(<LeadsInbox workspaceSlug="canadawide" />);
@@ -336,6 +355,40 @@ describe('LeadsInbox', () => {
           (opt) => opt.textContent,
         ),
       ).toEqual(['Unlimited 50', 'Legacy 10 (retired)']),
+    );
+  });
+
+  it('names each plan’s type in the filter across all types', async () => {
+    const plans: PlanOption[] = [
+      {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Basic',
+        active: true,
+        leadType: 'internet',
+      },
+      {
+        id: '70000000-0000-4000-8000-000000000002',
+        name: 'Basic',
+        active: true,
+        leadType: 'mobility',
+      },
+    ];
+    mocks.getPropertyModel.mockResolvedValue(
+      propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
+    );
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    const propertySelect = await screen.findByLabelText('Property');
+    await waitFor(() =>
+      expect(propertySelect.querySelector('option[value="plan"]')).not.toBeNull(),
+    );
+    fireEvent.change(propertySelect, { target: { value: 'plan' } });
+    await waitFor(() =>
+      expect(
+        Array.from(screen.getByLabelText('Value').querySelectorAll('option')).map(
+          (opt) => opt.textContent,
+        ),
+      ).toEqual(['Basic (Internet)', 'Basic (Mobility)']),
     );
   });
 
@@ -707,6 +760,28 @@ describe('LeadsInbox', () => {
     );
     expect(window.localStorage.getItem(`gt-table-hidden-cols:${WORKSPACE}`)).toBeNull();
     expect(navigation.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('rewrites a legacy ?trash=1 link and moves the stored hidden columns in one change', async () => {
+    window.localStorage.setItem(
+      `gt-table-hidden-cols:${WORKSPACE}`,
+      JSON.stringify(['created', 'source']),
+    );
+    navigation.search = 'trash=1&q=avery';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith(
+        '/w/canadawide/leads?archived=1&q=avery&hide=source%2Ccreated',
+        { scroll: false },
+      ),
+    );
+    expect(navigation.replace).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(`gt-table-hidden-cols:${WORKSPACE}`)).toBeNull();
+    // The address it settled on keeps both.
+    const settled = new URLSearchParams(navigation.search);
+    expect(settled.get('archived')).toBe('1');
+    expect(settled.get('hide')).toBe('source,created');
+    expect(settled.has('trash')).toBe(false);
   });
 
   it('sorts from the sort menu', async () => {
@@ -1276,5 +1351,43 @@ describe('LeadsInbox side panel', () => {
     view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
     expect(mocks.getStaffLeads).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for the counts again on close after a change in the panel, not after a close without one', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...row, stage: 'contacted', form: null, customValues: {} },
+      activities: [],
+      requestId: 'req_test',
+    });
+    navigation.search = `type=internet&lead=${LEAD_ID}`;
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    const panel = await screen.findByRole('complementary', { name: 'Lead' });
+    await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1));
+
+    // Nothing changed: closing asks for no counts.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
+    expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1);
+
+    // A change saved in the panel: closing asks for the counts once more.
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'internet', total: 0 }],
+      archived: 1,
+      trash: 1,
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = `type=internet&lead=${LEAD_ID}`;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    const reopened = await screen.findByRole('complementary', { name: 'Lead' });
+    fireEvent.change(await within(reopened).findByLabelText('Stage'), {
+      target: { value: 'contacted' },
+    });
+    await waitFor(() => expect(mocks.updateStaffLead).toHaveBeenCalledTimes(1));
+    expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Close panel' }));
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('tab', { name: /Archive\s*1/ })).toBeTruthy();
   });
 });

@@ -18,7 +18,9 @@ import {
   leadTypeProperties,
   leadTypePropertyKeys,
   ORDER_PROPERTY_KEYS,
+  ORDER_STORAGE_KEYS,
   orderPropertyCatalog,
+  orderStorageKey,
   parsePropertyValue,
   propertyKeySchema,
   propertyRowSchema,
@@ -257,8 +259,36 @@ describe('buildPropertyCatalog', () => {
 });
 
 const PLANS: readonly PlanOption[] = [
-  { id: '0b9f3f5e-7c1a-4c2e-9a51-1d2e3f4a5b6c', name: 'Unlimited Data', active: true },
-  { id: '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f', name: 'Old 25GB', active: false },
+  {
+    id: '0b9f3f5e-7c1a-4c2e-9a51-1d2e3f4a5b6c',
+    name: 'Unlimited Data',
+    active: true,
+    leadType: 'internet',
+  },
+  {
+    id: '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f',
+    name: 'Old 25GB',
+    active: false,
+    leadType: 'internet',
+  },
+];
+
+/** Plans of all three order types; `Basic` is a name two types share. */
+const TYPED_PLANS: readonly PlanOption[] = [
+  {
+    id: '11111111-1111-4111-8111-000000000001',
+    name: 'Prepaid SIM',
+    active: true,
+    leadType: 'sim_order',
+  },
+  { id: '11111111-1111-4111-8111-000000000002', name: 'Basic', active: true, leadType: 'internet' },
+  { id: '11111111-1111-4111-8111-000000000003', name: 'Basic', active: true, leadType: 'mobility' },
+  {
+    id: '11111111-1111-4111-8111-000000000004',
+    name: 'Old talk',
+    active: false,
+    leadType: 'mobility',
+  },
 ];
 
 describe('order properties', () => {
@@ -359,14 +389,78 @@ describe('order properties', () => {
     ];
     expect(c.get('plan')?.options).toEqual(expected);
     expect(c.forType('internet').find((p) => p.key === 'plan')?.options).toEqual(expected);
-    expect(c.filterable('mobility').find((p) => p.key === 'plan')?.options).toEqual(expected);
-    expect(c.filterable().find((p) => p.key === 'plan')?.options).toEqual(expected);
+    expect(c.filterable('internet').find((p) => p.key === 'plan')?.options).toEqual(expected);
+    // Another type offers none of them: on its record they only read.
+    expect(c.forType('mobility').find((p) => p.key === 'plan')?.options).toEqual(
+      expected.map((option) => ({ ...option, hidden: true })),
+    );
+    expect(c.filterable('mobility').find((p) => p.key === 'plan')?.options).toEqual([]);
+    expect(c.filterable().find((p) => p.key === 'plan')?.options).toEqual([
+      { value: PLANS[0]?.id, label: 'Unlimited Data (Internet)', hidden: false },
+      { value: PLANS[1]?.id, label: 'Old 25GB (Internet)', hidden: true },
+    ]);
     // An old value still reads; nobody picks it anew.
     const plan = c.get('plan');
     if (!plan) throw new Error('plan property missing');
     expect(formatPropertyValue(plan, PLANS[1]?.id)).toBe('Old 25GB');
     expect(parsePropertyValue(plan, PLANS[1]?.id).ok).toBe(false);
     expect(parsePropertyValue(plan, PLANS[0]?.id).ok).toBe(true);
+  });
+
+  it('name their stored field in one map, which the catalogue’s storageKey reads', () => {
+    expect(ORDER_STORAGE_KEYS).toEqual({
+      plan: 'planId',
+      quantity: 'quantity',
+      paymentStatus: 'paymentStatus',
+      carrierCommission: 'carrierCommission',
+    });
+    for (const key of ORDER_PROPERTY_KEYS) {
+      expect(orderStorageKey(key)).toBe(ORDER_STORAGE_KEYS[key]);
+      expect(codePropertyCatalog.get(key)?.storageKey).toBe(ORDER_STORAGE_KEYS[key]);
+    }
+    expect(orderStorageKey('city')).toBeUndefined();
+    expect(orderStorageKey('planId')).toBeUndefined();
+  });
+
+  it('offer each order type only its own plans; another type’s plan only reads', () => {
+    const c = buildPropertyCatalog([], 'lead', { plans: TYPED_PLANS });
+    const planOf = (type: string) => c.forType(type).find((p) => p.key === 'plan');
+    const offered = (type: string) =>
+      (planOf(type)?.options ?? []).filter((option) => !option.hidden).map((o) => o.value);
+
+    expect(offered('mobility')).toEqual([TYPED_PLANS[2]?.id]);
+    expect(offered('internet')).toEqual([TYPED_PLANS[1]?.id]);
+    expect(offered('sim_order')).toEqual([TYPED_PLANS[0]?.id]);
+
+    // The SIM plan is a hidden option of a mobility order: a stale value reads, nobody picks it.
+    const mobilityPlan = planOf('mobility');
+    if (!mobilityPlan) throw new Error('plan property missing');
+    expect(mobilityPlan.options?.find((o) => o.value === TYPED_PLANS[0]?.id)).toEqual({
+      value: TYPED_PLANS[0]?.id,
+      label: 'Prepaid SIM',
+      hidden: true,
+    });
+    expect(formatPropertyValue(mobilityPlan, TYPED_PLANS[0]?.id)).toBe('Prepaid SIM');
+    expect(parsePropertyValue(mobilityPlan, TYPED_PLANS[0]?.id).ok).toBe(false);
+    expect(parsePropertyValue(mobilityPlan, TYPED_PLANS[2]?.id).ok).toBe(true);
+    // Its own inactive plan reads too, and is not offered either.
+    expect(parsePropertyValue(mobilityPlan, TYPED_PLANS[3]?.id).ok).toBe(false);
+    expect(formatPropertyValue(mobilityPlan, TYPED_PLANS[3]?.id)).toBe('Old talk');
+
+    // A typed filter lists only the type's plans, its inactive one marked hidden.
+    expect(c.filterable('mobility').find((p) => p.key === 'plan')?.options).toEqual([
+      { value: TYPED_PLANS[2]?.id, label: 'Basic', hidden: false },
+      { value: TYPED_PLANS[3]?.id, label: 'Old talk', hidden: true },
+    ]);
+    // Across types each option names its type, so the two Basics differ.
+    expect(c.filterable().find((p) => p.key === 'plan')?.options).toEqual([
+      { value: TYPED_PLANS[0]?.id, label: 'Prepaid SIM (SIM order)', hidden: false },
+      { value: TYPED_PLANS[1]?.id, label: 'Basic (Internet)', hidden: false },
+      { value: TYPED_PLANS[2]?.id, label: 'Basic (Mobility)', hidden: false },
+      { value: TYPED_PLANS[3]?.id, label: 'Old talk (Mobility)', hidden: true },
+    ]);
+    // A type with no order details has no plan property at all.
+    expect(c.forType('contact_message').some((p) => p.key === 'plan')).toBe(false);
   });
 
   it('are filterable per order type and across types, with the choice operators', () => {

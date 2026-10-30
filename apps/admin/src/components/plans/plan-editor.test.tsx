@@ -190,6 +190,22 @@ describe('PlanEditor when adding', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  it('refuses a name longer than 80 characters before saving', async () => {
+    const onSave = setup();
+    expect(screen.getByLabelText('Name').getAttribute('maxlength')).toBe('80');
+    type('Name', 'n'.repeat(81));
+    type('Price (CAD)', '10');
+    save();
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Keep the name to 80 characters or fewer.',
+    );
+    expect(onSave).not.toHaveBeenCalled();
+    type('Name', 'n'.repeat(80));
+    save();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: 'n'.repeat(80) }));
+  });
+
   it('shows the reason a save was refused', async () => {
     const onSave = setup(
       undefined,

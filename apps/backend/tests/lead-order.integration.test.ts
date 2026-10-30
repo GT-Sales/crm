@@ -4,6 +4,7 @@ import {
   DEFAULT_LEAD_ORDER,
   freezePlan,
   leadOrderIntakeSchema,
+  readLeadResponseSchema,
   type CreatePlanRequest,
   type LeadOrder,
   type Plan,
@@ -236,6 +237,27 @@ databaseTest('order details on leads', () => {
     await admin?.end();
   });
 
+  it('the catalogue offers each order type only its own plans', () => {
+    const offered = (leadType: string) =>
+      (catalog.forType(leadType).find((property) => property.key === 'plan')?.options ?? [])
+        .filter((option) => !option.hidden)
+        .map((option) => option.value);
+    expect(offered('sim_order')).toEqual([simPaid.id, simFree.id]);
+    expect(offered('internet')).toEqual([internetPlan.id]);
+    expect(offered('mobility')).toEqual([]);
+    // The SIM plans stay readable on an internet order, as hidden options.
+    const internetPlanProperty = catalog.forType('internet').find((p) => p.key === 'plan');
+    expect(internetPlanProperty?.options).toEqual(
+      expect.arrayContaining([{ value: simPaid.id, label: 'Unlimited 50', hidden: true }]),
+    );
+    expect(catalog.filterable().find((property) => property.key === 'plan')?.options).toEqual(
+      expect.arrayContaining([
+        { value: internetPlan.id, label: 'Fibre 1G (Internet)', hidden: false },
+        { value: simInactive.id, label: 'Old plan (SIM order)', hidden: true },
+      ]),
+    );
+  });
+
   describe('website intake', () => {
     it('freezes the plan at submission with its payment status, quantity 1 by default', async () => {
       const order = leadOrderIntakeSchema.parse({ planId: simPaid.id });
@@ -341,6 +363,28 @@ databaseTest('order details on leads', () => {
         catalog,
       });
       expect(page?.lead.order).toEqual({ ...DEFAULT_LEAD_ORDER, planId: plan.id, quantity: 2 });
+      // The website resuming the draft gets its plan and quantity back, never a price.
+      const resumed = await leadStore.readLead({
+        ...ctx,
+        leadId: draft.lead.id,
+        grantToken: draft.grant.token,
+      });
+      if (resumed.status !== 'read') throw new Error(`got ${resumed.status}`);
+      expect(resumed.draft.order).toEqual({ planId: plan.id, quantity: 2 });
+      expect(
+        readLeadResponseSchema.parse({ draft: resumed.draft, requestId: REQUEST }).draft.order,
+      ).toEqual({ planId: plan.id, quantity: 2 });
+
+      // A draft with no plan reads with no order.
+      const planless = await leadStore.createLead(base());
+      if (!planless.grant) throw new Error('expected a draft grant');
+      const planlessRead = await leadStore.readLead({
+        ...ctx,
+        leadId: planless.lead.id,
+        grantToken: planless.grant.token,
+      });
+      if (planlessRead.status !== 'read') throw new Error(`got ${planlessRead.status}`);
+      expect(planlessRead.draft).not.toHaveProperty('order');
 
       // The price changes while the customer is still filling in the form.
       const edited = await planStore.update(ctx, plan.id, {
@@ -532,6 +576,60 @@ databaseTest('order details on leads', () => {
       ]);
     });
 
+    it('writes only the changed field over the stored order: an unknown key and the copy stay byte for byte', async () => {
+      const created = await leadStore.createLead(
+        base({ submit: true, order: { planId: simPaid.id, quantity: 1 } }),
+      );
+      const leadId = created.lead.id;
+      // A copy the parse cannot read (no frozenAt, a key of its own) and a key it does not know.
+      await admin`
+        update app.leads
+        set order_details = order_details
+          || jsonb_build_object('legacyRef', 'GCS-1042')
+          || jsonb_build_object(
+            'plan',
+            (order_details -> 'plan') - 'frozenAt' || '{"oldSku":"U50-2019"}'::jsonb
+          )
+        where id = ${leadId}
+      `;
+      const storedText = async () => {
+        const [row] = await admin<{ plan: string; legacyRef: string | null }[]>`
+          select (order_details -> 'plan')::text as plan, order_details ->> 'legacyRef' as "legacyRef"
+          from app.leads where id = ${leadId}
+        `;
+        return row;
+      };
+      const before = await storedText();
+      expect(before?.plan).toContain('"oldSku": "U50-2019"');
+
+      const edited = await work.updateLead({ ...ctx, leadId, catalog, order: { quantity: 3 } });
+      if (edited.status !== 'updated') throw new Error(`got ${edited.status}`);
+      expect(edited.activities).toEqual([
+        expect.objectContaining({ kind: 'edit', fields: ['quantity'] }),
+      ]);
+      expect(await storedText()).toEqual({ plan: before?.plan, legacyRef: 'GCS-1042' });
+      expect(await orderDetails(leadId)).toMatchObject({ planId: simPaid.id, quantity: 3 });
+
+      // A status edit on a readable copy keeps it as stored too.
+      const readable = await leadStore.createLead(
+        base({ submit: true, order: { planId: simPaid.id, quantity: 1 } }),
+      );
+      const [{ plan: readableBefore } = { plan: '' }] = await admin<{ plan: string }[]>`
+        select (order_details -> 'plan')::text as plan from app.leads where id = ${readable.lead.id}
+      `;
+      const paid = await work.updateLead({
+        ...ctx,
+        leadId: readable.lead.id,
+        catalog,
+        order: { paymentStatus: 'paid' },
+      });
+      expect(paid.status).toBe('updated');
+      const [{ plan: readableAfter } = { plan: '' }] = await admin<{ plan: string }[]>`
+        select (order_details -> 'plan')::text as plan from app.leads where id = ${readable.lead.id}
+      `;
+      expect(readableAfter).toBe(readableBefore);
+    });
+
     it('refuses order edits on a type with no order, an archived lead and a restricted one', async () => {
       const message = await leadStore.createLead(
         base({ leadType: 'contact_message', submit: true }),
@@ -642,6 +740,9 @@ databaseTest('order details on leads', () => {
         L3,
         L_LEGACY,
       ]);
+      // Across every type too: the contact message has no order, so no empty plan either.
+      expect(await ids({ where: [{ key: 'plan', op: 'empty' }] })).toEqual([L2, L3, L_LEGACY]);
+      expect(await ids({ where: [{ key: 'quantity', op: 'empty' }] })).toEqual([]);
       expect(await ids({ ...simOnly, where: [{ key: 'quantity', op: 'gte', value: 2 }] })).toEqual([
         L1,
         L3,
