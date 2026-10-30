@@ -584,7 +584,11 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         ...leadAccessOf(decision.access),
         emailCustomer:
           decideAccess(decision.access, 'lead.manage').allowed &&
-          (dependencies.customerEmail?.available(params.workspaceId) ?? false),
+          ((await dependencies.customerEmail?.available({
+            workspaceId: params.workspaceId,
+            actorId: actor.actorId,
+          })) ??
+            false),
         downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
       };
       // Form details, notes and tasks carry personal details as freely as
@@ -848,7 +852,10 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       const mail = dependencies.customerEmail;
-      if (!mail?.available(params.workspaceId)) {
+      if (
+        !mail ||
+        !(await mail.available({ workspaceId: params.workspaceId, actorId: actor.actorId }))
+      ) {
         sendDomainError(res, req.id, 'feature_not_ready', 409);
         return;
       }
@@ -860,8 +867,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         requestId: req.id,
         leadId: params.id,
         template: body.data.template,
-        siteUrl: mail.sender(params.workspaceId)?.siteUrl,
-        contactHash: (email) => mail.contactHash(email),
+        siteUrl: mail.fallback(params.workspaceId)?.siteUrl,
+        contactHash: (email) => mail.environment.contactHash(email),
       });
       if (outcome.status === 'not_found') {
         sendDomainError(res, req.id, 'lead_not_found', 404);

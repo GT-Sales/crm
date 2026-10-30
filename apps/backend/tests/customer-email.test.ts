@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { draftCustomerEmail, type CustomerEmailLead } from '../src/email/customer-emails.js';
 import { hashContact } from '../src/email/hash.js';
-import { customerEmailFromEnv, loadEmailSenders } from '../src/email/senders.js';
+import {
+  customerEmailEnvironmentFromEnv,
+  customerEmailFromEnv,
+  loadEmailSenders,
+} from '../src/email/senders.js';
 
 const GCS = '10000000-0000-4000-8000-0000000c0001';
 const OTHER = '10000000-0000-4000-8000-0000000c0002';
@@ -42,27 +46,45 @@ describe('site senders', () => {
     expect(loadEmailSenders({ EMAIL_SENDERS_JSON: twice }).forWorkspace(GCS)).toBeUndefined();
   });
 
-  it('can mail a site’s customers only with a working provider, the hash secret and its sender', () => {
+  it('can send customer mail only with a working provider and the hash secret', () => {
     const base = { EMAIL_SENDERS_JSON: senders, EMAIL_CONTACT_HASH_SECRET: SECRET };
-    const can = (env: NodeJS.ProcessEnv, workspaceId = GCS) =>
-      customerEmailFromEnv(env).available(workspaceId);
-    expect(can({ ...base, EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_synthetic' })).toBe(true);
-    expect(can({ ...base, EMAIL_PROVIDER: 'resend' })).toBe(false);
-    expect(can({ ...base, EMAIL_PROVIDER: 'fake', NODE_ENV: 'test' })).toBe(true);
-    expect(can({ ...base, EMAIL_PROVIDER: 'fake', NODE_ENV: 'production' })).toBe(false);
-    expect(can({ ...base })).toBe(false);
-    expect(can({ ...base, EMAIL_PROVIDER: 'fake', EMAIL_CONTACT_HASH_SECRET: 'short' })).toBe(
+    const ready = (env: NodeJS.ProcessEnv) => customerEmailEnvironmentFromEnv(env).providerReady;
+    expect(ready({ ...base, EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_synthetic' })).toBe(true);
+    expect(ready({ ...base, EMAIL_PROVIDER: 'resend' })).toBe(false);
+    expect(ready({ ...base, EMAIL_PROVIDER: 'fake', NODE_ENV: 'test' })).toBe(true);
+    expect(ready({ ...base, EMAIL_PROVIDER: 'fake', NODE_ENV: 'production' })).toBe(false);
+    expect(ready({ ...base })).toBe(false);
+    expect(ready({ ...base, EMAIL_PROVIDER: 'fake', EMAIL_CONTACT_HASH_SECRET: 'short' })).toBe(
       false,
     );
-    expect(can({ ...base, EMAIL_PROVIDER: 'fake' }, OTHER)).toBe(false);
+  });
+
+  it('answers unavailable without the database when the deployment cannot send', async () => {
+    const untouchable = {
+      withTenantTx: () => Promise.reject(new Error('the database was reached')),
+    };
+    const mail = customerEmailFromEnv(
+      { EMAIL_SENDERS_JSON: senders, EMAIL_CONTACT_HASH_SECRET: SECRET },
+      untouchable,
+    );
+    expect(await mail.available({ workspaceId: GCS, actorId: OTHER })).toBe(false);
+  });
+
+  it('offers the deployment’s sender as the fallback', () => {
+    const mail = customerEmailFromEnv({ EMAIL_SENDERS_JSON: senders });
+    expect(mail.fallback(GCS)).toMatchObject({
+      fromName: 'Get Canada Sim',
+      siteUrl: 'https://getcanadasim.example',
+    });
+    expect(mail.fallback(OTHER)).toBeUndefined();
   });
 
   it('hashes the address the way suppression matches it', () => {
-    const mail = customerEmailFromEnv({ EMAIL_CONTACT_HASH_SECRET: SECRET });
-    expect(mail.contactHash(' Arjun@Example.test ')).toBe(
+    const environment = customerEmailEnvironmentFromEnv({ EMAIL_CONTACT_HASH_SECRET: SECRET });
+    expect(environment.contactHash(' Arjun@Example.test ')).toBe(
       hashContact('arjun@example.test', SECRET),
     );
-    expect(() => customerEmailFromEnv({}).contactHash('a@example.test')).toThrow();
+    expect(() => customerEmailEnvironmentFromEnv({}).contactHash('a@example.test')).toThrow();
   });
 });
 
