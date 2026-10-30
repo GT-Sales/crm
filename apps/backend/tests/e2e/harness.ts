@@ -11,14 +11,22 @@
  * stages, and one open task; plus Get Canada Sim with SIM orders for property
  * filter, sort and column checks, two plans ("Rogers 60GB", payment required,
  * and "Fido 75GB", none) and one more SIM order that ordered Rogers 60GB, so
- * its order details carry the frozen plan. All of it is written through the
- * real stores: the plans through the plan store, and the ordered SIM order
- * through `createLead` with `order` and `submit: true`, the call the website
- * route `POST /website/leads` makes once it has checked the site's key.
+ * its order details carry the frozen plan. Rogers 60GB requires a passport,
+ * and Nadia Khan's order has one, attached and not yet reviewed. Get Canada
+ * Sim has its email settings saved and its Dispatched email saved once
+ * (version 1), and no automation rule switched on. All of it is written
+ * through the real stores: the plans through the plan store, the ordered SIM
+ * order through `createLead` with `order` and `submit: true`, the call the
+ * website route `POST /website/leads` makes once it has checked the site's
+ * key, and the email settings through the email settings store. Only the
+ * passport's file row is inserted directly, as the upload's finalize leaves
+ * it: no object store runs here, so documents are reviewed against an
+ * in-memory one.
  *
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
 import postgres from 'postgres';
+import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
 import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
@@ -26,6 +34,11 @@ import { assertDisposableDatabaseUrl, setTestRuntimePassword } from '@gt-sales/d
 
 import { createApp } from '../../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../../src/auth/session.js';
+import { DatabaseDocumentContextResolver } from '../../src/documents/resolver.js';
+import { DocumentService } from '../../src/documents/service.js';
+import { DatabaseDocumentStore } from '../../src/documents/store.js';
+import { DatabaseEmailSettingsStore } from '../../src/email/settings-store.js';
+import { STARTER_TEMPLATES } from '../../src/email/starters.js';
 import { DatabaseLeadStore } from '../../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../../src/leads/work-store.js';
 import { DatabasePlanStore } from '../../src/plans/store.js';
@@ -37,6 +50,7 @@ const SIM_WORKSPACE_ID = '10000000-0000-4000-8000-0000000e2e02';
 const OWNER_ID = '20000000-0000-4000-8000-0000000e2e01';
 const COLLEAGUE_ID = '20000000-0000-4000-8000-0000000e2e02';
 const WEBSITE_ACTOR_ID = '20000000-0000-4000-8000-0000000e2e09';
+const PASSPORT_FILE_ID = '50000000-0000-4000-8000-0000000e2e01';
 const STAFF_BEARER = process.env['E2E_STAFF_BEARER'] ?? 'e2e-staff-session-owner';
 const ADMIN_URL = process.env['TEST_MIGRATION_DATABASE_URL'];
 const RUNTIME_URL = process.env['DATABASE_URL'];
@@ -53,6 +67,12 @@ try {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }
+
+// Customer email through the fake provider; the site's saved settings are its
+// sender, never an EMAIL_SENDERS_JSON fallback from the shell running this.
+process.env['EMAIL_PROVIDER'] ??= 'fake';
+process.env['EMAIL_CONTACT_HASH_SECRET'] ??= 'e2e-email-contact-hash-secret-0123';
+delete process.env['EMAIL_SENDERS_JSON'];
 
 const internetPayload = (planLabel: string, city: string) => ({
   planId: 'ab-1gbps',
@@ -81,6 +101,7 @@ const mobilityPayload = (firstName: string, lastName: string) => ({
 });
 
 async function seed(): Promise<void> {
+  let nadiaLeadId: string | undefined;
   const admin = postgres(ADMIN_URL ?? '', { max: 1, prepare: false, ssl: false });
   try {
     await setTestRuntimePassword(admin);
@@ -223,7 +244,7 @@ async function seed(): Promise<void> {
         billingPeriod: 'month',
         paymentRequired,
         active: true,
-        requiredDocuments: [],
+        requiredDocuments: name === 'Rogers 60GB' ? ['passport'] : [],
         customValues: {},
       });
       if (outcome.kind !== 'created') throw new Error(`seed plan ${name}: ${outcome.kind}`);
@@ -258,8 +279,49 @@ async function seed(): Promise<void> {
       submit: true,
     });
     await work.updateLead({ ...simOwner, leadId: ordered.lead.id, stage: 'pending' });
+    nadiaLeadId = ordered.lead.id;
+
+    // Get Canada Sim's sender, and its Dispatched email saved once (version 1).
+    // No automation rule is switched on: the journey does that.
+    const email = new DatabaseEmailSettingsStore(database);
+    await email.putSettings(simOwner, {
+      fromName: 'Get Canada Sim',
+      fromAddress: 'orders@getcanadasim.example',
+      replyTo: null,
+      logoUrl: null,
+      brandColor: '#123abc',
+      footerText: '',
+      siteUrl: 'https://getcanadasim.example',
+    });
+    const dispatched = await email.putTemplate(simOwner, 'dispatched', {
+      expectedVersion: 0,
+      ...STARTER_TEMPLATES.dispatched,
+    });
+    if (dispatched.kind !== 'saved') throw new Error(`seed template: ${dispatched.kind}`);
   } finally {
     await database.close();
+  }
+
+  // Nadia Khan's passport, as an upload's finalize leaves it: attached, not reviewed.
+  if (!nadiaLeadId) throw new Error('seed lead Nadia Khan was not created');
+  const files = postgres(ADMIN_URL ?? '', { max: 1, prepare: false, ssl: false });
+  try {
+    await files`
+      insert into app.files (
+        id, workspace_id, record_type, record_id, document_type, bucket, staging_key,
+        candidate_key, object_key, declared_content_type, detected_mime, declared_size_bytes,
+        size_bytes, checksum_sha256, status, uploaded_by, expires_at, finalized_at
+      ) values (
+        ${PASSPORT_FILE_ID}, ${SIM_WORKSPACE_ID}, 'lead', ${nadiaLeadId}, 'passport', 'documents',
+        ${`staging/${SIM_WORKSPACE_ID}/${PASSPORT_FILE_ID}`},
+        ${`candidate/${SIM_WORKSPACE_ID}/${PASSPORT_FILE_ID}`},
+        ${`candidate/${SIM_WORKSPACE_ID}/${PASSPORT_FILE_ID}`}, 'application/pdf',
+        'application/pdf', 2048, 2048, ${'a'.repeat(64)}, 'available', ${WEBSITE_ACTOR_ID},
+        now() + interval '1 hour', now()
+      )
+    `;
+  } finally {
+    await files.end();
   }
 }
 
@@ -278,6 +340,12 @@ const app = createApp({
   staff: {
     ...createDefaultStaffRouteDependencies(),
     sessionVerifier: new StubStaffVerifier(),
+    // Reviews are database rows; no document is opened, so the objects can be in memory.
+    documentService: new DocumentService(
+      new DatabaseDocumentStore(),
+      new InMemoryR2DocumentStore(),
+      new DatabaseDocumentContextResolver(),
+    ),
     // One browser on 127.0.0.1 makes every request; the limiter is not under test here.
     rateLimit: undefined,
   },
