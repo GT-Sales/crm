@@ -16,7 +16,7 @@ import {
   type SiteProperty,
 } from '@gt-sales/contracts';
 
-import { todayDay } from '../../lib/dates';
+import { torontoDay } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
 import { catalogFromModel } from '../properties/use-property-model';
 import { REVEAL_SECONDS } from './identity-check';
@@ -860,7 +860,7 @@ describe('LeadRecord stage moves', () => {
       ...DEFAULT_LEAD_ORDER,
       courier: 'Canada Post',
       trackingNumber: 'LX1',
-      dispatchedAt: todayDay(),
+      dispatchedAt: torontoDay(),
     },
   };
   const moveEntry: LeadActivity = {
@@ -927,7 +927,7 @@ describe('LeadRecord stage moves', () => {
     expect(mocks.updateStaffLead).not.toHaveBeenCalled();
     expect(screen.getByLabelText<HTMLSelectElement>('Stage').value).toBe('verified');
     expect(within(dialog).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(
-      todayDay(),
+      torontoDay(),
     );
     fireEvent.change(within(dialog).getByLabelText(/^Courier/), {
       target: { value: 'Canada Post' },
@@ -940,7 +940,7 @@ describe('LeadRecord stage moves', () => {
     await waitFor(() =>
       expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
         stage: 'delivered',
-        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: todayDay() },
+        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: torontoDay() },
       }),
     );
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -996,7 +996,7 @@ describe('LeadRecord stage moves', () => {
     await waitFor(() =>
       expect(mocks.updateStaffLead).toHaveBeenLastCalledWith('staff-token', WORKSPACE, LEAD, {
         stage: 'delivered',
-        order: { courier: 'Canada Post', dispatchedAt: todayDay() },
+        order: { courier: 'Canada Post', dispatchedAt: torontoDay() },
         documentsOverrideReason: 'Seen on a video call',
       }),
     );

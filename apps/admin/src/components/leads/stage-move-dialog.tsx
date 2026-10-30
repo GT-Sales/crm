@@ -23,7 +23,7 @@ import {
   Textarea,
 } from '@gt-sales/ui';
 
-import { todayDay } from '../../lib/dates';
+import { torontoDay } from '../../lib/dates';
 import { errorDetailList, errorReason } from '../../lib/use-resource';
 import { documentTypeLabel } from '../plans/document-types';
 
@@ -82,7 +82,7 @@ function filled(value: string): string | undefined {
  * The move into a stage that asks for details first (`stageGates`): the
  * dispatch details for Delivered (courier, tracking number, dispatch date),
  * the activation details for Activated (date, number, account), each
- * prefilled from the order and dated today when it has none. When the
+ * prefilled from the order and dated today in Toronto when it has none. When the
  * documents check refuses the move it lists the documents not approved; staff
  * allowed to (`canOverride`) give a reason and move anyway.
  */
@@ -109,8 +109,8 @@ export function StageMoveDialog({
   const asksActivation = gates.includes('activation');
   const [courier, setCourier] = useState(order?.courier ?? '');
   const [trackingNumber, setTrackingNumber] = useState(order?.trackingNumber ?? '');
-  const [dispatchedAt, setDispatchedAt] = useState(() => order?.dispatchedAt ?? todayDay());
-  const [activatedAt, setActivatedAt] = useState(() => order?.activatedAt ?? todayDay());
+  const [dispatchedAt, setDispatchedAt] = useState(() => order?.dispatchedAt ?? torontoDay());
+  const [activatedAt, setActivatedAt] = useState(() => order?.activatedAt ?? torontoDay());
   const [activationNumber, setActivationNumber] = useState(order?.activationNumber ?? '');
   const [activationAccount, setActivationAccount] = useState(order?.activationAccount ?? '');
   const [missing, setMissing] = useState<readonly string[]>();

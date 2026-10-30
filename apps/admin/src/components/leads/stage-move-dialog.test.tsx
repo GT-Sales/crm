@@ -8,7 +8,7 @@ import {
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 
-import { todayDay } from '../../lib/dates';
+import { torontoDay } from '../../lib/dates';
 import { StageMoveDialog } from './stage-move-dialog';
 
 vi.mock('../../lib/api', () => ({
@@ -89,7 +89,9 @@ describe('StageMoveDialog', () => {
     const { onMove, onDone, view } = dialog();
     onMove.mockResolvedValue(moved);
     expect(within(view).getByRole('heading', { name: 'Move to Delivered' })).toBeTruthy();
-    expect(within(view).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(todayDay());
+    expect(within(view).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(
+      torontoDay(),
+    );
     expect(within(view).queryByLabelText(/^Activated on/)).toBeNull();
     fireEvent.change(within(view).getByLabelText(/^Courier/), { target: { value: 'Canada Post' } });
     fireEvent.change(within(view).getByLabelText(/^Tracking number/), {
@@ -100,7 +102,7 @@ describe('StageMoveDialog', () => {
     await waitFor(() =>
       expect(onMove).toHaveBeenCalledWith({
         stage: 'delivered',
-        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: todayDay() },
+        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: torontoDay() },
       }),
     );
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(moved));
@@ -144,9 +146,23 @@ describe('StageMoveDialog', () => {
     );
   });
 
+  it('dates the dispatch by Toronto’s calendar, not the browser’s', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 23:30 on 30 October in Toronto, already 31 October in UTC.
+      vi.setSystemTime(new Date('2026-10-31T03:30:00.000Z'));
+      const { view } = dialog();
+      expect(within(view).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(
+        '2026-10-30',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('dates an activation today when the order has none', () => {
     const { view } = dialog({ lead: { ...order, stage: 'delivered' }, to: 'activated' });
-    expect(within(view).getByLabelText<HTMLInputElement>(/^Activated on/).value).toBe(todayDay());
+    expect(within(view).getByLabelText<HTMLInputElement>(/^Activated on/).value).toBe(torontoDay());
   });
 
   it('lists the missing documents and moves anyway with a reason, for those allowed', async () => {
@@ -179,7 +195,7 @@ describe('StageMoveDialog', () => {
     await waitFor(() =>
       expect(onMove).toHaveBeenLastCalledWith({
         stage: 'delivered',
-        order: { courier: 'Canada Post', dispatchedAt: todayDay() },
+        order: { courier: 'Canada Post', dispatchedAt: torontoDay() },
         documentsOverrideReason: 'Customer sent them by email',
       }),
     );
