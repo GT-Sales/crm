@@ -15,6 +15,7 @@ import {
   leadFormSchema,
   leadStatusSchema,
   leadTypeSchema,
+  simOrderRef,
   type LeadAssigneeFilter,
   type LeadContact,
   type LeadForm,
@@ -44,8 +45,10 @@ import {
   type IdempotencyInput,
 } from './idempotency.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
+import { nextSiteNumber } from './site-counter.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
+import { checkLeadForm, checkLeadSubmit, type LeadIntakeProblem } from './types.js';
 
 /** Long enough for a customer to leave and resume the form later. */
 const DEFAULT_DRAFT_GRANT_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -110,7 +113,13 @@ export type UpdateLeadOutcome =
   /** The idempotency key was used with another body or for another lead. */
   | { status: 'idempotency_conflict' }
   /** The idempotency key is claimed by a request that never completed. */
-  | { status: 'idempotency_in_progress' };
+  | { status: 'idempotency_in_progress' }
+  /**
+   * The save would leave the lead unfit for its type: its form is not the
+   * type's (`form`), or a submission lacks what the type needs to be worked
+   * (`checkLeadSubmit`). Nothing was written; `problem` names the part only.
+   */
+  | { status: 'submission_incomplete'; problem: LeadIntakeProblem };
 
 export interface UpdateLeadInput {
   workspaceId: string;
@@ -180,14 +189,39 @@ function toSummary(row: {
   id: string;
   workspaceId: string;
   status: string;
+  externalRef: string | null;
   updatedAt: Date;
 }): LeadSummary {
   return {
     id: row.id,
     workspaceId: row.workspaceId,
     status: leadStatusSchema.parse(row.status),
+    externalRef: row.externalRef,
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/** What every summary is read from: the lead row's own columns. */
+const summaryColumns = {
+  id: leads.id,
+  workspaceId: leads.workspaceId,
+  status: leads.status,
+  externalRef: leads.externalRef,
+  updatedAt: leads.updatedAt,
+};
+
+/**
+ * The reference a new lead is stored under: the website's own when it sent
+ * one; else, for a SIM order, the next `MS-<n>` from the site's counter; else
+ * none.
+ */
+async function intakeExternalRef(
+  tx: TenantTransaction,
+  input: CreateLeadInput,
+): Promise<string | null> {
+  if (input.externalRef !== undefined) return input.externalRef;
+  if (input.leadType !== 'sim_order') return null;
+  return simOrderRef(await nextSiteNumber(tx, input.workspaceId, 'sim_order_ref'));
 }
 
 /**
@@ -275,10 +309,7 @@ async function replayCreatedLead(
 ): Promise<CreateLeadResult> {
   const [row] = await tx
     .select({
-      id: leads.id,
-      workspaceId: leads.workspaceId,
-      status: leads.status,
-      updatedAt: leads.updatedAt,
+      ...summaryColumns,
       deletedAt: leads.deletedAt,
       customerDataRestrictedAt: leads.customerDataRestrictedAt,
     })
@@ -305,6 +336,12 @@ class UpdateRefused extends Error {
     super(`lead update refused: ${outcome.status}`);
     this.name = 'UpdateRefused';
   }
+}
+
+/** The `payload` of a stored form envelope, or null when the lead holds none. */
+function storedPayload(stored: unknown): Readonly<Record<string, unknown>> | null {
+  const form = leadFormSchema.safeParse(stored);
+  return form.success ? form.data.payload : null;
 }
 
 /** The plan and quantity a draft of an order type was saved with, when it names a plan. */
@@ -419,6 +456,9 @@ export class DatabaseLeadStore implements LeadStore {
         const attribution = sanitizeAttribution(input.attribution);
         const status = input.submit ? 'submitted' : 'incomplete';
         const orderDetails = await intakeOrder(tx, input);
+        // Numbered after the claim and the order check, so a replay or a
+        // refused create takes no number.
+        const externalRef = await intakeExternalRef(tx, input);
         const contactId = input.contact?.email
           ? await upsertContact(tx, { ...input.contact, email: input.contact.email })
           : null;
@@ -435,18 +475,13 @@ export class DatabaseLeadStore implements LeadStore {
             phone: input.contact?.phone,
             countryCode: input.contact?.countryCode,
             contactId,
-            externalRef: input.externalRef ?? null,
+            externalRef,
             payload: input.form ?? null,
             attribution,
             consentVersion: input.consentVersion,
             ...(orderDetails ? { orderDetails } : {}),
           })
-          .returning({
-            id: leads.id,
-            workspaceId: leads.workspaceId,
-            status: leads.status,
-            updatedAt: leads.updatedAt,
-          });
+          .returning(summaryColumns);
         if (!leadRow) throw new Error('lead insert did not return a row');
 
         await tx.insert(auditEvents).values({
@@ -460,7 +495,7 @@ export class DatabaseLeadStore implements LeadStore {
           after: {
             status,
             leadType: input.leadType,
-            externalRef: input.externalRef ?? null,
+            externalRef,
             contactId,
             consentVersion: input.consentVersion,
             ...(orderDetails ? { order: orderDetails } : {}),
@@ -518,9 +553,13 @@ export class DatabaseLeadStore implements LeadStore {
             expiresAt: draftGrants.expiresAt,
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
+            leadExternalRef: leads.externalRef,
             leadUpdatedAt: leads.updatedAt,
+            leadFullName: leads.fullName,
             leadEmail: leads.email,
+            leadPhone: leads.phone,
             leadType: leads.leadType,
+            leadPayload: leads.payload,
             orderDetails: leads.orderDetails,
           })
           .from(draftGrants)
@@ -565,6 +604,7 @@ export class DatabaseLeadStore implements LeadStore {
               id: input.leadId,
               workspaceId: input.workspaceId,
               status: grant.leadStatus,
+              externalRef: grant.leadExternalRef,
               updatedAt: grant.leadUpdatedAt,
             });
             return { status: 'updated', lead, replayed: true };
@@ -581,7 +621,12 @@ export class DatabaseLeadStore implements LeadStore {
           throw new UpdateRefused({ status: 'draft_submitted' });
         }
 
-        // The order is settled before anything is written, so a refused plan changes nothing.
+        // The form, the submission and the order are settled before anything
+        // is written, so a refusal changes nothing.
+        const form = checkLeadForm(grant.leadType, input.form);
+        if (!form.ok) {
+          throw new UpdateRefused({ status: 'submission_incomplete', problem: form.problem });
+        }
         const updates: Partial<typeof leads.$inferInsert> = { updatedAt: now };
         const changedFields: string[] = [];
         if (input.order && !isOrderLeadType(grant.leadType)) {
@@ -590,6 +635,20 @@ export class DatabaseLeadStore implements LeadStore {
         const draftOrder = toLeadOrder(grant.orderDetails);
         const planId = input.order?.planId ?? draftOrder.planId;
         const quantity = input.order?.quantity ?? draftOrder.quantity;
+        if (input.submit) {
+          const ready = checkLeadSubmit(grant.leadType, {
+            contact: {
+              fullName: input.contact?.fullName ?? grant.leadFullName ?? undefined,
+              email: input.contact?.email ?? grant.leadEmail ?? undefined,
+              phone: input.contact?.phone ?? grant.leadPhone ?? undefined,
+            },
+            payload: input.form?.payload ?? storedPayload(grant.leadPayload),
+            planId,
+          });
+          if (!ready.ok) {
+            throw new UpdateRefused({ status: 'submission_incomplete', problem: ready.problem });
+          }
+        }
         if (planId !== null && (input.order || input.submit)) {
           const found = await loadPlanForFreeze(tx, input.workspaceId, planId);
           if (!isPlanAvailable(found, grant.leadType)) {
@@ -638,12 +697,7 @@ export class DatabaseLeadStore implements LeadStore {
           .update(leads)
           .set(updates)
           .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)))
-          .returning({
-            id: leads.id,
-            workspaceId: leads.workspaceId,
-            status: leads.status,
-            updatedAt: leads.updatedAt,
-          });
+          .returning(summaryColumns);
         // The grant resolved but the lead itself is gone — treat identically
         // to an invalid grant.
         if (!row) throw new UpdateRefused({ status: 'grant_invalid' });

@@ -145,6 +145,8 @@ contact details are erased from the CRM's copy 90 days after its last change.
 The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`
 (`stage_mismatches` compares with the mapping applied: a `paid` order on a
 `pending` lead matches). The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
+The import runs one last time on switch day, when the checkout moves to the
+CRM; see [The final run (switch day)](#the-final-run-switch-day) below.
 
 **Documents** are not copied by the script itself: it queues one
 `legacy_document_import` outbox job per file Get Canada Sim keeps in the
@@ -191,3 +193,60 @@ page that has them.
 | 2026-10-27 | Run with the "New" badge (`f5d6639`): the same counts; all 138 orders had been opened in the old admin, so 143 `opened` entries and `crm_new` 0.                                                                                                                                                                      |
 | 2026-10-27 | Run with documents (`081d478`): the same counts; 121 copies queued (50 passports, 51 approval letters, 9 billing contracts, 7 SIM photos, 4 licences), all completed in 9 minutes, about 2.5 s each; 121 current files on 60 leads, each matching its original's size and type, 121 `file.imported` audits, 0 failed. |
 | 2026-10-27 | Run with change requests (`9630b76`): the same counts, documents unchanged (121, none queued or failed); all 69 requests on 57 orders came over as 137 entries: 69 requests, 64 approvals, 4 rejections, and 1 request still waiting in the old admin.                                                                |
+
+## The final run (switch day)
+
+On switch day (merge phase 5, Task A11) Get Canada Sim's checkout moves to
+the CRM and the import runs one last time. The seed and the checks are in
+[`manual/gcs-switch-day.sql`](manual/gcs-switch-day.sql). Run it as the
+import is run: Supabase SQL editor, as `postgres`, one block at a time.
+
+1. Staff resolve the pending change requests in the old admin.
+2. Run the `SEED` block, then turn the website's `CRM_ORDERS` flag on
+   (Vercel production, redeploy). The seed sets `app.site_counters`
+   (`sim_order_ref`) to the highest `public.orders.order_no` plus 9. From the
+   flip on, every new order is a CRM lead numbered `MS-<n>` from that counter,
+   so the CRM's first order is at least the highest `order_no` plus 10. An
+   order started on the old checkout between the seed and the flip takes one
+   of the nine numbers in between, and the final import brings it in under
+   its own `MS-<order_no>`. The seed only ever raises the counter
+   (`greatest`), so running it twice is harmless.
+3. Run the import (`packages/db/sql/getcanadasim-legacy-import.sql`) exactly
+   as before. It creates the leads of orders the old checkout took before the
+   flip and refreshes the imported ones from `public.orders`
+   (`on conflict (id) do update`, with the rules above). That is safe on this
+   day because staff worked those orders in the old admin until now. It never
+   touches a CRM order, since a CRM order's id is not in `public.orders`.
+   **Do not run it again after switch day**: after the flip nothing flows
+   from `public.orders` to the CRM, and staff work orders only in the CRM.
+4. Run the `RECONCILE` selects one at a time:
+   1. `rows_missing` must be `0`, and `imported_orders` must equal
+      `gcs_orders`.
+   2. No `MS-` reference may be held by more than one lead of the site.
+   3. The CRM's own orders (`MS-` leads whose id is not in
+      `public.orders`) must each be numbered above the seed.
+   4. Write down the counter's `last_value`.
+
+So the order is: the seed, the flip, the import, then reconcile.
+
+**A production test order before the day** (pre-flight PF2): before the
+first one, run the `SEED` block once with `+ 1000` in place of `+ 9`. A test
+order placed before switch day takes `MS-<highest order_no + 1001>` and keeps
+that number even after staff archive it (the unique index ignores
+`deleted_at`). The old checkout keeps numbering from the highest `order_no`
+until the flip, so with no gap it would reach the test order's number and
+the final import would fail on `leads_workspace_type_external_ref_unique`.
+The switch-day seed's `greatest` never lowers the counter below the test
+order.
+
+The rehearsal is the "switch day" suite in
+`apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`. It runs
+the `SEED` and `RECONCILE` blocks verbatim. Orders 141 to 143 are imported,
+the seed gives `last_value` 152, and the CRM's first order is `MS-153`. Order
+144, taken by the old checkout in the window, then imports as `MS-144` with
+no unique violation, and the import leaves `MS-153` untouched (its stage,
+form and timeline). A second seed after the counter reached 160 leaves 160.
+Reconciliation shows 0 missing, no duplicated reference and one CRM order. A
+second case runs the `+ 1000` seed: the test order is `MS-1144` (then
+archived), the old checkout's 144 and 1143 import cleanly, the switch-day
+seed gives 1152 and the next order is `MS-1153`.

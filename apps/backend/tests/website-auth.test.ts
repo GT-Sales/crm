@@ -65,6 +65,7 @@ class FakeLeadStore implements LeadStore {
         id: '90000000-0000-4000-8000-000000000001',
         workspaceId: input.workspaceId,
         status: 'incomplete',
+        externalRef: null,
         updatedAt: '2026-09-14T00:00:00.000Z',
       },
       grant: { token: 'gtdg_test', expiresAt: '2026-10-14T00:00:00.000Z' },

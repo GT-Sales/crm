@@ -155,6 +155,9 @@ export {
 } from './leads';
 
 export {
+  SIM_ORDER_DELIVERIES,
+  SIM_ORDER_PERMIT_TYPES,
+  SIM_ORDER_REF_PREFIX,
   allowedStageMoves,
   identityLeadTypes,
   initialLeadStage,
@@ -166,12 +169,16 @@ export {
   leadTypeEntry,
   leadTypeLabel,
   mobilityLeadPayloadSchema,
+  parseSimOrderRef,
+  simOrderLeadPayloadSchema,
+  simOrderRef,
   stageGates,
   type InternetLeadPayload,
   type LeadStageDefinition,
   type LeadOutcome,
   type LeadTypeCatalogEntry,
   type MobilityLeadPayload,
+  type SimOrderLeadPayload,
   type StageGate,
 } from './lead-types';
 

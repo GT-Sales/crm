@@ -2,8 +2,10 @@ import {
   internetLeadPayloadSchema,
   leadTypeCatalog,
   mobilityLeadPayloadSchema,
+  simOrderLeadPayloadSchema,
   type LeadContact,
   type LeadForm,
+  type LeadOrderIntake,
 } from '@gt-sales/contracts';
 import type { z } from 'zod';
 
@@ -15,9 +17,10 @@ import type { z } from 'zod';
  * intake refuses any type that is not listed.
  *
  * A type with a `payload` schema is modelled: its `form.payload` is validated
- * strictly and nothing unmodelled is stored. A type without one is planned
- * but not yet modelled (Get Canada Sim's forms arrive in phase 3) and keeps
- * the old behaviour of accepting any object.
+ * strictly, on a create and on every website save, and nothing unmodelled is
+ * stored. A type without one is planned but not yet modelled (Get Canada
+ * Sim's partner applications and contact messages) and keeps the old
+ * behaviour of accepting any object.
  */
 export interface LeadTypeDefinition {
   payload?: z.ZodType;
@@ -28,6 +31,40 @@ export interface LeadTypeDefinition {
   oneShot: boolean;
   /** Contact fields the type cannot be stored without. */
   requiredContact: readonly (keyof Pick<LeadContact, 'fullName' | 'email' | 'phone'>)[];
+  /**
+   * What a submission must carry beyond `requiredContact`; undefined = ready.
+   * A type with one may save a draft with no form at all: the check decides,
+   * at submission, whether the form it holds is enough.
+   */
+  submitCheck?: (lead: SubmittableLead) => LeadIntakeProblem | undefined;
+}
+
+/**
+ * A lead as a submission would leave it: on a create, the request; on a
+ * website save, the incoming contact over the stored one, the incoming form
+ * else the stored payload, and the incoming plan else the draft's.
+ */
+export interface SubmittableLead {
+  contact: LeadContact;
+  /** The form's `payload`, or null when the lead has no form. */
+  payload: Readonly<Record<string, unknown>> | null;
+  planId: string | null;
+}
+
+const filled = (value: unknown): boolean => typeof value === 'string' && value.trim() !== '';
+
+/**
+ * A Get Canada Sim order is worked by the person, the plan and how the SIM
+ * reaches them; a mailed SIM (`pickup`) needs the address it goes to. The
+ * payload's shape is already checked, so only presence is decided here.
+ */
+function simOrderSubmitCheck(lead: SubmittableLead): LeadIntakeProblem | undefined {
+  if (!filled(lead.contact.fullName) || !filled(lead.contact.email)) return 'contact';
+  if (lead.planId === null) return 'order';
+  const delivery = lead.payload?.['delivery'];
+  if (delivery !== 'esim' && delivery !== 'pickup') return 'form';
+  if (delivery === 'pickup' && !filled(lead.payload?.['shippingAddress'])) return 'form';
+  return undefined;
 }
 
 export const leadTypes = {
@@ -41,7 +78,12 @@ export const leadTypes = {
     oneShot: true,
     requiredContact: ['fullName', 'email', 'phone'],
   },
-  sim_order: { oneShot: false, requiredContact: [] },
+  sim_order: {
+    payload: simOrderLeadPayloadSchema,
+    oneShot: false,
+    requiredContact: [],
+    submitCheck: simOrderSubmitCheck,
+  },
   partner_application: { oneShot: false, requiredContact: [] },
   contact_message: { oneShot: false, requiredContact: [] },
 } as const satisfies Record<keyof typeof leadTypeCatalog, LeadTypeDefinition>;
@@ -54,33 +96,71 @@ export function leadTypeDefinition(leadType: string): LeadTypeDefinition | undef
   return registry.get(leadType);
 }
 
-/** Which part of a create request the registry refused; never a field value. */
-export type LeadIntakeProblem = 'leadType' | 'submit' | 'form' | 'contact';
+/**
+ * Which part of a website request the registry refused; never a field value.
+ * `order`: a submission of an order type that names no plan.
+ */
+export type LeadIntakeProblem = 'leadType' | 'submit' | 'form' | 'contact' | 'order';
 
 export type LeadIntakeCheck = { ok: true } | { ok: false; problem: LeadIntakeProblem };
 
+const OK: LeadIntakeCheck = { ok: true };
+const refused = (problem: LeadIntakeProblem): LeadIntakeCheck => ({ ok: false, problem });
+
+function formFits(definition: LeadTypeDefinition, form: LeadForm): boolean {
+  if (!definition.payload) return true;
+  return form.schemaVersion === 1 && definition.payload.safeParse(form.payload).success;
+}
+
 /**
- * Checks a create request against the registry before anything is stored.
- * Field values never appear in the result, so it is safe to return to the
- * caller and to log.
+ * A website save's form against its lead's type (`PATCH`): a modelled type's
+ * form must be its schema's; no form, or a type that is not modelled, is
+ * fine. An unknown type is refused.
+ */
+export function checkLeadForm(leadType: string, form: LeadForm | undefined): LeadIntakeCheck {
+  const definition = leadTypeDefinition(leadType);
+  if (!definition) return refused('leadType');
+  if (form !== undefined && !formFits(definition, form)) return refused('form');
+  return OK;
+}
+
+/** Whether a lead, as a submission would leave it, carries what its type needs to be worked. */
+export function checkLeadSubmit(leadType: string, lead: SubmittableLead): LeadIntakeCheck {
+  const definition = leadTypeDefinition(leadType);
+  if (!definition) return refused('leadType');
+  if (definition.requiredContact.some((field) => !lead.contact[field])) return refused('contact');
+  const problem = definition.submitCheck?.(lead);
+  return problem === undefined ? OK : refused(problem);
+}
+
+/**
+ * Checks a create request against the registry before anything is stored,
+ * and, when it submits, the lead it would make (`checkLeadSubmit`). Field
+ * values never appear in the result, so it is safe to return to the caller
+ * and to log.
  */
 export function checkLeadIntake(input: {
   leadType: string;
   submit?: boolean;
   contact?: LeadContact;
   form?: LeadForm;
+  order?: LeadOrderIntake;
 }): LeadIntakeCheck {
   const definition = leadTypeDefinition(input.leadType);
-  if (!definition) return { ok: false, problem: 'leadType' };
-  if (definition.oneShot && input.submit !== true) return { ok: false, problem: 'submit' };
+  if (!definition) return refused('leadType');
+  if (definition.oneShot && input.submit !== true) return refused('submit');
   if (definition.payload) {
-    if (!input.form || input.form.schemaVersion !== 1) return { ok: false, problem: 'form' };
-    if (!definition.payload.safeParse(input.form.payload).success) {
-      return { ok: false, problem: 'form' };
-    }
+    // A type with a submit rule may save a draft with no form yet.
+    if (!input.form && !definition.submitCheck) return refused('form');
+    if (input.form && !formFits(definition, input.form)) return refused('form');
   }
   if (definition.requiredContact.some((field) => !input.contact?.[field])) {
-    return { ok: false, problem: 'contact' };
+    return refused('contact');
   }
-  return { ok: true };
+  if (input.submit !== true) return OK;
+  return checkLeadSubmit(input.leadType, {
+    contact: input.contact ?? {},
+    payload: input.form?.payload ?? null,
+    planId: input.order?.planId ?? null,
+  });
 }

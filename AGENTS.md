@@ -85,8 +85,9 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 ## Where things live
 
 - Lead intake and store: `apps/backend/src/leads/` (`store.ts` does the contact
-  merge and lead-type handling, `types.ts` the registry), routes in
-  `src/routes/website.ts`.
+  merge and lead-type handling, `types.ts` the registry and its submit
+  checks, `site-counter.ts` a site's running numbers such as the next order
+  number), routes in `src/routes/website.ts`.
 - Staff lead work (detail, stage, assignee, notes, tasks, board, archive):
   `src/leads/work-store.ts` for writes, `src/leads/staff-queries.ts` for reads
   (plain SQL with explicit aliases; see the comment at its top).
@@ -225,6 +226,22 @@ retry never makes a second one (`app.idempotency_keys`, scope
 request, a retry within 24 hours returns the first lead marked `replayed`, the
 same key with another body is `idempotency_conflict`, and rows are pruned after
 7 days.
+
+An **order number** is a SIM order's `MS-<n>`, kept as the lead's
+`externalRef` and returned on every website create and save
+(`lead.externalRef`). An imported order keeps its old `order_no`; a new
+`sim_order` created with no `externalRef` takes the next number from the
+site's counter `sim_order_ref` in `app.site_counters`
+(`nextSiteNumber`, advanced in the create's own transaction after the
+idempotency claim and the order check, so a replay or a refused create takes
+none). Unseeded, the counter starts after the site's highest imported
+`MS-<n>`; on switch day it is seeded past the old checkout's last number
+(`docs/RUNBOOKS/manual/gcs-switch-day.sql`) and it only ever goes up. A
+website that sends its own `externalRef` keeps it as sent and takes no
+number. A `sim_order` draft may be partial; its submission needs the
+contact's name and email, a plan (`order.planId`) and `delivery` (`esim`, or
+`pickup` with a shipping address), else `400 validation_error` with
+`details.field` `contact`, `order` or `form` (the registry's `submitCheck`).
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
 Settings → Email): from name and address, reply-to, logo, brand colour, footer

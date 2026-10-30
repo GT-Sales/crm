@@ -77,6 +77,7 @@ describe('createBackendClient transport', () => {
         id: UUID,
         workspaceId: UUID,
         status: 'incomplete',
+        externalRef: null,
         updatedAt: '2026-09-14T00:00:00.000Z',
       },
       draftGrant: { token: 't', expiresAt: '2026-09-14T00:00:00.000Z' },
@@ -95,6 +96,7 @@ describe('createBackendClient transport', () => {
         id: UUID,
         workspaceId: UUID,
         status: 'incomplete',
+        externalRef: null,
         updatedAt: '2026-09-14T00:00:00.000Z',
       },
       requestId: UUID,
@@ -115,6 +117,7 @@ describe('createBackendClient transport', () => {
       id: UUID,
       workspaceId: UUID,
       status: 'submitted',
+      externalRef: 'MS-153',
       updatedAt: '2026-09-14T00:00:00.000Z',
     };
     const created = harness(201, { lead: summary, draftGrant: null, requestId: UUID });
@@ -341,6 +344,7 @@ describe('website proof transport', () => {
         id: UUID,
         workspaceId: UUID,
         status: 'incomplete',
+        externalRef: null,
         updatedAt: '2026-09-14T00:00:00.000Z',
       },
       draftGrant: { token: 't', expiresAt: '2026-09-14T00:00:00.000Z' },

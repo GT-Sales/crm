@@ -172,21 +172,21 @@ Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 Schema `app`, all tables carry `workspace_id` except `contacts` and
 `rate_limit_buckets`. A workspace **is a site**.
 
-| Group                                    | Tables                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Sites, staff                             | `workspaces`, `memberships` (user_id or invited_email; pending/active/revoked; `display_name`), `roles`, `membership_roles`, `permissions`, `membership_permissions`, `service_credentials`                                                                                                                                                                                                                        |
-| CRM                                      | `contacts` (global, unique by `lower(btrim(email))`), `leads` (lead_type, status = the form's lifecycle, **stage** = where staff work it, payload, attribution, contact_id, assigned_actor_id, external_ref, restriction and soft-delete stamps), `lead_activities` (append-only timeline: note, status_change, assignment, edit, system), `lead_tasks`, `draft_grants`                                            |
-| Properties                               | `properties` (a site's built-in overrides and custom properties; tombstones keep keys reserved), `property_layouts`, `saved_views` (a person's private views, owner policy), and `leads.custom_values`                                                                                                                                                                                                             |
-| Plans                                    | `plans` (a site's plans, one order lead type each; never deleted, `active` off hides one), `leads.order_details` (an order lead's plan link, frozen plan, quantity, payment status and carrier commission; `{}` on every other lead) and `properties.website_visible`                                                                                                                                              |
-| Documents                                | `files`, `file_revisions`, `file_review_events`                                                                                                                                                                                                                                                                                                                                                                    |
-| Email                                    | `email_messages` (`template_version` records the site template version a mail was rendered from), `email_provider_events`, `email_suppressions`, `marketing_consents`, `follow_up_schedules`, `deleted_email_messages`                                                                                                                                                                                             |
-| Order tools, email settings, automations | `idempotency_keys` (a website submission's key hash and request fingerprint), `workspace_email_settings` (a site's sender and look), `email_templates` (the current copy of each of seven emails) and `email_template_versions` (every saved version, append-only), `automations` (a site's on/off state and counters for each built-in rule) and `automation_runs` (one firing of a rule for a lead, append-only) |
-| Operations                               | `outbox_jobs`, `outbox_job_alerts`, `audit_events` (redaction-only updates), `rate_limit_buckets`                                                                                                                                                                                                                                                                                                                  |
+| Group                                    | Tables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sites, staff                             | `workspaces`, `memberships` (user_id or invited_email; pending/active/revoked; `display_name`), `roles`, `membership_roles`, `permissions`, `membership_permissions`, `service_credentials`                                                                                                                                                                                                                                                                                                                                                 |
+| CRM                                      | `contacts` (global, unique by `lower(btrim(email))`), `leads` (lead_type, status = the form's lifecycle, **stage** = where staff work it, payload, attribution, contact_id, assigned_actor_id, external_ref, restriction and soft-delete stamps), `lead_activities` (append-only timeline: note, status_change, assignment, edit, system), `lead_tasks`, `draft_grants`                                                                                                                                                                     |
+| Properties                               | `properties` (a site's built-in overrides and custom properties; tombstones keep keys reserved), `property_layouts`, `saved_views` (a person's private views, owner policy), and `leads.custom_values`                                                                                                                                                                                                                                                                                                                                      |
+| Plans                                    | `plans` (a site's plans, one order lead type each; never deleted, `active` off hides one), `leads.order_details` (an order lead's plan link, frozen plan, quantity, payment status and carrier commission; `{}` on every other lead) and `properties.website_visible`                                                                                                                                                                                                                                                                       |
+| Documents                                | `files`, `file_revisions`, `file_review_events`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Email                                    | `email_messages` (`template_version` records the site template version a mail was rendered from), `email_provider_events`, `email_suppressions`, `marketing_consents`, `follow_up_schedules`, `deleted_email_messages`                                                                                                                                                                                                                                                                                                                      |
+| Order tools, email settings, automations | `idempotency_keys` (a website submission's key hash and request fingerprint), `workspace_email_settings` (a site's sender and look), `email_templates` (the current copy of each of seven emails) and `email_template_versions` (every saved version, append-only), `automations` (a site's on/off state and counters for each built-in rule) and `automation_runs` (one firing of a rule for a lead, append-only); `site_counters` (merge phase 5: a site's running numbers, today `sim_order_ref`, the last `MS-<n>` order number issued) |
+| Operations                               | `outbox_jobs`, `outbox_job_alerts`, `audit_events` (redaction-only updates), `rate_limit_buckets`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 Tenancy: `withTenantTx` opens a transaction and sets `app.workspace_id` and
 `app.actor_id` with `set_config(…, true)`; every policy (`tenantPolicy`) requires
 both and matches the row's `workspace_id`. `contacts` use `actorPolicy` (actor
-present). FORCE RLS on all 35 tenant tables, so even the table owner cannot
+present). FORCE RLS on all 36 tenant tables, so even the table owner cannot
 bypass it, and `app_runtime` is NOBYPASSRLS. Work that must cross the tenant
 boundary goes through SECURITY DEFINER functions: `list_staff_workspaces`,
 `accept_staff_invitations`, `resolve_website_credential`, `rate_limit_hit`,
@@ -275,11 +275,22 @@ every request.
    `internet` and `mobility` (CanadaWide) are modelled: strict payloads, name,
    email and phone required, and **one-shot**: they must be sent with
    `submit: true`, are stored `submitted`, and get no draft grant.
-   `sim_order` and `partner_application` have Get Canada Sim's stages and
-   field definitions (their history is imported and staff edit orders, §3.4),
-   but their intake is not modelled yet: with `contact_message` they take any
-   payload as resumable drafts. A refusal is
-   `validation_error` with `details.field` naming the refused part, never a
+   `sim_order` (Get Canada Sim's checkout) is modelled since merge phase 5:
+   its strict payload (`simOrderLeadPayloadSchema`) has only optional keys,
+   `planId` (the website's own slug, kept as submitted), `planLabel`,
+   `delivery` (`esim` or `pickup`, a mailed SIM), `arrivalDate`,
+   `permitType` (`newcomer`, `student`, `worker`, `tourist`), `gotVisa`,
+   `flightBooked`, `shippingAddress`, `canadaAddress` and `reference`, and
+   never `simNumber`, `customerNotes` or an email. A draft may hold any part
+   of it (or no form yet), on the create and on every `PATCH`. A submission
+   (on the create, or a `PATCH` with `submit: true`, checked as the save
+   leaves the lead) needs the contact's name and email (`contact`), a plan
+   (`order.planId`, else the draft's: `order`) and a `delivery`, with a
+   non-blank `shippingAddress` for `pickup` (`form`); a refused `PATCH`
+   writes nothing and claims no idempotency key. `partner_application` and
+   `contact_message` are not modelled yet and take any payload as resumable
+   drafts. A refusal is `validation_error` with `details.field` naming the
+   refused part (`leadType`, `submit`, `form`, `contact` or `order`), never a
    value. Contact rules are deliberately no stricter than the sites' own.
 4. Multi-step forms keep the returned draft grant and `PATCH` the lead.
 5. Documents: `uploads/intents` → browser uploads to the signed target →
@@ -326,6 +337,16 @@ every request.
    customer then gets the Order received email once per lead (§3.7 item 6). A
    website that sends its own order emails and has this rule on would send
    two, which is why every rule starts off (§5.1).
+10. **Order numbers** (merge phase 5). Every create and save answers with
+    `lead.externalRef`: the lead's own reference, or `null`. A `sim_order`
+    created with no `externalRef` gets the next `MS-<n>` from the site's
+    counter (`app.site_counters`, `sim_order_ref`), taken in the create's
+    transaction, so concurrent orders never share a number and a replayed or
+    refused create takes none. The counter starts after the site's highest
+    imported `MS-<n>` and is raised on switch day past the old checkout's
+    last `order_no` (RUNBOOKS/legacy-import.md, "The final run"). A website
+    that sends its own `externalRef` keeps it as sent. Get Canada Sim reads
+    its order number from the response; it never chooses one.
 
 Full schemas: `packages/contracts/src/leads.ts`, `lead-types.ts`,
 `workspace-leads.ts`, `plans.ts`, `website-auth.ts`; rendered in `docs/api/openapi.json`.
@@ -866,6 +887,57 @@ Owner rulings of 2026-10-30 on the plan's first draft:
    Email from its own origin, and a move's response left out the email entry
    its automation wrote, so the timeline showed it only after a reload.
 
+### 3.8 2026-10-30: merge phase 5, step A (Get Canada Sim orders in the CRM)
+
+Built on branch `p5/a-crm` from
+[docs/superpowers/plans/2026-10-30-phase-5-gcs-orders-and-tracking.md](superpowers/plans/2026-10-30-phase-5-gcs-orders-and-tracking.md)
+(Part A, CRM tasks A1 to A5). The website side (Get Canada Sim's checkout
+through the CRM behind `CRM_ORDERS`, tasks A6 to A8) is built in parallel in
+that repository. Nothing is
+deployed yet; migrations 0015 and 0016 were applied to the hosted project on
+2026-10-30 (§5.1).
+
+1. **Contracts.** `simOrderLeadPayloadSchema` (the checkout's ten optional
+   keys), `SIM_ORDER_DELIVERIES`, `SIM_ORDER_PERMIT_TYPES`,
+   `SIM_ORDER_REF_PREFIX` (`MS-`), `simOrderRef(n)` and `parseSimOrderRef`;
+   `leadSummarySchema.externalRef` (string or null), so every website create
+   and save returns the lead's reference.
+2. **Database.** `0015_order_numbers` (generated): `app.site_counters`
+   (`workspace_id`, `counter` checked to `sim_order_ref`, `last_value >= 0`,
+   `updated_at`; primary key `(workspace_id, counter)`; tenant and backup
+   read policies, so 36 of those). `0016_order_numbers_runtime`: FORCE RLS
+   and `SELECT, INSERT, UPDATE` for `app_runtime`, no DELETE. Paste file
+   [`RUNBOOKS/manual/0015-0016-order-numbers.sql`](RUNBOOKS/manual/0015-0016-order-numbers.sql),
+   rehearsed on a local database migrated to 0014.
+3. **SIM order intake** (§2.6 item 3). `sim_order` is modelled in the
+   registry (`apps/backend/src/leads/types.ts`): a strict payload, a
+   `submitCheck` (name and email, a plan, a delivery, an address for a mailed
+   SIM), `checkLeadForm` for a save and `checkLeadSubmit` for a submission.
+   The `PATCH` refuses an unmodelled field or an incomplete submission with
+   `submission_incomplete` before anything is written; the route answers
+   `400 validation_error { field }`.
+4. **Order numbers** (§2.6 item 10). `nextSiteNumber`
+   (`apps/backend/src/leads/site-counter.ts`) advances the site's counter in
+   one statement, seeding itself from the site's highest `MS-<n>`;
+   `createLead` takes a number only for a `sim_order` with no `externalRef`,
+   after the idempotency claim and the order check.
+5. **Switch day.** [`RUNBOOKS/manual/gcs-switch-day.sql`](RUNBOOKS/manual/gcs-switch-day.sql)
+   holds the counter's seed (the highest `order_no` plus 9, `greatest`, so it
+   never lowers) and four reconciliation selects;
+   [RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md#the-final-run-switch-day)
+   has the order of the day (seed, flip, final import, reconcile) and the
+   `+ 1000` seed to run before any production test order.
+6. **Verified.** `packages/db/tests/order-numbers.integration.test.ts` (RLS,
+   FORCE, grants, checks, the cascade, 0016 re-run);
+   `apps/backend/tests/sim-order-intake.test.ts` and the SIM order cases in
+   `leads.test.ts` and `leads-store.integration.test.ts`;
+   `apps/backend/tests/order-number.integration.test.ts` (imported `MS-140`
+   and `MS-143` → `MS-144`, ten concurrent creates distinct, a website's own
+   `MS-9000` kept, another site from `MS-1`, a replay and a refused create
+   take none); the switch-day suite in
+   `getcanadasim-legacy-import.integration.test.ts` (an order on each side of
+   the flip, the `+ 1000` pre-switch case, the reconciliation).
+
 ## 4. What is verified, and how
 
 | Claim                                       | Evidence                                                                                                                                                                                         |
@@ -992,6 +1064,37 @@ customer until they are done):
    (the PATCH needs the Leads role; see the follow-ups in §5.3).
 5. Optional, for each website's developer: send `Idempotency-Key` on a
    submission so a retry never makes a second order (§2.6 item 9).
+
+**Get Canada Sim orders in the CRM (merge phase 5, step A).** Built
+(§3.8), not yet applied or deployed. The owner's steps, in order:
+
+1. **Apply 0015 and 0016** before deploying the backend that numbers SIM
+   orders: the pre-check, the paste and the six verification selects of
+   [`RUNBOOKS/manual/0015-0016-order-numbers.sql`](RUNBOOKS/manual/0015-0016-order-numbers.sql)
+   ([RUNBOOKS/database.md](RUNBOOKS/database.md#0015_order_numbers)).
+   Status: **done** 2026-10-30 (all six verification selects as expected).
+2. **Create the Get Canada Sim site key** in the admin
+   (`/w/getcanadasim/settings`), scopes `leads:write` and `uploads:customer`; it goes
+   into Get Canada Sim's Vercel project as `CRM_SITE_KEY` with `CRM_API_URL`,
+   leaving `CRM_ORDERS` unset. Status: to do.
+3. **The "Website slug" plan property and six plans.** Settings → Plans →
+   properties: a custom plan property labelled "Website slug"
+   (`custom_website_slug`), _Show on website_ on; then the six active
+   `sim_order` plans each carry one of the website's slugs
+   (`unlimited-data-120gb-rogers`, `unlimited-data-rogers`, `75gb-fido`,
+   `95gb-chatr`, `25gb-chatr`, `75gb-chatr`). The checkout refuses to submit
+   when no active plan, or more than one, carries a slug. Status: to do.
+4. **Before the first production test order**, run the `SEED` block of
+   [`RUNBOOKS/manual/gcs-switch-day.sql`](RUNBOOKS/manual/gcs-switch-day.sql)
+   with `+ 1000` in place of `+ 9` (so a test order's number is one the old
+   checkout cannot reach before the switch).
+5. **Switch day** (plan Task A11, after Part B is deployed, owner decision
+   D10): staff resolve the old admin's pending change requests; the `SEED`
+   block, then `CRM_ORDERS=on`; the final import; the `RECONCILE` selects
+   (`rows_missing` 0, no duplicated `MS-` reference); a test order checked in
+   the CRM; then `CRM_TRACKING=on`. The steps are in
+   [RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md#the-final-run-switch-day).
+   Record the day, the seed value and the reconciliation here and in §3.8.
 
 Then the CRM's own owner items:
 

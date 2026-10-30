@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 
+import { idempotencyKeyHash, requestFingerprint } from '../src/leads/idempotency.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
+import { DatabasePlanStore } from '../src/plans/store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
   const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -394,5 +396,143 @@ databaseTest('DatabaseLeadStore', () => {
     await admin`update app.draft_grants set expires_at = now() + interval '1 day' where lead_id = ${created.lead.id}`;
     await admin`update app.leads set status = 'submitted' where id = ${created.lead.id}`;
     expect(await store.readLead(input)).toEqual({ status: 'draft_submitted' });
+  });
+  describe('SIM order intake (merge phase 5)', () => {
+    const SITE = '00000000-0000-4000-8000-000000005301';
+    const sim = { workspaceId: SITE, actorId: ACTOR, requestId: REQUEST_ID };
+    const simBase = { ...sim, leadType: 'sim_order', consentVersion: 'getcanadasim-order-2026-10' };
+    let planId: string;
+
+    beforeAll(async () => {
+      // The site's leads, keys and plans go with it, so every run starts clean.
+      await admin`delete from app.workspaces where id = ${SITE}`;
+      await admin`
+        insert into app.workspaces (id, slug, name)
+        values (${SITE}, 'ci-sim-order-intake', 'CI SIM Order Intake')
+      `;
+      const created = await new DatabasePlanStore(database).create(sim, {
+        leadType: 'sim_order',
+        name: 'Unlimited Data Rogers',
+        priceMinor: 4000,
+        billingPeriod: '30_days',
+        paymentRequired: true,
+        requiredDocuments: [],
+        active: true,
+        customValues: {},
+      });
+      if (created.kind !== 'created') throw new Error(`plan: ${created.kind}`);
+      planId = created.plan.id;
+    });
+
+    async function leadRow(id: string) {
+      const [row] = await admin<
+        { status: string; payload: unknown; plan: unknown; planId: string | null }[]
+      >`
+        select status, payload, order_details -> 'plan' as plan,
+               order_details ->> 'planId' as "planId"
+        from app.leads where id = ${id}
+      `;
+      return row;
+    }
+
+    test('a draft saves part of the checkout, refuses an unmodelled field and a submission without a plan', async () => {
+      const draft = await store.createLead({
+        ...simBase,
+        contact: { fullName: 'Nadia Khan', email: 'nadia@example.test' },
+        form: { schemaVersion: 1, payload: { arrivalDate: '2026-11-20' } },
+      });
+      expect(draft.lead.status).toBe('incomplete');
+      const grantToken = draftToken(draft);
+      const save = { ...sim, leadId: draft.lead.id, grantToken };
+
+      expect(
+        await store.updateLead({
+          ...save,
+          form: { schemaVersion: 1, payload: { delivery: 'esim', simNumber: '+16475550123' } },
+        }),
+      ).toEqual({ status: 'submission_incomplete', problem: 'form' });
+
+      const keyHash = idempotencyKeyHash('sim-intake-no-plan');
+      expect(
+        await store.updateLead({
+          ...save,
+          form: { schemaVersion: 1, payload: { arrivalDate: '2026-11-20', delivery: 'esim' } },
+          submit: true,
+          idempotency: { keyHash, fingerprint: requestFingerprint({ submit: true }) },
+        }),
+      ).toEqual({ status: 'submission_incomplete', problem: 'order' });
+
+      // Nothing was written: still the draft as created, and the key never claimed.
+      expect(await leadRow(draft.lead.id)).toEqual({
+        status: 'incomplete',
+        payload: { schemaVersion: 1, payload: { arrivalDate: '2026-11-20' } },
+        plan: null,
+        planId: null,
+      });
+      const keys = await admin`
+        select id from app.idempotency_keys where workspace_id = ${SITE} and key_hash = ${keyHash}
+      `;
+      expect(keys).toHaveLength(0);
+      const audits = await admin`
+        select id from app.audit_events
+        where entity_id = ${draft.lead.id} and action = 'lead.updated'
+      `;
+      expect(audits).toHaveLength(0);
+    });
+
+    test('a submission is checked as the save leaves the lead, then freezes its plan', async () => {
+      const draft = await store.createLead({
+        ...simBase,
+        contact: { fullName: 'Nadia Khan', email: 'nadia@example.test' },
+        form: { schemaVersion: 1, payload: { arrivalDate: '2026-11-20', delivery: 'pickup' } },
+      });
+      const save = { ...sim, leadId: draft.lead.id, grantToken: draftToken(draft) };
+      // The stored form is a mailed SIM with no address yet.
+      expect(
+        await store.updateLead({ ...save, order: { planId, quantity: 1 }, submit: true }),
+      ).toEqual({ status: 'submission_incomplete', problem: 'form' });
+      // The plan saved on the draft counts at submission.
+      expect(await store.updateLead({ ...save, order: { planId, quantity: 1 } })).toMatchObject({
+        status: 'updated',
+      });
+
+      const submitted = await store.updateLead({
+        ...save,
+        form: { schemaVersion: 1, payload: { arrivalDate: '2026-11-20', delivery: 'esim' } },
+        submit: true,
+      });
+      expect(submitted).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
+      const row = await leadRow(draft.lead.id);
+      expect(row).toMatchObject({ status: 'submitted', planId });
+      expect(row?.plan).toMatchObject({
+        planId,
+        name: 'Unlimited Data Rogers',
+        priceMinor: 4000,
+      });
+    });
+
+    test('a CanadaWide internet order is created as before', async () => {
+      const payload = {
+        planId: 'ab-1gbps',
+        planLabel: '1Gbps',
+        dateOfBirth: '1990-04-12',
+        streetAddress: '12 Example Street',
+        city: 'Calgary',
+        consent: true,
+        consentedAt: '2026-10-26T10:00:00.000Z',
+      };
+      const created = await store.createLead({
+        ...simBase,
+        leadType: 'internet',
+        submit: true,
+        contact: { fullName: 'Avery Example', email: 'avery@example.test', phone: '403 555 0101' },
+        form: { schemaVersion: 1, payload },
+      });
+      expect(created).toMatchObject({ lead: { status: 'submitted' }, grant: null });
+      expect(await leadRow(created.lead.id)).toMatchObject({
+        status: 'submitted',
+        payload: { schemaVersion: 1, payload },
+      });
+    });
   });
 });
