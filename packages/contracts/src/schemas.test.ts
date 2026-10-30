@@ -22,6 +22,7 @@ import {
   idempotencyKeySchema,
   identityLeadTypes,
   initialLeadStage,
+  submittedLeadStage,
   isLeadStage,
   isValidDateOfBirth,
   isValidSin,
@@ -879,6 +880,11 @@ describe('lead-type catalogue', () => {
     expect(isLeadStage('sim_order', 'paid')).toBe(false);
     expect(isLeadStage('sim_order', 'invoiced')).toBe(false);
     expect(initialLeadStage('sim_order')).toBe('incomplete');
+    // A submitted SIM order is Pending; every other type stays at its first stage.
+    expect(submittedLeadStage('sim_order')).toBe('pending');
+    expect(isLeadStage('sim_order', submittedLeadStage('sim_order'))).toBe(true);
+    expect(submittedLeadStage('internet')).toBe(initialLeadStage('internet'));
+    expect(submittedLeadStage('mobility')).toBe(initialLeadStage('mobility'));
     expect(leadStageLabel('internet', 'existing_shaw')).toBe('Existing Shaw');
     expect(leadStageLabel('internet', 'mystery')).toBe('mystery');
     expect(isLeadStage('mobility', 'activated')).toBe(true);

@@ -76,7 +76,7 @@ describe('OpenAPI generation', () => {
     }
   });
 
-  it('requires single-use proof on website writes and leaves authenticated reads proof-free', () => {
+  it('documents single-use proof on website writes as needed only in turnstile mode, and leaves reads proof-free', () => {
     const paths = asObject(doc['paths']);
     for (const endpoint of endpoints.filter(
       (entry) => entry.auth === 'website' || entry.auth === 'customer',
@@ -86,7 +86,11 @@ describe('OpenAPI generation', () => {
       if (!Array.isArray(parameters)) throw new Error('expected parameters');
       const proof = parameters.map(asObject).find((entry) => entry['name'] === 'X-Turnstile-Token');
       if (endpoint.method === 'GET') expect(proof).toBeUndefined();
-      else expect(proof).toMatchObject({ in: 'header', required: true });
+      else {
+        // Production runs WEBSITE_BOT_CHECK=delegated, where the header is not read.
+        expect(proof).toMatchObject({ in: 'header', required: false });
+        expect(String(proof?.['description'])).toMatch(/turnstile.*delegated/s);
+      }
     }
   });
   it('registers the email settings, template and automation operations', () => {

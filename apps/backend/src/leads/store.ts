@@ -3,6 +3,7 @@ import {
   auditEvents,
   contacts,
   draftGrants,
+  leadActivities,
   leads,
   withTenantTx,
   type TenantTransaction,
@@ -10,6 +11,7 @@ import {
 import {
   automationsForSubmit,
   initialLeadStage,
+  submittedLeadStage,
   isOrderLeadType,
   leadContactSchema,
   leadFormSchema,
@@ -37,6 +39,7 @@ import {
   type CustomerEmailEnvironment,
 } from '../email/senders.js';
 import { loadPlanForFreeze } from '../plans/store.js';
+import { sanitizeLogIdentifier } from '../http/logger.js';
 import { sanitizeAttribution } from './attribution.js';
 import {
   claimIdempotencyKey,
@@ -65,6 +68,39 @@ export class OrderIntakeError extends Error {
     super(`lead order refused: ${code}`);
     this.name = 'OrderIntakeError';
   }
+}
+
+/**
+ * The create's `externalRef` is already held by another lead of the site and
+ * type (`leads_workspace_type_external_ref_unique`): a website's own reference
+ * used twice, or a counter-issued number an import committed at the same
+ * moment. The transaction rolled back, so the counter gave its number back.
+ */
+export class ExternalRefTakenError extends Error {
+  readonly code = 'external_ref_taken';
+  constructor() {
+    super('lead external reference already taken');
+    this.name = 'ExternalRefTakenError';
+  }
+}
+
+const EXTERNAL_REF_UNIQUE = 'leads_workspace_type_external_ref_unique';
+
+/** A unique violation of the leads' reference index, from postgres-js or wrapped by drizzle. */
+function isExternalRefViolation(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; depth < 3; depth += 1) {
+    if (typeof current !== 'object' || current === null) return false;
+    if (
+      'code' in current &&
+      current.code === '23505' &&
+      'constraint_name' in current &&
+      current.constraint_name === EXTERNAL_REF_UNIQUE
+    ) {
+      return true;
+    }
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return false;
 }
 
 export interface CreateLeadInput {
@@ -284,6 +320,25 @@ async function intakeOrder(
     : { planId: input.order.planId, quantity: input.order.quantity };
 }
 
+/**
+ * The timeline's word that the website's submission moved the order from
+ * Incomplete to Pending, by the website's credential. No automation runs on
+ * it: submitting already fires the submit rules.
+ */
+async function recordSubmittedMove(
+  tx: TenantTransaction,
+  scope: { workspaceId: string; actorId: string },
+  leadId: string,
+): Promise<void> {
+  await tx.insert(leadActivities).values({
+    workspaceId: scope.workspaceId,
+    leadId,
+    actorId: scope.actorId,
+    kind: 'system',
+    data: { event: 'submitted' },
+  });
+}
+
 /** A new draft grant for a lead; only its hash is stored, so the token is returned once. */
 async function issueDraftGrant(
   tx: TenantTransaction,
@@ -433,6 +488,25 @@ export class DatabaseLeadStore implements LeadStore {
   }
 
   async createLead(input: CreateLeadInput): Promise<CreateLeadResult> {
+    try {
+      return await this.createLeadInTransaction(input);
+    } catch (error) {
+      if (!isExternalRefViolation(error)) throw error;
+      if (input.externalRef === undefined) {
+        // A counter-issued number that a concurrent write took: ids only, never the lead.
+        console.warn(
+          JSON.stringify({
+            event: 'site_counter_collision',
+            workspaceId: sanitizeLogIdentifier(input.workspaceId) ?? 'unknown',
+            requestId: sanitizeLogIdentifier(input.requestId) ?? 'unknown',
+          }),
+        );
+      }
+      throw new ExternalRefTakenError();
+    }
+  }
+
+  private async createLeadInTransaction(input: CreateLeadInput): Promise<CreateLeadResult> {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
@@ -455,6 +529,9 @@ export class DatabaseLeadStore implements LeadStore {
 
         const attribution = sanitizeAttribution(input.attribution);
         const status = input.submit ? 'submitted' : 'incomplete';
+        // A submitted SIM order is Pending at once; a draft and every other type start at the first stage.
+        const firstStage = initialLeadStage(input.leadType);
+        const stage = input.submit ? submittedLeadStage(input.leadType) : firstStage;
         const orderDetails = await intakeOrder(tx, input);
         // Numbered after the claim and the order check, so a replay or a
         // refused create takes no number.
@@ -469,7 +546,7 @@ export class DatabaseLeadStore implements LeadStore {
             workspaceId: input.workspaceId,
             leadType: input.leadType,
             status,
-            stage: initialLeadStage(input.leadType),
+            stage,
             fullName: input.contact?.fullName,
             email: input.contact?.email,
             phone: input.contact?.phone,
@@ -494,6 +571,7 @@ export class DatabaseLeadStore implements LeadStore {
           requestId: input.requestId,
           after: {
             status,
+            stage,
             leadType: input.leadType,
             externalRef,
             contactId,
@@ -501,6 +579,7 @@ export class DatabaseLeadStore implements LeadStore {
             ...(orderDetails ? { order: orderDetails } : {}),
           },
         });
+        if (stage !== firstStage) await recordSubmittedMove(tx, input, leadRow.id);
         if (input.submit) {
           await this.fireSubmitAutomations(tx, input, leadRow.id, input.leadType);
         }
@@ -553,6 +632,7 @@ export class DatabaseLeadStore implements LeadStore {
             expiresAt: draftGrants.expiresAt,
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
+            leadStage: leads.stage,
             leadExternalRef: leads.externalRef,
             leadUpdatedAt: leads.updatedAt,
             leadFullName: leads.fullName,
@@ -660,9 +740,19 @@ export class DatabaseLeadStore implements LeadStore {
             : { planId, quantity };
           changedFields.push('order');
         }
+        // A SIM order still at Incomplete moves to Pending as it is submitted;
+        // one staff already moved keeps its stage.
+        const movedOnSubmit =
+          input.submit === true &&
+          grant.leadStage === initialLeadStage(grant.leadType) &&
+          submittedLeadStage(grant.leadType) !== grant.leadStage;
         if (input.submit) {
           updates.status = 'submitted';
           changedFields.push('status');
+        }
+        if (movedOnSubmit) {
+          updates.stage = submittedLeadStage(grant.leadType);
+          changedFields.push('stage');
         }
         if (input.contact) {
           if (input.contact.fullName !== undefined) updates.fullName = input.contact.fullName;
@@ -712,9 +802,11 @@ export class DatabaseLeadStore implements LeadStore {
           requestId: input.requestId,
           after: {
             changedFields,
+            ...(updates.stage ? { stage: updates.stage } : {}),
             ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
           },
         });
+        if (movedOnSubmit) await recordSubmittedMove(tx, input, input.leadId);
         if (input.submit) {
           await this.fireSubmitAutomations(tx, input, input.leadId, grant.leadType);
         }

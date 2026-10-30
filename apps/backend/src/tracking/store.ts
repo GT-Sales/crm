@@ -7,6 +7,7 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  CHANGE_REQUEST_DOCUMENTS,
   CHANGE_REQUEST_STAGES,
   MAX_TRACKED_ORDERS,
   SIM_ORDER_DELIVERIES,
@@ -209,6 +210,18 @@ function customerDocuments(
   });
 }
 
+/**
+ * The documents a customer is asked for: on a SIM order always the passport
+ * and visa (as the website has always asked), whatever the plan lists; the
+ * plan's own list drives only staff's documents check. Other types: the plan's.
+ */
+function customerRequiredDocuments(
+  leadType: string,
+  planRequired: readonly string[],
+): readonly string[] {
+  return leadType === 'sim_order' ? CHANGE_REQUEST_DOCUMENTS : planRequired;
+}
+
 interface TrackedLeadRow extends Record<string, unknown> {
   id: string;
   leadType: string;
@@ -261,9 +274,12 @@ function toTrackingOrder(
       canadaAddress: read(textValue, form['canadaAddress']),
       shippingAddress: read(textValue, form['shippingAddress']),
       flightBooked: read(z.boolean(), form['flightBooked']),
+      // No frozen plan (an imported order): the website's own slug and label, read leniently.
+      websitePlanSlug: order.plan ? null : read(textValue, form['planId']),
+      websitePlanLabel: order.plan ? null : read(textValue, form['planLabel']),
     },
     documents: customerDocuments(
-      order.plan?.requiredDocuments ?? [],
+      customerRequiredDocuments(leadType.data, order.plan?.requiredDocuments ?? []),
       documents.success ? documents.data : [],
     ),
     canRequestChange: leadType.data === 'sim_order' && isChangeStage(row.stage),

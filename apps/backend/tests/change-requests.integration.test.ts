@@ -1,13 +1,16 @@
 import postgres from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
+import { DatabaseAutomationStore } from '../src/automations/store.js';
 import { DatabaseDocumentStore } from '../src/documents/store.js';
+import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { findMissingDocuments } from '../src/leads/documents-check.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import {
+  ChangeRequestService,
   DatabaseChangeRequestStore,
   toStaffChangeRequest,
   toTrackingPendingChange,
@@ -468,6 +471,64 @@ databaseTest('customer change requests and held documents', () => {
     expect(
       await admin`select 1 from app.audit_events where entity_id = ${second.fileId} and action = 'file.deleted'`,
     ).toHaveLength(1);
+  });
+
+  it('discards a finalized held file that can join no request, but never one a pending request holds', async () => {
+    const deleteObject = vi.fn(async () => undefined);
+    const service = new ChangeRequestService({
+      store,
+      context: {
+        emailEnvironment: customerEmailEnvironmentFromEnv({
+          EMAIL_CONTACT_HASH_SECRET: 'change-requests-contact-secret-01',
+        }),
+        automations: new DatabaseAutomationStore(database),
+      },
+      objects: { deleteObject },
+      bucket: 'documents',
+      database,
+    });
+    const attach = (leadId: string, fileId: string) =>
+      service.attachDocument({
+        ...scope,
+        requestId: crypto.randomUUID(),
+        leadId,
+        fileId,
+        now: new Date(),
+      });
+    const fileState = async (fileId: string) =>
+      (
+        await admin<{ status: string; held: boolean }[]>`
+          select status, held_for_change_request as held from app.files where id = ${fileId}
+        `
+      )[0];
+
+    // The order left the changeable stages between the finalize and the join.
+    const lead = await insertLead({ stage: 'pending' });
+    const orphan = await heldFile(lead);
+    await admin`update app.leads set stage = 'delivered' where id = ${lead}`;
+    expect(await attach(lead, orphan.fileId)).toEqual({ status: 'not_allowed' });
+    expect(await fileState(orphan.fileId)).toEqual({ status: 'deleted', held: true });
+    expect(deleteObject).toHaveBeenCalledWith({
+      workspaceId: SITE,
+      bucket: 'documents',
+      objectKey: orphan.objectKey,
+    });
+    expect(
+      await admin`
+        select after from app.audit_events
+        where entity_id = ${orphan.fileId} and action = 'file.deleted'
+      `,
+    ).toEqual([{ after: { status: 'deleted', reason: 'change_request_not_allowed' } }]);
+
+    // A file already joined to a pending request stays for staff to decide.
+    deleteObject.mockClear();
+    const kept = await insertLead({ stage: 'pending' });
+    const joined = await heldFile(kept);
+    expect((await attach(kept, joined.fileId)).status).toBe('saved');
+    await admin`update app.leads set stage = 'delivered' where id = ${kept}`;
+    expect(await attach(kept, joined.fileId)).toEqual({ status: 'not_allowed' });
+    expect(await fileState(joined.fileId)).toEqual({ status: 'available', held: true });
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 
   it('knows a held upload of the lead from any other file', async () => {

@@ -38,7 +38,10 @@ function firstValue(workspaceId: string, counter: SiteCounter) {
  * (row-locked until commit, so concurrent callers wait and never share a
  * number; a rolled-back caller gives its number back). Unseeded, it starts
  * after the imported numbers (`firstValue`); the switch-day seed only ever
- * raises it.
+ * raises it. It never issues a number a lead already holds: a counter left
+ * behind them (a slip before a seed, numbers an import brought in) jumps to
+ * the highest one plus 1, while a counter set above them (the seed's gap) is
+ * kept.
  */
 export async function nextSiteNumber(
   tx: TenantTransaction,
@@ -49,7 +52,9 @@ export async function nextSiteNumber(
     insert into app.site_counters (workspace_id, counter, last_value)
     values (${workspaceId}, ${counter}, ${firstValue(workspaceId, counter)})
     on conflict (workspace_id, counter)
-      do update set last_value = app.site_counters.last_value + 1, updated_at = now()
+      do update set
+        last_value = greatest(app.site_counters.last_value + 1, excluded.last_value),
+        updated_at = now()
     returning last_value
   `);
   const [issued] = issuedSchema.parse([...rows]);

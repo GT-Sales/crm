@@ -196,7 +196,8 @@ export const trackingOrderSchema = z
       .object({
         id: z.uuid().nullable(),
         name: z.string(),
-        priceMinor: z.int().min(0),
+        /** Null when the order carries no price for its plan. */
+        priceMinor: z.int().min(0).nullable(),
         billingPeriod: billingPeriodSchema,
       })
       .strict()
@@ -216,6 +217,14 @@ export const trackingOrderSchema = z
         canadaAddress: z.string().nullable(),
         shippingAddress: z.string().nullable(),
         flightBooked: z.boolean().nullable(),
+        /**
+         * For an order with no frozen plan (one imported from the website's
+         * old checkout): the website's own plan slug and label from the
+         * stored form, so the website can still name the plan. Null when the
+         * frozen plan names it, or the form has none.
+         */
+        websitePlanSlug: z.string().nullable().optional(),
+        websitePlanLabel: z.string().nullable().optional(),
       })
       .strict(),
     documents: z.array(

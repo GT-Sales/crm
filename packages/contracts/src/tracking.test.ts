@@ -174,6 +174,28 @@ describe('a tracked order', () => {
     expect(trackingPendingChangeSchema.parse(order.pendingChange)).toEqual(order.pendingChange);
   });
 
+  it('names the website’s own plan for an order with no frozen plan, and may carry no price', () => {
+    const imported = {
+      ...order,
+      plan: null,
+      details: {
+        ...order.details,
+        websitePlanSlug: 'unlimited-data-rogers',
+        websitePlanLabel: 'Unlimited Data Rogers',
+      },
+    };
+    expect(trackingOrderSchema.parse(imported)).toEqual(imported);
+    const unknownPlan = {
+      ...order,
+      details: { ...order.details, websitePlanSlug: null, websitePlanLabel: null },
+    };
+    expect(trackingOrderSchema.parse(unknownPlan)).toEqual(unknownPlan);
+    const unpriced = { ...order, plan: { ...order.plan, priceMinor: null } };
+    expect(trackingOrderSchema.parse(unpriced)).toEqual(unpriced);
+    // An older answer without the two keys still parses.
+    expect(trackingOrderSchema.parse(order)).toEqual(order);
+  });
+
   it('carries no payment, commission, notes or assignee', () => {
     expect(trackingOrderSchema.safeParse({ ...order, paymentStatus: 'paid' }).success).toBe(false);
     expect(trackingOrderSchema.safeParse({ ...order, assignedActorId: UUID_A }).success).toBe(

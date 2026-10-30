@@ -161,6 +161,7 @@ export {
   allowedStageMoves,
   identityLeadTypes,
   initialLeadStage,
+  submittedLeadStage,
   internetLeadPayloadSchema,
   isLeadStage,
   isStageMoveAllowed,

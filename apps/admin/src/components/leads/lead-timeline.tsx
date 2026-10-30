@@ -36,6 +36,7 @@ import { errorReason } from '../../lib/use-resource';
 import { documentTypeLabel } from '../plans/document-types';
 import { documentLabel } from './lead-documents';
 import { fieldLabel } from './lead-fields';
+import { listText } from './stage-move-dialog';
 
 const CONTACT_LABELS: Record<string, string> = { fullName: 'name', email: 'email', phone: 'phone' };
 
@@ -44,7 +45,7 @@ const REQUEST_KEY_LABELS: Record<string, string> = { ...CONTACT_LABELS, planId: 
 
 type SystemActivity = Extract<LeadActivity, { kind: 'system' }>;
 
-/** `asked to change the phone, arrival in canada and sent a new passport (request #12)`. */
+/** `asked to change the phone and arrival in Canada, and sent a new passport (request #12)`. */
 export function changeRequestText(
   activity: SystemActivity,
   leadType: string,
@@ -57,11 +58,13 @@ export function changeRequestText(
     documentLabel(document).toLowerCase(),
   );
   const parts: string[] = [];
-  if (fields.length > 0) parts.push(`asked to change the ${fields.join(', ')}`);
+  if (fields.length > 0) parts.push(`asked to change the ${listText(fields)}`);
   if (documents.length > 0) {
-    parts.push(`${fields.length > 0 ? 'and sent' : 'sent'} a new ${documents.join(' and ')}`);
+    // A comma keeps "and sent" apart from a list that has its own "and".
+    const joiner = fields.length > 1 ? ', and sent' : fields.length > 0 ? ' and sent' : 'sent';
+    parts.push(`${joiner} a new ${listText(documents)}`);
   }
-  const what = parts.length > 0 ? parts.join(' ') : 'asked to change their order';
+  const what = parts.length > 0 ? parts.join('').trimStart() : 'asked to change their order';
   return activity.requestNo ? `${what} (request #${activity.requestNo})` : what;
 }
 
@@ -139,9 +142,11 @@ function describe(
     case 'edit':
       return {
         icon: <PencilIcon />,
-        text: `corrected the ${activity.fields
-          .map((field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog))
-          .join(', ')}`,
+        text: `corrected the ${listText(
+          activity.fields.map(
+            (field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog),
+          ),
+        )}`,
       };
     case 'document': {
       const approved = activity.decision === 'approved';
@@ -157,6 +162,19 @@ function describe(
       if (activity.event === 'trashed') return { icon: <ArchiveIcon />, text: 'archived this' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
+      if (activity.event === 'submitted') {
+        // The website's credential made the move, so no name is shown.
+        return {
+          icon: <ArrowRightIcon />,
+          actor: null,
+          text: (
+            <>
+              Submitted on the website and moved to{' '}
+              <strong>{leadStageLabel(leadType, 'pending')}</strong>
+            </>
+          ),
+        };
+      }
       if (activity.event === 'change_requested') {
         // Made through the CRM: the website's own credential is the actor, so no name is shown.
         if (activity.actorId !== LEGACY_IMPORT_ACTOR_ID) {

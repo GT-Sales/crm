@@ -85,6 +85,14 @@ export interface ChangeRequestStore {
   ): Promise<ChangeRequestRow | undefined>;
   /** The file is the lead's held upload (an intent or a finalized file), not deleted. */
   isHeldUpload(input: WebsiteScope & { leadId: string; fileId: string }): Promise<boolean>;
+  /**
+   * A finalized held upload that joined no request (the order can no longer
+   * change): tombstoned, unless a pending request holds it; its object key,
+   * for deletion after commit.
+   */
+  discardUnjoinedHeldFile(
+    input: WebsiteScope & { requestId: string; leadId: string; fileId: string; now: Date },
+  ): Promise<string[]>;
 }
 
 /** The field keys asked for, in `CHANGEABLE_FIELD_KEYS` order. */
@@ -360,6 +368,45 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
     return selectPending(tx, workspaceId, leadId, false);
   }
 
+  discardUnjoinedHeldFile(
+    input: WebsiteScope & { requestId: string; leadId: string; fileId: string; now: Date },
+  ): Promise<string[]> {
+    return this.tx(input, async (tx) => {
+      // The lead first, as every change request write locks it.
+      await lockLead(tx, input.workspaceId, input.leadId);
+      const [gone] = await tx
+        .update(files)
+        .set({ status: 'deleted', deletedAt: input.now, updatedAt: input.now })
+        .where(
+          and(
+            eq(files.workspaceId, input.workspaceId),
+            eq(files.id, input.fileId),
+            eq(files.recordType, 'lead'),
+            eq(files.recordId, input.leadId),
+            eq(files.heldForChangeRequest, true),
+            sql`${files.status} <> 'deleted'`,
+            sql`not exists (
+              select 1 from app.change_requests r
+              where r.workspace_id = ${input.workspaceId} and r.status = 'pending'
+                and ${input.fileId}::uuid = any(r.staged_file_ids))`,
+          ),
+        )
+        .returning({ objectKey: files.objectKey });
+      if (!gone) return [];
+      await tx.insert(auditEvents).values({
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        actorLabel: 'website credential',
+        action: 'file.deleted',
+        entity: 'file',
+        entityId: input.fileId,
+        requestId: input.requestId,
+        after: { status: 'deleted', reason: 'change_request_not_allowed' },
+      });
+      return gone.objectKey ? [gone.objectKey] : [];
+    });
+  }
+
   isHeldUpload(input: WebsiteScope & { leadId: string; fileId: string }): Promise<boolean> {
     return this.tx(input, async (tx) => {
       const [file] = await tx
@@ -488,8 +535,13 @@ export class ChangeRequestService {
     input: Parameters<ChangeRequestStore['attachDocument']>[0],
   ): Promise<CustomerChangeOutcome> {
     const outcome = await this.dependencies.store.attachDocument(input);
-    if (outcome.status === 'saved')
+    if (outcome.status === 'saved') {
       await this.deleteObjects(input.workspaceId, outcome.removedObjectKeys);
+    } else if (outcome.status === 'not_allowed' || outcome.status === 'not_found') {
+      // Finalized but joining nothing (the order moved on meanwhile): never keep it orphaned.
+      const keys = await this.dependencies.store.discardUnjoinedHeldFile(input);
+      await this.deleteObjects(input.workspaceId, keys);
+    }
     return outcome;
   }
 

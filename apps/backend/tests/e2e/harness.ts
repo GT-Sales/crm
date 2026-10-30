@@ -230,7 +230,8 @@ async function seed(): Promise<void> {
         consentVersion: 'gcs-e2e-2026-10',
         submit: true,
       });
-      await work.updateLead({ ...simOwner, leadId: created.lead.id, stage: 'pending' });
+      // Submitted on the website, a SIM order is Pending at once.
+      if (created.lead.status !== 'submitted') throw new Error('seed SIM order not submitted');
     }
 
     // Two plans, then one SIM order that names the first: submitted, so the
@@ -282,7 +283,6 @@ async function seed(): Promise<void> {
       consentVersion: 'gcs-e2e-2026-10',
       submit: true,
     });
-    await work.updateLead({ ...simOwner, leadId: ordered.lead.id, stage: 'pending' });
     nadiaLeadId = ordered.lead.id;
 
     // The customer asks, through tracking, for a new phone and arrival date: request #1.

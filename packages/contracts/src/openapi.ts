@@ -122,9 +122,10 @@ function parametersFor(endpoint: EndpointDef): JsonObject[] {
       params.push({
         name: 'X-Turnstile-Token',
         in: 'header',
-        required: true,
+        // Read only in the backend's `turnstile` mode; production runs `delegated`.
+        required: false,
         description:
-          'Fresh single-use challenge token bound to this route action. Obtain a new token before each request or retry.',
+          'Required only when the backend runs WEBSITE_BOT_CHECK=turnstile (the default mode): a fresh single-use challenge token bound to this route action, obtained anew before each request or retry. In delegated mode (production) the website screens its own visitors and the header is not read.',
         schema: jsonInputSchemaOf(websiteBotTokenSchema),
       });
   }

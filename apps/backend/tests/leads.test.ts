@@ -22,7 +22,7 @@ import {
   idempotencyKeyHash,
   requestFingerprint,
 } from '../src/leads/idempotency.js';
-import { OrderIntakeError } from '../src/leads/store.js';
+import { ExternalRefTakenError, OrderIntakeError } from '../src/leads/store.js';
 import { checkLeadForm } from '../src/leads/types.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
@@ -954,6 +954,18 @@ describe('order intake', () => {
       code: 'plan_not_available',
       details: { field: 'order' },
     });
+  });
+
+  it('answers an order number another lead holds with 409 external_ref_taken', async () => {
+    leadStore.createError = new ExternalRefTakenError();
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      simOrder({ submit: true, order: { planId: PLAN, quantity: 1 } }),
+    );
+    expect(response.status).toBe(409);
+    expect(await errorOf(response)).toMatchObject({ code: 'external_ref_taken' });
   });
 
   it('passes the plan and the submission of a draft save through, and maps the refusals', async () => {

@@ -181,6 +181,7 @@ let changeStore: {
   attachDocument: ReturnType<typeof vi.fn<ChangeRequestStore['attachDocument']>>;
   pendingForLead: ReturnType<typeof vi.fn<ChangeRequestStore['pendingForLead']>>;
   isHeldUpload: ReturnType<typeof vi.fn<ChangeRequestStore['isHeldUpload']>>;
+  discardUnjoinedHeldFile: ReturnType<typeof vi.fn<ChangeRequestStore['discardUnjoinedHeldFile']>>;
 };
 let documents: {
   createIntent: ReturnType<typeof vi.fn<DocumentService['createIntent']>>;
@@ -293,6 +294,7 @@ beforeEach(async () => {
     attachDocument: vi.fn<ChangeRequestStore['attachDocument']>(async () => saved),
     pendingForLead: vi.fn<ChangeRequestStore['pendingForLead']>(async () => undefined),
     isHeldUpload: vi.fn<ChangeRequestStore['isHeldUpload']>(async () => true),
+    discardUnjoinedHeldFile: vi.fn<ChangeRequestStore['discardUnjoinedHeldFile']>(async () => []),
   };
   documents = {
     createIntent: vi.fn<DocumentService['createIntent']>(async () => ({

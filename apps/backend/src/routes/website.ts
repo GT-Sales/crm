@@ -39,7 +39,12 @@ import {
   type IdentityStore,
   type RecordIdentityOutcome,
 } from '../leads/identity-store.js';
-import { DatabaseLeadStore, OrderIntakeError, type LeadStore } from '../leads/store.js';
+import {
+  DatabaseLeadStore,
+  ExternalRefTakenError,
+  OrderIntakeError,
+  type LeadStore,
+} from '../leads/store.js';
 import { parseDraftGrantToken } from '../leads/token.js';
 import { checkLeadIntake } from '../leads/types.js';
 import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
@@ -288,6 +293,10 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         }
         if (error instanceof OrderIntakeError) {
           sendDomainError(res, req.id, error.code, 400, { field: 'order' });
+          return;
+        }
+        if (error instanceof ExternalRefTakenError) {
+          sendDomainError(res, req.id, error.code, 409);
           return;
         }
         failRequest(req, res, '/api/v1/website/leads', error);

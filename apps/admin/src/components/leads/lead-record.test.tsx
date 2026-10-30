@@ -733,7 +733,7 @@ describe('LeadRecord order details', () => {
       'Old admin approved the customer’s change request #1',
     );
     expect(entries[2]?.textContent).toContain(
-      'Customer asked to change the arrival in canada and sent a new passport and visa or approval letter (request #1)',
+      'Customer asked to change the arrival in Canada and sent a new passport and visa or approval letter (request #1)',
     );
     // #2 is still undecided: the page says where it is decided.
     const waiting = screen.getByText(/Waiting in the old admin/);
@@ -1007,7 +1007,7 @@ describe('LeadRecord order details', () => {
       }),
     );
     const timeline = screen.getByRole('region', { name: 'Timeline' });
-    expect(await within(timeline).findByText(/corrected the arrival in canada/)).toBeTruthy();
+    expect(await within(timeline).findByText(/corrected the arrival in Canada/)).toBeTruthy();
   });
 
   it('saves a SIM number from the staff card', async () => {
@@ -1607,7 +1607,7 @@ describe('LeadRecord from the site layout', () => {
     // The timeline names custom keys by their label.
     const timeline = screen.getByRole('region', { name: 'Timeline' });
     expect(
-      within(timeline).getByText('corrected the arrival in canada, referral code, vip'),
+      within(timeline).getByText('corrected the arrival in Canada, referral code and VIP'),
     ).toBeTruthy();
   });
 
@@ -1673,7 +1673,7 @@ describe('LeadRecord from the site layout', () => {
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const timeline = await screen.findByRole('region', { name: 'Timeline' });
     expect(
-      await within(timeline).findByText('corrected the referral code, custom_gone'),
+      await within(timeline).findByText('corrected the referral code and custom_gone'),
     ).toBeTruthy();
   });
 
@@ -1879,7 +1879,7 @@ describe('LeadRecord order section', () => {
       /^Frozen Oct 20, 2026: Unlimited 50, \$50\.00 \/ Monthly$/,
     );
     const timeline = screen.getByRole('region', { name: 'Timeline' });
-    expect(within(timeline).getByText('corrected the plan, payment status')).toBeTruthy();
+    expect(within(timeline).getByText('corrected the plan and payment status')).toBeTruthy();
   });
 
   it('leaves the order out of a lead the backend sent no order details for', async () => {

@@ -1,10 +1,15 @@
 import postgres from 'postgres';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { idempotencyKeyHash, requestFingerprint } from '../src/leads/idempotency.js';
-import { DatabaseLeadStore, OrderIntakeError, type CreateLeadInput } from '../src/leads/store.js';
+import {
+  DatabaseLeadStore,
+  ExternalRefTakenError,
+  OrderIntakeError,
+  type CreateLeadInput,
+} from '../src/leads/store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
   const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -120,14 +125,6 @@ databaseTest('order numbers from the site counter', () => {
     expect(await counter()).toBe(155);
   });
 
-  it("keeps a website's own reference and takes no number for it", async () => {
-    const own = await store.createLead(draft({ externalRef: 'MS-9000' }));
-    expect(own.lead.externalRef).toBe('MS-9000');
-    expect(await counter()).toBe(155);
-    const next = await store.createLead(draft());
-    expect(next.lead.externalRef).toBe('MS-156');
-  });
-
   it('numbers only SIM orders, and each site from its own counter', async () => {
     const internet = await store.createLead(draft({ leadType: 'internet' }));
     expect(internet.lead.externalRef).toBeNull();
@@ -138,7 +135,7 @@ databaseTest('order numbers from the site counter', () => {
     const elsewhere = await store.createLead(draft({ workspaceId: OTHER_SITE }));
     expect(elsewhere.lead.externalRef).toBe('MS-1');
     expect(await counter(OTHER_SITE)).toBe(1);
-    expect(await counter()).toBe(156);
+    expect(await counter()).toBe(155);
   });
 
   it('a replayed keyed create returns the same number and takes none', async () => {
@@ -147,19 +144,19 @@ databaseTest('order numbers from the site counter', () => {
       fingerprint: requestFingerprint({ marker: 'order-number-replay' }),
     };
     const first = await store.createLead(draft({ idempotency }));
-    expect(first.lead.externalRef).toBe('MS-157');
+    expect(first.lead.externalRef).toBe('MS-156');
     const again = await store.createLead(draft({ idempotency }));
     expect(again).toMatchObject({ replayed: true, lead: { id: first.lead.id } });
-    expect(again.lead.externalRef).toBe('MS-157');
-    expect(await counter()).toBe(157);
+    expect(again.lead.externalRef).toBe('MS-156');
+    expect(await counter()).toBe(156);
   });
 
   it('a refused create takes no number', async () => {
     await expect(
       store.createLead(draft({ order: { planId: MISSING_PLAN, quantity: 1 } })),
     ).rejects.toBeInstanceOf(OrderIntakeError);
-    expect(await counter()).toBe(157);
-    expect((await store.createLead(draft())).lead.externalRef).toBe('MS-158');
+    expect(await counter()).toBe(156);
+    expect((await store.createLead(draft())).lead.externalRef).toBe('MS-157');
   });
 
   it('continues from wherever the counter was set, and a save returns the number', async () => {
@@ -179,5 +176,70 @@ databaseTest('order numbers from the site counter', () => {
     });
     expect(saved).toMatchObject({ status: 'updated', lead: { externalRef: 'MS-201' } });
     expect(await counter()).toBe(201);
+  });
+  it("keeps a website's own reference and takes no number for it, then numbers past it", async () => {
+    const own = await store.createLead(draft({ externalRef: 'MS-9000' }));
+    expect(own.lead.externalRef).toBe('MS-9000');
+    expect(await counter()).toBe(201);
+    // The next number never reuses one a lead already holds.
+    const next = await store.createLead(draft());
+    expect(next.lead.externalRef).toBe('MS-9001');
+  });
+
+  it('a counter set below numbers leads already hold jumps past them', async () => {
+    await admin`
+      update app.site_counters set last_value = 150
+      where workspace_id = ${SITE} and counter = 'sim_order_ref'
+    `;
+    const created = await store.createLead(draft());
+    expect(created.lead.externalRef).toBe('MS-9002');
+    expect(await counter()).toBe(9002);
+    // A counter set above them (the switch-day seed's gap) is kept.
+    await admin`
+      update app.site_counters set last_value = 9100
+      where workspace_id = ${SITE} and counter = 'sim_order_ref'
+    `;
+    expect((await store.createLead(draft())).lead.externalRef).toBe('MS-9101');
+  });
+
+  it('a number taken by a concurrent import answers external_ref_taken and logs ids only', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // An import inserts MS-9102 and has not committed when the create takes the number.
+      const importing = admin.reserve();
+      const conn = await importing;
+      await conn`begin`;
+      await conn`
+        insert into app.leads (workspace_id, lead_type, status, stage, consent_version, external_ref)
+        values (${SITE}, 'sim_order', 'submitted', 'pending', 'legacy', 'MS-9102')
+      `;
+      const creating = store.createLead(draft({ contact: { fullName: 'Omar Example' } }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await conn`commit`;
+      conn.release();
+      await expect(creating).rejects.toBeInstanceOf(ExternalRefTakenError);
+      // The number went back with the rollback; the next create is past the import.
+      expect(await counter()).toBe(9101);
+      expect((await store.createLead(draft())).lead.externalRef).toBe('MS-9103');
+      const logged = warn.mock.calls.map((call) => String(call[0]));
+      expect(logged).toEqual([
+        JSON.stringify({ event: 'site_counter_collision', workspaceId: SITE, requestId: REQUEST }),
+      ]);
+      expect(logged.join('')).not.toContain('Omar');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("refuses a website's own reference another order holds, without a collision log", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await expect(store.createLead(draft({ externalRef: 'MS-9000' }))).rejects.toBeInstanceOf(
+        ExternalRefTakenError,
+      );
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

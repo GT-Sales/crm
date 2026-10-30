@@ -343,11 +343,11 @@ databaseTest('a customer change request, from the tracking code to approval on t
     const leadId = lead.id;
     const reference = lead.externalRef ?? '';
     expect(reference).toMatch(/^MS-\d+$/);
-    // A submitted order waits at Incomplete until staff take it in; a change needs Pending or later.
-    const takenIn = await call('PATCH', leadPath(leadId), 'tracking-flow-leads', {
-      stage: 'pending',
-    });
-    expect(takenIn.status).toBe(200);
+    // The submitted order is Pending at once, so the customer may change it.
+    const submitted = getWorkspaceLeadResponseSchema.parse(
+      (await call('GET', leadPath(leadId), 'tracking-flow-leads')).body,
+    );
+    expect(submitted.lead.stage).toBe('pending');
 
     // A tracking code for her email; one outbox run sends it.
     const code = await call('POST', '/api/v1/website/tracking/code', website.secret, {
@@ -394,7 +394,10 @@ databaseTest('a customer change request, from the tracking code to approval on t
       canRequestChange: true,
       pendingChange: null,
       details: { phone: OLD_PHONE, arrivalDate: '2026-11-20' },
-      documents: [{ documentType: 'passport', state: 'missing' }],
+      documents: [
+        { documentType: 'passport', state: 'missing' },
+        { documentType: 'visa', state: 'missing' },
+      ],
     });
 
     // She asks for a new phone and arrival date: request #1.
@@ -543,7 +546,10 @@ databaseTest('a customer change request, from the tracking code to approval on t
         reference,
         pendingChange: null,
         details: expect.objectContaining({ phone: NEW_PHONE, arrivalDate: NEW_ARRIVAL }),
-        documents: [{ documentType: 'passport', state: 'received' }],
+        documents: [
+          { documentType: 'passport', state: 'received' },
+          { documentType: 'visa', state: 'missing' },
+        ],
       }),
     ]);
 
@@ -556,7 +562,12 @@ databaseTest('a customer change request, from the tracking code to approval on t
     );
     expect(reviewed.status).toBe(200);
     expect(await listOrders()).toEqual([
-      expect.objectContaining({ documents: [{ documentType: 'passport', state: 'approved' }] }),
+      expect.objectContaining({
+        documents: [
+          { documentType: 'passport', state: 'approved' },
+          { documentType: 'visa', state: 'missing' },
+        ],
+      }),
     ]);
 
     // The code job kept only the challenge id once it ended.

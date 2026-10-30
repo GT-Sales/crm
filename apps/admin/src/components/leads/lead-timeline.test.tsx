@@ -168,8 +168,38 @@ describe('LeadTimeline', () => {
       },
     ]);
     expect(
-      within(region).getByText('corrected the plan, quantity, payment status, carrier commission'),
+      within(region).getByText(
+        'corrected the plan, quantity, payment status and carrier commission',
+      ),
     ).toBeTruthy();
+  });
+
+  it('keeps a label’s capitals after its first letter, and joins three or more with "and"', () => {
+    const region = timeline([
+      {
+        id: '92000000-0000-4000-8000-000000000014',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'edit',
+        fields: ['arrivalDate', 'simNumber', 'permitType'],
+      },
+    ]);
+    expect(
+      within(region).getByText(
+        'corrected the arrival in Canada, SIM number and visa / permit type',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('says the website submitted the order and it moved to Pending, with no staff name', () => {
+    const region = timeline([
+      leadActivitySchema.parse(
+        entry('15', { actorId: '30000000-0000-4000-8000-0000000000aa', event: 'submitted' }),
+      ),
+    ]);
+    const [first] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain('Submitted on the website and moved to Pending');
+    expect(first?.textContent).not.toContain('Former teammate');
   });
 
   it('names the document a review approved or rejected', () => {
@@ -254,7 +284,7 @@ describe('LeadTimeline', () => {
       ]);
       const [first] = within(region).getAllByRole('listitem');
       expect(first?.textContent).toContain(
-        'The customer asked to change the phone, arrival in canada (request #70)',
+        'The customer asked to change the phone and arrival in Canada (request #70)',
       );
       expect(first?.textContent).not.toContain('Former teammate');
     });
@@ -264,7 +294,7 @@ describe('LeadTimeline', () => {
         crm('change_requested', 71, { fields: ['planId', 'fullName'], documents: ['passport'] }),
       ]);
       expect(within(region).getAllByRole('listitem')[0]?.textContent).toContain(
-        'The customer asked to change the plan, name and sent a new passport (request #71)',
+        'The customer asked to change the plan and name, and sent a new passport (request #71)',
       );
     });
 

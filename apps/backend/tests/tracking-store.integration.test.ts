@@ -547,6 +547,9 @@ databaseTest('tracking store and service (challenges and the customer’s orders
           canadaAddress: '1 Front St W, Toronto',
           shippingAddress: '1 Front St W, Toronto ON',
           flightBooked: true,
+          // The frozen plan names it, so the website's own plan is not needed.
+          websitePlanSlug: null,
+          websitePlanLabel: null,
         },
         documents: [
           { documentType: 'passport', state: 'missing' },
@@ -559,6 +562,70 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       expect(JSON.stringify(orders)).not.toContain('staff only');
       expect(JSON.stringify(orders)).not.toContain('paymentStatus');
       expect(JSON.stringify(orders)).not.toContain('carrierCommission');
+    });
+
+    it('names an imported order’s plan from its form, and asks for the passport and visa whatever the plan needs', async () => {
+      const ines = 'ines@example.com';
+      const imported = await insertLead({
+        stage: 'pending',
+        email: ines,
+        externalRef: 'MS-6520',
+        createdAt: days(4),
+        // As the import leaves it: the website's slug and label, no plan link.
+        form: {
+          planId: 'unlimited-data-rogers',
+          planLabel: 'Unlimited Data Rogers',
+          delivery: 'esim',
+        },
+        orderDetails: { quantity: 1, paymentStatus: 'pending' },
+      });
+      // A CRM order whose plan needs no document: both are still listed for the customer.
+      const noDocuments = await insertLead({
+        stage: 'pending',
+        email: ines,
+        externalRef: 'MS-6521',
+        createdAt: days(3),
+        form: { planId: 'unlimited-data-rogers', planLabel: 'Unlimited Data Rogers' },
+        orderDetails: { planId: PLAN, plan: { ...frozenPlan, requiredDocuments: [] }, quantity: 1 },
+      });
+      // A label of the wrong shape is read as absent, never refused.
+      const odd = await insertLead({
+        stage: 'pending',
+        email: ines,
+        externalRef: 'MS-6522',
+        createdAt: days(2),
+        form: { planId: 42, planLabel: ['x'] },
+      });
+      const orders = await service.listOrders(scope, {
+        workspaceId: SITE,
+        normalizedEmail: ines,
+        emailHash: emailBindingHash(SECRET, SITE, ines),
+      });
+      const byRef = new Map(orders.map((order) => [order.reference, order]));
+      expect(byRef.get('MS-6520')).toMatchObject({
+        plan: null,
+        details: {
+          websitePlanSlug: 'unlimited-data-rogers',
+          websitePlanLabel: 'Unlimited Data Rogers',
+        },
+        documents: [
+          { documentType: 'passport', state: 'missing' },
+          { documentType: 'visa', state: 'missing' },
+        ],
+      });
+      expect(byRef.get('MS-6521')).toMatchObject({
+        plan: { id: PLAN },
+        details: { websitePlanSlug: null, websitePlanLabel: null },
+        documents: [
+          { documentType: 'passport', state: 'missing' },
+          { documentType: 'visa', state: 'missing' },
+        ],
+      });
+      expect(byRef.get('MS-6522')?.details).toMatchObject({
+        websitePlanSlug: null,
+        websitePlanLabel: null,
+      });
+      await admin`delete from app.leads where id in (${imported}, ${noDocuments}, ${odd})`;
     });
 
     it('lists nothing for another email, and a grant from another site reads nothing', async () => {
@@ -680,7 +747,7 @@ databaseTest('tracking store and service (challenges and the customer’s orders
               event: 'tracking_order_unlistable',
               workspaceId: SITE,
               leadId: badDocument,
-              path: 'documents.0.documentType',
+              path: 'documents.2.documentType',
             },
           ]),
         );

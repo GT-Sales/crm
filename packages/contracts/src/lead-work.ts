@@ -98,12 +98,15 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
      * `change_approved`, `change_rejected`: the customer asked the website to
      * change their order (Get Canada Sim's `/track`) and how its admin
      * decided, by the website's `requestNo`; `documents_override`: staff
-     * moved the order on without the `missing` documents, for `reason`.
+     * moved the order on without the `missing` documents, for `reason`;
+     * `submitted`: the website submitted the order and it moved from
+     * Incomplete to Pending (a SIM order), by the website's credential.
      */
     event: z.enum([
       'trashed',
       'restored',
       'opened',
+      'submitted',
       'customer_emailed',
       'change_requested',
       'change_approved',

@@ -628,7 +628,11 @@ test('a customer’s change request is approved on the lead page', async ({ page
   await expect(page.locator('dt:text-is("Phone") + dd')).toHaveText('647 555 0299');
   const timeline = page.getByRole('region', { name: 'Timeline' });
   await expect(timeline).toContainText("approved the customer's change request #1");
-  await expect(timeline).toContainText(/The customer asked to change the [^(]*\(request #1\)/);
+  await expect(timeline).toContainText(
+    'The customer asked to change the phone and arrival in Canada (request #1)',
+  );
+  // Submitted on the website, the order was Pending at once.
+  await expect(timeline).toContainText('Submitted on the website and moved to Pending');
 
   // Read again, the order has no pending request and keeps the new values.
   await page.reload();
