@@ -79,6 +79,30 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     await providerEvent('retention-recent-event', daysAgo(20));
     await providerEvent('retention-unapplied-event', null);
 
+    // Idempotency keys after 7 days, automation runs after 90 days.
+    await admin`delete from app.idempotency_keys where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
+    await admin`delete from app.leads where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
+    const idempotencyKey = (workspace: string, digit: string, createdAt: Date) => admin`
+      insert into app.idempotency_keys (workspace_id, scope, key_hash, request_fingerprint, created_at)
+      values (${workspace}, 'lead_submission', ${digit.repeat(64)}, ${`sha256:${'0'.repeat(64)}`},
+        ${createdAt})
+    `;
+    await idempotencyKey(WORKSPACE, '8', daysAgo(8));
+    await idempotencyKey(WORKSPACE, '6', daysAgo(6));
+    await idempotencyKey(OTHER_WORKSPACE, '9', daysAgo(8));
+    const [lead] = await admin<{ id: string }[]>`
+      insert into app.leads (workspace_id, lead_type, status, stage, consent_version)
+      values (${WORKSPACE}, 'sim_order', 'submitted', 'pending', 'ci')
+      returning id
+    `;
+    if (!lead) throw new Error('the lead was not inserted');
+    const automationRun = (reason: string, createdAt: Date) => admin`
+      insert into app.automation_runs (workspace_id, automation_key, lead_id, outcome, reason, created_at)
+      values (${WORKSPACE}, 'order_received', ${lead.id}, 'skipped', ${reason}, ${createdAt})
+    `;
+    await automationRun('no_sender', daysAgo(91));
+    await automationRun('no_customer_email', daysAgo(89));
+
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
     runtimeUrl.password = TEST_RUNTIME_PASSWORD;
@@ -98,8 +122,16 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     });
     expect(result).toContainEqual({ tableName: 'outbox_jobs', deleted: 1 });
     expect(result).toContainEqual({ tableName: 'email_provider_events', deleted: 1 });
+    expect(result).toContainEqual({ tableName: 'idempotency_keys', deleted: 1 });
+    expect(result).toContainEqual({ tableName: 'automation_runs', deleted: 1 });
     expect(result.map((row) => row.tableName).sort()).toEqual(
-      ['email_provider_events', 'outbox_job_alerts', 'outbox_jobs'].sort(),
+      [
+        'automation_runs',
+        'email_provider_events',
+        'idempotency_keys',
+        'outbox_job_alerts',
+        'outbox_jobs',
+      ].sort(),
     );
     const remaining = await admin<{ dedupe_key: string }[]>`
       select dedupe_key from app.outbox_jobs
@@ -118,6 +150,18 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
       'retention-recent-event',
       'retention-unapplied-event',
     ]);
+    const keys = await admin<{ workspace_id: string; key_hash: string }[]>`
+      select workspace_id, key_hash from app.idempotency_keys
+      where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE}) order by key_hash
+    `;
+    expect(keys).toEqual([
+      { workspace_id: WORKSPACE, key_hash: '6'.repeat(64) },
+      { workspace_id: OTHER_WORKSPACE, key_hash: '9'.repeat(64) },
+    ]);
+    const runs = await admin<{ reason: string }[]>`
+      select reason from app.automation_runs where workspace_id = ${WORKSPACE}
+    `;
+    expect(runs.map((row) => row.reason)).toEqual(['no_customer_email']);
   });
 
   test('refuses a workspace other than the transaction tenant', async () => {
@@ -131,11 +175,15 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
   });
 
   test('the runtime role holds no direct delete grant on the pruned tables', async () => {
-    const [grants] = await admin<{ jobs: boolean; events: boolean }[]>`
+    const [grants] = await admin<
+      { jobs: boolean; events: boolean; keys: boolean; runs: boolean }[]
+    >`
       select
         has_table_privilege('app_runtime', 'app.outbox_jobs', 'delete') as jobs,
-        has_table_privilege('app_runtime', 'app.email_provider_events', 'delete') as events
+        has_table_privilege('app_runtime', 'app.email_provider_events', 'delete') as events,
+        has_table_privilege('app_runtime', 'app.idempotency_keys', 'delete') as keys,
+        has_table_privilege('app_runtime', 'app.automation_runs', 'delete') as runs
     `;
-    expect(grants).toEqual({ jobs: false, events: false });
+    expect(grants).toEqual({ jobs: false, events: false, keys: false, runs: false });
   });
 });
