@@ -553,6 +553,60 @@ databaseTest('order details on leads', () => {
       ]);
     });
 
+    it('writes only the changed field over the stored order: an unknown key and the copy stay byte for byte', async () => {
+      const created = await leadStore.createLead(
+        base({ submit: true, order: { planId: simPaid.id, quantity: 1 } }),
+      );
+      const leadId = created.lead.id;
+      // A copy the parse cannot read (no frozenAt, a key of its own) and a key it does not know.
+      await admin`
+        update app.leads
+        set order_details = order_details
+          || jsonb_build_object('legacyRef', 'GCS-1042')
+          || jsonb_build_object(
+            'plan',
+            (order_details -> 'plan') - 'frozenAt' || '{"oldSku":"U50-2019"}'::jsonb
+          )
+        where id = ${leadId}
+      `;
+      const storedText = async () => {
+        const [row] = await admin<{ plan: string; legacyRef: string | null }[]>`
+          select (order_details -> 'plan')::text as plan, order_details ->> 'legacyRef' as "legacyRef"
+          from app.leads where id = ${leadId}
+        `;
+        return row;
+      };
+      const before = await storedText();
+      expect(before?.plan).toContain('"oldSku": "U50-2019"');
+
+      const edited = await work.updateLead({ ...ctx, leadId, catalog, order: { quantity: 3 } });
+      if (edited.status !== 'updated') throw new Error(`got ${edited.status}`);
+      expect(edited.activities).toEqual([
+        expect.objectContaining({ kind: 'edit', fields: ['quantity'] }),
+      ]);
+      expect(await storedText()).toEqual({ plan: before?.plan, legacyRef: 'GCS-1042' });
+      expect(await orderDetails(leadId)).toMatchObject({ planId: simPaid.id, quantity: 3 });
+
+      // A status edit on a readable copy keeps it as stored too.
+      const readable = await leadStore.createLead(
+        base({ submit: true, order: { planId: simPaid.id, quantity: 1 } }),
+      );
+      const [{ plan: readableBefore } = { plan: '' }] = await admin<{ plan: string }[]>`
+        select (order_details -> 'plan')::text as plan from app.leads where id = ${readable.lead.id}
+      `;
+      const paid = await work.updateLead({
+        ...ctx,
+        leadId: readable.lead.id,
+        catalog,
+        order: { paymentStatus: 'paid' },
+      });
+      expect(paid.status).toBe('updated');
+      const [{ plan: readableAfter } = { plan: '' }] = await admin<{ plan: string }[]>`
+        select (order_details -> 'plan')::text as plan from app.leads where id = ${readable.lead.id}
+      `;
+      expect(readableAfter).toBe(readableBefore);
+    });
+
     it('refuses order edits on a type with no order, an archived lead and a restricted one', async () => {
       const message = await leadStore.createLead(
         base({ leadType: 'contact_message', submit: true }),
