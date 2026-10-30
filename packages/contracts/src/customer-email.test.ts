@@ -11,10 +11,20 @@ import {
   customerEmailTemplateSchema,
   emailBodySchema,
   emailFillIns,
+  emailSettingsResponseSchema,
+  emailSettingsSchema,
+  emailTemplateResponseSchema,
+  emailTemplateSchema,
   emailSubjectSchema,
   fillInsForTemplate,
   httpsUrlSchema,
+  listEmailTemplatesResponseSchema,
   normalizeFillInName,
+  previewEmailTemplateRequestSchema,
+  previewEmailTemplateResponseSchema,
+  sendTestEmailResponseSchema,
+  updateEmailSettingsRequestSchema,
+  updateEmailTemplateRequestSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -131,5 +141,143 @@ describe('the customer email job', () => {
         sender: { ...JOB_PAYLOAD.sender, extra: 1 },
       }).success,
     ).toBe(false);
+  });
+});
+
+const SETTINGS_REQUEST = {
+  fromName: 'Get Canada Sim',
+  fromAddress: 'orders@example.com',
+  replyTo: null,
+  logoUrl: null,
+  siteUrl: 'https://example.com',
+};
+
+const SAVED_SETTINGS = {
+  ...SETTINGS_REQUEST,
+  brandColor: '#d72638',
+  footerText: '',
+  updatedAt: '2026-10-30T12:00:00.000Z',
+  updatedBy: UUID_A,
+};
+
+describe('email settings', () => {
+  it('defaults the colour and the footer when the request leaves them out', () => {
+    expect(updateEmailSettingsRequestSchema.parse(SETTINGS_REQUEST)).toEqual({
+      ...SETTINGS_REQUEST,
+      brandColor: DEFAULT_EMAIL_BRAND_COLOR,
+      footerText: '',
+    });
+  });
+
+  it('lower-cases a colour the owner typed', () => {
+    const parsed = updateEmailSettingsRequestSchema.parse({
+      ...SETTINGS_REQUEST,
+      brandColor: '#AABBCC',
+    });
+    expect(parsed.brandColor).toBe('#aabbcc');
+  });
+
+  it('refuses an http logo, an 81-character name, a bad address and an extra key', () => {
+    const refuses = (patch: Record<string, unknown>) =>
+      updateEmailSettingsRequestSchema.safeParse({ ...SETTINGS_REQUEST, ...patch }).success;
+    expect(refuses({ logoUrl: 'http://example.com/logo.png' })).toBe(false);
+    expect(refuses({ logoUrl: 'https://example.com/logo.png' })).toBe(true);
+    expect(refuses({ fromName: 'a'.repeat(81) })).toBe(false);
+    expect(refuses({ fromName: 'a'.repeat(80) })).toBe(true);
+    expect(refuses({ fromName: '   ' })).toBe(false);
+    expect(refuses({ fromAddress: 'not-an-address' })).toBe(false);
+    expect(refuses({ replyTo: 'not-an-address' })).toBe(false);
+    expect(refuses({ siteUrl: 'http://example.com' })).toBe(false);
+    expect(refuses({ updatedAt: '2026-10-30T12:00:00.000Z' })).toBe(false);
+  });
+
+  it('answers with the saved settings, or the fallback sender while none are saved', () => {
+    expect(emailSettingsSchema.parse(SAVED_SETTINGS)).toEqual(SAVED_SETTINGS);
+    expect(
+      emailSettingsResponseSchema.parse({
+        settings: SAVED_SETTINGS,
+        fallback: null,
+        requestId: UUID_A,
+      }),
+    ).toMatchObject({ settings: SAVED_SETTINGS, fallback: null });
+    const fallback = {
+      fromName: 'Get Canada Sim',
+      fromAddress: 'orders@example.com',
+      siteUrl: null,
+    };
+    expect(
+      emailSettingsResponseSchema.parse({ settings: null, fallback, requestId: UUID_A }),
+    ).toMatchObject({ settings: null, fallback });
+    expect(
+      emailSettingsResponseSchema.safeParse({ fallback: null, requestId: UUID_A }).success,
+    ).toBe(false);
+  });
+});
+
+describe('email templates', () => {
+  const template = (key: string, version = 0) => ({
+    key,
+    subject: 'Hello',
+    body: 'Hi {first name}',
+    version,
+    updatedAt: version === 0 ? null : '2026-10-30T12:00:00.000Z',
+    updatedBy: version === 0 ? null : UUID_A,
+  });
+
+  it('lists exactly the seven templates', () => {
+    const templates = CUSTOMER_EMAIL_TEMPLATES.map((key) => template(key));
+    expect(
+      listEmailTemplatesResponseSchema.parse({ templates, requestId: UUID_A }).templates,
+    ).toHaveLength(7);
+    expect(
+      listEmailTemplatesResponseSchema.safeParse({
+        templates: templates.slice(1),
+        requestId: UUID_A,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('reads one template, the starter text being version 0', () => {
+    expect(emailTemplateSchema.parse(template('dispatched'))).toEqual(template('dispatched'));
+    expect(emailTemplateSchema.safeParse(template('dispatched', -1)).success).toBe(false);
+    expect(emailTemplateSchema.safeParse(template('unknown')).success).toBe(false);
+    expect(
+      emailTemplateResponseSchema.safeParse({
+        template: template('dispatched', 2),
+        requestId: UUID_A,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('refuses a 151-character subject, an empty body and an enabled key on a save', () => {
+    const save = { expectedVersion: 0, subject: 'Hello', body: 'Hi' };
+    expect(updateEmailTemplateRequestSchema.parse(save)).toEqual(save);
+    const refuses = (patch: Record<string, unknown>) =>
+      updateEmailTemplateRequestSchema.safeParse({ ...save, ...patch }).success;
+    expect(refuses({ subject: 'a'.repeat(150) })).toBe(true);
+    expect(refuses({ subject: 'a'.repeat(151) })).toBe(false);
+    expect(refuses({ body: '   ' })).toBe(false);
+    expect(refuses({ expectedVersion: -1 })).toBe(false);
+    expect(refuses({ enabled: true })).toBe(false);
+  });
+
+  it('previews and test-sends', () => {
+    const draft = { subject: 'Hello', body: 'Hi' };
+    expect(previewEmailTemplateRequestSchema.parse(draft)).toEqual(draft);
+    expect(
+      previewEmailTemplateRequestSchema.safeParse({ ...draft, expectedVersion: 0 }).success,
+    ).toBe(false);
+    expect(
+      previewEmailTemplateResponseSchema.parse({
+        subject: 'Hello',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        requestId: UUID_A,
+      }).html,
+    ).toBe('<p>Hi</p>');
+    expect(sendTestEmailResponseSchema.parse({ queued: true, requestId: UUID_A }).queued).toBe(
+      true,
+    );
+    expect(sendTestEmailResponseSchema.safeParse({ requestId: UUID_A }).success).toBe(false);
   });
 });

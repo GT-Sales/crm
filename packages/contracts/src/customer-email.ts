@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isoDateTimeSchema, requestIdSchema } from './common';
+
 /**
  * The vocabulary of the mails a site sends its customers (spec §15): the
  * templates, the fill-ins their subject and body may use, the values of a
@@ -7,7 +9,8 @@ import { z } from 'zod';
  * A template is content only (subject, body, version); whether it is sent is
  * up to the staff action or the automation rule that names it.
  *
- * This module imports nothing but zod, so every family file can use it.
+ * This module imports nothing but zod and `./common`, so every family file can
+ * use it.
  */
 
 /** The mails a site can send, in Settings → Email order. */
@@ -109,11 +112,15 @@ export const DEFAULT_EMAIL_BRAND_COLOR = '#d72638';
 export const emailSubjectSchema = z.string().trim().min(1).max(150);
 export const emailBodySchema = z.string().trim().min(1).max(5000);
 
-/** A `#rrggbb` colour, stored in lower case. */
+/**
+ * A `#rrggbb` colour, stored in lower case. Lower-cased with `overwrite`, not
+ * `transform`, so the schema still has a JSON Schema form for the OpenAPI
+ * document.
+ */
 export const brandColorSchema = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/, 'a colour, #rrggbb')
-  .transform((value) => value.toLowerCase());
+  .overwrite((value) => value.toLowerCase());
 
 /** A link an email may carry (the site's logo, its address): https only. */
 export const httpsUrlSchema = z.url({ protocol: /^https$/ }).max(2048);
@@ -152,3 +159,104 @@ export const customerEmailJobPayloadSchema = z
   })
   .strict();
 export type CustomerEmailJobPayload = z.infer<typeof customerEmailJobPayloadSchema>;
+
+/**
+ * A site's email settings (`app.email_settings`, Settings → Email): who its
+ * mails come from and how they look. `replyTo`, `logoUrl` and `siteUrl` are
+ * null when left empty.
+ */
+export const emailSettingsSchema = z.object({
+  fromName: z.string().trim().min(1).max(80),
+  fromAddress: z.email().max(254),
+  replyTo: z.email().max(254).nullable(),
+  logoUrl: httpsUrlSchema.nullable(),
+  brandColor: brandColorSchema,
+  footerText: z.string().trim().max(500),
+  siteUrl: httpsUrlSchema.nullable(),
+  updatedAt: isoDateTimeSchema,
+  updatedBy: z.uuid(),
+});
+export type EmailSettings = z.infer<typeof emailSettingsSchema>;
+
+/** `PUT …/email/settings`: the whole form; colour and footer fall back to the defaults. */
+export const updateEmailSettingsRequestSchema = emailSettingsSchema
+  .omit({ updatedAt: true, updatedBy: true })
+  .extend({
+    brandColor: brandColorSchema.default(DEFAULT_EMAIL_BRAND_COLOR),
+    footerText: z.string().trim().max(500).default(''),
+  })
+  .strict();
+export type UpdateEmailSettingsRequest = z.infer<typeof updateEmailSettingsRequestSchema>;
+export type UpdateEmailSettingsRequestInput = z.input<typeof updateEmailSettingsRequestSchema>;
+
+/**
+ * `GET`/`PUT …/email/settings`. `settings` is null until the owner saves
+ * them; `fallback` is then the sender configured for the deployment
+ * (`EMAIL_SENDERS_JSON`), which mails use meanwhile, or null when there is none.
+ */
+export const emailSettingsResponseSchema = z.object({
+  settings: emailSettingsSchema.nullable(),
+  fallback: z
+    .object({
+      fromName: z.string(),
+      fromAddress: z.email(),
+      siteUrl: z.url().nullable(),
+    })
+    .nullable(),
+  requestId: requestIdSchema,
+});
+export type EmailSettingsResponse = z.infer<typeof emailSettingsResponseSchema>;
+
+/** One template as the site has it; `version` 0 is the starter text, never saved. */
+export const emailTemplateSchema = z.object({
+  key: customerEmailTemplateSchema,
+  subject: emailSubjectSchema,
+  body: emailBodySchema,
+  version: z.int().min(0),
+  updatedAt: isoDateTimeSchema.nullable(),
+  updatedBy: z.uuid().nullable(),
+});
+export type EmailTemplate = z.infer<typeof emailTemplateSchema>;
+
+export const listEmailTemplatesResponseSchema = z.object({
+  templates: z.array(emailTemplateSchema).length(CUSTOMER_EMAIL_TEMPLATES.length),
+  requestId: requestIdSchema,
+});
+export type ListEmailTemplatesResponse = z.infer<typeof listEmailTemplatesResponseSchema>;
+
+/** `PUT …/email/templates/:key`; `expectedVersion` is the version the editor loaded. */
+export const updateEmailTemplateRequestSchema = z
+  .object({
+    expectedVersion: z.int().min(0),
+    subject: emailSubjectSchema,
+    body: emailBodySchema,
+  })
+  .strict();
+export type UpdateEmailTemplateRequest = z.infer<typeof updateEmailTemplateRequestSchema>;
+
+export const emailTemplateResponseSchema = z.object({
+  template: emailTemplateSchema,
+  requestId: requestIdSchema,
+});
+export type EmailTemplateResponse = z.infer<typeof emailTemplateResponseSchema>;
+
+/** `POST …/email/templates/:key/preview`: the unsaved subject and body, rendered with sample values. */
+export const previewEmailTemplateRequestSchema = z
+  .object({ subject: emailSubjectSchema, body: emailBodySchema })
+  .strict();
+export type PreviewEmailTemplateRequest = z.infer<typeof previewEmailTemplateRequestSchema>;
+
+export const previewEmailTemplateResponseSchema = z.object({
+  subject: z.string(),
+  html: z.string(),
+  text: z.string(),
+  requestId: requestIdSchema,
+});
+export type PreviewEmailTemplateResponse = z.infer<typeof previewEmailTemplateResponseSchema>;
+
+/** `POST …/email/templates/:key/test`: `queued` is false when the mail was not queued. */
+export const sendTestEmailResponseSchema = z.object({
+  queued: z.boolean(),
+  requestId: requestIdSchema,
+});
+export type SendTestEmailResponse = z.infer<typeof sendTestEmailResponseSchema>;

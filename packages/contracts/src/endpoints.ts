@@ -7,6 +7,23 @@ import {
   reviewFileResponseSchema,
 } from './files';
 import {
+  automationResponseSchema,
+  listAutomationRunsResponseSchema,
+  listAutomationsResponseSchema,
+  updateAutomationRequestSchema,
+} from './automations';
+import {
+  emailSettingsResponseSchema,
+  emailTemplateResponseSchema,
+  listEmailTemplatesResponseSchema,
+  previewEmailTemplateRequestSchema,
+  previewEmailTemplateResponseSchema,
+  sendTestEmailResponseSchema,
+  updateEmailSettingsRequestSchema,
+  updateEmailTemplateRequestSchema,
+} from './customer-email';
+import {
+  IDEMPOTENCY_KEY_HEADER,
   createLeadRequestSchema,
   createLeadResponseSchema,
   updateLeadRequestSchema,
@@ -112,7 +129,7 @@ import {
  * document and the client together.
  */
 
-export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** How the operation is authenticated. Drives the OpenAPI security requirement. */
 export type EndpointAuth = 'public' | 'staff' | 'website' | 'customer' | 'machine';
@@ -141,6 +158,13 @@ const DRAFT_GRANT: EndpointHeader = {
   name: 'X-Draft-Grant',
   required: true,
   description: 'Scoped grant token that authorises resuming this draft.',
+};
+
+const IDEMPOTENCY_KEY: EndpointHeader = {
+  name: IDEMPOTENCY_KEY_HEADER,
+  required: false,
+  description:
+    'Optional; with submit, a retry with the same key and body within 24 hours returns the lead already created (replayed: true).',
 };
 
 export const endpoints: readonly EndpointDef[] = [
@@ -531,6 +555,95 @@ export const endpoints: readonly EndpointDef[] = [
     response: planResponseSchema,
   },
 
+  // Staff — customer email and automations
+  {
+    operationId: 'getEmailSettings',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/email/settings',
+    summary:
+      "Read the site's email sender and look, or the deployment's sender while none is saved.",
+    auth: 'staff',
+    successStatus: 200,
+    response: emailSettingsResponseSchema,
+  },
+  {
+    operationId: 'updateEmailSettings',
+    method: 'PUT',
+    path: '/api/v1/staff/workspaces/{workspaceId}/email/settings',
+    summary: "Save the site's email sender and look (integration management).",
+    auth: 'staff',
+    successStatus: 200,
+    request: updateEmailSettingsRequestSchema,
+    response: emailSettingsResponseSchema,
+  },
+  {
+    operationId: 'listEmailTemplates',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/email/templates',
+    summary: "List the site's seven email templates, starter text where none is saved.",
+    auth: 'staff',
+    successStatus: 200,
+    response: listEmailTemplatesResponseSchema,
+  },
+  {
+    operationId: 'updateEmailTemplate',
+    method: 'PUT',
+    path: '/api/v1/staff/workspaces/{workspaceId}/email/templates/{key}',
+    summary:
+      "Save a template's subject and body against the version the editor loaded (integration management).",
+    auth: 'staff',
+    successStatus: 200,
+    request: updateEmailTemplateRequestSchema,
+    response: emailTemplateResponseSchema,
+  },
+  {
+    operationId: 'previewEmailTemplate',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/email/templates/{key}/preview',
+    summary: 'Render an unsaved subject and body with sample values (integration management).',
+    auth: 'staff',
+    successStatus: 200,
+    request: previewEmailTemplateRequestSchema,
+    response: previewEmailTemplateResponseSchema,
+  },
+  {
+    operationId: 'sendTestEmail',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/email/templates/{key}/test',
+    summary: 'Queue the saved template to the caller as a test (integration management).',
+    auth: 'staff',
+    successStatus: 202,
+    response: sendTestEmailResponseSchema,
+  },
+  {
+    operationId: 'listAutomations',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/automations',
+    summary: "List the site's six automation rules and whether each is on.",
+    auth: 'staff',
+    successStatus: 200,
+    response: listAutomationsResponseSchema,
+  },
+  {
+    operationId: 'updateAutomation',
+    method: 'PUT',
+    path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}',
+    summary: 'Switch an automation rule on or off (integration management).',
+    auth: 'staff',
+    successStatus: 200,
+    request: updateAutomationRequestSchema,
+    response: automationResponseSchema,
+  },
+  {
+    operationId: 'listAutomationRuns',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}/runs',
+    summary: "List an automation rule's latest runs, newest first.",
+    auth: 'staff',
+    successStatus: 200,
+    response: listAutomationRunsResponseSchema,
+  },
+
   // Staff — outbox jobs
   {
     operationId: 'listWorkspaceJobs',
@@ -607,6 +720,7 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 201,
     request: createLeadRequestSchema,
     response: createLeadResponseSchema,
+    headers: [IDEMPOTENCY_KEY],
   },
   {
     operationId: 'updateLead',
@@ -617,7 +731,7 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     request: updateLeadRequestSchema,
     response: updateLeadResponseSchema,
-    headers: [DRAFT_GRANT],
+    headers: [DRAFT_GRANT, IDEMPOTENCY_KEY],
   },
   {
     operationId: 'readLead',
