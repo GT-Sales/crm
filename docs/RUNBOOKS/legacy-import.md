@@ -145,6 +145,8 @@ contact details are erased from the CRM's copy 90 days after its last change.
 The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`
 (`stage_mismatches` compares with the mapping applied: a `paid` order on a
 `pending` lead matches). The rehearsal is `apps/backend/tests/getcanadasim-legacy-import.integration.test.ts`.
+The import runs one last time on switch day, when the checkout moves to the
+CRM; see [The final run (switch day)](#the-final-run-switch-day) below.
 
 **Documents** are not copied by the script itself: it queues one
 `legacy_document_import` outbox job per file Get Canada Sim keeps in the

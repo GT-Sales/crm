@@ -1,8 +1,14 @@
 # Merge phase 5: customer tracking
 
-Status on 2026-10-30: to do. Shared rules, the gate, the shipping procedure
-and the working method are in [README.md](README.md#shared-conventions); this
-page adds what is particular to phase 5.
+Status on 2026-10-30: planned
+([plan](../plans/2026-10-30-phase-5-gcs-orders-and-tracking.md)); step A
+(Get Canada Sim's orders into the CRM) built on the CRM side, with migrations
+0015 and 0016 (order numbers) not yet applied; step B (customer tracking,
+migrations 0017 and 0018) to do. The migrations of this phase are 0015 to
+0018, not the 0015 and 0016 named below, which were written before step A
+took those two. Shared rules, the gate, the shipping procedure and the
+working method are in [README.md](README.md#shared-conventions); this page
+adds what is particular to phase 5.
 
 ## 1. Purpose and done when
 
@@ -300,8 +306,12 @@ recommended default. "Spec answers" marks what is already decided.
   instead of a draft grant.
 - The removal of `EMAIL_SENDERS_JSON` keeps a site without saved settings
   unable to send (`no_sender`), as a site without an entry is today.
-- Migrations: `0015_<name>` generated and `0016_<name>_runtime` custom, with
-  the paste file `docs/RUNBOOKS/manual/0015-0016-<name>.sql`. If 0016 replaces
+- Migrations: step A ships `0015_order_numbers` and
+  `0016_order_numbers_runtime` (paste file
+  `docs/RUNBOOKS/manual/0015-0016-order-numbers.sql`); tracking is
+  `0017_customer_tracking` generated and `0018_customer_tracking_runtime`
+  custom, with the paste file
+  `docs/RUNBOOKS/manual/0017-0018-customer-tracking.sql`. If 0018 replaces
   `app.prune_operational_rows` (to prune old challenges), plan for the owner to
   paste it (README "How to ship" step 2).
 
@@ -341,7 +351,7 @@ pnpm --filter @gt-sales/contracts build && git diff --exit-code docs/api/openapi
 ```
 
 Then, as in README "How to ship": PR titled "Customer tracking (merge phase
-5)" with the footer, subscribe and schedule a check-in; apply `0015` and `0016`
+5)" with the footer, subscribe and schedule a check-in; apply `0015` to `0018`
 to `xykrphbgpwisqacpyeiv` before the merge, through `execute_sql` in small
 batches with the owner pasting what trips the prompt, the tracker rows by hand,
 the verification selects one at a time, the record in
@@ -387,7 +397,7 @@ As in [README.md](README.md#working-method). For this phase:
       current version, and no code stays readable in a finished job.
 - [ ] `EMAIL_SENDERS_JSON` and `lead_sim_number_email` are gone from code,
       Railway and ENV.md.
-- [ ] Migrations `0015` and `0016` applied to the hosted project and recorded
+- [ ] Migrations `0015` to `0018` applied to the hosted project and recorded
       in `docs/RUNBOOKS/database.md`.
 - [ ] The gate is green; the PR is merged with a merge commit; Railway and
       Vercel deployed in order.
