@@ -27,7 +27,7 @@ import {
   type LeadListItem,
   type PropertyCatalog,
 } from '@gt-sales/contracts';
-import { rateLimitHit, type TenantContext } from '@gt-sales/db';
+import { rateLimitHit, withTenantTx, type DatabaseClient, type TenantContext } from '@gt-sales/db';
 import { z } from 'zod';
 
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
@@ -47,6 +47,7 @@ import { sendWebsiteError } from '../http/website-errors.js';
 import { sensitiveFieldsKey } from '../crypto/cipher.js';
 import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
 import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
+import { DatabaseEmailSettingsStore, type EmailSettingsStore } from '../email/settings-store.js';
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import {
@@ -75,6 +76,7 @@ import {
 } from '../website/store.js';
 
 import { createAutomationRoutes } from './automations.js';
+import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 
@@ -109,6 +111,10 @@ export interface StaffRouteDependencies {
   planStore?: PlanStore;
   /** The built-in automation rules' state and runs; omitted in route tests that do not reach them. */
   automationStore?: AutomationStore;
+  /** The site's email settings and templates; omitted in route tests that do not reach them. */
+  emailSettingsStore?: EmailSettingsStore;
+  /** The transaction runner the test mail is composed and queued in; the database's by default. */
+  withTenantTx?: DatabaseClient['withTenantTx'];
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -126,6 +132,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     savedViewStore: new DatabaseSavedViewStore(),
     planStore: new DatabasePlanStore(),
     automationStore: new DatabaseAutomationStore(),
+    emailSettingsStore: new DatabaseEmailSettingsStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -166,6 +173,24 @@ const unconfiguredAutomationStore: AutomationStore = {
   setEnabled: () => notConfigured('automation store'),
   recordRun: () => notConfigured('automation store'),
   listRuns: () => notConfigured('automation store'),
+};
+const unconfiguredEmailSettingsStore: EmailSettingsStore = {
+  getSettings: () => notConfigured('email settings store'),
+  putSettings: () => notConfigured('email settings store'),
+  listTemplates: () => notConfigured('email settings store'),
+  putTemplate: () => notConfigured('email settings store'),
+};
+/** A deployment with no customer mail: no provider, no fallback sender, so no site can send. */
+const unconfiguredCustomerEmail: CustomerEmail = {
+  environment: {
+    providerReady: false,
+    contactHash: () => {
+      throw new Error('customer email is not configured');
+    },
+    fallbackSenders: { forWorkspace: () => undefined },
+  },
+  available: async () => false,
+  fallback: () => undefined,
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 
@@ -1407,6 +1432,16 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   });
 
   router.use(createPropertyRoutes({ store: propertyStore, decide, reportFailure }));
+
+  router.use(
+    createEmailSettingsRoutes({
+      store: dependencies.emailSettingsStore ?? unconfiguredEmailSettingsStore,
+      customerEmail: dependencies.customerEmail ?? unconfiguredCustomerEmail,
+      withTenantTx: dependencies.withTenantTx ?? withTenantTx,
+      decide,
+      reportFailure,
+    }),
+  );
 
   router.use(
     createPlanRoutes({
