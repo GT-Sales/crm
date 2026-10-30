@@ -7,7 +7,7 @@ import type {
   UpdateEmailTemplateRequest,
 } from '@gt-sales/contracts';
 
-import { TemplateEditor } from './template-editor';
+import { TemplateEditor, templateProblem } from './template-editor';
 
 const mocks = vi.hoisted(() => {
   class FakeBackendError extends Error {
@@ -183,6 +183,14 @@ describe('TemplateEditor preview', () => {
     await waitPreview();
     expect((await screen.findByRole('alert')).textContent).toContain('one button');
   });
+
+  it('says a link address takes no fill-in but {tracking link} on its own', () => {
+    expect(
+      templateProblem(
+        new mocks.FakeBackendError('invalid_email_markup', 400, { reason: 'bad_link' }),
+      ),
+    ).toBe('A link address must start with http:// or https://, or be {tracking link} on its own.');
+  });
 });
 
 describe('TemplateEditor save and test', () => {
@@ -204,11 +212,14 @@ describe('TemplateEditor save and test', () => {
 
   it('shows why a save was refused', async () => {
     setup(dispatched, {
-      onSave: () => Promise.resolve('This email changed elsewhere. Reload and try again.'),
+      onSave: () =>
+        Promise.resolve(
+          'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.',
+        ),
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect((await screen.findByRole('alert')).textContent).toContain(
-      'This email changed elsewhere. Reload and try again.',
+      'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.',
     );
   });
 

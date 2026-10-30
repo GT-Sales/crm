@@ -222,6 +222,18 @@ describe('StageMoveDialog', () => {
     },
   );
 
+  it('says it once to those not allowed to override when the refusal lists no documents', async () => {
+    const { onMove, view } = dialog();
+    onMove.mockRejectedValueOnce(await refusal('documents_incomplete', { missing: [] }));
+    fireEvent.change(within(view).getByLabelText(/^Courier/), { target: { value: 'Canada Post' } });
+    fireEvent.click(within(view).getByRole('button', { name: 'Move' }));
+
+    const status = await within(view).findByRole('status');
+    expect(status.textContent).toBe('Approve the required documents first.');
+    expect(within(view).queryByLabelText(/^Reason for moving anyway/)).toBeNull();
+    expect(within(view).queryByRole('button', { name: 'Move anyway' })).toBeNull();
+  });
+
   it('tells those not allowed to override to approve the documents first', async () => {
     const { onMove, view } = dialog();
     onMove.mockRejectedValueOnce(await refusal('documents_incomplete', { missing: ['passport'] }));

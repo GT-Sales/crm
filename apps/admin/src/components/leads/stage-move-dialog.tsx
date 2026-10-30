@@ -273,7 +273,7 @@ export function StageMoveDialog({
                   ? `Missing approved documents: ${missing.map(documentTypeLabel).join(', ')}`
                   : APPROVE_REQUIRED_DOCUMENTS}
               </p>
-              {canOverride ? null : <p>{APPROVE_DOCUMENTS_FIRST}</p>}
+              {canOverride || missing.length === 0 ? null : <p>{APPROVE_DOCUMENTS_FIRST}</p>}
             </div>
           ) : null}
           {overriding ? (

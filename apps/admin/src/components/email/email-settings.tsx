@@ -289,7 +289,8 @@ export function EmailSettings({
   );
 }
 
-const CONFLICT_MESSAGE = 'This email changed elsewhere. Reload and try again.';
+const CONFLICT_MESSAGE =
+  'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.';
 
 /**
  * Settings → Email: the sender form, the seven emails and the editor of one

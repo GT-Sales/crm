@@ -230,7 +230,9 @@ describe('EmailSettingsScreen', () => {
       ),
     );
     expect(
-      await within(dialog).findByText('This email changed elsewhere. Reload and try again.'),
+      await within(dialog).findByText(
+        'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.',
+      ),
     ).toBeTruthy();
   });
 
@@ -253,7 +255,9 @@ describe('EmailSettingsScreen', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
 
     expect(
-      await within(dialog).findByText('This email changed elsewhere. Reload and try again.'),
+      await within(dialog).findByText(
+        'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.',
+      ),
     ).toBeTruthy();
     await waitFor(() => expect(mocks.listEmailTemplates).toHaveBeenCalledTimes(2));
     expect(within(dialog).getByRole('textbox', { name: 'Body' })).toHaveProperty(
