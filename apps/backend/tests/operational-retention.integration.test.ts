@@ -29,7 +29,8 @@ const WORKSPACE = '11000000-0000-4000-8000-000000000d19';
 const OTHER_WORKSPACE = '11000000-0000-4000-8000-000000000d20';
 const ACTOR = '21000000-0000-4000-8000-000000000d19';
 const NOW = new Date('2026-10-22T12:00:00.000Z');
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const daysAgo = (days: number) => new Date(NOW.getTime() - days * DAY);
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
@@ -103,6 +104,23 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     await automationRun('no_sender', daysAgo(91));
     await automationRun('no_customer_email', daysAgo(89));
 
+    // Tracking challenges 24 hours after they expire; change requests are kept.
+    await admin`delete from app.tracking_challenges where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
+    const challenge = (workspace: string, emailDigit: string, expiresAt: Date) => admin`
+      insert into app.tracking_challenges (workspace_id, email_hash, code_hash, expires_at, created_at)
+      values (${workspace}, ${emailDigit.repeat(64)}, ${'c'.repeat(64)}, ${expiresAt},
+        ${new Date(expiresAt.getTime() - 10 * 60 * 1000)})
+    `;
+    await challenge(WORKSPACE, 'a', new Date(NOW.getTime() - 25 * HOUR));
+    await challenge(WORKSPACE, 'b', new Date(NOW.getTime() - 23 * HOUR));
+    await challenge(OTHER_WORKSPACE, 'd', new Date(NOW.getTime() - 25 * HOUR));
+    await admin`
+      insert into app.change_requests
+        (workspace_id, lead_id, request_no, status, created_by, resolved_by, resolved_at, created_at, updated_at)
+      values (${WORKSPACE}, ${lead.id}, 1, 'approved', ${ACTOR}, ${ACTOR}, ${daysAgo(400)},
+        ${daysAgo(400)}, ${daysAgo(400)})
+    `;
+
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
     runtimeUrl.password = TEST_RUNTIME_PASSWORD;
@@ -124,6 +142,7 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     expect(result).toContainEqual({ tableName: 'email_provider_events', deleted: 1 });
     expect(result).toContainEqual({ tableName: 'idempotency_keys', deleted: 1 });
     expect(result).toContainEqual({ tableName: 'automation_runs', deleted: 1 });
+    expect(result).toContainEqual({ tableName: 'tracking_challenges', deleted: 1 });
     expect(result.map((row) => row.tableName).sort()).toEqual(
       [
         'automation_runs',
@@ -131,6 +150,7 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
         'idempotency_keys',
         'outbox_job_alerts',
         'outbox_jobs',
+        'tracking_challenges',
       ].sort(),
     );
     const remaining = await admin<{ dedupe_key: string }[]>`
@@ -162,6 +182,18 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
       select reason from app.automation_runs where workspace_id = ${WORKSPACE}
     `;
     expect(runs.map((row) => row.reason)).toEqual(['no_customer_email']);
+    const challenges = await admin<{ workspace_id: string; email_hash: string }[]>`
+      select workspace_id, email_hash from app.tracking_challenges
+      where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE}) order by email_hash
+    `;
+    expect(challenges).toEqual([
+      { workspace_id: WORKSPACE, email_hash: 'b'.repeat(64) },
+      { workspace_id: OTHER_WORKSPACE, email_hash: 'd'.repeat(64) },
+    ]);
+    const requests = await admin<{ request_no: number }[]>`
+      select request_no from app.change_requests where workspace_id = ${WORKSPACE}
+    `;
+    expect(requests).toEqual([{ request_no: 1 }]);
   });
 
   test('refuses a workspace other than the transaction tenant', async () => {
@@ -176,14 +208,21 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
 
   test('the runtime role holds no direct delete grant on the pruned tables', async () => {
     const [grants] = await admin<
-      { jobs: boolean; events: boolean; keys: boolean; runs: boolean }[]
+      { jobs: boolean; events: boolean; keys: boolean; runs: boolean; challenges: boolean }[]
     >`
       select
         has_table_privilege('app_runtime', 'app.outbox_jobs', 'delete') as jobs,
         has_table_privilege('app_runtime', 'app.email_provider_events', 'delete') as events,
         has_table_privilege('app_runtime', 'app.idempotency_keys', 'delete') as keys,
-        has_table_privilege('app_runtime', 'app.automation_runs', 'delete') as runs
+        has_table_privilege('app_runtime', 'app.automation_runs', 'delete') as runs,
+        has_table_privilege('app_runtime', 'app.tracking_challenges', 'delete') as challenges
     `;
-    expect(grants).toEqual({ jobs: false, events: false, keys: false, runs: false });
+    expect(grants).toEqual({
+      jobs: false,
+      events: false,
+      keys: false,
+      runs: false,
+      challenges: false,
+    });
   });
 });

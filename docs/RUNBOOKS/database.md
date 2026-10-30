@@ -503,7 +503,7 @@ app_runtime`. The scheduler's `data_retention` run (on only with
   data migration.
 - `app.site_counters`: a site's own running numbers, one row per site and
   counter. `workspace_id` (FK → workspaces, cascade), `counter` (check
-  `site_counters_counter_check`: `sim_order_ref` only; Part B adds
+  `site_counters_counter_check`: `sim_order_ref` only; 0017 adds
   `change_request_no`), `last_value` (`integer`, check
   `site_counters_last_value_check` `>= 0`: the last number issued),
   `updated_at`; primary key `(workspace_id, counter)`. `sim_order_ref` is the
@@ -545,6 +545,94 @@ app_runtime`. The scheduler's `data_retention` run (on only with
   site isolation, both checks (`change_request_no` and `x` refused, `-1`
   refused), the primary key, the cascade with the site, and re-runs 0016
   twice inside a rolled-back transaction.
+
+## 0017_customer_tracking
+
+- Merge phase 5, step B
+  (docs/superpowers/plans/2026-10-30-phase-5-gcs-orders-and-tracking.md),
+  generated from `packages/db/src/schema.ts`. Additive: two new tables, one
+  new column with a constant default, three widened checks, no data
+  migration.
+- `app.tracking_challenges`: one six-digit code a customer asked for on
+  `/track`. `workspace_id` (FK → workspaces, cascade), `email_hash` and
+  `code_hash` (keyed hashes, each `^[0-9a-f]{64}$`; never the email or the
+  code), `attempts` (`>= 0`, default 0), `status` (`pending` default,
+  `consumed`), `expires_at`, `consumed_at`, `created_at`; check
+  `tracking_challenges_consumed_check` (`consumed` exactly when
+  `consumed_at` is set); index `tracking_challenges_workspace_email_idx
+(workspace_id, email_hash, status, created_at desc)`.
+- `app.change_requests`: a customer's request to change an order, decided by
+  staff. `lead_id` (FK `(workspace_id, lead_id)` → leads, cascade),
+  `request_no` (`> 0`; unique `change_requests_workspace_request_no_unique
+(workspace_id, request_no)`), `status` (`pending` default, `approved`,
+  `rejected`), `requested` (jsonb, default `{}`: the values asked for,
+  personal data, never copied elsewhere), `staged_file_ids` (`uuid[]`,
+  default empty), `version` (`> 0`, default 1), `created_by`,
+  `resolved_by`, `resolved_at`, `created_at`, `updated_at`; check
+  `change_requests_resolved_check` (`pending` exactly when `resolved_at`
+  and `resolved_by` are both null); unique `(workspace_id, id)`; partial
+  unique index `change_requests_one_pending (workspace_id, lead_id) where
+status = 'pending'`; index `(workspace_id, lead_id, created_at desc)`.
+- `app.files.held_for_change_request`: `boolean not null default false`
+  (constant default, no rewrite): a customer's document sent with a pending
+  change request, not current until the request is approved.
+- `email_templates_key_check` and `email_template_versions_key_check` now
+  also name `change_approved` and `change_rejected` (nine keys);
+  `site_counters_counter_check` now names `sim_order_ref` and
+  `change_request_no`. Each is dropped and re-added, which scans its table
+  once.
+- Each new table has its tenant policy and `<table>_backup_reader_read`, so
+  `app` now has 38 `_backup_reader_read` policies.
+- Drizzle hash `561b17d20aa70ea4632e280cf3c8f13d9a7761720392defb57681c9a05014ee2`,
+  `created_at` `1793383643743`. **Not yet applied** to the hosted project.
+
+## 0018_customer_tracking_runtime
+
+- Hand-written companion to 0017: `FORCE ROW LEVEL SECURITY` on both new
+  tables; `app_runtime` gets `SELECT, INSERT, UPDATE` on both (no DELETE:
+  challenges are pruned, change requests are kept, both go with their site).
+- `app.prune_operational_rows` replaced (`CREATE OR REPLACE`) with 0014's
+  body plus one block: `tracking_challenges` whose `expires_at` is more than
+  a day before `p_now`, at most 1000 rows per call, reported as
+  `tracking_challenges`; then the same `REVOKE ALL … FROM PUBLIC` and
+  `GRANT EXECUTE … TO app_runtime` as 0014. Change requests are never
+  pruned.
+- **The `CREATE OR REPLACE FUNCTION app.prune_operational_rows` statement is
+  the one the owner pastes by hand** in the SQL editor (the Supabase tool
+  asks for a confirmation on a function body with `DELETE`s, as in phase 4);
+  it is marked `OWNER PASTE` in the paste file.
+- Every statement is safe to run twice. No data migration.
+- Drizzle hash `900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2`,
+  `created_at` `1793383650873`. **Not yet applied** to the hosted project.
+- To apply, before deploying a backend that uses customer tracking: in the
+  SQL editor, as `postgres`, run
+  [`manual/0017-0018-customer-tracking.sql`](manual/0017-0018-customer-tracking.sql)'s
+  pre-check (A: both tables absent, no `held_for_change_request` column, no
+  tracker rows); paste `BEGIN` … `COMMIT` once (one transaction, both files
+  verbatim and all four tracker rows; the migrator then finds nothing to
+  do); run the eight verification selects one at a time (the two forced,
+  their four policies, 38 backup read policies, the grants per table and
+  verb with no DELETE, the column with its default, the two template checks
+  and the counter check naming the new keys, the prune function naming
+  `tracking_challenges`, both Drizzle rows). Or apply the plain DDL and
+  grants through the Supabase tool in small batches, hand the `ALTER`s, the
+  `REVOKE` and the function replacement to the owner as a paste, add the
+  tracker rows by hand and verify against the catalog (`pg_class`,
+  `pg_policies`, `pg_proc`, `has_table_privilege`), never the trackers.
+  Record the date, the Supabase tracker versions and the results here.
+- Rehearsed 2026-10-30 on a local database migrated to 0016: pre-check A
+  gave `null, null, false, 0`, the paste file ran as written, the eight
+  selects gave the expected rows, and the migrator then applied nothing.
+- `packages/db/tests/customer-tracking.integration.test.ts` covers RLS and
+  FORCE on both, their policies and the 38 backup read policies, the grants
+  (no DELETE), site isolation, every check and unique constraint (one
+  pending request per lead, request numbers per site), the cross-site lead
+  FK and the cascade, the two template keys in both tables, the
+  `change_request_no` counter, the file column's default, and re-runs 0018
+  twice inside a rolled-back transaction.
+  `apps/backend/tests/operational-retention.integration.test.ts` covers the
+  new prune block (a challenge expired 25 hours ago pruned, 23 hours kept,
+  another site's kept; a change request never pruned; the table listed).
 
 ## Historical CanadaWide import (2026-10-27)
 

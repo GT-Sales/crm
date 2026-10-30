@@ -180,7 +180,7 @@ databaseTest('order tools tables, email_messages.template_version and migration 
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(36);
+    expect(backupPolicies?.count).toBe(38);
   });
 
   it('app_runtime may not DELETE any of them, nor UPDATE versions or runs; backup_reader reads all', async () => {
@@ -401,7 +401,7 @@ databaseTest('order tools tables, email_messages.template_version and migration 
     }
   });
 
-  it('email_templates: the seven keys only, one per site and key, no enabled column', async () => {
+  it('email_templates: the nine keys only, one per site and key, no enabled column', async () => {
     const keys = [
       'tracking_code',
       'order_received',
@@ -410,6 +410,8 @@ databaseTest('order tools tables, email_messages.template_version and migration 
       'activated',
       'cancelled',
       'sim_number_ready',
+      'change_approved',
+      'change_rejected',
     ];
     for (const key of keys) {
       await admin`
