@@ -35,7 +35,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   feature_not_ready: 'This action is not enabled for this site yet.',
   conflict: 'The lead lacks what this needs; `details` names the missing part.',
   lead_not_found: 'The lead does not exist in this workspace.',
-  lead_trashed: 'The lead is in the trash. Restore it before changing it.',
+  lead_trashed: 'The lead is archived. Restore it before changing it.',
   task_not_found: 'The task does not exist in this workspace.',
   assignee_not_found: 'The assignee is not an active member of this workspace.',
   reminder_not_found: 'The reminder does not exist on this order.',
@@ -66,6 +66,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   plan_not_found: 'The plan does not exist on this site.',
   plan_name_taken: 'This site already has a plan of this type by this name.',
   plan_limit: 'This site already has the most plans it may have.',
+  plan_not_available: 'The chosen plan is not available on this site for this kind of order.',
 };
 
 export function sendDomainError(

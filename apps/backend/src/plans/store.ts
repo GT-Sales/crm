@@ -62,7 +62,7 @@ export interface PlanStore {
     planId: string,
     input: UpdatePlanRequest,
   ): Promise<UpdatePlanOutcome>;
-  /** For the website and for freezing: active plans (of one type), with only website-visible custom values. */
+  /** For the website: active plans (of one type), with only website-visible custom values (`loadPlanForFreeze` freezes the same). */
   listForWebsite(ctx: TenantContext, leadType?: string): Promise<WebsitePlan[]>;
   /** Every plan, inactive ones included, for the catalogue. */
   options(ctx: TenantContext): Promise<PlanOption[]>;
@@ -163,6 +163,44 @@ async function websiteVisibleProperties(
       ),
     )
     .orderBy(asc(properties.position), asc(properties.key));
+}
+
+/** The keys of `visible` that apply to plans of `leadType`, in catalogue order. */
+function visibleKeysFor(
+  visible: readonly { key: string; leadTypes: string[] }[],
+  leadType: string,
+): string[] {
+  return visible
+    .filter((property) => property.leadTypes.length === 0 || property.leadTypes.includes(leadType))
+    .map((property) => property.key);
+}
+
+/** A plan with the keys of its website-visible custom properties: what an order freezes. */
+export interface PlanForFreeze {
+  plan: Plan;
+  visibleKeys: string[];
+}
+
+/**
+ * One plan of the site, inactive ones included, with the custom property keys
+ * its frozen copy may carry (`freezePlan`): those the website's plan listing
+ * shows, so a snapshot never holds what staff keep to themselves. Runs in the
+ * caller's tenant transaction, so an order is frozen from the plan as that
+ * transaction reads it.
+ */
+export async function loadPlanForFreeze(
+  tx: TenantTransaction,
+  workspaceId: string,
+  planId: string,
+): Promise<PlanForFreeze | undefined> {
+  const [record] = await selectPlans(
+    tx,
+    and(eq(plans.workspaceId, workspaceId), eq(plans.id, planId)),
+  );
+  if (!record) return undefined;
+  const plan = toPlan(record);
+  const visible = await websiteVisibleProperties(tx, workspaceId);
+  return { plan, visibleKeys: visibleKeysFor(visible, plan.leadType) };
 }
 
 async function auditPlan(
@@ -342,13 +380,9 @@ export class DatabasePlanStore implements PlanStore {
       return records.map((record) => {
         const plan = toPlan(record);
         const values: Record<string, PropertyValue> = {};
-        for (const property of visible) {
-          const applies =
-            property.leadTypes.length === 0 || property.leadTypes.includes(plan.leadType);
-          const value = Object.hasOwn(plan.customValues, property.key)
-            ? plan.customValues[property.key]
-            : undefined;
-          if (applies && value !== undefined) values[property.key] = value;
+        for (const key of visibleKeysFor(visible, plan.leadType)) {
+          const value = Object.hasOwn(plan.customValues, key) ? plan.customValues[key] : undefined;
+          if (value !== undefined) values[key] = value;
         }
         return {
           id: plan.id,

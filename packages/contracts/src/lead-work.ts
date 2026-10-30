@@ -108,6 +108,11 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     fields: z.array(activityFieldKeySchema).max(50).optional(),
     /** For `change_requested`: the documents sent with it. */
     documents: z.array(documentChecklistKeySchema).max(10).optional(),
+    /**
+     * For an `unknown` entry a data migration wrote (the 0012 stage clean-up):
+     * what it changed, in words, for the timeline to show. Never personal data.
+     */
+    body: z.string().min(1).max(4000).optional(),
   }),
 ]);
 export type LeadActivity = z.infer<typeof leadActivitySchema>;
