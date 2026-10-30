@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { draftCustomerEmail, type CustomerEmailLead } from '../src/email/customer-emails.js';
 import { hashContact } from '../src/email/hash.js';
 import {
   customerEmailEnvironmentFromEnv,
@@ -85,69 +84,5 @@ describe('site senders', () => {
       hashContact('arjun@example.test', SECRET),
     );
     expect(() => customerEmailEnvironmentFromEnv({}).contactHash('a@example.test')).toThrow();
-  });
-});
-
-describe('the SIM number mail', () => {
-  const order: CustomerEmailLead = {
-    leadType: 'sim_order',
-    fullName: 'Arjun Kumar Patel',
-    email: ' arjun@example.test ',
-    externalRef: 'MS-101',
-    form: {
-      planId: '75gb-fido',
-      delivery: 'pickup',
-      arrivalDate: '2026-11-02',
-      simNumber: ' +1 778-555-0142 ',
-    },
-  };
-
-  it('carries only the address, the order’s number and display-ready details', () => {
-    expect(
-      draftCustomerEmail('sim_number_ready', order, { siteUrl: 'https://getcanadasim.example' }),
-    ).toEqual({
-      ok: true,
-      jobType: 'lead_sim_number_email',
-      toAddress: 'arjun@example.test',
-      reference: 'MS-101',
-      variables: {
-        simNumber: '+1 778-555-0142',
-        firstName: 'Arjun',
-        planLabel: '75GB · $35, Fido',
-        delivery: 'Physical SIM (shipped to your address)',
-        arrival: 'Monday, November 2, 2026',
-        trackUrl: 'https://getcanadasim.example/track',
-      },
-    });
-  });
-
-  it('names what the lead still lacks, and leaves out what it does not know', () => {
-    expect(
-      draftCustomerEmail('sim_number_ready', { ...order, form: { delivery: 'esim' } }, {}),
-    ).toEqual({ ok: false, missing: 'simNumber' });
-    expect(
-      draftCustomerEmail('sim_number_ready', { ...order, email: 'not an address' }, {}),
-    ).toEqual({ ok: false, missing: 'email' });
-    expect(draftCustomerEmail('sim_number_ready', { ...order, leadType: 'internet' }, {})).toEqual({
-      ok: false,
-      missing: 'simNumber',
-    });
-    const bare = draftCustomerEmail(
-      'sim_number_ready',
-      {
-        ...order,
-        fullName: null,
-        externalRef: null,
-        form: { simNumber: '4165550104', arrivalDate: 'soon' },
-      },
-      {},
-    );
-    expect(bare).toEqual({
-      ok: true,
-      jobType: 'lead_sim_number_email',
-      toAddress: 'arjun@example.test',
-      reference: undefined,
-      variables: { simNumber: '4165550104' },
-    });
   });
 });

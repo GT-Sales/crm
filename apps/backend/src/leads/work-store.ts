@@ -4,7 +4,6 @@ import {
   leadActivities,
   leads,
   leadTasks,
-  outboxJobs,
   withTenantTx,
   type DatabaseClient,
   type TenantTransaction,
@@ -13,12 +12,15 @@ import {
   ORDER_PROPERTY_KEYS,
   ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
+  automationsForMove,
   applyLeadFormEdit,
   freezePlan,
   isLeadStage,
   isOrderLeadType,
   leadFormSchema,
   leadTypeEntry,
+  type EmailFillInKey,
+  type EmailSkipped,
   type QueueCustomerEmailRequest,
   type LeadActivity,
   type LeadAssigneeFilter,
@@ -38,7 +40,14 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 
-import { draftCustomerEmail } from '../email/customer-emails.js';
+import { automationLeadOf, readAutomationLead, runAutomations } from '../automations/run.js';
+import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
+import { composeCustomerEmail } from '../email/compose.js';
+import { queueComposedEmail } from '../email/queue.js';
+import {
+  customerEmailEnvironmentFromEnv,
+  type CustomerEmailEnvironment,
+} from '../email/senders.js';
 import { loadPlanForFreeze } from '../plans/store.js';
 import { findMissingDocuments } from './documents-check.js';
 import { isPlanAvailable, toLeadOrder } from './order.js';
@@ -76,7 +85,13 @@ export type { Scope, WriteScope };
 export type LeadWorkResult = LeadWithWork;
 
 export type UpdateLeadWorkOutcome =
-  | { status: 'updated'; lead: LeadDetail; activities: LeadActivity[] }
+  | {
+      status: 'updated';
+      lead: LeadDetail;
+      activities: LeadActivity[];
+      /** The mails the move's rules were on for but could not send; absent when none. */
+      emailSkipped?: EmailSkipped[];
+    }
   | { status: 'not_found' | 'trashed' | 'invalid_stage' | 'assignee_not_found' }
   /** A form correction the type does not allow; names the field, never the value. */
   | { status: 'invalid_field'; field: string }
@@ -98,15 +113,14 @@ export type CustomerEmailOutcome =
   | { status: 'queued'; activity: LeadActivity }
   | { status: 'not_found' }
   | { status: 'trashed' }
-  | { status: 'missing'; missing: 'email' | 'simNumber' };
+  /** The site has no sender, or the deployment cannot send. */
+  | { status: 'no_sender' }
+  /** What the lead lacks for the mail: its fill-ins, or an address to send it to. */
+  | { status: 'missing'; missing: Array<EmailFillInKey | 'customer email'> };
 
 export interface QueueCustomerEmailInput extends WriteScope {
   leadId: string;
   template: QueueCustomerEmailRequest['template'];
-  /** The site's public address, for the mail's link back to it. */
-  siteUrl?: string;
-  /** The keyed digest of the address, for suppression and delivery records. */
-  contactHash(email: string): string;
 }
 
 export type TaskOutcome =
@@ -473,7 +487,12 @@ type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 const defaultLeadDatabase: LeadDatabase = { withTenantTx };
 
 export class DatabaseLeadWorkStore implements LeadWorkStore {
-  constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
+  constructor(
+    private readonly database: LeadDatabase = defaultLeadDatabase,
+    /** What customer mail needs from the deployment: the provider, the hash secret, fallback senders. */
+    private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
+    private readonly automations: AutomationStore = new DatabaseAutomationStore(database),
+  ) {}
 
   summary(input: Scope & { dueBy?: string }) {
     return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx, input.dueBy));
@@ -722,10 +741,28 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         });
       }
 
+      // The rules of the stage entered, from the lead as just written; each
+      // move is its own occurrence, so moving back and forth mails again.
+      const statusChange = inserted.find((row) => row.kind === 'status_change');
+      const emailSkipped =
+        statusChange && set.stage !== undefined
+          ? await runAutomations(tx, {
+              workspaceId: input.workspaceId,
+              actorId: input.actorId,
+              requestId: input.requestId,
+              lead: await readAutomationLead(tx, input.workspaceId, input.leadId),
+              automations: automationsForMove(lead.leadType, set.stage),
+              occurrence: statusChange.id,
+              environment: this.emailEnvironment,
+              store: this.automations,
+            })
+          : [];
+
       return {
         status: 'updated',
         lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
         activities: insertedActivities(inserted),
+        ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
       };
     });
   }
@@ -810,66 +847,38 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome> {
-    return this.database.withTenantTx(input, async (tx) => {
+    return this.database.withTenantTx(input, async (tx): Promise<CustomerEmailOutcome> => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
       if (!lead) return { status: 'not_found' };
       if (lead.trashed) return { status: 'trashed' };
-      const draft = draftCustomerEmail(
-        input.template,
-        { ...lead, form: storedForm(lead.payload).payload },
-        { siteUrl: input.siteUrl },
-      );
-      if (!draft.ok) return { status: 'missing', missing: draft.missing };
+      const composed = await composeCustomerEmail(tx, this.emailEnvironment, {
+        workspaceId: input.workspaceId,
+        template: input.template,
+        recipient: { kind: 'lead', lead: automationLeadOf(lead) },
+      });
+      if (composed.kind === 'skipped') {
+        if (composed.reason === 'no_sender') return { status: 'no_sender' };
+        if (composed.reason === 'no_customer_email') {
+          return { status: 'missing', missing: ['customer email'] };
+        }
+        return { status: 'missing', missing: composed.missing ?? [] };
+      }
 
       // Sent by the outbox, after this commits; the address and the mail's
-      // contents live only in the job, never on the timeline or in the audit.
-      const [job] = await tx
-        .insert(outboxJobs)
-        .values({
-          workspaceId: input.workspaceId,
-          jobType: draft.jobType,
-          // One mail per request: sending again is a second, deliberate mail.
-          dedupeKey: `${input.leadId}:${input.requestId}`,
-          payload: {
-            leadId: input.leadId,
-            toAddress: draft.toAddress,
-            contactHash: input.contactHash(draft.toAddress),
-            ...(draft.reference ? { reference: draft.reference } : {}),
-            variables: draft.variables,
-          },
-        })
-        .returning({ id: outboxJobs.id });
-      if (!job) throw new Error('outbox insert did not return a row');
-      const [entry] = await tx
-        .insert(leadActivities)
-        .values({
-          workspaceId: input.workspaceId,
-          leadId: input.leadId,
-          actorId: input.actorId,
-          kind: 'system',
-          data: { event: 'customer_emailed', template: input.template },
-        })
-        .returning(ACTIVITY_RETURNING);
-      if (!entry) throw new Error('activity insert did not return a row');
-      // Writing to the customer is work on the lead: it moves up the inbox.
-      await tx
-        .update(leads)
-        .set({ updatedAt: new Date() })
-        .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
-      await tx.insert(auditEvents).values({
+      // words live only in the job, never on the timeline or in the audit.
+      const queued = await queueComposedEmail(tx, {
         workspaceId: input.workspaceId,
         actorId: input.actorId,
-        actorLabel: 'staff actor',
-        action: 'lead.customer_emailed',
-        entity: 'lead',
-        entityId: input.leadId,
         requestId: input.requestId,
-        after: { template: input.template, jobId: job.id },
+        leadId: input.leadId,
+        // One mail per request: sending again is a second, deliberate mail.
+        dedupeKey: `${input.leadId}:${input.requestId}`,
+        payload: composed.payload,
+        automation: null,
       });
-
-      const [activity] = insertedActivities([entry]);
-      if (!activity) throw new Error('email entry did not map');
-      return { status: 'queued', activity };
+      // Request ids are the server's own, fresh per request: a hit is a bug.
+      if (!queued.activity) throw new Error('this request already queued its mail');
+      return { status: 'queued', activity: queued.activity };
     });
   }
 

@@ -8,6 +8,8 @@ import {
   leadTaskSchema,
 } from '@gt-sales/contracts';
 
+import { hashContact } from '../src/email/hash.js';
+import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabaseStaffStore } from '../src/staff/store.js';
@@ -48,6 +50,7 @@ const ACTOR_OTHER_MEMBERSHIP = '33000000-0000-4000-8000-000000000e03';
 const ACTOR_DUE_MEMBERSHIP = '33000000-0000-4000-8000-000000000e04';
 const REQUEST_ID = '43000000-0000-4000-8000-000000000e01';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
+const MAIL_SECRET = 'ci-email-contact-hash-secret-0123456789';
 
 const scope = { workspaceId: WORKSPACE, actorId: ACTOR, catalog: codePropertyCatalog };
 const writeScope = { ...scope, requestId: REQUEST_ID };
@@ -812,8 +815,24 @@ databaseTest('DatabaseLeadWorkStore', () => {
   });
 
   test('a mail to the customer waits in the outbox; its entry keeps no address or number', async () => {
-    // On the other site, beside the order-correction test's order.
+    // On the other site, beside the order-correction test's order; its sender is the deployment's.
     const mailScope = { ...writeScope, workspaceId: OTHER_WORKSPACE };
+    const mailWork = new DatabaseLeadWorkStore(
+      database,
+      customerEmailEnvironmentFromEnv({
+        EMAIL_PROVIDER: 'fake',
+        NODE_ENV: 'test',
+        EMAIL_CONTACT_HASH_SECRET: MAIL_SECRET,
+        EMAIL_SENDERS_JSON: JSON.stringify([
+          {
+            workspaceId: OTHER_WORKSPACE,
+            fromAddress: 'order@site.example',
+            fromName: 'The Site',
+            siteUrl: 'https://site.example',
+          },
+        ]),
+      }),
+    );
     const created = await leadStore.createLead({
       ...mailScope,
       leadType: 'sim_order',
@@ -827,47 +846,46 @@ databaseTest('DatabaseLeadWorkStore', () => {
       submit: true,
     });
     const leadId = created.lead.id;
-    const queue = (id = leadId) =>
-      work.queueCustomerEmail({
+    const queue = (id = leadId, store = mailWork) =>
+      store.queueCustomerEmail({
         ...mailScope,
         requestId: crypto.randomUUID(),
         leadId: id,
         template: 'sim_number_ready',
-        siteUrl: 'https://site.example',
-        contactHash: (email) => `hash:${email}`,
       });
 
-    expect(await queue()).toEqual({ status: 'missing', missing: 'simNumber' });
+    expect(await queue()).toEqual({ status: 'missing', missing: ['SIM number'] });
+    // A deployment that cannot send has no sender for any site.
+    expect(await queue(leadId, work)).toEqual({ status: 'no_sender' });
     await work.updateLead({ ...mailScope, leadId, form: { simNumber: '+1 778-555-0142' } });
     expect(await queue()).toMatchObject({
       status: 'queued',
-      activity: { kind: 'system', event: 'customer_emailed', template: 'sim_number_ready' },
+      activity: {
+        kind: 'system',
+        event: 'customer_emailed',
+        template: 'sim_number_ready',
+        templateVersion: 0,
+      },
     });
 
     const jobs = await admin<{ job_type: string; status: string; payload: unknown }[]>`
       select job_type, status, payload from app.outbox_jobs
       where workspace_id = ${OTHER_WORKSPACE} and payload ->> 'leadId' = ${leadId}
     `;
-    expect(jobs).toEqual([
-      {
-        job_type: 'lead_sim_number_email',
-        status: 'pending',
-        payload: {
-          leadId,
-          toAddress: 'mail.person@example.test',
-          contactHash: 'hash:mail.person@example.test',
-          reference: 'MS-777',
-          variables: {
-            simNumber: '+1 778-555-0142',
-            firstName: 'Mail',
-            planLabel: '75GB · $35, Fido',
-            delivery: 'Instant eSIM (delivered by email)',
-            arrival: 'Monday, November 9, 2026',
-            trackUrl: 'https://site.example/track',
-          },
-        },
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      job_type: 'lead_customer_email',
+      status: 'pending',
+      payload: {
+        leadId,
+        template: 'sim_number_ready',
+        templateVersion: 0,
+        toAddress: 'mail.person@example.test',
+        contactHash: hashContact('mail.person@example.test', MAIL_SECRET),
+        sender: { fromName: 'The Site', fromAddress: 'order@site.example' },
       },
-    ]);
+    });
+    expect(JSON.stringify(jobs[0]?.payload)).toContain('+1 778-555-0142');
     // Only the job holds the address and the number.
     const stored = await admin<{ data: unknown; after: unknown }[]>`
       select a.data, e.after
