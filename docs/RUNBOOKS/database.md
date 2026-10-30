@@ -322,7 +322,9 @@ Completed; carrier commission set to Invoiced (phase 3 migration)`, data
   `{"migration":"0012"}`, actor the legacy-import actor
   `00000000-0000-4000-8000-00000000a001`, which the Get Canada Sim import
   does not count as CRM work). `updated_at` is left alone. Other lead types
-  keep `{}`. Re-running changes nothing (only `{}` leads are touched).
+  keep `{}`. The form's `commissionStatus` stays where it was; the next Get
+  Canada Sim import run removes it (legacy-import.md). Re-running changes
+  nothing (only `{}` leads are touched).
 - Drizzle hash `e243ef2f8914f732d0357f88f2b3e97661354b6b3d803d4cba66f9e24e1c36ff`,
   `created_at` `1793326400817`. Not applied in production yet.
 - To apply both, before deploying a backend that reads `plans` or

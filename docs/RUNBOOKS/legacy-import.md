@@ -100,8 +100,12 @@ the statuses paid, verified, delivered, activated, completed and invoiced,
 `commission_status` (`invoiced`, `commission_received` → `received`,
 `claw_back` → `clawback`), else `not_yet`. The form no longer carries
 `commissionStatus`. Migration 0012 gave the orders already imported the same
-mapping, so a run after it changes nothing on them; **apply 0011 and 0012
-first** (the script writes `order_details`).
+order details and stages, but it leaves the old `commissionStatus` key in
+their form. So the first import run after 0012 removes that key from every
+order that had one (and only from orders nobody has worked in the CRM, as
+below). Order details and stages already match, unless the old admin changed
+the order since. **Apply 0011 and 0012 first** (the script writes
+`order_details`).
 
 A later run also carries approved customer edits (name, phone, the order
 form) and the old admin's status (stage and order details) over, unless
