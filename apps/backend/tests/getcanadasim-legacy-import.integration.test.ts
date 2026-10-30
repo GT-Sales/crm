@@ -155,8 +155,14 @@ const OLD_CHECKOUT = '15000000-0000-4000-8000-000000000a22';
 const ARCHIVED = '15000000-0000-4000-8000-000000000a23';
 const PAID = '15000000-0000-4000-8000-000000000a24';
 const WORKED = '15000000-0000-4000-8000-000000000a25';
+const INVOICED = '15000000-0000-4000-8000-000000000a26';
 const STAFF = '25000000-0000-4000-8000-000000000a01';
-const LEADS = [PARTNER, PENDING, OLD_CHECKOUT, ARCHIVED, PAID, WORKED];
+const LEADS = [PARTNER, PENDING, OLD_CHECKOUT, ARCHIVED, PAID, WORKED, INVOICED];
+
+/** `leads.order_details` as the import writes it for an order (no plan link yet, quantity 1). */
+function orderDetails(paymentStatus: string, carrierCommission: string) {
+  return { planId: null, plan: null, quantity: 1, paymentStatus, carrierCommission };
+}
 const SHARED_EMAIL = 'kept.name@example.test';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
@@ -188,12 +194,14 @@ databaseTest('Get Canada Sim historical import', () => {
         external_ref: string | null;
         payload: unknown;
         attribution: unknown;
+        order_details: unknown;
         deleted_at: Date | null;
         contact_email: string | null;
       }[]
     >`
       select l.lead_type, l.status, l.stage, l.full_name, l.email, l.phone, l.country_code,
-             l.external_ref, l.payload, l.attribution, l.deleted_at, c.email as contact_email
+             l.external_ref, l.payload, l.attribution, l.order_details, l.deleted_at,
+             c.email as contact_email
       from app.leads l left join app.contacts c on c.id = l.contact_id
       where l.id = ${id}
     `;
@@ -269,7 +277,9 @@ databaseTest('Get Canada Sim historical import', () => {
         (${ARCHIVED}, 103, 'Dead Lead', 'dead.lead@example.test', '111', 'unlimited-data-rogers',
          'esim', 'pending', '2026-08-01T09:00:00Z', '2026-08-15T09:00:00Z', null, null),
         (${WORKED}, 105, 'Worked Here', 'worked.here@example.test', '222', '75gb-fido', 'esim',
-         'verified', '2026-10-01T09:00:00Z', null, '2026-10-02', '2026-10-03T09:00:00Z')
+         'verified', '2026-10-01T09:00:00Z', null, '2026-10-02', '2026-10-03T09:00:00Z'),
+        (${INVOICED}, 106, 'Invoiced Order', 'invoiced.order@example.test', '333', '75gb-chatr',
+         'esim', 'invoiced', '2026-09-15T09:00:00Z', null, null, null)
     `;
 
     await admin`update public.orders set commission_status = 'invoiced' where id = ${PAID}`;
@@ -326,6 +336,7 @@ databaseTest('Get Canada Sim historical import', () => {
       external_ref: 'MS-101',
       deleted_at: null,
       contact_email: 'arjun@example.test',
+      order_details: orderDetails('pending', 'not_yet'),
       attribution: { partnerCode: 'PT-7', partnerCodeMatched: true },
       payload: {
         schemaVersion: 1,
@@ -382,10 +393,13 @@ databaseTest('Get Canada Sim historical import', () => {
 
   test('reads the old shipping address from the notes, and keeps a known person as they are', async () => {
     const row = await lead(PAID);
+    // `paid` is no stage of sim_order any more: the order is pending, its payment paid, and
+    // the carrier commission the old admin recorded is the order's, not the form's.
     expect(row).toMatchObject({
-      stage: 'paid',
+      stage: 'pending',
       external_ref: 'MS-104',
       contact_email: SHARED_EMAIL,
+      order_details: orderDetails('paid', 'invoiced'),
     });
     expect(row?.payload).toEqual({
       schemaVersion: 1,
@@ -395,13 +409,21 @@ databaseTest('Get Canada Sim historical import', () => {
         permitType: 'worker',
         shippingAddress: '1 Bay St, Toronto ON',
         simNumber: '4165550104',
-        commissionStatus: 'invoiced',
       },
     });
     const [contact] = await admin<{ full_name: string; phone: string }[]>`
       select full_name, phone from app.contacts where email = ${SHARED_EMAIL}
     `;
     expect(contact).toEqual({ full_name: 'Name Kept', phone: '403 555 0100' });
+  });
+
+  test('an invoiced order is completed with its carrier commission invoiced', async () => {
+    expect(await lead(INVOICED)).toMatchObject({
+      status: 'submitted',
+      stage: 'completed',
+      external_ref: 'MS-106',
+      order_details: orderDetails('paid', 'invoiced'),
+    });
   });
 
   test('an unfinished checkout stays incomplete, and an archived order is in the trash', async () => {
@@ -420,8 +442,10 @@ databaseTest('Get Canada Sim historical import', () => {
     });
     expect(page?.lead.isNew).toBe(true);
     expect(page?.activities).toEqual([]);
+    expect((await lead(OLD_CHECKOUT))?.order_details).toEqual(orderDetails('pending', 'not_yet'));
     const archived = await lead(ARCHIVED);
     expect(archived?.stage).toBe('pending');
+    expect(archived?.order_details).toEqual(orderDetails('pending', 'not_yet'));
     expect(archived?.deleted_at?.toISOString()).toBe('2026-08-15T09:00:00.000Z');
   });
 
@@ -442,6 +466,8 @@ databaseTest('Get Canada Sim historical import', () => {
       full_name: 'Priya Agent',
       external_ref: 'PT-7',
       contact_email: 'priya@agency.example.test',
+      // Not an order: nothing in order_details.
+      order_details: {},
       payload: {
         schemaVersion: 1,
         payload: {
@@ -460,7 +486,7 @@ databaseTest('Get Canada Sim historical import', () => {
     const fingerprint = () => admin<{ digest: string }[]>`
       select md5(string_agg(row_to_json(x)::text, '|' order by x.id)) as digest
       from (
-        select l.id, l.status, l.stage, l.payload, l.deleted_at, l.updated_at,
+        select l.id, l.status, l.stage, l.payload, l.order_details, l.deleted_at, l.updated_at,
                (select json_agg(a.body order by a.id) from app.lead_activities a where a.lead_id = l.id) as notes,
                (select json_agg(row_to_json(k) order by k.id) from app.lead_tasks k where k.lead_id = l.id) as tasks
         from app.leads l where l.id in ${admin(LEADS)}
@@ -499,7 +525,11 @@ databaseTest('Get Canada Sim historical import', () => {
     await admin`update public.orders set status = 'cancelled' where id = ${WORKED}`;
     await runImport();
 
-    expect(await lead(PENDING)).toMatchObject({ stage: 'activated', phone: '+91 99999 00002' });
+    expect(await lead(PENDING)).toMatchObject({
+      stage: 'activated',
+      phone: '+91 99999 00002',
+      order_details: orderDetails('paid', 'not_yet'),
+    });
     const page = await work.getLead({
       workspaceId: site,
       catalog: codePropertyCatalog,
@@ -520,7 +550,10 @@ databaseTest('Get Canada Sim historical import', () => {
     `;
     expect(opened).toEqual([{ actor_id: STAFF }]);
     // Worked in the CRM: the CRM's view wins.
-    expect(await lead(WORKED)).toMatchObject({ stage: 'verified' });
+    expect(await lead(WORKED)).toMatchObject({
+      stage: 'verified',
+      order_details: orderDetails('paid', 'not_yet'),
+    });
   });
 
   test('copies each document the old admin keeps onto its lead, verified, once', async () => {
