@@ -762,6 +762,28 @@ describe('LeadsInbox', () => {
     expect(navigation.replace).toHaveBeenCalledTimes(1);
   });
 
+  it('rewrites a legacy ?trash=1 link and moves the stored hidden columns in one change', async () => {
+    window.localStorage.setItem(
+      `gt-table-hidden-cols:${WORKSPACE}`,
+      JSON.stringify(['created', 'source']),
+    );
+    navigation.search = 'trash=1&q=avery';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith(
+        '/w/canadawide/leads?archived=1&q=avery&hide=source%2Ccreated',
+        { scroll: false },
+      ),
+    );
+    expect(navigation.replace).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(`gt-table-hidden-cols:${WORKSPACE}`)).toBeNull();
+    // The address it settled on keeps both.
+    const settled = new URLSearchParams(navigation.search);
+    expect(settled.get('archived')).toBe('1');
+    expect(settled.get('hide')).toBe('source,created');
+    expect(settled.has('trash')).toBe(false);
+  });
+
   it('sorts from the sort menu', async () => {
     navigation.search = 'type=internet';
     render(<LeadsInbox workspaceSlug="canadawide" />);

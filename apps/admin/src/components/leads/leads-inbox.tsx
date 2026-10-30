@@ -395,37 +395,40 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     return catalogFailed ? {} : filterQueryForLeadType(latestQuery.current, nextType, catalog);
   }
 
-  // Hidden table columns used to live in this browser; they move into the URL
-  // once, the first time the site's inbox opens without `?hide=`.
+  // Two old addresses are rewritten once, in one change so neither undoes the
+  // other: hidden table columns used to live in this browser and move into
+  // the URL (`?hide=`) the first time the site's inbox opens without one, and
+  // links from before Archive replaced Trash said `?trash=1`; they open the
+  // archive, and the address is rewritten to say `?archived=1`.
   const migratedFor = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!workspaceId || migratedFor.current === workspaceId) return;
-    migratedFor.current = workspaceId;
-    const hide = takeLegacyHiddenColumns(workspaceId);
-    const params = new URLSearchParams(urlKey);
-    if (!hide || params.has('hide')) return;
-    params.set('hide', hide.join(','));
-    latestQuery.current = { ...latestQuery.current, hide };
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-    // Once per site: the URL it reads is the one the inbox opened on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
-
-  // Links from before Archive replaced Trash said `?trash=1`; they open the
-  // archive, and the address is rewritten once to say `?archived=1`.
   const rewrittenUrl = useRef<string | undefined>(undefined);
   useEffect(() => {
     const params = new URLSearchParams(urlKey);
-    if (!params.has('trash') || rewrittenUrl.current === urlKey) return;
-    rewrittenUrl.current = urlKey;
-    const archived = params.get('trash') === '1' || params.get('archived') === '1';
-    params.delete('trash');
-    params.delete('archived');
+    let changed = false;
+    // Once per site: the URL it reads is the one the inbox opened on.
+    if (workspaceId && migratedFor.current !== workspaceId) {
+      migratedFor.current = workspaceId;
+      const hide = takeLegacyHiddenColumns(workspaceId);
+      if (hide && !params.has('hide')) {
+        params.set('hide', hide.join(','));
+        latestQuery.current = { ...latestQuery.current, hide };
+        changed = true;
+      }
+    }
+    let archivedFirst = false;
+    if (params.has('trash') && rewrittenUrl.current !== urlKey) {
+      rewrittenUrl.current = urlKey;
+      archivedFirst = params.get('trash') === '1' || params.get('archived') === '1';
+      params.delete('trash');
+      params.delete('archived');
+      changed = true;
+    }
+    if (!changed) return;
     const rest = params.toString();
-    const search = archived ? `?archived=1${rest ? `&${rest}` : ''}` : rest ? `?${rest}` : '';
+    const search = archivedFirst ? `?archived=1${rest ? `&${rest}` : ''}` : rest ? `?${rest}` : '';
     latestUrl.current = search.slice(1);
     router.replace(`${pathname}${search}`, { scroll: false });
-  }, [urlKey, pathname, router]);
+  }, [urlKey, workspaceId, pathname, router]);
 
   // The search box answers as staff type, without a request per keystroke.
   const [searchText, setSearchText] = useState(query.q ?? '');
