@@ -197,6 +197,8 @@ export function LeadRecord({
   // The mails the last change's automations did not send, and why.
   const [emailSkipped, setEmailSkipped] = useState<readonly EmailSkipped[]>([]);
   const [copied, setCopied] = useState(false);
+  // Staff closed the notice of the last failed refresh.
+  const [refreshDismissed, setRefreshDismissed] = useState(false);
 
   // "Copied" reads for a moment, then the button is itself again.
   useEffect(() => {
@@ -208,7 +210,9 @@ export function LeadRecord({
   const inPanel = variant === 'panel';
   const Title = inPanel ? 'h2' : 'h1';
 
-  if (record.error) {
+  // A refresh that fails keeps the lead on screen with a notice; only a lead
+  // that could not be loaded at all shows the error.
+  if (record.error && !record.data) {
     return (
       <div className={cn('flex flex-col items-start gap-3', inPanel ? 'py-4' : 'py-10')}>
         <Title className="text-xl font-semibold">
@@ -325,8 +329,14 @@ export function LeadRecord({
     return updateStaffLead(accessToken, workspaceId, leadId, body);
   }
 
-  async function reviewed() {
+  /** Reads the lead again; a failure keeps what is shown and says so. */
+  async function refresh() {
+    setRefreshDismissed(false);
     await record.reload();
+  }
+
+  async function reviewed() {
+    await refresh();
     onChangeRef.current?.();
   }
 
@@ -593,6 +603,24 @@ export function LeadRecord({
           <p role="alert" className="text-sm text-destructive">
             {message}
           </p>
+        ) : null}
+        {record.error && !refreshDismissed ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm">
+            <p role="alert" className="mr-auto">
+              Couldn't refresh this lead. Try again.
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
+              Retry
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setRefreshDismissed(true)}
+            >
+              Dismiss
+            </Button>
+          </div>
         ) : null}
         {emailSkipped.length > 0 ? (
           <div role="status">

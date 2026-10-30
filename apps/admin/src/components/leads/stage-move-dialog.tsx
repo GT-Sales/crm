@@ -23,7 +23,7 @@ import {
   Textarea,
 } from '@gt-sales/ui';
 
-import { todayDay } from '../../lib/dates';
+import { torontoDay } from '../../lib/dates';
 import { errorDetailList, errorReason } from '../../lib/use-resource';
 import { documentTypeLabel } from '../plans/document-types';
 
@@ -64,7 +64,7 @@ export function emailSkippedText(skipped: EmailSkipped): string {
   const lead = `The ${CUSTOMER_EMAIL_TEMPLATE_LABELS[skipped.template]} email was not sent`;
   switch (skipped.reason) {
     case 'no_sender':
-      return `${lead}: this site has no sender yet (Settings → Email).`;
+      return `${lead}: this site has no sender yet. Check Settings → Email, and that the deployment's email provider is configured.`;
     case 'no_customer_email':
       return `${lead}: the customer has no email address.`;
     case 'missing_fill_in':
@@ -72,17 +72,20 @@ export function emailSkippedText(skipped: EmailSkipped): string {
   }
 }
 
-/** The trimmed value, left out when blank: an empty field changes nothing. */
+/** The trimmed value, or `undefined` when blank. */
 function filled(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed === '' ? undefined : trimmed;
 }
 
+/** For staff who see no list of the documents the check found missing. */
+const APPROVE_REQUIRED_DOCUMENTS = 'Approve the required documents first.';
+
 /**
  * The move into a stage that asks for details first (`stageGates`): the
  * dispatch details for Delivered (courier, tracking number, dispatch date),
  * the activation details for Activated (date, number, account), each
- * prefilled from the order and dated today when it has none. When the
+ * prefilled from the order and dated today in Toronto when it has none. When the
  * documents check refuses the move it lists the documents not approved; staff
  * allowed to (`canOverride`) give a reason and move anyway.
  */
@@ -109,8 +112,8 @@ export function StageMoveDialog({
   const asksActivation = gates.includes('activation');
   const [courier, setCourier] = useState(order?.courier ?? '');
   const [trackingNumber, setTrackingNumber] = useState(order?.trackingNumber ?? '');
-  const [dispatchedAt, setDispatchedAt] = useState(() => order?.dispatchedAt ?? todayDay());
-  const [activatedAt, setActivatedAt] = useState(() => order?.activatedAt ?? todayDay());
+  const [dispatchedAt, setDispatchedAt] = useState(() => order?.dispatchedAt ?? torontoDay());
+  const [activatedAt, setActivatedAt] = useState(() => order?.activatedAt ?? torontoDay());
   const [activationNumber, setActivationNumber] = useState(order?.activationNumber ?? '');
   const [activationAccount, setActivationAccount] = useState(order?.activationAccount ?? '');
   const [missing, setMissing] = useState<readonly string[]>();
@@ -136,10 +139,12 @@ export function StageMoveDialog({
         ['activationAccount', activationAccount],
       );
     }
+    // A blank field the order had a value for clears it; one it had none for changes nothing.
     const edit: OrderEdit = {};
     for (const [key, value] of fields) {
       const kept = filled(value);
       if (kept !== undefined) edit[key] = kept;
+      else if (order?.[key]) edit[key] = null;
     }
     return Object.keys(edit).length > 0 ? edit : undefined;
   }
@@ -189,7 +194,8 @@ export function StageMoveDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onCancel();
+        // A move on its way may already have emailed the customer: it finishes first.
+        if (!open && !busy) onCancel();
       }}
     >
       <DialogContent>
@@ -262,8 +268,12 @@ export function StageMoveDialog({
               role="status"
               className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
             >
-              <p>Missing approved documents: {missing.map(documentTypeLabel).join(', ')}</p>
-              {canOverride ? null : <p>{APPROVE_DOCUMENTS_FIRST}</p>}
+              <p>
+                {missing.length > 0
+                  ? `Missing approved documents: ${missing.map(documentTypeLabel).join(', ')}`
+                  : APPROVE_REQUIRED_DOCUMENTS}
+              </p>
+              {canOverride || missing.length === 0 ? null : <p>{APPROVE_DOCUMENTS_FIRST}</p>}
             </div>
           ) : null}
           {overriding ? (
@@ -283,7 +293,7 @@ export function StageMoveDialog({
             </p>
           ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onCancel}>
+            <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy}>

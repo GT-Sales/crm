@@ -32,7 +32,11 @@ import {
 } from '../../lib/api';
 import { errorReason } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
-import { OWNER_ONLY_MESSAGE, TemplateEditor, templateProblem } from './template-editor';
+import {
+  INTEGRATIONS_PERMISSION_MESSAGE,
+  TemplateEditor,
+  templateProblem,
+} from './template-editor';
 import { TemplateList } from './template-list';
 import { isForbidden, useEmailSettings } from './use-email-settings';
 
@@ -94,9 +98,8 @@ const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
 
 /**
  * The site's sender and the look of its mails: sender name and address,
- * reply-to, logo, brand colour, footer and site address. Until the owner saves
- * them the form starts from the sender the server is configured with, and says
- * so. The whole form is sent on save, empty optional fields as null and the
+ * reply-to, logo, brand colour, footer and site address. Until they are saved
+ * the form starts from the sender the server is configured with, and says so. The whole form is sent on save, empty optional fields as null and the
  * colour in lower case. `onSave` answers why a save was refused, or nothing.
  */
 export function EmailSettings({
@@ -286,14 +289,15 @@ export function EmailSettings({
   );
 }
 
-const CONFLICT_MESSAGE = 'This email changed elsewhere. Reload and try again.';
+const CONFLICT_MESSAGE =
+  'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.';
 
 /**
  * Settings → Email: the sender form, the seven emails and the editor of one
  * of them, opened from its Edit button or from `initialTemplate` (the
- * `?template=` the Automations page links with). Every call needs the owner's
- * `integration.manage`; a refusal anywhere says so and turns the page
- * read-only.
+ * `?template=` the Automations page links with). Every call needs
+ * `integration.manage` (the Integrations permission, which the owner has); a
+ * refusal anywhere says so and turns the page read-only.
  */
 export function EmailSettingsScreen({
   workspaceSlug,
@@ -328,7 +332,7 @@ export function EmailSettingsScreen({
   async function saveSettings(input: UpdateEmailSettingsRequest): Promise<string | undefined> {
     const outcome = await call((token, id) => updateEmailSettings(token, id, input));
     if (!outcome.ok) {
-      if (isForbidden(outcome.error)) return OWNER_ONLY_MESSAGE;
+      if (isForbidden(outcome.error)) return INTEGRATIONS_PERMISSION_MESSAGE;
       return `The settings were not saved. Reason: ${errorReason(outcome.error)}.`;
     }
     await reload();
@@ -342,6 +346,9 @@ export function EmailSettingsScreen({
     const outcome = await call((token, id) => updateEmailTemplate(token, id, key, input));
     if (!outcome.ok) {
       if (outcome.error instanceof BackendError && outcome.error.code === 'version_conflict') {
+        // The newest version, so the next Save can go over it; the editor keeps
+        // the draft (it stays mounted under the same key).
+        void reload();
         return CONFLICT_MESSAGE;
       }
       return (
@@ -366,7 +373,7 @@ export function EmailSettingsScreen({
         ? 'Sent to your address: check your inbox.'
         : 'A test was already sent this minute.';
     }
-    if (isForbidden(outcome.error)) return OWNER_ONLY_MESSAGE;
+    if (isForbidden(outcome.error)) return INTEGRATIONS_PERMISSION_MESSAGE;
     if (outcome.error instanceof BackendError && outcome.error.code === 'feature_not_ready') {
       return 'There is no sender to mail from yet. Save the sender settings first.';
     }
@@ -376,7 +383,7 @@ export function EmailSettingsScreen({
   if (forbidden) {
     return (
       <p role="alert" className="text-sm text-destructive">
-        {OWNER_ONLY_MESSAGE}
+        {INTEGRATIONS_PERMISSION_MESSAGE}
       </p>
     );
   }
@@ -398,7 +405,7 @@ export function EmailSettingsScreen({
     <div className="flex flex-col gap-10">
       {refused ? (
         <p role="alert" className="text-sm text-destructive">
-          {OWNER_ONLY_MESSAGE}
+          {INTEGRATIONS_PERMISSION_MESSAGE}
         </p>
       ) : null}
       {error ? (

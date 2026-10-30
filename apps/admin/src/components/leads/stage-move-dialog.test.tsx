@@ -8,7 +8,7 @@ import {
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 
-import { todayDay } from '../../lib/dates';
+import { torontoDay } from '../../lib/dates';
 import { StageMoveDialog } from './stage-move-dialog';
 
 vi.mock('../../lib/api', () => ({
@@ -89,7 +89,9 @@ describe('StageMoveDialog', () => {
     const { onMove, onDone, view } = dialog();
     onMove.mockResolvedValue(moved);
     expect(within(view).getByRole('heading', { name: 'Move to Delivered' })).toBeTruthy();
-    expect(within(view).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(todayDay());
+    expect(within(view).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(
+      torontoDay(),
+    );
     expect(within(view).queryByLabelText(/^Activated on/)).toBeNull();
     fireEvent.change(within(view).getByLabelText(/^Courier/), { target: { value: 'Canada Post' } });
     fireEvent.change(within(view).getByLabelText(/^Tracking number/), {
@@ -100,7 +102,7 @@ describe('StageMoveDialog', () => {
     await waitFor(() =>
       expect(onMove).toHaveBeenCalledWith({
         stage: 'delivered',
-        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: todayDay() },
+        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: torontoDay() },
       }),
     );
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(moved));
@@ -144,9 +146,23 @@ describe('StageMoveDialog', () => {
     );
   });
 
+  it('dates the dispatch by Toronto’s calendar, not the browser’s', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 23:30 on 30 October in Toronto, already 31 October in UTC.
+      vi.setSystemTime(new Date('2026-10-31T03:30:00.000Z'));
+      const { view } = dialog();
+      expect(within(view).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(
+        '2026-10-30',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('dates an activation today when the order has none', () => {
     const { view } = dialog({ lead: { ...order, stage: 'delivered' }, to: 'activated' });
-    expect(within(view).getByLabelText<HTMLInputElement>(/^Activated on/).value).toBe(todayDay());
+    expect(within(view).getByLabelText<HTMLInputElement>(/^Activated on/).value).toBe(torontoDay());
   });
 
   it('lists the missing documents and moves anyway with a reason, for those allowed', async () => {
@@ -179,11 +195,43 @@ describe('StageMoveDialog', () => {
     await waitFor(() =>
       expect(onMove).toHaveBeenLastCalledWith({
         stage: 'delivered',
-        order: { courier: 'Canada Post', dispatchedAt: todayDay() },
+        order: { courier: 'Canada Post', dispatchedAt: torontoDay() },
         documentsOverrideReason: 'Customer sent them by email',
       }),
     );
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(moved));
+  });
+
+  it.each([
+    ['an empty list', { missing: [] }],
+    ['a malformed list', { missing: 'passport' }],
+  ])(
+    'asks for the required documents when the refusal brings %s, and still offers the override',
+    async (_case, details) => {
+      const { onMove, view } = dialog({ canOverride: true });
+      onMove.mockRejectedValueOnce(await refusal('documents_incomplete', details));
+      fireEvent.change(within(view).getByLabelText(/^Courier/), {
+        target: { value: 'Canada Post' },
+      });
+      fireEvent.click(within(view).getByRole('button', { name: 'Move' }));
+
+      expect(await within(view).findByText('Approve the required documents first.')).toBeTruthy();
+      expect(within(view).queryByText(/^Missing approved documents/)).toBeNull();
+      expect(within(view).getByLabelText(/^Reason for moving anyway/)).toBeTruthy();
+      expect(within(view).getByRole('button', { name: 'Move anyway' })).toBeTruthy();
+    },
+  );
+
+  it('says it once to those not allowed to override when the refusal lists no documents', async () => {
+    const { onMove, view } = dialog();
+    onMove.mockRejectedValueOnce(await refusal('documents_incomplete', { missing: [] }));
+    fireEvent.change(within(view).getByLabelText(/^Courier/), { target: { value: 'Canada Post' } });
+    fireEvent.click(within(view).getByRole('button', { name: 'Move' }));
+
+    const status = await within(view).findByRole('status');
+    expect(status.textContent).toBe('Approve the required documents first.');
+    expect(within(view).queryByLabelText(/^Reason for moving anyway/)).toBeNull();
+    expect(within(view).queryByRole('button', { name: 'Move anyway' })).toBeNull();
   });
 
   it('tells those not allowed to override to approve the documents first', async () => {
@@ -212,10 +260,54 @@ describe('StageMoveDialog', () => {
     );
   });
 
+  it('sends a prefilled detail left blank as cleared, and leaves out one that was empty', async () => {
+    const lead: LeadDetail = {
+      ...order,
+      order: { ...DEFAULT_LEAD_ORDER, courier: 'Canada Post', trackingNumber: 'LX1' },
+    };
+    const { onMove, view } = dialog({ lead });
+    onMove.mockResolvedValue(moved);
+    expect(within(view).getByLabelText<HTMLInputElement>(/^Tracking number/).value).toBe('LX1');
+    fireEvent.change(within(view).getByLabelText(/^Tracking number/), { target: { value: ' ' } });
+    fireEvent.click(within(view).getByRole('button', { name: 'Move' }));
+
+    await waitFor(() =>
+      expect(onMove).toHaveBeenCalledWith({
+        stage: 'delivered',
+        order: { courier: 'Canada Post', trackingNumber: null, dispatchedAt: torontoDay() },
+      }),
+    );
+  });
+
   it('cancels without a request', () => {
     const { onMove, onCancel, view } = dialog();
     fireEvent.click(within(view).getByRole('button', { name: 'Cancel' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(view, { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(2);
     expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('cannot be cancelled while the move is on its way, and closes once it lands', async () => {
+    const { onMove, onDone, onCancel, view } = dialog();
+    let land: (result: UpdateWorkspaceLeadResponse) => void = () => undefined;
+    onMove.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve;
+      }),
+    );
+    fireEvent.change(within(view).getByLabelText(/^Courier/), { target: { value: 'Canada Post' } });
+    fireEvent.click(within(view).getByRole('button', { name: 'Move' }));
+
+    expect(await within(view).findByRole('button', { name: 'Moving…' })).toBeTruthy();
+    expect(within(view).getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
+    fireEvent.keyDown(view, { key: 'Escape' });
+    fireEvent.click(within(view).getByRole('button', { name: 'Close' }));
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Move to Delivered' })).toBeTruthy();
+
+    land(moved);
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(moved));
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });

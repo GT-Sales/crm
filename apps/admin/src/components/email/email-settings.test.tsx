@@ -230,8 +230,51 @@ describe('EmailSettingsScreen', () => {
       ),
     );
     expect(
-      await within(dialog).findByText('This email changed elsewhere. Reload and try again.'),
+      await within(dialog).findByText(
+        'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.',
+      ),
     ).toBeTruthy();
+  });
+
+  it('reads the emails again on a conflict, keeps the draft and saves it over the new version', async () => {
+    mocks.listEmailTemplates.mockResolvedValueOnce({ templates, requestId: 'req_test' });
+    mocks.listEmailTemplates.mockResolvedValue({
+      templates: templates.map((entry) =>
+        entry.key === 'dispatched' ? template('dispatched', 5) : entry,
+      ),
+      requestId: 'req_test',
+    });
+    mocks.updateEmailTemplate
+      .mockRejectedValueOnce(new mocks.FakeBackendError('version_conflict', 409))
+      .mockResolvedValueOnce({ template: template('dispatched', 6), requestId: 'req_test' });
+    render(<EmailSettingsScreen workspaceSlug="canadawide" initialTemplate="dispatched" />);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Body' }), {
+      target: { value: 'Your SIM is on its way.' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(
+      await within(dialog).findByText(
+        'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.',
+      ),
+    ).toBeTruthy();
+    await waitFor(() => expect(mocks.listEmailTemplates).toHaveBeenCalledTimes(2));
+    expect(within(dialog).getByRole('textbox', { name: 'Body' })).toHaveProperty(
+      'value',
+      'Your SIM is on its way.',
+    );
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(mocks.updateEmailTemplate).toHaveBeenLastCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'dispatched',
+        { expectedVersion: 5, subject: 'Subject of dispatched', body: 'Your SIM is on its way.' },
+      ),
+    );
+    expect(await within(dialog).findByText('Saved.')).toBeTruthy();
   });
 
   it('sends a test of the template', async () => {
@@ -251,11 +294,11 @@ describe('EmailSettingsScreen', () => {
     expect(await within(dialog).findByText('A test was already sent this minute.')).toBeTruthy();
   });
 
-  it('says only the owner may change email settings when the site refuses', async () => {
+  it('says the Integrations permission is needed when the site refuses', async () => {
     mocks.getEmailSettings.mockRejectedValue(new mocks.FakeBackendError('permission_denied', 403));
     render(<EmailSettingsScreen workspaceSlug="canadawide" />);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'Only the site owner can change email settings.',
+      'This needs the Integrations permission (the owner has it).',
     );
     expect(screen.queryByRole('button', { name: 'Save settings' })).toBeNull();
   });
@@ -267,7 +310,8 @@ describe('EmailSettingsScreen', () => {
     render(<EmailSettingsScreen workspaceSlug="canadawide" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Save settings' }));
     expect(
-      (await screen.findAllByText('Only the site owner can change email settings.')).length,
+      (await screen.findAllByText('This needs the Integrations permission (the owner has it).'))
+        .length,
     ).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Save settings' })).toHaveProperty('disabled', true);
     expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull();
