@@ -38,7 +38,9 @@ export function SidePanel({
   const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (open && !isMobile) panelRef.current?.focus();
+    // Without preventScroll the browser scrolls a panel taller than what is
+    // left of the viewport into view, pushing the page header out of sight.
+    if (open && !isMobile) panelRef.current?.focus({ preventScroll: true });
   }, [open, isMobile, title]);
 
   // Escape closes the panel wherever focus is, unless focus is in a field or

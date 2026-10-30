@@ -109,7 +109,7 @@ describe('LeadsTable', () => {
     );
   });
 
-  it('leaves out the columns hidden in the URL and keeps rows compact', async () => {
+  it('leaves out the columns hidden in the URL and keeps the roomy rows', async () => {
     render(
       <LeadsTable
         workspaceSlug="canadawide"
@@ -125,8 +125,46 @@ describe('LeadsTable', () => {
     const name = await screen.findByRole('link', { name: 'Avery Example' });
     expect(screen.queryByRole('columnheader', { name: 'Source' })).toBeNull();
     expect(screen.getByRole('columnheader', { name: 'Stage' })).toBeTruthy();
-    expect(name.closest('tr')?.className).toContain('h-8');
-    expect(name.closest('td')?.className).toContain('sticky');
+    const cell = name.closest('td');
+    // The email sits on its own line under the name, not beside it.
+    const secondary = screen.getByText('avery@example.com');
+    expect(secondary.closest('td')).toBe(cell);
+    expect(secondary.className).toContain('block');
+    expect(name.parentElement?.contains(secondary)).toBe(false);
+    expect(name.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No pinned name column and no cell grid.
+    expect(cell?.className).not.toContain('sticky');
+    expect(cell?.className).toContain('py-2');
+    expect(name.closest('table')?.className).not.toContain('border-separate');
+    expect(name.closest('tr')?.className).toContain('border-b');
+  });
+
+  it('marks the row whose lead is open in the side panel', async () => {
+    const onOpen = vi.fn();
+    render(
+      <LeadsTable
+        workspaceSlug="canadawide"
+        workspaceId={WORKSPACE}
+        accessToken="staff-token"
+        members={[]}
+        query={query}
+        catalog={catalog}
+        canUseProperties
+        onPage={vi.fn()}
+        panel={{
+          openId: '90000000-0000-4000-8000-000000000001',
+          href: (id) => `/w/canadawide/leads?lead=${id}`,
+          onOpen,
+        }}
+      />,
+    );
+    const name = await screen.findByRole('link', { name: 'Avery Example' });
+    const tr = name.closest('tr');
+    expect(tr?.getAttribute('aria-current')).toBe('true');
+    expect(tr?.className).toContain('aria-[current=true]:bg-muted/60');
+    expect(name.getAttribute('href')).toBe(
+      '/w/canadawide/leads?lead=90000000-0000-4000-8000-000000000001',
+    );
   });
 
   it('lists the archive with the archived view, and says when it is empty', async () => {

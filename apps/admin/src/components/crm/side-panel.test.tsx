@@ -28,6 +28,20 @@ describe('SidePanel', () => {
     expect(panel.contains(document.activeElement)).toBe(true);
   });
 
+  it('takes focus without scrolling the page', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      render(
+        <SidePanel open title="Lead details" onClose={vi.fn()}>
+          <p>Details</p>
+        </SidePanel>,
+      );
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
   it('closes from its button and from the Escape key', () => {
     const onClose = vi.fn();
     render(
