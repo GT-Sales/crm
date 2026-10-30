@@ -166,8 +166,17 @@ export const updateLeadRequestSchema = z.object({
   form: leadFormSchema.optional(),
   attribution: rawAttributionSchema.optional(),
   consentVersion: consentVersionSchema.optional(),
-  /** For an order lead type: the plan the customer chose, re-frozen on save. */
+  /**
+   * For an order lead type: the plan the customer chose, replacing the
+   * draft's. A draft keeps the plan and quantity only; the plan is frozen at
+   * submission.
+   */
   order: leadOrderIntakeSchema.optional(),
+  /**
+   * Submit the draft with this save (`incomplete` → `submitted`): its plan is
+   * frozen as the site sells it now, and its draft grant edits nothing more.
+   */
+  submit: z.boolean().optional(),
 });
 export type UpdateLeadRequest = z.infer<typeof updateLeadRequestSchema>;
 export type UpdateLeadRequestInput = z.input<typeof updateLeadRequestSchema>;

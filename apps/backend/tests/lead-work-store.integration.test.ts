@@ -152,7 +152,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     const first = await createInternetLead(person);
     const second = await createInternetLead({ ...person, email: 'Jordan.Again@example.test' });
     const third = await createInternetLead(person);
-    await work.setTrashed({ ...writeScope, leadId: third, trashed: true });
+    await work.setArchived({ ...writeScope, leadId: third, archived: true });
     // Someone else, and the same person on another site, are not related here.
     await createInternetLead({ ...person, email: 'someone.else@example.test' });
     await leadStore.createLead({
@@ -562,7 +562,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     if (task.status !== 'saved') throw new Error('expected task');
     const before = await work.getLead({ ...scope, leadId, includeWork: false });
 
-    const trashed = await work.setTrashed({ ...writeScope, leadId, trashed: true });
+    const trashed = await work.setArchived({ ...writeScope, leadId, archived: true });
     if (trashed.status === 'not_found') throw new Error('expected the lead');
     expect(trashed.status).toBe('changed');
     expect(trashed.lead.deletedAt).not.toBeNull();
@@ -570,7 +570,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     // The inbox order is untouched.
     expect(trashed.lead.updatedAt).toBe(before?.lead.updatedAt);
 
-    expect(await work.setTrashed({ ...writeScope, leadId, trashed: true })).toMatchObject({
+    expect(await work.setArchived({ ...writeScope, leadId, archived: true })).toMatchObject({
       status: 'unchanged',
       activity: null,
     });
@@ -592,7 +592,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     const mine = await work.listTasks({ ...scope, assignee: 'me', status: 'open' }, 1, 200);
     expect(mine.tasks.some((entry) => entry.id === task.task.id)).toBe(false);
 
-    const restored = await work.setTrashed({ ...writeScope, leadId, trashed: false });
+    const restored = await work.setArchived({ ...writeScope, leadId, archived: false });
     if (restored.status === 'not_found') throw new Error('expected the lead');
     expect(restored.lead.deletedAt).toBeNull();
     expect(restored.activity).toMatchObject({ kind: 'system', event: 'restored' });
@@ -671,7 +671,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
       from app.leads where workspace_id = ${WORKSPACE}
     `;
     expect(internet?.total).toBe(counts?.active);
-    expect(summary.trash).toBe(counts?.trashed);
+    expect(summary.archived).toBe(counts?.trashed);
   });
 
   test('follow-ups due by a calendar day: the list, the summary and the team’s tasks', async () => {
@@ -718,7 +718,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     await task(undated, 'Whenever', null);
     const trashed = await lead('internet', 'Trashed', internetPayload);
     await task(trashed, 'Never shown', '2026-10-01T12:00:00.000Z');
-    await work.setTrashed({ ...dueScope, leadId: trashed, trashed: true });
+    await work.setArchived({ ...dueScope, leadId: trashed, archived: true });
 
     const due = await leadStore.listLeads({
       workspaceId: DUE_WORKSPACE,
@@ -883,7 +883,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
     });
     expect(page?.activities[0]).toMatchObject({ event: 'customer_emailed' });
 
-    await work.setTrashed({ ...mailScope, leadId, trashed: true });
+    await work.setArchived({ ...mailScope, leadId, archived: true });
     expect(await queue()).toEqual({ status: 'trashed' });
     expect(await queue('53000000-0000-4000-8000-0000000000ef')).toEqual({ status: 'not_found' });
   });

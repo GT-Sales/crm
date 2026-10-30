@@ -3746,7 +3746,8 @@
                                   "maxLength": 64,
                                   "pattern": "^[a-z0-9_]+$"
                                 }
-                              }
+                              },
+                              "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "event"],
                             "additionalProperties": false
@@ -4653,7 +4654,8 @@
                                   "maxLength": 64,
                                   "pattern": "^[a-z0-9_]+$"
                                 }
-                              }
+                              },
+                              "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                             },
                             "required": ["id", "actorId", "createdAt", "kind", "event"],
                             "additionalProperties": false
@@ -5393,7 +5395,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -6044,7 +6047,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -6575,7 +6579,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -7226,7 +7231,8 @@
                                     "maxLength": 64,
                                     "pattern": "^[a-z0-9_]+$"
                                   }
-                                }
+                                },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                               },
                               "required": ["id", "actorId", "createdAt", "kind", "event"],
                               "additionalProperties": false
@@ -7584,7 +7590,8 @@
                                 "maxLength": 64,
                                 "pattern": "^[a-z0-9_]+$"
                               }
-                            }
+                            },
+                            "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "event"],
                           "additionalProperties": false
@@ -7952,7 +7959,8 @@
                                 "maxLength": 64,
                                 "pattern": "^[a-z0-9_]+$"
                               }
-                            }
+                            },
+                            "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                           },
                           "required": ["id", "actorId", "createdAt", "kind", "event"],
                           "additionalProperties": false
@@ -14345,7 +14353,8 @@
                     },
                     "required": ["planId"],
                     "additionalProperties": false
-                  }
+                  },
+                  "submit": { "type": "boolean" }
                 }
               }
             }

@@ -9,6 +9,7 @@ import {
   endpoints,
   freezePlan,
   getWorkspaceLeadResponseSchema,
+  leadActivitySchema,
   initialPaymentStatus,
   isOrderLeadType,
   leadOrderEditSchema,
@@ -313,6 +314,22 @@ describe('order details on leads', () => {
     expect(
       updateLeadRequestSchema.safeParse({ order: { planId: UUID_A, quantity: 0 } }).success,
     ).toBe(false);
+    // A resume can submit the draft, which freezes its plan.
+    expect(updateLeadRequestSchema.parse({ submit: true }).submit).toBe(true);
+    expect(updateLeadRequestSchema.safeParse({ submit: 'yes' }).success).toBe(false);
+  });
+
+  it("keeps the body of a data migration's timeline entry", () => {
+    const entry = {
+      id: UUID_A,
+      actorId: UUID_A,
+      createdAt: '2026-10-30T00:00:00.000Z',
+      kind: 'system',
+      event: 'unknown',
+      body: 'Stage Paid became Pending; payment status set to Paid (phase 3 migration)',
+    };
+    expect(leadActivitySchema.parse(entry)).toEqual(entry);
+    expect(leadActivitySchema.safeParse({ ...entry, body: '' }).success).toBe(false);
   });
 
   it('counts an order edit as a change to the lead', () => {
