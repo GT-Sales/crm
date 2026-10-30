@@ -331,13 +331,17 @@ beforeEach(async () => {
       leadWorkStore: work,
       propertyStore: properties,
       customerEmail: {
-        available: (workspaceId) => mailReady && workspaceId === WORKSPACE,
-        sender: () => ({
+        environment: {
+          providerReady: true,
+          contactHash: (email) => `hash:${email}`,
+          fallbackSenders: { forWorkspace: () => undefined },
+        },
+        available: async ({ workspaceId }) => mailReady && workspaceId === WORKSPACE,
+        fallback: () => ({
           fromAddress: 'order@site.example',
           fromName: 'The Site',
           siteUrl: 'https://site.example',
         }),
-        contactHash: (email) => `hash:${email}`,
       },
     },
   }).listen(0);
