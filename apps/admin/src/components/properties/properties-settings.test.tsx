@@ -522,3 +522,142 @@ describe('PropertiesSettings layouts', () => {
     expect(screen.getByText('Company')).toBeTruthy();
   });
 });
+
+describe('PropertiesSettings for plans', () => {
+  const dataAllowance = custom({
+    key: 'custom_data',
+    label: 'Data allowance',
+    kind: 'text',
+    websiteVisible: true,
+  });
+  const carrierCost = custom({ key: 'custom_cost', label: 'Carrier cost', kind: 'money' });
+
+  /** `GET /properties?object=plan`: a plan has no built-ins and one layout keyed ''. */
+  function planModel(canManage = true) {
+    return {
+      properties: [dataAllowance, carrierCost],
+      layouts: {},
+      capabilities: { canManage },
+      requestId: 'req_test',
+    };
+  }
+
+  beforeEach(() => {
+    mocks.getPropertyModel.mockResolvedValue(planModel());
+  });
+
+  async function openPlans() {
+    render(<PropertiesSettings workspaceSlug="canadawide" object="plan" />);
+    await screen.findByRole('list', { name: 'Custom properties' });
+  }
+
+  it('reads the plan properties and shows one Plan properties tab, no layouts and no built-ins', async () => {
+    await openPlans();
+    expect(mocks.getPropertyModel).toHaveBeenCalledWith('staff-token', WORKSPACE, 'plan');
+    expect(screen.getByRole('tab', { name: 'Plan properties' })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Layouts' })).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Built-in properties' })).toBeNull();
+    const rows = within(customs()).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain('On website');
+    expect(rows[1]?.textContent).not.toContain('On website');
+    expect(rows[0]?.textContent).not.toContain('All lead types');
+  });
+
+  it('adds a plan property with the Show on website switch and no lead types', async () => {
+    mocks.createProperty.mockResolvedValue({ property: dataAllowance, requestId: 'r' });
+    await openPlans();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByText('Lead types')).toBeNull();
+    expect(within(dialog).queryByRole('checkbox', { name: 'Staff only' })).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText('Label'), { target: { value: 'Contract' } });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Show on website' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save property' }));
+
+    await waitFor(() =>
+      expect(mocks.createProperty).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        {
+          label: 'Contract',
+          kind: 'text',
+          options: [],
+          staffOnly: false,
+          sensitive: false,
+          websiteVisible: true,
+          leadTypes: [],
+        },
+        'plan',
+      ),
+    );
+    await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalledTimes(2));
+  });
+
+  it('changes the Show on website switch of an existing plan property', async () => {
+    mocks.updateProperty.mockResolvedValue({ property: carrierCost, requestId: 'r' });
+    await openPlans();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Carrier cost' }));
+    const dialog = await screen.findByRole('dialog');
+    const show = within(dialog).getByRole('checkbox', { name: 'Show on website' });
+    expect(show.getAttribute('data-state')).toBe('unchecked');
+    fireEvent.click(show);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save property' }));
+
+    await waitFor(() =>
+      expect(mocks.updateProperty).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'custom_cost',
+        { expectedVersion: 2, label: 'Carrier cost', websiteVisible: true },
+        'plan',
+      ),
+    );
+  });
+
+  it('hides and deletes a plan property against the plan object', async () => {
+    mocks.updateProperty.mockResolvedValue({ property: carrierCost, requestId: 'r' });
+    mocks.deleteProperty.mockResolvedValue({ requestId: 'r' });
+    await openPlans();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Carrier cost' }));
+    await waitFor(() =>
+      expect(mocks.updateProperty).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'custom_cost',
+        { expectedVersion: 2, hidden: true },
+        'plan',
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Data allowance' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete property' }));
+    await waitFor(() =>
+      expect(mocks.deleteProperty).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'custom_data',
+        'plan',
+      ),
+    );
+  });
+
+  it('shows no write controls to a member who cannot manage properties', async () => {
+    mocks.roles = ['orders'];
+    mocks.getPropertyModel.mockResolvedValue(planModel(false));
+    await openPlans();
+    expect(screen.queryByRole('button', { name: 'Add property' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^(Edit|Hide|Show|Delete)/ })).toBeNull();
+  });
+
+  it('keeps asking for lead properties when no object is given', async () => {
+    mocks.getPropertyModel.mockResolvedValue(model());
+    render(<PropertiesSettings workspaceSlug="canadawide" />);
+    await screen.findByRole('list', { name: 'Built-in properties' });
+    expect(mocks.getPropertyModel).toHaveBeenCalledWith('staff-token', WORKSPACE);
+    expect(screen.getByRole('tab', { name: 'Layouts' })).toBeTruthy();
+  });
+});

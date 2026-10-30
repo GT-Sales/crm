@@ -427,4 +427,36 @@ describe('plan endpoints and client', () => {
     ]);
     expect(JSON.parse(calls[2]?.body ?? '{}')).toMatchObject({ active: true, customValues: {} });
   });
+
+  it('names the object on the property routes only when it is not a lead', async () => {
+    const urls: string[] = [];
+    const client = createBackendClient({
+      baseUrl: 'https://api.example.test',
+      credential: 'token',
+      // The answers do not matter here: only the requests are checked, so each call may reject.
+      fetch: async (input) => {
+        urls.push(input instanceof URL ? input.href : String(input));
+        return new Response('{}', { status: 200 });
+      },
+    });
+    const ignore = () => undefined;
+    await client.staff.getPropertyModel(UUID_B).catch(ignore);
+    await client.staff.getPropertyModel(UUID_B, 'plan').catch(ignore);
+    await client.staff
+      .createProperty(UUID_B, { label: 'Contract', kind: 'text' }, 'plan')
+      .catch(ignore);
+    await client.staff
+      .updateProperty(UUID_B, 'custom_a', { expectedVersion: 1, hidden: true }, 'plan')
+      .catch(ignore);
+    await client.staff.deleteProperty(UUID_B, 'custom_a', 'plan').catch(ignore);
+
+    const properties = `https://api.example.test/api/v1/staff/workspaces/${UUID_B}/properties`;
+    expect(urls).toEqual([
+      properties,
+      `${properties}?object=plan`,
+      `${properties}?object=plan`,
+      `${properties}/custom_a?object=plan`,
+      `${properties}/custom_a?object=plan`,
+    ]);
+  });
 });
