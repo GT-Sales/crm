@@ -32,6 +32,10 @@ import {
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
   versionedFormSchema,
+  endpoints,
+  leadViewSchema,
+  leadsSummaryResponseSchema,
+  normalizeLeadView,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -474,5 +478,36 @@ describe('lead-type catalogue', () => {
     expect(isLeadStage('mobility', 'activated')).toBe(true);
     expect(isLeadStage('internet', 'activated')).toBe(false);
     expect(isLeadStage('unknown_type', 'new')).toBe(false);
+  });
+});
+
+describe('archive aliases', () => {
+  it('accepts archived and the legacy trash view and normalizes them', () => {
+    for (const view of ['active', 'archived', 'trash']) {
+      expect(leadViewSchema.safeParse(view).success).toBe(true);
+    }
+    expect(leadViewSchema.safeParse('deleted').success).toBe(false);
+    expect(normalizeLeadView(undefined)).toBe('active');
+    expect(normalizeLeadView('active')).toBe('active');
+    expect(normalizeLeadView('archived')).toBe('archived');
+    expect(normalizeLeadView('trash')).toBe('archived');
+  });
+
+  it('counts the archive in the summary and keeps trash as the deprecated twin', () => {
+    const base = { types: [], access: { contacts: true, manage: true }, requestId: UUID_C };
+    expect(leadsSummaryResponseSchema.safeParse({ ...base, archived: 2, trash: 2 }).success).toBe(
+      true,
+    );
+    expect(leadsSummaryResponseSchema.safeParse({ ...base, trash: 2 }).success).toBe(false);
+  });
+
+  it('registers archiveWorkspaceLead and the deprecated trashWorkspaceLead with one response', () => {
+    const archive = endpoints.find((entry) => entry.operationId === 'archiveWorkspaceLead');
+    const trash = endpoints.find((entry) => entry.operationId === 'trashWorkspaceLead');
+    expect(archive?.method).toBe('POST');
+    expect(archive?.path).toBe('/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/archive');
+    expect(trash?.path).toBe('/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/trash');
+    expect(trash?.summary).toContain('Deprecated alias');
+    expect(archive?.response).toBe(trash?.response);
   });
 });

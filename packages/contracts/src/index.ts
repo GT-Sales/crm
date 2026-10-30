@@ -197,6 +197,7 @@ export {
   leadsSummaryResponseSchema,
   leadTypeCountSchema,
   leadViewSchema,
+  normalizeLeadView,
   leadWhereSchema,
   listWorkspaceLeadsQuerySchema,
   listWorkspaceLeadsResponseSchema,

@@ -13,6 +13,7 @@ import {
   savedViewSchema,
   savedViewStateSchema,
   updateSavedViewRequestSchema,
+  type CreateSavedViewRequestInput,
   type PropertyRow,
   type SavedViewState,
 } from './index';
@@ -45,7 +46,7 @@ describe('saved view state', () => {
     const full: SavedViewState = {
       layout: 'board',
       leadType: 'internet',
-      trash: false,
+      archived: false,
       stage: 'contacted',
       assignee: 'me',
       due: true,
@@ -55,6 +56,40 @@ describe('saved view state', () => {
       hiddenColumns: ['source'],
     };
     expect(savedViewStateSchema.safeParse(full).success).toBe(true);
+  });
+
+  it('renames a stored legacy trash key to archived, never keeping both', () => {
+    const { archived: _archived, ...legacy } = DEFAULT_LEAD_VIEW_STATE;
+    const parsed = savedViewStateSchema.parse({ ...legacy, trash: true });
+    expect(parsed.archived).toBe(true);
+    expect(parsed).not.toHaveProperty('trash');
+    expect(savedViewStateSchema.parse({ ...legacy, trash: false }).archived).toBe(false);
+  });
+
+  it('types a new view body with archived and keeps the legacy trash key out of the types', () => {
+    const body: CreateSavedViewRequestInput = { name: 'Mine', state: DEFAULT_LEAD_VIEW_STATE };
+    expect(createSavedViewRequestSchema.parse(body).state.archived).toBe(false);
+    const { archived: _archived, ...legacy } = DEFAULT_LEAD_VIEW_STATE;
+    const stale: CreateSavedViewRequestInput = {
+      name: 'Old',
+      // @ts-expect-error a state with `trash` and no `archived` does not compile
+      state: { ...legacy, trash: true },
+    };
+    // At runtime the legacy key is still accepted and renamed.
+    expect(createSavedViewRequestSchema.parse(stale).state.archived).toBe(true);
+  });
+
+  it('keeps archived when a state carries both keys, and still rejects unknown keys', () => {
+    const both = savedViewStateSchema.parse({
+      ...DEFAULT_LEAD_VIEW_STATE,
+      archived: false,
+      trash: true,
+    });
+    expect(both.archived).toBe(false);
+    expect(both).not.toHaveProperty('trash');
+    expect(savedViewStateSchema.safeParse({ ...DEFAULT_LEAD_VIEW_STATE, other: 1 }).success).toBe(
+      false,
+    );
   });
 
   it('never accepts free-text search or a page', () => {
@@ -172,7 +207,7 @@ describe('cleanSavedViewState', () => {
     expect(known.sort).toBe('prop.postalCode:asc');
   });
 
-  it('drops a stage the lead type does not have and leaves assignee, due, trash and layout alone', () => {
+  it('drops a stage the lead type does not have and leaves assignee, due, archived and layout alone', () => {
     const catalog = buildPropertyCatalog([]);
     const state: SavedViewState = {
       ...DEFAULT_LEAD_VIEW_STATE,
@@ -181,11 +216,11 @@ describe('cleanSavedViewState', () => {
       stage: 'not_a_stage',
       assignee: 'none',
       due: true,
-      trash: true,
+      archived: true,
     };
     const cleaned = cleanSavedViewState(state, catalog);
     expect(cleaned.stage).toBeUndefined();
-    expect(cleaned).toMatchObject({ layout: 'board', assignee: 'none', due: true, trash: true });
+    expect(cleaned).toMatchObject({ layout: 'board', assignee: 'none', due: true, archived: true });
     expect(cleanSavedViewState({ ...state, stage: 'contacted' }, catalog).stage).toBe('contacted');
   });
 
