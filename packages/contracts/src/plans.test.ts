@@ -441,14 +441,14 @@ describe('plan endpoints and client', () => {
     });
     const ignore = () => undefined;
     await client.staff.getPropertyModel(UUID_B).catch(ignore);
-    await client.staff.getPropertyModel(UUID_B, 'plan').catch(ignore);
+    await client.staff.getPropertyModel(UUID_B, { object: 'plan' }).catch(ignore);
     await client.staff
-      .createProperty(UUID_B, { label: 'Contract', kind: 'text' }, 'plan')
+      .createProperty(UUID_B, { label: 'Contract', kind: 'text' }, { object: 'plan' })
       .catch(ignore);
     await client.staff
-      .updateProperty(UUID_B, 'custom_a', { expectedVersion: 1, hidden: true }, 'plan')
+      .updateProperty(UUID_B, 'custom_a', { expectedVersion: 1, hidden: true }, { object: 'plan' })
       .catch(ignore);
-    await client.staff.deleteProperty(UUID_B, 'custom_a', 'plan').catch(ignore);
+    await client.staff.deleteProperty(UUID_B, 'custom_a', { object: 'plan' }).catch(ignore);
 
     const properties = `https://api.example.test/api/v1/staff/workspaces/${UUID_B}/properties`;
     expect(urls).toEqual([

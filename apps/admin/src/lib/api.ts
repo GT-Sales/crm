@@ -77,6 +77,11 @@ function client(accessToken: string) {
 
 type StaffClient = ReturnType<typeof client>['staff'];
 
+/** The `object` query of the property calls; nothing for a lead's, which is the backend's default. */
+function objectQuery(object: PropertyObject | undefined): { object: PropertyObject } | undefined {
+  return object === undefined ? undefined : { object };
+}
+
 /** Public liveness check; no session required. */
 export async function getHealth(): Promise<HealthResponse> {
   return createBackendClient({ baseUrl: API_BASE_URL, credential: '' }).health();
@@ -294,7 +299,7 @@ export async function getPropertyModel(
   workspaceId: string,
   object?: PropertyObject,
 ): Promise<PropertyModelResponse> {
-  return client(accessToken).staff.getPropertyModel(workspaceId, object);
+  return client(accessToken).staff.getPropertyModel(workspaceId, objectQuery(object));
 }
 
 export async function createProperty(
@@ -303,7 +308,7 @@ export async function createProperty(
   body: Parameters<StaffClient['createProperty']>[1],
   object?: PropertyObject,
 ): Promise<PropertyResponse> {
-  return client(accessToken).staff.createProperty(workspaceId, body, object);
+  return client(accessToken).staff.createProperty(workspaceId, body, objectQuery(object));
 }
 
 export async function updateProperty(
@@ -313,7 +318,7 @@ export async function updateProperty(
   body: UpdateProperty,
   object?: PropertyObject,
 ): Promise<PropertyResponse> {
-  return client(accessToken).staff.updateProperty(workspaceId, key, body, object);
+  return client(accessToken).staff.updateProperty(workspaceId, key, body, objectQuery(object));
 }
 
 export async function deleteProperty(
@@ -322,7 +327,7 @@ export async function deleteProperty(
   key: string,
   object?: PropertyObject,
 ): Promise<DeletePropertyResponse> {
-  return client(accessToken).staff.deleteProperty(workspaceId, key, object);
+  return client(accessToken).staff.deleteProperty(workspaceId, key, objectQuery(object));
 }
 
 export async function savePropertyLayout(
@@ -332,7 +337,12 @@ export async function savePropertyLayout(
   body: SavePropertyLayoutRequest,
   object?: PropertyObject,
 ): Promise<PropertyLayoutResponse> {
-  return client(accessToken).staff.savePropertyLayout(workspaceId, leadType, body, object);
+  return client(accessToken).staff.savePropertyLayout(
+    workspaceId,
+    leadType,
+    body,
+    objectQuery(object),
+  );
 }
 
 // ---- Plans the site sells. Reading needs workspace access; adding and

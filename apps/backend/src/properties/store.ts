@@ -13,11 +13,14 @@ import {
 import {
   BUILTIN_OVERRIDE_FIELDS,
   PROPERTY_LIMIT,
+  ORDER_PROPERTY_KEYS,
   generatePropertyKey,
   leadPropertyCatalog,
+  orderPropertyCatalog,
   propertyLayoutRowSchema,
   type CreateCustomProperty,
   type LeadPropertyDefinition,
+  type PlanOption,
   type PropertyCatalog,
   type PropertyLayout,
   type PropertyLayoutRow,
@@ -28,6 +31,7 @@ import {
   type UpdateProperty,
 } from '@gt-sales/contracts';
 
+import { loadPlanOptions } from '../plans/options.js';
 import {
   loadPropertyCatalog,
   loadPropertyRows,
@@ -44,6 +48,11 @@ import {
  * one site (two creates with the same label, a create racing the limit)
  * happen one after the other. Audit rows carry the definition, never a
  * lead's values.
+ *
+ * Plans (`object = 'plan'`) have no built-ins: every plan property is custom,
+ * its values live in `app.plans.custom_values`, and a plan property may be
+ * shown on the website (`websiteVisible`). The one site lock covers both
+ * objects.
  */
 
 export type CreatePropertyOutcome =
@@ -69,6 +78,8 @@ export type SaveLayoutOutcome =
 export interface PropertyModel {
   rows: PropertyRow[];
   layouts: PropertyLayoutRow[];
+  /** Leads only: the site's plans, which the order's `plan` property offers. */
+  plans?: PlanOption[];
 }
 
 /** The tenant context, plus the request id the audit rows carry (a fresh one when absent). */
@@ -112,17 +123,23 @@ async function lockSiteProperties(tx: TenantTransaction, workspaceId: string): P
   );
 }
 
-/** The code definition of a built-in key of the object, if it is one. */
+/**
+ * The code definition of a built-in key of the object, if it is one: a form
+ * property or one of the order properties, either of which a site may
+ * relabel or hide. Plans have no built-ins.
+ */
 function builtinDefinition(
   object: PropertyObject,
   key: string,
 ): LeadPropertyDefinition | undefined {
-  if (object !== 'lead' || !Object.hasOwn(leadPropertyCatalog, key)) return undefined;
-  return leadPropertyCatalog[key];
+  if (object !== 'lead') return undefined;
+  if (Object.hasOwn(leadPropertyCatalog, key)) return leadPropertyCatalog[key];
+  if (Object.hasOwn(orderPropertyCatalog, key)) return orderPropertyCatalog[key];
+  return undefined;
 }
 
 function builtinKeys(object: PropertyObject): string[] {
-  return object === 'lead' ? Object.keys(leadPropertyCatalog) : [];
+  return object === 'lead' ? [...Object.keys(leadPropertyCatalog), ...ORDER_PROPERTY_KEYS] : [];
 }
 
 /** What an audit row records of a property: its definition, no timestamps, no values. */
@@ -138,6 +155,7 @@ function definitionOf(row: PropertyRow): Record<string, unknown> {
     sensitive: row.sensitive,
     hidden: row.hidden,
     leadTypes: row.leadTypes,
+    websiteVisible: row.websiteVisible,
     position: row.position,
     version: row.version,
   };
@@ -183,16 +201,28 @@ async function lockPropertyRecord(
 }
 
 /**
- * Every lead of the site matching `holds`, trashed and restricted ones
- * included (a value there still exists), split so the owner knows what to do:
- * active leads can be cleared, trashed ones restored first, restricted ones
- * never edited. A restricted lead counts as restricted whether trashed or not.
+ * Every record of the object in the site matching `holds`. For leads,
+ * trashed and restricted ones are included (a value there still exists),
+ * split so the owner knows what to do: active leads can be cleared, trashed
+ * ones restored first, restricted ones never edited. A restricted lead counts
+ * as restricted whether trashed or not. Plans are never archived or
+ * restricted, so every plan holding the value is active (`planCount`).
  */
 async function countUsage(
   tx: TenantTransaction,
   workspaceId: string,
+  object: PropertyObject,
   holds: SQL,
 ): Promise<PropertyUsage> {
+  if (object === 'plan') {
+    const [plan] = await tx.execute<{ planCount: number }>(sql`
+      select count(*)::int as "planCount"
+      from app.plans
+      where workspace_id = ${workspaceId} and ${holds}
+    `);
+    const planCount = plan?.planCount ?? 0;
+    return { leadCount: 0, active: planCount, trashed: 0, restricted: 0, planCount };
+  }
   const [row] = await tx.execute<PropertyUsage>(sql`
     select
       count(*)::int as "leadCount",
@@ -205,25 +235,38 @@ async function countUsage(
   return row ?? { leadCount: 0, active: 0, trashed: 0, restricted: 0 };
 }
 
-/** Leads of the site whose custom value for `key` is exactly the option `value`. */
-function countLeadsWithOption(
+/** Whether any record (lead or plan) still holds the value. */
+function inUse(usage: PropertyUsage): boolean {
+  return usage.leadCount > 0 || (usage.planCount ?? 0) > 0;
+}
+
+/** Records of the object in the site whose custom value for `key` is exactly the option `value`. */
+function countRecordsWithOption(
   tx: TenantTransaction,
   workspaceId: string,
+  object: PropertyObject,
   key: string,
   value: string,
 ): Promise<PropertyUsage> {
-  return countUsage(tx, workspaceId, sql`custom_values -> ${key}::text = to_jsonb(${value}::text)`);
+  return countUsage(
+    tx,
+    workspaceId,
+    object,
+    sql`custom_values -> ${key}::text = to_jsonb(${value}::text)`,
+  );
 }
 
-/** Leads of the site holding any value (not null) for `key`. */
-function countLeadsWithValue(
+/** Records of the object in the site holding any value (not null) for `key`. */
+function countRecordsWithValue(
   tx: TenantTransaction,
   workspaceId: string,
+  object: PropertyObject,
   key: string,
 ): Promise<PropertyUsage> {
   return countUsage(
     tx,
     workspaceId,
+    object,
     sql`custom_values ? ${key}::text and custom_values -> ${key}::text <> 'null'::jsonb`,
   );
 }
@@ -268,7 +311,11 @@ export class DatabasePropertyStore implements PropertyStore {
           and(eq(propertyLayouts.workspaceId, ctx.workspaceId), eq(propertyLayouts.object, object)),
         )
         .orderBy(asc(propertyLayouts.leadType));
-      return { rows, layouts: layouts.map(toLayoutRow) };
+      return {
+        rows,
+        layouts: layouts.map(toLayoutRow),
+        ...(object === 'lead' ? { plans: await loadPlanOptions(tx) } : {}),
+      };
     });
   }
 
@@ -312,6 +359,7 @@ export class DatabasePropertyStore implements PropertyStore {
           staffOnly: input.staffOnly,
           sensitive: input.sensitive,
           leadTypes: input.leadTypes,
+          websiteVisible: object === 'plan' && input.websiteVisible,
           position,
           createdBy: ctx.actorId,
           updatedBy: ctx.actorId,
@@ -381,8 +429,14 @@ export class DatabasePropertyStore implements PropertyStore {
           const kept = new Set(input.options.map((option) => option.value));
           for (const option of toPropertyRow(record).options) {
             if (kept.has(option.value)) continue;
-            const usage = await countLeadsWithOption(tx, ctx.workspaceId, key, option.value);
-            if (usage.leadCount > 0) {
+            const usage = await countRecordsWithOption(
+              tx,
+              ctx.workspaceId,
+              object,
+              key,
+              option.value,
+            );
+            if (inUse(usage)) {
               return { kind: 'option_in_use', optionValue: option.value, ...usage };
             }
           }
@@ -394,6 +448,9 @@ export class DatabasePropertyStore implements PropertyStore {
         if (input.hidden !== undefined) set.hidden = input.hidden;
         if (input.leadTypes !== undefined) set.leadTypes = input.leadTypes;
         if (input.position !== undefined) set.position = input.position;
+        if (object === 'plan' && input.websiteVisible !== undefined) {
+          set.websiteVisible = input.websiteVisible;
+        }
       }
 
       const before = toPropertyRow(record);
@@ -438,8 +495,8 @@ export class DatabasePropertyStore implements PropertyStore {
         return { kind: 'not_found' };
       }
 
-      const usage = await countLeadsWithValue(tx, ctx.workspaceId, key);
-      if (usage.leadCount > 0) return { kind: 'in_use', ...usage };
+      const usage = await countRecordsWithValue(tx, ctx.workspaceId, object, key);
+      if (inUse(usage)) return { kind: 'in_use', ...usage };
 
       await tx
         .update(properties)

@@ -9028,7 +9028,13 @@
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
-          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -9351,7 +9357,13 @@
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
-          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "201": {
@@ -9664,7 +9676,13 @@
         "security": [{ "staffSession": [] }],
         "parameters": [
           { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -9965,7 +9983,13 @@
         "security": [{ "staffSession": [] }],
         "parameters": [
           { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
@@ -10124,12 +10148,18 @@
     "/api/v1/staff/workspaces/{workspaceId}/properties/layouts/{leadType}": {
       "patch": {
         "operationId": "savePropertyLayout",
-        "summary": "Save the record layout of one lead type (property management).",
+        "summary": "Save the record layout of one lead type, or with `object=plan` the plan record layout (no lead type in the path) (property management).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
           { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "leadType", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "leadType", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "object",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "lead", "type": "string", "enum": ["lead", "plan"] }
+          }
         ],
         "responses": {
           "200": {
