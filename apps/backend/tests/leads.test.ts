@@ -4,6 +4,7 @@ import {
   apiErrorResponseSchema,
   createLeadResponseSchema,
   readLeadResponseSchema,
+  updateLeadResponseSchema,
 } from '@gt-sales/contracts';
 import type { WebsiteCredentialResolution } from '@gt-sales/db';
 
@@ -16,6 +17,11 @@ import type {
   UpdateLeadInput,
   UpdateLeadOutcome,
 } from '../src/leads/store.js';
+import {
+  IdempotencyError,
+  idempotencyKeyHash,
+  requestFingerprint,
+} from '../src/leads/idempotency.js';
 import { OrderIntakeError } from '../src/leads/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
@@ -58,6 +64,8 @@ class FakeLeadStore implements LeadStore {
 
   /** What the next create throws, as the real store does inside its transaction. */
   createError: Error | undefined;
+  /** Whether the next create answers as a replay of the first outcome. */
+  createReplayed = false;
   /** What the next update answers once its grant checks pass. */
   updateOutcome: UpdateLeadOutcome | undefined;
 
@@ -68,13 +76,13 @@ class FakeLeadStore implements LeadStore {
       return {
         lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'submitted', updatedAt: NOW },
         grant: null,
-        replayed: false,
+        replayed: this.createReplayed,
       };
     }
     return {
       lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'incomplete', updatedAt: NOW },
       grant: { token: VALID_GRANT_A, expiresAt: new Date(Date.now() + 60_000).toISOString() },
-      replayed: false,
+      replayed: this.createReplayed,
     };
   }
 
@@ -590,6 +598,180 @@ describe('PATCH /api/v1/website/leads/:leadId', () => {
     expect(leadStore.updateCalls.every((call) => call.leadId === LEAD_A)).toBe(true);
     expect(leadStore.updateCalls[0]?.contact).toEqual({ fullName: 'Jane Doe' });
     expect(leadStore.updateCalls[1]?.contact).toEqual({ email: 'jane@example.test' });
+  });
+});
+
+describe('Idempotency-Key on website submission', () => {
+  const KEY = 'cp_9f2c:retry.1';
+  const POST_BODY = { leadType: 'sim_order', consentVersion: 'terms-2026-09', submit: true };
+  const PATCH_BODY = { contact: { fullName: 'Jane Doe' }, submit: true };
+  const post = (headers: Record<string, string>, body: unknown = POST_BODY) =>
+    request('POST', '/api/v1/website/leads', headers, body);
+  const patch = (headers: Record<string, string>, body: unknown = PATCH_BODY) =>
+    request(
+      'PATCH',
+      `/api/v1/website/leads/${LEAD_A}`,
+      { 'x-draft-grant': VALID_GRANT_A, ...headers },
+      body,
+    );
+
+  /** Every line the process logged while `run` ran, whichever console method wrote it. */
+  async function captureLogs(run: () => Promise<void>): Promise<string> {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    try {
+      await run();
+      return JSON.stringify(spies.flatMap((spy) => spy.mock.calls));
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+  }
+
+  it('sends the store nothing without the header', async () => {
+    expect((await post({})).status).toBe(201);
+    expect((await patch({})).status).toBe(200);
+    expect(leadStore.createCalls[0]?.idempotency).toBeUndefined();
+    expect(leadStore.updateCalls[0]?.idempotency).toBeUndefined();
+  });
+
+  it('forwards only the hashed key and the body fingerprint on a create', async () => {
+    const response = await post({ 'idempotency-key': KEY });
+    expect(response.status).toBe(201);
+    const call = leadStore.createCalls[0];
+    expect(call?.idempotency).toEqual({
+      keyHash: idempotencyKeyHash(KEY),
+      fingerprint: requestFingerprint(POST_BODY),
+    });
+    expect(JSON.stringify(call)).not.toContain(KEY);
+  });
+
+  it('forwards the lead id and body fingerprint on a submitting update', async () => {
+    const response = await patch({ 'idempotency-key': KEY });
+    expect(response.status).toBe(200);
+    const call = leadStore.updateCalls[0];
+    expect(call?.idempotency).toEqual({
+      keyHash: idempotencyKeyHash(KEY),
+      fingerprint: requestFingerprint({ leadId: LEAD_A, body: PATCH_BODY }),
+    });
+    expect(call?.idempotency?.fingerprint).not.toBe(requestFingerprint(PATCH_BODY));
+    expect(JSON.stringify(call)).not.toContain(KEY);
+  });
+
+  it('ignores the key on an update that does not submit', async () => {
+    const response = await patch({ 'idempotency-key': KEY }, { contact: { fullName: 'Jane Doe' } });
+    expect(response.status).toBe(200);
+    expect(leadStore.updateCalls[0]?.idempotency).toBeUndefined();
+  });
+
+  it('marks a replayed create 201 with replayed true, and a first create without it', async () => {
+    const first = createLeadResponseSchema.parse(await (await post({})).json());
+    expect(first.replayed).toBeUndefined();
+
+    leadStore.createReplayed = true;
+    const response = await post({ 'idempotency-key': KEY });
+    expect(response.status).toBe(201);
+    const replay = createLeadResponseSchema.parse(await response.json());
+    expect(replay.replayed).toBe(true);
+    expect(replay.lead.id).toBe(LEAD_A);
+  });
+
+  it('marks a replayed update 200 with replayed true', async () => {
+    leadStore.updateOutcome = {
+      status: 'updated',
+      lead: { id: LEAD_A, workspaceId: WORKSPACE, status: 'submitted', updatedAt: NOW },
+      replayed: true,
+    };
+    const response = await patch({ 'idempotency-key': KEY });
+    expect(response.status).toBe(200);
+    const body = updateLeadResponseSchema.parse(await response.json());
+    expect(body.replayed).toBe(true);
+    expect(body.lead.status).toBe('submitted');
+  });
+
+  it('answers a key reused with another request 409 idempotency_conflict', async () => {
+    leadStore.createError = new IdempotencyError('idempotency_conflict');
+    const created = await post({ 'idempotency-key': KEY });
+    expect(created.status).toBe(409);
+    expect(created.headers.get('retry-after')).toBeNull();
+    expect(apiErrorResponseSchema.parse(await created.json()).error.code).toBe(
+      'idempotency_conflict',
+    );
+
+    leadStore.updateOutcome = { status: 'idempotency_conflict' };
+    const updated = await patch({ 'idempotency-key': KEY });
+    expect(updated.status).toBe(409);
+    expect(apiErrorResponseSchema.parse(await updated.json()).error.code).toBe(
+      'idempotency_conflict',
+    );
+  });
+
+  it('answers a key still being processed 409 idempotency_in_progress with Retry-After', async () => {
+    leadStore.createError = new IdempotencyError('idempotency_in_progress');
+    const created = await post({ 'idempotency-key': KEY });
+    expect(created.status).toBe(409);
+    expect(created.headers.get('retry-after')).toBe('2');
+    const createdBody = apiErrorResponseSchema.parse(await created.json());
+    expect(createdBody.error.code).toBe('idempotency_in_progress');
+    expect(createdBody.error.message).toBe(
+      'A request with this idempotency key is still being processed. Retry shortly.',
+    );
+
+    leadStore.updateOutcome = { status: 'idempotency_in_progress' };
+    const updated = await patch({ 'idempotency-key': KEY });
+    expect(updated.status).toBe(409);
+    expect(updated.headers.get('retry-after')).toBe('2');
+    expect(apiErrorResponseSchema.parse(await updated.json()).error.code).toBe(
+      'idempotency_in_progress',
+    );
+  });
+
+  it('refuses a malformed key with a 400 naming the header, before the store is reached', async () => {
+    for (const bad of [
+      'short',
+      'has spaces in it',
+      `${'a'.repeat(201)}`,
+      'bad/key/chars!',
+      'a, b,c,d,e,f',
+    ]) {
+      for (const response of [
+        await post({ 'idempotency-key': bad }),
+        await patch({ 'idempotency-key': bad }),
+      ]) {
+        expect(response.status).toBe(400);
+        const text = await response.text();
+        const body = apiErrorResponseSchema.parse(JSON.parse(text));
+        expect(body.error.code).toBe('validation_error');
+        expect(body.error.details).toEqual({ field: 'Idempotency-Key' });
+        expect(text).not.toContain(bad);
+      }
+    }
+    expect(leadStore.createCalls).toHaveLength(0);
+    expect(leadStore.updateCalls).toHaveLength(0);
+  });
+
+  it('never logs or echoes the raw key', async () => {
+    const secretKey = 'raw-key-must-stay-secret-0001';
+    const bodies: string[] = [];
+    const logs = await captureLogs(async () => {
+      // A malformed key, a refused key, a store failure and a success.
+      bodies.push(await (await post({ 'idempotency-key': 'bad key!' })).text());
+      leadStore.createError = new IdempotencyError('idempotency_conflict');
+      bodies.push(await (await post({ 'idempotency-key': secretKey })).text());
+      leadStore.createError = new Error(`boom ${secretKey}`);
+      bodies.push(await (await post({ 'idempotency-key': secretKey })).text());
+      leadStore.createError = Object.assign(new Error('connection refused'), {
+        code: 'ECONNREFUSED',
+      });
+      bodies.push(await (await post({ 'idempotency-key': secretKey })).text());
+      leadStore.createError = undefined;
+      bodies.push(await (await post({ 'idempotency-key': secretKey })).text());
+      bodies.push(await (await patch({ 'idempotency-key': secretKey })).text());
+    });
+    expect(logs).toContain('request_error');
+    expect(logs).not.toContain(secretKey);
+    expect(logs).not.toContain('bad key!');
+    for (const body of bodies) expect(body).not.toContain(secretKey);
   });
 });
 
