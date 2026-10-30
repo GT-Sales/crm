@@ -68,6 +68,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   plan_not_found: 'The plan does not exist on this site.',
   plan_name_taken: 'This site already has a plan of this type by this name.',
   plan_limit: 'This site already has the most plans it may have.',
+  automation_not_found: 'No automation rule with this key on this site.',
   plan_not_available: 'The chosen plan is not available on this site for this kind of order.',
 };
 
