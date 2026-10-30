@@ -135,6 +135,9 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/components/automations/`; API client `apps/admin/src/lib/api.ts`.
 - Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
   (docs/RUNBOOKS/legacy-import.md).
+- Hand-off pages for the remaining merge phases (5 to 8), with the rules,
+  gate, shipping steps and working method they share:
+  `docs/superpowers/phases/` (start with its `README.md`).
 
 ## Vocabulary
 
