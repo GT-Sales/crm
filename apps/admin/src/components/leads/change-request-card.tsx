@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import {
   CUSTOMER_EMAIL_TEMPLATE_LABELS,
   codePropertyCatalog,
@@ -120,6 +120,14 @@ function rowsFor(
   return rows;
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** When the customer asked, inside the sentence: "5m ago", or "on Oct 12" once it is a date. */
+function askedWhen(iso: string, now: number = Date.now()): string {
+  const text = relativeTime(iso, now);
+  return now - Date.parse(iso) < WEEK_MS ? text : `on ${text}`;
+}
+
 /** Why the Change approved / Change rejected email was not queued, in one line. */
 export function changeEmailSkippedText(skipped: ChangeDecisionEmailSkipped): string {
   const lead = `The ${CUSTOMER_EMAIL_TEMPLATE_LABELS[skipped.template]} email was not sent`;
@@ -172,7 +180,10 @@ function refusal(error: unknown): { text: string; reload: boolean } {
  * A decision carries the version the card was loaded at, so staff never
  * approve values they did not see (`version_conflict` says the customer
  * changed it). After a decision the card keeps saying what happened, including
- * an email that was not sent; `onDone` hands the backend's answer to the page.
+ * an email that was not sent, and the focus moves to that outcome (the button
+ * that was pressed is gone); `onDone` hands the backend's answer to the page.
+ * `canDecide` is the right to decide (the Leads role); an archived lead is
+ * restored first.
  */
 export function ChangeRequestCard({
   lead,
@@ -203,8 +214,15 @@ export function ChangeRequestCard({
   const [outcome, setOutcome] = useState<Outcome>();
   const [failure, setFailure] = useState<{ text: string; reload: boolean }>();
   const [documentFailure, setDocumentFailure] = useState<string>();
+  const outcomeRef = useRef<HTMLParagraphElement>(null);
   const rows = rowsFor(lead, changeRequest.fields, catalog);
   const headingId = `change-request-${changeRequest.requestNo}`;
+  const archived = lead.deletedAt !== null;
+
+  // The pressed button unmounts with the decision: keep the focus on what happened.
+  useEffect(() => {
+    if (outcome) outcomeRef.current?.focus();
+  }, [outcome]);
 
   async function decide(decision: 'approve' | 'reject') {
     if (busy) return;
@@ -250,7 +268,7 @@ export function ChangeRequestCard({
                 dateTime={changeRequest.updatedAt}
                 title={dateTimeLabel(changeRequest.updatedAt)}
               >
-                {relativeTime(changeRequest.updatedAt)}
+                {askedWhen(changeRequest.updatedAt)}
               </time>
               .
             </p>
@@ -325,7 +343,7 @@ export function ChangeRequestCard({
 
           {done ? (
             <div className="flex flex-col gap-2">
-              <p role="status" className="text-sm">
+              <p ref={outcomeRef} role="status" tabIndex={-1} className="text-sm outline-none">
                 {done.text}
               </p>
               {done.skipped ? (
@@ -334,7 +352,7 @@ export function ChangeRequestCard({
                 </p>
               ) : null}
             </div>
-          ) : canDecide ? (
+          ) : canDecide && !archived ? (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -370,7 +388,9 @@ export function ChangeRequestCard({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Only someone with the Leads role can decide this.
+              {canDecide
+                ? 'Restore this lead to decide this request.'
+                : 'Only someone with the Leads role can decide this.'}
             </p>
           )}
         </section>

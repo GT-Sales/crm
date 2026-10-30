@@ -209,8 +209,14 @@ import is run: Supabase SQL editor, as `postgres`, one block at a time.
    so the CRM's first order is at least the highest `order_no` plus 10. An
    order started on the old checkout between the seed and the flip takes one
    of the nine numbers in between, and the final import brings it in under
-   its own `MS-<order_no>`. The seed only ever raises the counter
-   (`greatest`), so running it twice is harmless.
+   its own `MS-<order_no>`. The same block seeds the change request counter
+   (`change_request_no`) to the highest `public.order_edit_requests.request_no`
+   plus 9 (pre-flight PF3), so a request made in the old admin before the
+   flip and imported afterwards keeps its own number and never shares one
+   with a request made through the CRM's tracking. The seed only ever raises
+   either counter (`greatest`), so running it twice is harmless. Its two
+   check selects show each `last_value` beside the old system's highest
+   number.
 3. Run the import (`packages/db/sql/getcanadasim-legacy-import.sql`) exactly
    as before. It creates the leads of orders the old checkout took before the
    flip and refreshes the imported ones from `public.orders`
@@ -225,12 +231,16 @@ import is run: Supabase SQL editor, as `postgres`, one block at a time.
    2. No `MS-` reference may be held by more than one lead of the site.
    3. The CRM's own orders (`MS-` leads whose id is not in
       `public.orders`) must each be numbered above the seed.
-   4. Write down the counter's `last_value`.
+   4. Write down the counter's `last_value` (and the change request
+      counter's, from the seed's second check select).
 
 So the order is: the seed, the flip, the import, then reconcile.
 
 **A production test order before the day** (pre-flight PF2): before the
-first one, run the `SEED` block once with `+ 1000` in place of `+ 9`. A test
+first one, run the `SEED` block once with `+ 1000` in place of both `+ 9`
+(the second is the change request counter's: a test change request made
+through the CRM before the day then takes a number the old admin will not
+reach). A test
 order placed before switch day takes `MS-<highest order_no + 1001>` and keeps
 that number even after staff archive it (the unique index ignores
 `deleted_at`). The old checkout keeps numbering from the highest `order_no`
@@ -249,4 +259,7 @@ form and timeline). A second seed after the counter reached 160 leaves 160.
 Reconciliation shows 0 missing, no duplicated reference and one CRM order. A
 second case runs the `+ 1000` seed: the test order is `MS-1144` (then
 archived), the old checkout's 144 and 1143 import cleanly, the switch-day
-seed gives 1152 and the next order is `MS-1153`.
+seed gives 1152 and the next order is `MS-1153`. The change request
+counter is rehearsed the same way: the seed gives the highest `request_no`
+plus 9 (plus 1000 before a test request), a second seed never lowers it, and
+the CRM's next request number is the highest plus 10.

@@ -846,8 +846,9 @@ describe('LeadRecord order details', () => {
       expect(within(timeline).getAllByRole('listitem')[0]?.textContent).toContain(
         "You approved the customer's change request #70",
       );
-      // The outcome stays on screen after the reload; the decision buttons do not.
-      expect(screen.getByText(/Approved\. The documents now wait/)).toBeTruthy();
+      // The outcome stays on screen after the reload, with the focus on it; the decision buttons do not.
+      const outcome = screen.getByText(/Approved\. The documents now wait/);
+      expect(document.activeElement).toBe(outcome);
       expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
       expect(mocks.rejectChangeRequest).not.toHaveBeenCalled();
     });
@@ -886,6 +887,17 @@ describe('LeadRecord order details', () => {
       );
       fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
       await waitFor(() => expect(mocks.getStaffLead).toHaveBeenCalledTimes(2));
+      // The reloaded request is a new version: the card starts afresh, without the alert.
+      await waitFor(() =>
+        expect(
+          screen.queryByText('The customer changed this request. Reload to see the latest.'),
+        ).toBeNull(),
+      );
+      expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Approve changes' })).toHaveProperty(
+        'disabled',
+        false,
+      );
     });
 
     it('views the request’s document through an inline link', async () => {
@@ -941,6 +953,9 @@ describe('LeadRecord order details', () => {
       render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
       await screen.findByRole('heading', { name: 'Change request #70' });
       expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
+      // A Leads member may decide it once the lead is restored.
+      expect(screen.getByText('Restore this lead to decide this request.')).toBeTruthy();
+      expect(screen.queryByText('Only someone with the Leads role can decide this.')).toBeNull();
     });
   });
 

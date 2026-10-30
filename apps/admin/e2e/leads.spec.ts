@@ -15,6 +15,8 @@ import { expect, test, type Page } from '@playwright/test';
  * last takes that order to Activated: Rogers 60GB requires a passport, Nadia
  * Khan's is attached and not reviewed, Get Canada Sim's email settings are
  * saved with its Dispatched email at version 1, and every automation is off.
+ * Nadia Khan also has a pending change request #1 from the website's tracking
+ * (a new phone and arrival date), which the tenth journey approves.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -594,4 +596,44 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   expect(errors).toEqual([
     'Failed to load resource: the server responded with a status of 409 (Conflict)',
   ]);
+});
+
+test('a customer’s change request is approved on the lead page', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await page.getByRole('link', { name: 'Nadia Khan' }).click();
+  await page.getByRole('link', { name: 'Open full page' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Nadia Khan' })).toBeVisible();
+
+  // The card says what each field is now and what the customer asked for.
+  const card = page.getByRole('region', { name: 'Change request #1' });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('The customer asked for these changes');
+  const row = (field: string) =>
+    card.getByRole('row').filter({ has: page.getByRole('rowheader', { name: field }) });
+  await expect(row('Phone').getByRole('cell')).toHaveText(['647 555 0204', '647 555 0299']);
+  await expect(row('Arrival in Canada').getByRole('cell')).toHaveText([
+    'Nov 20, 2026',
+    'Nov 27, 2026',
+  ]);
+
+  await card.getByRole('button', { name: 'Approve changes' }).click();
+  const outcome = card.getByRole('status');
+  await expect(outcome).toHaveText('Approved.');
+  // The pressed button is gone; the focus is on what happened.
+  await expect(outcome).toBeFocused();
+  await expect(card.getByRole('button', { name: 'Approve changes' })).toHaveCount(0);
+
+  // The contact shows the new phone, and the timeline the decision.
+  await expect(page.locator('dt:text-is("Phone") + dd')).toHaveText('647 555 0299');
+  const timeline = page.getByRole('region', { name: 'Timeline' });
+  await expect(timeline).toContainText("approved the customer's change request #1");
+  await expect(timeline).toContainText(/The customer asked to change the [^(]*\(request #1\)/);
+
+  // Read again, the order has no pending request and keeps the new values.
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: 'Nadia Khan' })).toBeVisible();
+  await expect(page.locator('dt:text-is("Phone") + dd')).toHaveText('647 555 0299');
+  await expect(page.getByRole('region', { name: 'Change request #1' })).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

@@ -292,7 +292,7 @@ const CONFLICT_MESSAGE =
   'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.';
 
 /**
- * Settings → Email: the sender form, the seven emails and the editor of one
+ * Settings → Email: the sender form, the nine emails and the editor of one
  * of them, opened from its Edit button or from `initialTemplate` (the
  * `?template=` the Automations page links with). Every call needs
  * `integration.manage` (the Integrations permission, which the owner has); a

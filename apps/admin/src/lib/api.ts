@@ -417,7 +417,7 @@ export async function listAutomationRuns(
   return client(accessToken).staff.listAutomationRuns(workspaceId, key);
 }
 
-// ---- Settings → Email: the site's sender and its seven templates. Every
+// ---- Settings → Email: the site's sender and its nine templates. Every
 // call needs integration.manage (the owner has it), checked server-side. ----
 
 export async function getEmailSettings(

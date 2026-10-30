@@ -902,11 +902,12 @@ export function LeadRecord({
             </Card>
             {shownRequest ? (
               <ChangeRequestCard
-                key={shownRequest.id}
+                // A new version (the customer replaced it, or staff reloaded) starts the card afresh.
+                key={`${shownRequest.id}:${shownRequest.version}`}
                 lead={lead}
                 changeRequest={shownRequest}
                 catalog={catalog}
-                canDecide={access.decideChanges === true && lead.deletedAt === null}
+                canDecide={access.decideChanges === true}
                 canDownload={access.downloadDocuments === true}
                 onDecide={(decision, expectedVersion) =>
                   decideChange(shownRequest, decision, expectedVersion)
