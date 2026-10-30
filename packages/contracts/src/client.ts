@@ -114,6 +114,7 @@ import {
   propertyResponseSchema,
   savePropertyLayoutRequestSchema,
   type DeletePropertyResponse,
+  type PropertyObjectQueryInput,
   type PropertyLayoutResponse,
   type PropertyModelResponse,
   type PropertyResponse,
@@ -354,21 +355,33 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceTasksQuery,
     ): Promise<ListWorkspaceTasksResponse>;
-    getPropertyModel(workspaceId: string): Promise<PropertyModelResponse>;
+    /** `query.object` picks lead (the default) or plan properties on these five. */
+    getPropertyModel(
+      workspaceId: string,
+      query?: PropertyObjectQueryInput,
+    ): Promise<PropertyModelResponse>;
     createProperty(
       workspaceId: string,
       body: z.input<typeof createCustomPropertySchema>,
+      query?: PropertyObjectQueryInput,
     ): Promise<PropertyResponse>;
     updateProperty(
       workspaceId: string,
       key: string,
       body: UpdateProperty,
+      query?: PropertyObjectQueryInput,
     ): Promise<PropertyResponse>;
-    deleteProperty(workspaceId: string, key: string): Promise<DeletePropertyResponse>;
+    deleteProperty(
+      workspaceId: string,
+      key: string,
+      query?: PropertyObjectQueryInput,
+    ): Promise<DeletePropertyResponse>;
+    /** For plans pass `leadType` `''`: the plan record has one layout. */
     savePropertyLayout(
       workspaceId: string,
       leadType: string,
       body: SavePropertyLayoutRequest,
+      query?: PropertyObjectQueryInput,
     ): Promise<PropertyLayoutResponse>;
     /** The caller's own saved views; no one else's are ever returned. */
     listSavedViews(
@@ -781,36 +794,41 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           },
           responseSchema: listWorkspaceTasksResponseSchema,
         }),
-      getPropertyModel: (workspaceId) =>
+      getPropertyModel: (workspaceId, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties`,
+          query: { object: query?.object },
           responseSchema: propertyModelResponseSchema,
         }),
-      createProperty: (workspaceId, body) =>
+      createProperty: (workspaceId, body, query) =>
         call({
           method: 'POST',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties`,
+          query: { object: query?.object },
           body: createCustomPropertySchema.parse(body),
           responseSchema: propertyResponseSchema,
         }),
-      updateProperty: (workspaceId, key, body) =>
+      updateProperty: (workspaceId, key, body, query) =>
         call({
           method: 'PATCH',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/${encode(key)}`,
+          query: { object: query?.object },
           body: updatePropertySchema.parse(body),
           responseSchema: propertyResponseSchema,
         }),
-      deleteProperty: (workspaceId, key) =>
+      deleteProperty: (workspaceId, key, query) =>
         call({
           method: 'DELETE',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/${encode(key)}`,
+          query: { object: query?.object },
           responseSchema: deletePropertyResponseSchema,
         }),
-      savePropertyLayout: (workspaceId, leadType, body) =>
+      savePropertyLayout: (workspaceId, leadType, body, query) =>
         call({
           method: 'PATCH',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/properties/layouts/${encode(leadType)}`,
+          query: { object: query?.object },
           body: savePropertyLayoutRequestSchema.parse(body),
           responseSchema: propertyLayoutResponseSchema,
         }),

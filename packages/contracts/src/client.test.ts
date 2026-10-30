@@ -302,3 +302,52 @@ describe('createBackendClient ID step', () => {
     );
   });
 });
+
+describe('property client methods', () => {
+  const layout = {
+    object: 'plan',
+    leadType: '',
+    layout: { sections: [{ id: 'main', label: 'Main', keys: [] }] },
+    version: 1,
+    updatedAt: '2026-10-30T00:00:00.000Z',
+  };
+
+  it('sends object=plan when asked and nothing for leads', async () => {
+    const model = {
+      properties: [],
+      layouts: {},
+      capabilities: { canManage: true },
+      requestId: UUID,
+    };
+    const plan = harness(200, model);
+    await plan.client.staff.getPropertyModel(UUID, { object: 'plan' });
+    expect(plan.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/properties?object=plan`,
+    );
+    const lead = harness(200, model);
+    await lead.client.staff.getPropertyModel(UUID);
+    expect(lead.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/properties`,
+    );
+
+    const removed = harness(200, { key: 'custom_network', requestId: UUID });
+    await removed.client.staff.deleteProperty(UUID, 'custom_network', { object: 'plan' });
+    expect(removed.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/properties/custom_network?object=plan`,
+    );
+  });
+
+  it('saves the plan layout under no lead type', async () => {
+    const saved = harness(200, { layout, requestId: UUID });
+    await saved.client.staff.savePropertyLayout(
+      UUID,
+      '',
+      { layout: layout.layout },
+      { object: 'plan' },
+    );
+    expect(saved.calls[0]?.method).toBe('PATCH');
+    expect(saved.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/properties/layouts/?object=plan`,
+    );
+  });
+});
