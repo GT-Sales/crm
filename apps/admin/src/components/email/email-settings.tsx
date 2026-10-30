@@ -345,6 +345,9 @@ export function EmailSettingsScreen({
     const outcome = await call((token, id) => updateEmailTemplate(token, id, key, input));
     if (!outcome.ok) {
       if (outcome.error instanceof BackendError && outcome.error.code === 'version_conflict') {
+        // The newest version, so the next Save can go over it; the editor keeps
+        // the draft (it stays mounted under the same key).
+        void reload();
         return CONFLICT_MESSAGE;
       }
       return (

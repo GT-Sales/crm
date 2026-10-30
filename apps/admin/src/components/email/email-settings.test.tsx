@@ -234,6 +234,45 @@ describe('EmailSettingsScreen', () => {
     ).toBeTruthy();
   });
 
+  it('reads the emails again on a conflict, keeps the draft and saves it over the new version', async () => {
+    mocks.listEmailTemplates.mockResolvedValueOnce({ templates, requestId: 'req_test' });
+    mocks.listEmailTemplates.mockResolvedValue({
+      templates: templates.map((entry) =>
+        entry.key === 'dispatched' ? template('dispatched', 5) : entry,
+      ),
+      requestId: 'req_test',
+    });
+    mocks.updateEmailTemplate
+      .mockRejectedValueOnce(new mocks.FakeBackendError('version_conflict', 409))
+      .mockResolvedValueOnce({ template: template('dispatched', 6), requestId: 'req_test' });
+    render(<EmailSettingsScreen workspaceSlug="canadawide" initialTemplate="dispatched" />);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Body' }), {
+      target: { value: 'Your SIM is on its way.' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(
+      await within(dialog).findByText('This email changed elsewhere. Reload and try again.'),
+    ).toBeTruthy();
+    await waitFor(() => expect(mocks.listEmailTemplates).toHaveBeenCalledTimes(2));
+    expect(within(dialog).getByRole('textbox', { name: 'Body' })).toHaveProperty(
+      'value',
+      'Your SIM is on its way.',
+    );
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(mocks.updateEmailTemplate).toHaveBeenLastCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'dispatched',
+        { expectedVersion: 5, subject: 'Subject of dispatched', body: 'Your SIM is on its way.' },
+      ),
+    );
+    expect(await within(dialog).findByText('Saved.')).toBeTruthy();
+  });
+
   it('sends a test of the template', async () => {
     mocks.sendTestEmail.mockResolvedValue({ queued: true, requestId: 'req_test' });
     render(<EmailSettingsScreen workspaceSlug="canadawide" initialTemplate="dispatched" />);
