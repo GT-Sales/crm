@@ -145,12 +145,13 @@ databaseTest('customer change requests and held documents', () => {
 
   /** A staff-side current passport, approved. */
   const currentPassport = async (leadId: string) => {
+    const key = `candidate/${SITE}/${crypto.randomUUID()}`;
     const [row] = await admin<{ id: string }[]>`
       insert into app.files (workspace_id, record_type, record_id, document_type, bucket,
         staging_key, candidate_key, object_key, declared_content_type, detected_mime,
         declared_size_bytes, size_bytes, checksum_sha256, status, revision, uploaded_by,
         expires_at, finalized_at)
-      values (${SITE}, 'lead', ${leadId}, 'passport', 'documents', 'k', 'k', 'k',
+      values (${SITE}, 'lead', ${leadId}, 'passport', 'documents', ${key}, ${key}, ${key},
         'application/pdf', 'application/pdf', 10, 10, ${'f'.repeat(64)}, 'available', 100,
         ${LEGACY_ACTOR}, now(), now())
       returning id

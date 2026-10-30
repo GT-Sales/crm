@@ -497,6 +497,258 @@ async function editOrder(
   };
 }
 
+/** What a lead update needs beyond its transaction: customer mail and the automation rules. */
+export interface LeadUpdateContext {
+  emailEnvironment: CustomerEmailEnvironment;
+  automations: AutomationStore;
+}
+
+/**
+ * Staff's change to a lead, in the caller's tenant transaction: locks the
+ * lead, applies the stage, assignee, contact, form, custom value and order
+ * edits it is given (a new plan re-frozen), writes the timeline (one `edit`
+ * entry naming the changed keys, never values) and a `lead.updated` audit,
+ * and runs the rules of a stage entered. A refusal returns before anything is
+ * written to the lead, but a contact correction may already have refreshed its
+ * contact: a caller that must leave nothing behind rolls back on a refusal.
+ * The staff `PATCH` and a change request's approval both go through it.
+ */
+export async function applyLeadUpdate(
+  tx: TenantTransaction,
+  context: LeadUpdateContext,
+  input: UpdateLeadWorkInput,
+): Promise<UpdateLeadWorkOutcome> {
+  const lead = await lockLead(tx, input.workspaceId, input.leadId);
+  if (!lead) return { status: 'not_found' };
+  if (lead.trashed) return { status: 'trashed' };
+
+  const set: Partial<typeof leads.$inferInsert> = {};
+  const entries: Array<{ kind: string; data: Record<string, unknown> }> = [];
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+
+  // The order edit to write: the one given, with the dates a move defaults.
+  let orderEdit = input.order;
+  let checkDocuments = false;
+  const reason = input.documentsOverrideReason?.trim();
+  let override: { reason: string; missing: string[] } | undefined;
+  if (input.stage !== undefined && input.stage !== lead.stage) {
+    if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
+    const current = toLeadOrder(lead.orderDetails);
+    const move = planStageMove({
+      leadType: lead.leadType,
+      from: lead.stage,
+      to: input.stage,
+      current,
+      edit: input.order,
+      today: todayInToronto(new Date()),
+    });
+    if (!move.ok) return move.refusal;
+    if (reason === '') return { status: 'document_override_reason_required' };
+    checkDocuments = move.gates.includes('documents');
+    orderEdit = move.order;
+    set.stage = input.stage;
+    entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
+    before['stage'] = lead.stage;
+    after['stage'] = input.stage;
+  }
+
+  // The order as this change leaves it, worked out before anything is
+  // written, so the documents check sees the plan the lead will have.
+  const changedOrder: string[] = [];
+  let storedOrder: Record<string, unknown> | undefined;
+  if (orderEdit) {
+    const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
+    if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+    if (edit.changedKeys.length > 0) {
+      storedOrder = edit.stored;
+      changedOrder.push(...edit.changedKeys);
+    }
+  }
+  if (checkDocuments) {
+    // What that frozen plan requires; no plan, or a plan from before the field, requires nothing.
+    const plan = toLeadOrder(storedOrder ?? lead.orderDetails).plan;
+    const missing = await findMissingDocuments(tx, {
+      workspaceId: input.workspaceId,
+      leadId: input.leadId,
+      required: plan?.requiredDocuments ?? [],
+    });
+    if (missing.length > 0) {
+      if (reason === undefined) return { status: 'documents_incomplete', missing };
+      override = { reason, missing };
+    }
+  }
+
+  if (input.assignedActorId !== undefined && input.assignedActorId !== lead.assignedActorId) {
+    if (
+      input.assignedActorId !== null &&
+      !(await isActiveMember(tx, input.workspaceId, input.assignedActorId))
+    ) {
+      return { status: 'assignee_not_found' };
+    }
+    set.assignedActorId = input.assignedActorId;
+    entries.push({
+      kind: 'assignment',
+      data: { from: lead.assignedActorId, to: input.assignedActorId },
+    });
+    before['assignedActorId'] = lead.assignedActorId;
+    after['assignedActorId'] = input.assignedActorId;
+  }
+
+  const contact = input.contact;
+  const changed: ContactField[] = contact
+    ? CONTACT_FIELDS.filter(
+        (field) => contact[field] !== undefined && contact[field] !== lead[field],
+      )
+    : [];
+  if (contact && changed.length > 0) {
+    const next = {
+      fullName: contact.fullName ?? lead.fullName,
+      email: contact.email ?? lead.email,
+      phone: contact.phone ?? lead.phone,
+    };
+    if (changed.includes('fullName')) set.fullName = next.fullName;
+    if (changed.includes('email')) set.email = next.email;
+    if (changed.includes('phone')) set.phone = next.phone;
+    // A corrected address moves the lead to that person's contact; a
+    // corrected name or phone refreshes the contact it already has.
+    if (next.email) {
+      set.contactId = await upsertContact(tx, {
+        email: next.email,
+        fullName: next.fullName ?? undefined,
+        phone: next.phone ?? undefined,
+        countryCode: lead.countryCode ?? undefined,
+      });
+    }
+  }
+
+  const changedForm: string[] = [];
+  if (input.form && Object.keys(input.form).length > 0) {
+    const form = storedForm(lead.payload);
+    const edit = applyLeadFormEdit(lead.leadType, form.payload, input.form);
+    if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+    if (edit.changed.length > 0) {
+      set.payload = { schemaVersion: form.schemaVersion, payload: edit.payload };
+      changedForm.push(...edit.changed);
+    }
+  }
+
+  const changedCustom: string[] = [];
+  if (input.customValues && Object.keys(input.customValues).length > 0) {
+    // Only the custom properties this type shows; a hidden or unknown key is refused.
+    const current = isStoredObject(lead.customValues) ? lead.customValues : {};
+    const edit = applyCustomValueEdits({
+      properties: input.catalog.forType(lead.leadType),
+      current,
+      edits: input.customValues,
+    });
+    if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+    if (edit.changedKeys.length > 0) {
+      // Only the changed keys are written; every other stored value stays as it is.
+      const cleared = edit.changedKeys.filter((key) => !Object.hasOwn(edit.values, key));
+      const setValues = Object.fromEntries(
+        edit.changedKeys.flatMap((key) =>
+          Object.hasOwn(edit.values, key) ? [[key, edit.values[key]]] : [],
+        ),
+      );
+      const remaining = cleared.reduce(
+        (expression, key) => sql`(${expression} - ${key}::text)`,
+        sql`${leads.customValues}`,
+      );
+      set.customValues = sql`(${remaining} || ${JSON.stringify(setValues)}::jsonb)`;
+      changedCustom.push(...edit.changedKeys);
+    }
+  }
+
+  if (override) {
+    // Only a move that actually went past missing documents records an override.
+    storedOrder = {
+      ...(storedOrder ?? storedObject(lead.orderDetails)),
+      documentsOverride: { ...override, at: new Date().toISOString() },
+    };
+  }
+  if (storedOrder) {
+    set.orderDetails = storedOrder;
+    before['order'] = auditedOrder(lead.orderDetails);
+    after['order'] = auditedOrder(storedOrder);
+  }
+
+  // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
+  const changedFields = [...changed, ...changedForm, ...changedCustom, ...changedOrder];
+  if (changedFields.length > 0) {
+    entries.push({ kind: 'edit', data: { fields: changedFields } });
+    after['changedFields'] = changedFields;
+  }
+  if (override) {
+    entries.push({
+      kind: 'system',
+      data: { event: 'documents_override', missing: override.missing, reason: override.reason },
+    });
+  }
+
+  if (entries.length === 0) {
+    return {
+      status: 'updated',
+      lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
+      activities: [],
+    };
+  }
+
+  await tx
+    .update(leads)
+    .set({ ...set, updatedAt: new Date() })
+    .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
+  const inserted = await tx
+    .insert(leadActivities)
+    .values(
+      entries.map((entry) => ({
+        workspaceId: input.workspaceId,
+        leadId: input.leadId,
+        actorId: input.actorId,
+        kind: entry.kind,
+        data: entry.data,
+      })),
+    )
+    .returning(ACTIVITY_RETURNING);
+  await auditLead(tx, input, 'lead.updated', { before, after });
+  if (override) {
+    await auditLead(tx, input, 'lead.documents_overridden', {
+      after: {
+        from: lead.stage,
+        to: input.stage,
+        missing: override.missing,
+        reason: override.reason,
+      },
+    });
+  }
+
+  // The rules of the stage entered, from the lead as just written; each
+  // move is its own occurrence, so moving back and forth mails again.
+  const statusChange = inserted.find((row) => row.kind === 'status_change');
+  const fired =
+    statusChange && set.stage !== undefined
+      ? await runAutomations(tx, {
+          workspaceId: input.workspaceId,
+          actorId: input.actorId,
+          requestId: input.requestId,
+          lead: await readAutomationLead(tx, input.workspaceId, input.leadId),
+          automations: automationsForMove(lead.leadType, set.stage),
+          occurrence: statusChange.id,
+          environment: context.emailEnvironment,
+          store: context.automations,
+        })
+      : { skipped: [], activities: [] };
+  const emailSkipped = fired.skipped;
+
+  return {
+    status: 'updated',
+    lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
+    // Every entry the change wrote, the rules' mails among them.
+    activities: newestFirst([...inserted.map(insertedActivity), ...fired.activities]),
+    ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
+  };
+}
+
 type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 
 const defaultLeadDatabase: LeadDatabase = { withTenantTx };
@@ -504,7 +756,7 @@ const defaultLeadDatabase: LeadDatabase = { withTenantTx };
 export class DatabaseLeadWorkStore implements LeadWorkStore {
   constructor(
     private readonly database: LeadDatabase = defaultLeadDatabase,
-    /** What customer mail needs from the deployment: the provider, the hash secret, fallback senders. */
+    /** What customer mail needs from the deployment: the provider and the hash secret. */
     private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
     private readonly automations: AutomationStore = new DatabaseAutomationStore(database),
   ) {}
@@ -552,242 +804,26 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       // Custom values and the order travel with contact visibility, as the form does.
       const { customValues: _customValues, order: _order, ...rest } = detail;
       const lead: LeadDetail = rest;
-      return { lead, activities: [], tasks: [], related: [], identities: [], documents: [] };
+      return {
+        lead,
+        activities: [],
+        tasks: [],
+        related: [],
+        identities: [],
+        documents: [],
+        changeRequest: null,
+      };
     });
   }
 
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome> {
-    return this.database.withTenantTx(input, async (tx) => {
-      const lead = await lockLead(tx, input.workspaceId, input.leadId);
-      if (!lead) return { status: 'not_found' };
-      if (lead.trashed) return { status: 'trashed' };
-
-      const set: Partial<typeof leads.$inferInsert> = {};
-      const entries: Array<{ kind: string; data: Record<string, unknown> }> = [];
-      const before: Record<string, unknown> = {};
-      const after: Record<string, unknown> = {};
-
-      // The order edit to write: the one given, with the dates a move defaults.
-      let orderEdit = input.order;
-      let checkDocuments = false;
-      const reason = input.documentsOverrideReason?.trim();
-      let override: { reason: string; missing: string[] } | undefined;
-      if (input.stage !== undefined && input.stage !== lead.stage) {
-        if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
-        const current = toLeadOrder(lead.orderDetails);
-        const move = planStageMove({
-          leadType: lead.leadType,
-          from: lead.stage,
-          to: input.stage,
-          current,
-          edit: input.order,
-          today: todayInToronto(new Date()),
-        });
-        if (!move.ok) return move.refusal;
-        if (reason === '') return { status: 'document_override_reason_required' };
-        checkDocuments = move.gates.includes('documents');
-        orderEdit = move.order;
-        set.stage = input.stage;
-        entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
-        before['stage'] = lead.stage;
-        after['stage'] = input.stage;
-      }
-
-      // The order as this change leaves it, worked out before anything is
-      // written, so the documents check sees the plan the lead will have.
-      const changedOrder: string[] = [];
-      let storedOrder: Record<string, unknown> | undefined;
-      if (orderEdit) {
-        const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
-        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
-        if (edit.changedKeys.length > 0) {
-          storedOrder = edit.stored;
-          changedOrder.push(...edit.changedKeys);
-        }
-      }
-      if (checkDocuments) {
-        // What that frozen plan requires; no plan, or a plan from before the field, requires nothing.
-        const plan = toLeadOrder(storedOrder ?? lead.orderDetails).plan;
-        const missing = await findMissingDocuments(tx, {
-          workspaceId: input.workspaceId,
-          leadId: input.leadId,
-          required: plan?.requiredDocuments ?? [],
-        });
-        if (missing.length > 0) {
-          if (reason === undefined) return { status: 'documents_incomplete', missing };
-          override = { reason, missing };
-        }
-      }
-
-      if (input.assignedActorId !== undefined && input.assignedActorId !== lead.assignedActorId) {
-        if (
-          input.assignedActorId !== null &&
-          !(await isActiveMember(tx, input.workspaceId, input.assignedActorId))
-        ) {
-          return { status: 'assignee_not_found' };
-        }
-        set.assignedActorId = input.assignedActorId;
-        entries.push({
-          kind: 'assignment',
-          data: { from: lead.assignedActorId, to: input.assignedActorId },
-        });
-        before['assignedActorId'] = lead.assignedActorId;
-        after['assignedActorId'] = input.assignedActorId;
-      }
-
-      const contact = input.contact;
-      const changed: ContactField[] = contact
-        ? CONTACT_FIELDS.filter(
-            (field) => contact[field] !== undefined && contact[field] !== lead[field],
-          )
-        : [];
-      if (contact && changed.length > 0) {
-        const next = {
-          fullName: contact.fullName ?? lead.fullName,
-          email: contact.email ?? lead.email,
-          phone: contact.phone ?? lead.phone,
-        };
-        if (changed.includes('fullName')) set.fullName = next.fullName;
-        if (changed.includes('email')) set.email = next.email;
-        if (changed.includes('phone')) set.phone = next.phone;
-        // A corrected address moves the lead to that person's contact; a
-        // corrected name or phone refreshes the contact it already has.
-        if (next.email) {
-          set.contactId = await upsertContact(tx, {
-            email: next.email,
-            fullName: next.fullName ?? undefined,
-            phone: next.phone ?? undefined,
-            countryCode: lead.countryCode ?? undefined,
-          });
-        }
-      }
-
-      const changedForm: string[] = [];
-      if (input.form && Object.keys(input.form).length > 0) {
-        const form = storedForm(lead.payload);
-        const edit = applyLeadFormEdit(lead.leadType, form.payload, input.form);
-        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
-        if (edit.changed.length > 0) {
-          set.payload = { schemaVersion: form.schemaVersion, payload: edit.payload };
-          changedForm.push(...edit.changed);
-        }
-      }
-
-      const changedCustom: string[] = [];
-      if (input.customValues && Object.keys(input.customValues).length > 0) {
-        // Only the custom properties this type shows; a hidden or unknown key is refused.
-        const current = isStoredObject(lead.customValues) ? lead.customValues : {};
-        const edit = applyCustomValueEdits({
-          properties: input.catalog.forType(lead.leadType),
-          current,
-          edits: input.customValues,
-        });
-        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
-        if (edit.changedKeys.length > 0) {
-          // Only the changed keys are written; every other stored value stays as it is.
-          const cleared = edit.changedKeys.filter((key) => !Object.hasOwn(edit.values, key));
-          const setValues = Object.fromEntries(
-            edit.changedKeys.flatMap((key) =>
-              Object.hasOwn(edit.values, key) ? [[key, edit.values[key]]] : [],
-            ),
-          );
-          const remaining = cleared.reduce(
-            (expression, key) => sql`(${expression} - ${key}::text)`,
-            sql`${leads.customValues}`,
-          );
-          set.customValues = sql`(${remaining} || ${JSON.stringify(setValues)}::jsonb)`;
-          changedCustom.push(...edit.changedKeys);
-        }
-      }
-
-      if (override) {
-        // Only a move that actually went past missing documents records an override.
-        storedOrder = {
-          ...(storedOrder ?? storedObject(lead.orderDetails)),
-          documentsOverride: { ...override, at: new Date().toISOString() },
-        };
-      }
-      if (storedOrder) {
-        set.orderDetails = storedOrder;
-        before['order'] = auditedOrder(lead.orderDetails);
-        after['order'] = auditedOrder(storedOrder);
-      }
-
-      // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
-      const changedFields = [...changed, ...changedForm, ...changedCustom, ...changedOrder];
-      if (changedFields.length > 0) {
-        entries.push({ kind: 'edit', data: { fields: changedFields } });
-        after['changedFields'] = changedFields;
-      }
-      if (override) {
-        entries.push({
-          kind: 'system',
-          data: { event: 'documents_override', missing: override.missing, reason: override.reason },
-        });
-      }
-
-      if (entries.length === 0) {
-        return {
-          status: 'updated',
-          lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
-          activities: [],
-        };
-      }
-
-      await tx
-        .update(leads)
-        .set({ ...set, updatedAt: new Date() })
-        .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
-      const inserted = await tx
-        .insert(leadActivities)
-        .values(
-          entries.map((entry) => ({
-            workspaceId: input.workspaceId,
-            leadId: input.leadId,
-            actorId: input.actorId,
-            kind: entry.kind,
-            data: entry.data,
-          })),
-        )
-        .returning(ACTIVITY_RETURNING);
-      await auditLead(tx, input, 'lead.updated', { before, after });
-      if (override) {
-        await auditLead(tx, input, 'lead.documents_overridden', {
-          after: {
-            from: lead.stage,
-            to: input.stage,
-            missing: override.missing,
-            reason: override.reason,
-          },
-        });
-      }
-
-      // The rules of the stage entered, from the lead as just written; each
-      // move is its own occurrence, so moving back and forth mails again.
-      const statusChange = inserted.find((row) => row.kind === 'status_change');
-      const fired =
-        statusChange && set.stage !== undefined
-          ? await runAutomations(tx, {
-              workspaceId: input.workspaceId,
-              actorId: input.actorId,
-              requestId: input.requestId,
-              lead: await readAutomationLead(tx, input.workspaceId, input.leadId),
-              automations: automationsForMove(lead.leadType, set.stage),
-              occurrence: statusChange.id,
-              environment: this.emailEnvironment,
-              store: this.automations,
-            })
-          : { skipped: [], activities: [] };
-      const emailSkipped = fired.skipped;
-
-      return {
-        status: 'updated',
-        lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
-        // Every entry the change wrote, the rules' mails among them.
-        activities: newestFirst([...inserted.map(insertedActivity), ...fired.activities]),
-        ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
-      };
-    });
+    return this.database.withTenantTx(input, (tx) =>
+      applyLeadUpdate(
+        tx,
+        { emailEnvironment: this.emailEnvironment, automations: this.automations },
+        input,
+      ),
+    );
   }
 
   markOpened(

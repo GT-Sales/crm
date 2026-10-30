@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   auditEvents,
   changeRequests,
@@ -8,22 +8,46 @@ import {
   type DatabaseClient,
   type TenantTransaction,
 } from '@gt-sales/db';
+import type { R2DocumentStore } from '@gt-sales/adapters';
 import {
   CHANGEABLE_FIELD_KEYS,
   CHANGE_REQUEST_DOCUMENTS,
   CHANGE_REQUEST_STAGES,
-  changeRequestFieldsSchema,
+  type ChangeDecisionEmailSkipped,
   type ChangeRequestFields,
-  type StaffChangeRequest,
-  type TrackingPendingChange,
+  type LeadActivity,
+  type LeadContactEdit,
+  type LeadDetail,
+  type PropertyCatalog,
 } from '@gt-sales/contracts';
 import { z } from 'zod';
 
+import { readAutomationLead } from '../automations/run.js';
+import { documentBucket } from '../documents/config.js';
+import { releaseHeldFiles, tombstoneHeldFiles } from '../documents/store.js';
+import { composeCustomerEmail } from '../email/compose.js';
+import { queueComposedEmail } from '../email/queue.js';
 import { isPlanAvailable } from '../leads/order.js';
 import { nextSiteNumber } from '../leads/site-counter.js';
-import { lockLead, type LockedLead } from '../leads/work-store.js';
+import { selectLeadDetail, toLeadActivity } from '../leads/staff-queries.js';
+import {
+  applyLeadUpdate,
+  lockLead,
+  type LeadUpdateContext,
+  type LockedLead,
+  type UpdateLeadWorkInput,
+} from '../leads/work-store.js';
 import { loadPlanForFreeze } from '../plans/store.js';
+import type { WriteScope } from '../tenant-scope.js';
+import { lockRequest, selectPending, type ChangeRequestRow } from './change-request-rows.js';
 import type { WebsiteScope } from './store.js';
+
+export {
+  toStaffChangeRequest,
+  toTrackingPendingChange,
+  type ChangeRequestDocumentType,
+  type ChangeRequestRow,
+} from './change-request-rows.js';
 
 /**
  * A customer's change requests from `/track` (spec ruling 3 and 4, plan T5–T7).
@@ -34,20 +58,6 @@ import type { WebsiteScope } from './store.js';
  * At most one request per lead is pending: a new one replaces it in place,
  * keeping its number and documents.
  */
-
-export type ChangeRequestDocumentType = (typeof CHANGE_REQUEST_DOCUMENTS)[number];
-
-export interface ChangeRequestRow {
-  id: string;
-  leadId: string;
-  requestNo: number;
-  status: 'pending' | 'approved' | 'rejected';
-  requested: ChangeRequestFields;
-  stagedFiles: Array<{ fileId: string; documentType: ChangeRequestDocumentType }>;
-  version: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 export type CustomerChangeOutcome =
   | { status: 'saved'; changeRequest: ChangeRequestRow; removedObjectKeys: string[] }
@@ -75,108 +85,6 @@ export interface ChangeRequestStore {
   ): Promise<ChangeRequestRow | undefined>;
 }
 
-const statusSchema = z.enum(['pending', 'approved', 'rejected']);
-const documentTypeSchema = z.enum(CHANGE_REQUEST_DOCUMENTS);
-
-interface RequestDbRow extends Record<string, unknown> {
-  id: string;
-  leadId: string;
-  requestNo: number;
-  status: string;
-  requested: unknown;
-  version: number;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-  staged: unknown;
-}
-
-const stagedSchema = z.array(
-  z.object({ fileId: z.uuid(), documentType: z.string(), objectKey: z.string().nullable() }),
-);
-
-/** A stored request; a value that no longer parses reads as not asked for. */
-function toRow(row: RequestDbRow): ChangeRequestRow {
-  const requested = changeRequestFieldsSchema.safeParse(row.requested);
-  const staged = stagedSchema.safeParse(row.staged);
-  return {
-    id: row.id,
-    leadId: row.leadId,
-    requestNo: row.requestNo,
-    status: statusSchema.parse(row.status),
-    requested: requested.success ? requested.data : {},
-    stagedFiles: (staged.success ? staged.data : []).flatMap((file) => {
-      const documentType = documentTypeSchema.safeParse(file.documentType);
-      return documentType.success ? [{ fileId: file.fileId, documentType: documentType.data }] : [];
-    }),
-    version: row.version,
-    createdAt: new Date(row.createdAt),
-    updatedAt: new Date(row.updatedAt),
-  };
-}
-
-/** Pending requests matching `where` (on `app.change_requests r`), staged files in the order they joined. */
-async function selectPendingRows(
-  tx: TenantTransaction,
-  where: SQL,
-  lock: boolean,
-): Promise<ChangeRequestRow[]> {
-  const rows = await tx.execute<RequestDbRow>(sql`
-    select
-      r.id,
-      r.lead_id as "leadId",
-      r.request_no as "requestNo",
-      r.status,
-      r.requested,
-      r.version,
-      r.created_at as "createdAt",
-      r.updated_at as "updatedAt",
-      (
-        select coalesce(json_agg(json_build_object(
-          'fileId', f.id, 'documentType', f.document_type, 'objectKey', f.object_key
-        ) order by s.position), '[]'::json)
-        from unnest(r.staged_file_ids) with ordinality as s(file_id, position)
-        join app.files f on f.workspace_id = r.workspace_id and f.id = s.file_id
-      ) as staged
-    from app.change_requests r
-    where ${where} and r.status = 'pending'
-    ${lock ? sql`for update of r` : sql``}
-  `);
-  return rows.map(toRow);
-}
-
-/** The lead's pending request, locked when `lock` is set (the lead must be locked first). */
-async function selectPending(
-  tx: TenantTransaction,
-  workspaceId: string,
-  leadId: string,
-  lock: boolean,
-): Promise<ChangeRequestRow | undefined> {
-  const [row] = await selectPendingRows(
-    tx,
-    sql`r.workspace_id = ${workspaceId} and r.lead_id = ${leadId}`,
-    lock,
-  );
-  return row;
-}
-
-/** The pending request of each of `leadIds` that has one, by lead id (one read). */
-export async function pendingForLeads(
-  tx: TenantTransaction,
-  workspaceId: string,
-  leadIds: readonly string[],
-): Promise<Map<string, ChangeRequestRow>> {
-  if (leadIds.length === 0) return new Map();
-  const rows = await selectPendingRows(
-    tx,
-    sql`r.workspace_id = ${workspaceId} and r.lead_id in ${sql`(${sql.join(
-      leadIds.map((id) => sql`${id}::uuid`),
-      sql`, `,
-    )})`}`,
-    false,
-  );
-  return new Map(rows.map((row) => [row.leadId, row]));
-}
-
 /** The field keys asked for, in `CHANGEABLE_FIELD_KEYS` order. */
 function fieldKeys(fields: ChangeRequestFields): string[] {
   return CHANGEABLE_FIELD_KEYS.filter((key) => fields[key] !== undefined);
@@ -189,6 +97,8 @@ function storedFormValue(lead: LockedLead, key: string): unknown {
   const parsed = storedFormSchema.safeParse(lead.payload);
   return parsed.success ? parsed.data.payload[key] : undefined;
 }
+
+const documentTypeSchema = z.enum(CHANGE_REQUEST_DOCUMENTS);
 
 const isChangeStage = (stage: string) => CHANGE_REQUEST_STAGES.some((value) => value === stage);
 
@@ -447,27 +357,288 @@ export class DatabaseChangeRequestStore implements ChangeRequestStore {
   }
 }
 
-/** The pending request as `/track` shows it: the values asked for and the document types sent. */
-export function toTrackingPendingChange(row: ChangeRequestRow): TrackingPendingChange {
+export type DecisionOutcome =
+  | {
+      status: 'approved' | 'rejected';
+      lead: LeadDetail;
+      activities: LeadActivity[];
+      emailSkipped?: ChangeDecisionEmailSkipped;
+    }
+  | { status: 'not_found' | 'resolved' | 'version_conflict' | 'trashed' }
+  | { status: 'invalid_field'; field: string };
+
+export interface DecideInput extends WriteScope {
+  leadId: string;
+  changeRequestId: string;
+  expectedVersion: number;
+  catalog: PropertyCatalog;
+}
+
+/** An approval the lead update refused: the transaction rolls back and the request stays pending. */
+class ApprovalRefused extends Error {
+  constructor(readonly field: string) {
+    super('change_request_approval_refused');
+  }
+}
+
+/** The SIM order form keys a request may change (the rest are the contact's and the order's). */
+const FORM_KEYS = [
+  'delivery',
+  'arrivalDate',
+  'permitType',
+  'canadaAddress',
+  'shippingAddress',
+  'flightBooked',
+] as const;
+
+/** The lead update an approval applies: the requested values, as a staff edit would. */
+function approvalUpdate(input: DecideInput, requested: ChangeRequestFields): UpdateLeadWorkInput {
+  const contact: LeadContactEdit = {
+    ...(requested.fullName !== undefined ? { fullName: requested.fullName } : {}),
+    ...(requested.phone !== undefined ? { phone: requested.phone } : {}),
+  };
+  const form: Record<string, string | boolean | null> = {};
+  for (const key of FORM_KEYS) {
+    const value = requested[key];
+    if (value !== undefined) form[key] = value;
+  }
   return {
-    requestNo: row.requestNo,
-    fields: row.requested,
-    documents: row.stagedFiles.map((file) => file.documentType),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    requestId: input.requestId,
+    leadId: input.leadId,
+    catalog: input.catalog,
+    ...(Object.keys(contact).length > 0 ? { contact } : {}),
+    ...(Object.keys(form).length > 0 ? { form } : {}),
+    ...(requested.planId !== undefined ? { order: { planId: requested.planId } } : {}),
   };
 }
 
-/** The request as the lead page shows it to staff who decide it. */
-export function toStaffChangeRequest(row: ChangeRequestRow): StaffChangeRequest {
-  return {
-    id: row.id,
-    requestNo: row.requestNo,
-    status: row.status,
-    fields: row.requested,
-    documents: row.stagedFiles,
-    version: row.version,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
+/** Entries in the lead page's order: newest first, one transaction's entries by id descending. */
+function newestFirst(activities: readonly LeadActivity[]): LeadActivity[] {
+  return [...activities].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+}
+
+/**
+ * Change requests end to end: the customer's two writes (delegated to the
+ * store, then the replaced files' objects deleted, best effort) and staff's
+ * decision. A decision locks the lead, then the request; approval applies the
+ * requested values through `applyLeadUpdate` (the staff edit's own checks,
+ * timeline and audit, a new plan re-frozen) and makes the held documents
+ * current; rejection tombstones them and deletes their objects after commit.
+ * Either way the request is resolved (`resolved_at` and `resolved_by` both),
+ * a `change_approved`/`change_rejected` entry and audit name keys only, and
+ * the decision mail is always queued in the same transaction, or the outcome
+ * says why it was not (`emailSkipped`).
+ */
+export class ChangeRequestService {
+  private readonly database: Pick<DatabaseClient, 'withTenantTx'>;
+  private readonly bucket: string;
+
+  constructor(
+    private readonly dependencies: {
+      store: ChangeRequestStore;
+      context: LeadUpdateContext;
+      objects?: Pick<R2DocumentStore, 'deleteObject'>;
+      bucket?: string;
+      database?: Pick<DatabaseClient, 'withTenantTx'>;
+    },
+  ) {
+    this.database = dependencies.database ?? { withTenantTx };
+    this.bucket = dependencies.bucket ?? documentBucket();
+  }
+
+  async requestChange(
+    input: Parameters<ChangeRequestStore['requestChange']>[0],
+  ): Promise<CustomerChangeOutcome> {
+    const outcome = await this.dependencies.store.requestChange(input);
+    if (outcome.status === 'saved')
+      await this.deleteObjects(input.workspaceId, outcome.removedObjectKeys);
+    return outcome;
+  }
+
+  async attachDocument(
+    input: Parameters<ChangeRequestStore['attachDocument']>[0],
+  ): Promise<CustomerChangeOutcome> {
+    const outcome = await this.dependencies.store.attachDocument(input);
+    if (outcome.status === 'saved')
+      await this.deleteObjects(input.workspaceId, outcome.removedObjectKeys);
+    return outcome;
+  }
+
+  approve(input: DecideInput): Promise<DecisionOutcome> {
+    return this.decide('approved', input);
+  }
+
+  reject(input: DecideInput): Promise<DecisionOutcome> {
+    return this.decide('rejected', input);
+  }
+
+  private async decide(
+    decision: 'approved' | 'rejected',
+    input: DecideInput,
+  ): Promise<DecisionOutcome> {
+    const { context } = this.dependencies;
+    let removedObjectKeys: string[] = [];
+    let outcome: DecisionOutcome;
+    try {
+      outcome = await this.database.withTenantTx(
+        { workspaceId: input.workspaceId, actorId: input.actorId },
+        async (tx): Promise<DecisionOutcome> => {
+          const lead = await lockLead(tx, input.workspaceId, input.leadId);
+          if (!lead) return { status: 'not_found' };
+          if (lead.trashed) return { status: 'trashed' };
+          const request = await lockRequest(
+            tx,
+            input.workspaceId,
+            input.leadId,
+            input.changeRequestId,
+          );
+          if (!request) return { status: 'not_found' };
+          if (request.status !== 'pending') return { status: 'resolved' };
+          if (request.version !== input.expectedVersion) return { status: 'version_conflict' };
+
+          const fields = fieldKeys(request.requested);
+          const documents = request.stagedFiles.map((file) => file.documentType);
+          const held = {
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            requestId: input.requestId,
+            fileIds: request.stagedFiles.map((file) => file.fileId),
+          };
+          const activities: LeadActivity[] = [];
+          if (decision === 'approved') {
+            const updated = await applyLeadUpdate(
+              tx,
+              context,
+              approvalUpdate(input, request.requested),
+            );
+            if (updated.status === 'invalid_field') throw new ApprovalRefused(updated.field);
+            if (updated.status !== 'updated') {
+              throw new Error(`change request approval refused: ${updated.status}`);
+            }
+            activities.push(...updated.activities);
+            await releaseHeldFiles(tx, held);
+          } else {
+            removedObjectKeys = await tombstoneHeldFiles(tx, held);
+          }
+
+          const now = new Date();
+          await tx
+            .update(changeRequests)
+            .set({ status: decision, resolvedBy: input.actorId, resolvedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(changeRequests.workspaceId, input.workspaceId),
+                eq(changeRequests.id, request.id),
+              ),
+            );
+          const event = decision === 'approved' ? 'change_approved' : 'change_rejected';
+          const keys = {
+            requestNo: request.requestNo,
+            changeRequestId: request.id,
+            ...(decision === 'approved' ? { fields, documents } : {}),
+          };
+          const [entry] = await tx
+            .insert(leadActivities)
+            .values({
+              workspaceId: input.workspaceId,
+              leadId: input.leadId,
+              actorId: input.actorId,
+              kind: 'system',
+              data: { event, ...keys },
+            })
+            .returning({
+              id: leadActivities.id,
+              actorId: leadActivities.actorId,
+              kind: leadActivities.kind,
+              body: leadActivities.body,
+              data: leadActivities.data,
+              createdAt: leadActivities.createdAt,
+            });
+          if (!entry) throw new Error('activity insert did not return a row');
+          activities.push(toLeadActivity({ ...entry, createdAt: entry.createdAt.toISOString() }));
+          await tx.insert(auditEvents).values({
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            actorLabel: 'staff actor',
+            action: `lead.change_request_${decision}`,
+            entity: 'lead',
+            entityId: input.leadId,
+            requestId: input.requestId,
+            after: { changeRequestId: request.id, requestNo: request.requestNo, fields, documents },
+          });
+
+          // The decision mail always goes, in this transaction, or the answer says why not.
+          const template = event;
+          const composed = await composeCustomerEmail(tx, context.emailEnvironment, {
+            workspaceId: input.workspaceId,
+            template,
+            recipient: {
+              kind: 'lead',
+              lead: await readAutomationLead(tx, input.workspaceId, input.leadId),
+            },
+          });
+          let emailSkipped: ChangeDecisionEmailSkipped | undefined;
+          if (composed.kind === 'ready') {
+            const queued = await queueComposedEmail(tx, {
+              workspaceId: input.workspaceId,
+              actorId: input.actorId,
+              requestId: input.requestId,
+              leadId: input.leadId,
+              dedupeKey: `${input.leadId}:${template}:${request.id}`,
+              payload: composed.payload,
+              automation: null,
+            });
+            if (queued.activity) activities.push(queued.activity);
+          } else {
+            emailSkipped = {
+              template,
+              reason: composed.reason,
+              ...(composed.missing ? { missing: composed.missing } : {}),
+            };
+          }
+
+          const detail = await selectLeadDetail(tx, input.workspaceId, input.leadId, input.catalog);
+          if (!detail) throw new Error('lead vanished inside its own transaction');
+          return {
+            status: decision,
+            lead: detail,
+            activities: newestFirst(activities),
+            ...(emailSkipped ? { emailSkipped } : {}),
+          };
+        },
+      );
+    } catch (error) {
+      if (error instanceof ApprovalRefused) return { status: 'invalid_field', field: error.field };
+      throw error;
+    }
+    await this.deleteObjects(input.workspaceId, removedObjectKeys);
+    return outcome;
+  }
+
+  /** After commit, best effort: a failed delete leaves an orphan object, logged by code only. */
+  private async deleteObjects(workspaceId: string, objectKeys: readonly string[]): Promise<void> {
+    const objects = this.dependencies.objects;
+    if (!objects) return;
+    for (const objectKey of objectKeys) {
+      try {
+        await objects.deleteObject({ workspaceId, bucket: this.bucket, objectKey });
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            event: 'change_request_object_delete_failed',
+            workspaceId,
+            code:
+              error instanceof Error && /^[A-Za-z0-9_]{1,64}$/.test(error.name)
+                ? error.name
+                : 'unknown',
+          }),
+        );
+      }
+    }
+  }
 }

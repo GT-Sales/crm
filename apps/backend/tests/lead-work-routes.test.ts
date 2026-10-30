@@ -218,6 +218,7 @@ function memoryWorkStore() {
             related: [relatedLead],
             identities: [identity],
             documents: [leadDocument],
+            changeRequest: null,
           }
         : undefined,
     ),
@@ -803,6 +804,7 @@ describe('staff lead work routes', () => {
       related: [],
       identities: [],
       documents: [],
+      changeRequest: null,
     });
     expect((await detail()).allowedMoves).toEqual(['verified', 'on_hold', 'cancelled']);
   });

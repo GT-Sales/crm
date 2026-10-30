@@ -28,7 +28,7 @@ import { z } from 'zod';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { LATEST_REVIEW, currentLeadDocuments } from '../leads/documents-check.js';
 import { toLeadOrder } from '../leads/order.js';
-import { pendingForLeads, toTrackingPendingChange } from './change-requests.js';
+import { pendingForLeads, toTrackingPendingChange } from './change-request-rows.js';
 import { hashesEqual } from './secrets.js';
 
 /**
