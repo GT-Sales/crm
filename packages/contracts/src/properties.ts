@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { orderLeadTypes } from '@gt-sales/types';
+
 import { isoDateTimeSchema } from './common';
 import {
   leadPropertyCatalog,
@@ -16,7 +18,9 @@ import { leadTypeSchema } from './leads';
  * code (`leadPropertyCatalog` with each type's `leadTypeProperties`); a site
  * may relabel or hide one through a row of `app.properties`, and adds custom
  * properties as further rows whose values live in `leads.custom_values`.
- * `buildPropertyCatalog` merges the two; with no rows it resolves exactly as
+ * Order lead types (`orderLeadTypes`) also carry the order properties
+ * (`orderPropertyCatalog`), stored in `leads.order_details`.
+ * `buildPropertyCatalog` merges the three; with no rows it resolves exactly as
  * the code catalogue always has (`codePropertyCatalog`).
  *
  * This module must not import `./lead-fields` (which builds its catalogue
@@ -88,6 +92,8 @@ export const propertyRowSchema = z.object({
   sensitive: z.boolean(),
   hidden: z.boolean(),
   leadTypes: propertyLeadTypesSchema,
+  /** A plan property whose value the website's plan listing shows; false for anything else. */
+  websiteVisible: z.boolean().default(false),
   position: z.number().int().min(0),
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,
@@ -121,6 +127,8 @@ export const createCustomPropertySchema = z
     options: propertyOptionsSchema.default([]),
     staffOnly: z.boolean().default(false),
     sensitive: z.boolean().default(false),
+    /** Plan properties only: the website's plan listing shows the value. */
+    websiteVisible: z.boolean().default(false),
     /** [] = every lead type. */
     leadTypes: propertyLeadTypesSchema.default([]),
   })
@@ -153,6 +161,7 @@ export const updatePropertySchema = z
     staffOnly: z.boolean().optional(),
     sensitive: z.boolean().optional(),
     hidden: z.boolean().optional(),
+    websiteVisible: z.boolean().optional(),
     leadTypes: propertyLeadTypesSchema.optional(),
     position: z.number().int().min(0).optional(),
   })
@@ -202,17 +211,31 @@ export const propertyUsageSchema = z.object({
 });
 export type PropertyUsage = z.infer<typeof propertyUsageSchema>;
 
+/** Where a property's value lives: the lead's `form.payload`, `leads.custom_values` or `leads.order_details`. */
+export const PROPERTY_STORAGES = ['form', 'custom', 'order'] as const;
+export type PropertyStorage = (typeof PROPERTY_STORAGES)[number];
+
 export interface SiteProperty {
   readonly key: string;
   readonly label: string;
   readonly kind: PropertyKind;
   readonly options?: readonly PropertyOption[];
   readonly origin: 'builtin' | 'custom';
-  /** Where the value lives: the lead's `form.payload`, or `leads.custom_values`. */
-  readonly storage: 'form' | 'custom';
+  /** Where the value lives: the lead's `form.payload`, `leads.custom_values` or `leads.order_details`. */
+  readonly storage: PropertyStorage;
+  /**
+   * The field the value is stored under in its storage, when it is not `key`.
+   * Only order properties set it (`plan` is `order_details.planId`, the others
+   * their own key), so the order link does not collide with the form's
+   * `planId`. Whatever reads or writes a stored value (the backend's filter,
+   * sort and column SQL, the admin's record page) reads `storageKey ?? key`.
+   */
+  readonly storageKey?: string;
   readonly sensitive: boolean;
   readonly staffOnly: boolean;
   readonly hidden: boolean;
+  /** A custom plan property the website's plan listing shows; false for every other property. */
+  readonly websiteVisible: boolean;
   /** [] = every lead type. */
   readonly leadTypes: readonly string[];
   readonly editable: boolean;
@@ -231,10 +254,12 @@ export const sitePropertySchema = z.object({
   kind: z.enum(PROPERTY_KINDS),
   options: propertyOptionsSchema.optional(),
   origin: z.enum(['builtin', 'custom']),
-  storage: z.enum(['form', 'custom']),
+  storage: z.enum(PROPERTY_STORAGES),
+  storageKey: propertyKeySchema.optional(),
   sensitive: z.boolean(),
   staffOnly: z.boolean(),
   hidden: z.boolean(),
+  websiteVisible: z.boolean(),
   leadTypes: propertyLeadTypesSchema,
   editable: z.boolean(),
   maxLength: z.number().int().positive().optional(),
@@ -243,6 +268,72 @@ export const sitePropertySchema = z.object({
   countdown: z.boolean().optional(),
   version: z.number().int().positive().optional(),
 });
+
+/** A site's plan as the catalogue offers it for the order's `plan` property. */
+export interface PlanOption {
+  readonly id: string;
+  readonly name: string;
+  readonly active: boolean;
+}
+
+export interface BuildCatalogOptions {
+  /** The site's plans; without them the order's `plan` property has no options. */
+  readonly plans?: readonly PlanOption[];
+}
+
+/** The order properties, in record order. */
+export const ORDER_PROPERTY_KEYS = [
+  'plan',
+  'quantity',
+  'paymentStatus',
+  'carrierCommission',
+] as const;
+export type OrderPropertyKey = (typeof ORDER_PROPERTY_KEYS)[number];
+
+/**
+ * Built-ins of order lead types (`orderLeadTypes`), storage `order`, values in
+ * `leads.order_details` (`leadOrderSchema`). `plan` is the order's link to one
+ * of the site's plans, stored as `order_details.planId` (see `storageKey`); its
+ * options come from the site's plans (`BuildCatalogOptions.plans`).
+ */
+export const orderPropertyCatalog: Readonly<Record<string, LeadPropertyDefinition>> = {
+  plan: { key: 'plan', label: 'Plan', kind: 'choice', options: [] },
+  quantity: { key: 'quantity', label: 'Quantity', kind: 'count' },
+  paymentStatus: {
+    key: 'paymentStatus',
+    label: 'Payment status',
+    kind: 'choice',
+    options: [
+      { value: 'not_needed', label: 'Not needed' },
+      { value: 'pending', label: 'Pending' },
+      { value: 'paid', label: 'Paid' },
+    ],
+  },
+  carrierCommission: {
+    key: 'carrierCommission',
+    label: 'Carrier commission',
+    kind: 'choice',
+    options: [
+      { value: 'not_yet', label: 'Not yet' },
+      { value: 'invoiced', label: 'Invoiced' },
+      { value: 'received', label: 'Received' },
+      { value: 'clawback', label: 'Clawback' },
+    ],
+  },
+};
+
+/** The `order_details` field of each order property. */
+const ORDER_STORAGE_KEYS: Readonly<Record<OrderPropertyKey, string>> = {
+  plan: 'planId',
+  quantity: 'quantity',
+  paymentStatus: 'paymentStatus',
+  carrierCommission: 'carrierCommission',
+};
+
+const isOrderPropertyKey = (key: string): key is OrderPropertyKey =>
+  ORDER_PROPERTY_KEYS.some((entry) => entry === key);
+
+const isOrderType = (leadType: string) => orderLeadTypes.some((entry) => entry === leadType);
 
 export interface PropertyCatalog {
   readonly object: PropertyObject;
@@ -261,6 +352,7 @@ export interface PropertyCatalog {
 interface ResolvedCatalog {
   readonly all: readonly SiteProperty[];
   readonly byKey: ReadonlyMap<string, SiteProperty>;
+  readonly order: readonly SiteProperty[];
   readonly custom: readonly SiteProperty[];
   readonly overrides: ReadonlyMap<string, PropertyRow>;
 }
@@ -299,10 +391,50 @@ function builtinTypesByKey(): Map<string, string[]> {
   return typesByKey;
 }
 
-function resolveCatalog(rows: readonly PropertyRow[], object: PropertyObject): ResolvedCatalog {
+/** Each plan as an option of the order's `plan` property; an inactive plan stays readable as a hidden option. */
+const planOptions = (plans: readonly PlanOption[]): PropertyOption[] =>
+  plans.map((plan) => ({ value: plan.id, label: plan.name, hidden: !plan.active }));
+
+function orderProperties(
+  overrides: ReadonlyMap<string, PropertyRow>,
+  plans: readonly PlanOption[],
+): SiteProperty[] {
+  const result: SiteProperty[] = [];
+  for (const key of ORDER_PROPERTY_KEYS) {
+    const code = orderPropertyCatalog[key];
+    if (!code) continue;
+    const override = overrides.get(key);
+    const property = overriddenDefinition(code, override);
+    const options = key === 'plan' ? planOptions(plans) : withHidden(property.options);
+    result.push({
+      key,
+      label: property.label,
+      kind: property.kind,
+      ...(options !== undefined ? { options } : {}),
+      origin: 'builtin',
+      storage: 'order',
+      storageKey: ORDER_STORAGE_KEYS[key],
+      sensitive: false,
+      staffOnly: false,
+      hidden: override?.hidden ?? false,
+      websiteVisible: false,
+      leadTypes: [...orderLeadTypes],
+      editable: true,
+      ...(override ? { version: override.version } : {}),
+    });
+  }
+  return result;
+}
+
+function resolveCatalog(
+  rows: readonly PropertyRow[],
+  object: PropertyObject,
+  options: BuildCatalogOptions,
+): ResolvedCatalog {
   const ownRows = rows.filter((entry) => entry.object === object);
   const builtins = object === 'lead' ? leadPropertyCatalog : {};
-  const isBuiltin = (key: string) => Object.hasOwn(builtins, key);
+  const isBuiltin = (key: string) =>
+    Object.hasOwn(builtins, key) || (object === 'lead' && isOrderPropertyKey(key));
 
   const overrides = new Map<string, PropertyRow>();
   for (const entry of ownRows) {
@@ -331,12 +463,16 @@ function resolveCatalog(rows: readonly PropertyRow[], object: PropertyObject): R
       // Staff-only anywhere means the website never sends it; editability is per type (forType).
       staffOnly: uses.some((use) => use.staffOnly === true),
       hidden: override?.hidden ?? false,
+      websiteVisible: false,
       leadTypes: typesByKey.get(key) ?? [],
       editable: false,
       ...(property.maxLength !== undefined ? { maxLength: property.maxLength } : {}),
       ...(override ? { version: override.version } : {}),
     });
   }
+
+  const order = object === 'lead' ? orderProperties(overrides, options.plans ?? []) : [];
+  all.push(...order);
 
   const custom: SiteProperty[] = [];
   const customKeys = new Set<string>();
@@ -356,6 +492,8 @@ function resolveCatalog(rows: readonly PropertyRow[], object: PropertyObject): R
       sensitive: entry.sensitive,
       staffOnly: entry.staffOnly,
       hidden: entry.hidden,
+      // Only a plan's values ever reach a website.
+      websiteVisible: object === 'plan' && entry.websiteVisible,
       leadTypes: entry.leadTypes,
       editable: true,
       version: entry.version,
@@ -363,7 +501,7 @@ function resolveCatalog(rows: readonly PropertyRow[], object: PropertyObject): R
   }
   all.push(...custom);
 
-  return { all, byKey: new Map(all.map((entry) => [entry.key, entry])), custom, overrides };
+  return { all, byKey: new Map(all.map((entry) => [entry.key, entry])), order, custom, overrides };
 }
 
 const appliesTo = (property: SiteProperty, leadType: string) =>
@@ -390,16 +528,19 @@ const toFilterable = (property: {
 
 /**
  * The site's catalogue from its rows. A built-in row (`origin: 'builtin'`)
- * overrides only the code definition's `label` and `hidden`; a custom row is
- * a property stored in `custom_values`. Rows of another object, built-in rows
- * for an unknown key and custom rows reusing a built-in key are ignored.
+ * overrides only the code definition's `label` and `hidden` (order properties
+ * included); a custom row is a property stored in `custom_values`. Rows of
+ * another object, built-in rows for an unknown key and custom rows reusing a
+ * built-in key are ignored. `options.plans` gives the order's `plan` property
+ * its options.
  */
 export function buildPropertyCatalog(
   rows: readonly PropertyRow[],
   object: PropertyObject = 'lead',
+  options: BuildCatalogOptions = {},
 ): PropertyCatalog {
   let resolved: ResolvedCatalog | undefined;
-  const resolve = (): ResolvedCatalog => (resolved ??= resolveCatalog(rows, object));
+  const resolve = (): ResolvedCatalog => (resolved ??= resolveCatalog(rows, object, options));
 
   const builtinForType = (leadType: string) => {
     const { overrides, byKey } = resolve();
@@ -436,11 +577,14 @@ export function buildPropertyCatalog(
     return result;
   };
 
+  const orderForType = (leadType: string) =>
+    isOrderType(leadType) ? resolve().order.filter((property) => !property.hidden) : [];
+
   const customForType = (leadType: string) =>
     resolve().custom.filter((property) => !property.hidden && appliesTo(property, leadType));
 
   const filterableAcrossTypes = (): FilterableLeadProperty[] => {
-    const { overrides, byKey, custom } = resolve();
+    const { overrides, byKey, order, custom } = resolve();
     const usesByKey = new Map<string, LeadTypePropertyUse[]>();
     if (object === 'lead') {
       for (const uses of Object.values(leadTypeProperties)) {
@@ -483,7 +627,7 @@ export function buildPropertyCatalog(
         ...(property.maxLength !== undefined ? { maxLength: property.maxLength } : {}),
       });
     }
-    for (const property of custom) {
+    for (const property of [...order, ...custom]) {
       if (!property.hidden && !property.sensitive) result.push(toFilterable(property));
     }
     return result;
@@ -500,6 +644,7 @@ export function buildPropertyCatalog(
     forType(leadType) {
       return [
         ...builtinForType(leadType).map((entry) => entry.property),
+        ...orderForType(leadType),
         ...customForType(leadType),
       ];
     },
@@ -509,6 +654,7 @@ export function buildPropertyCatalog(
         ...builtinForType(leadType)
           .filter((entry) => !entry.property.sensitive)
           .map((entry) => toFilterable(entry.field)),
+        ...orderForType(leadType).map(toFilterable),
         ...customForType(leadType)
           .filter((property) => !property.sensitive)
           .map(toFilterable),
@@ -517,7 +663,7 @@ export function buildPropertyCatalog(
   };
 }
 
-/** The catalogue of a site with no rows: exactly PR #1's behaviour. */
+/** The catalogue of a site with no rows: PR #1's behaviour plus the order properties, whose `plan` has no options without the site's plans. */
 export const codePropertyCatalog: PropertyCatalog = buildPropertyCatalog([]);
 
 const KEY_MAX_LENGTH = 64;

@@ -28,6 +28,7 @@ function rowFor(property: SiteProperty, position: number): PropertyRow {
     staffOnly: property.staffOnly,
     sensitive: property.sensitive,
     hidden: property.hidden,
+    websiteVisible: property.websiteVisible,
     leadTypes: [...property.leadTypes],
     position,
     version: property.version ?? 1,

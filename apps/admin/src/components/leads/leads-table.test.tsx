@@ -26,6 +26,7 @@ function row(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'label'
     staffOnly: false,
     sensitive: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     position: 0,
     version: 1,

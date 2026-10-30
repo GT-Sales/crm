@@ -98,11 +98,40 @@ describe('property layout schema', () => {
 });
 
 describe('defaultPropertyLayout', () => {
-  it('puts form, staff-only and custom properties in three sections and drops empty ones', () => {
+  it('puts order, form, staff-only and custom properties in their sections and drops empty ones', () => {
     const layout = defaultPropertyLayout('sim_order', codePropertyCatalog);
-    expect(layout.sections.map((s) => s.id)).toEqual(['request', 'staff']);
-    expect(layout.sections.map((s) => s.label)).toEqual(['Request', 'Staff details']);
+    expect(layout.sections.map((s) => s.id)).toEqual(['order', 'request', 'staff']);
+    expect(layout.sections.map((s) => s.label)).toEqual(['Order', 'Request', 'Staff details']);
+    expect(layout.sections[0]?.keys).toEqual([
+      'plan',
+      'quantity',
+      'paymentStatus',
+      'carrierCommission',
+    ]);
+    expect(layout.sections[1]?.keys).toContain('planId');
     expect(propertyLayoutSchema.safeParse(layout).success).toBe(true);
+  });
+
+  it('gives every order type an Order section first and other types none', () => {
+    for (const leadType of ['internet', 'mobility']) {
+      const layout = defaultPropertyLayout(leadType, codePropertyCatalog);
+      expect(layout.sections.map((s) => s.id)).toEqual(['order', 'request']);
+      expect(propertyLayoutSchema.safeParse(layout).success, leadType).toBe(true);
+    }
+    const partner = defaultPropertyLayout('partner_application', codePropertyCatalog);
+    expect(partner.sections.map((s) => s.id)).toEqual(['request']);
+  });
+
+  it('leaves a hidden order property out of the Order section', () => {
+    const catalog = buildPropertyCatalog([
+      row({ key: 'quantity', origin: 'builtin', label: 'Quantity', kind: 'count', hidden: true }),
+    ]);
+    const layout = defaultPropertyLayout('sim_order', catalog);
+    expect(layout.sections[0]).toEqual({
+      id: 'order',
+      label: 'Order',
+      keys: ['plan', 'paymentStatus', 'carrierCommission'],
+    });
   });
 
   it('adds a Custom section for custom properties of the type', () => {
@@ -111,8 +140,8 @@ describe('defaultPropertyLayout', () => {
       row({ key: 'custom_other_type', origin: 'custom', leadTypes: ['internet'] }),
     ]);
     const layout = defaultPropertyLayout('sim_order', catalog);
-    expect(layout.sections.map((s) => s.id)).toEqual(['request', 'staff', 'custom']);
-    expect(layout.sections[2]).toEqual({
+    expect(layout.sections.map((s) => s.id)).toEqual(['order', 'request', 'staff', 'custom']);
+    expect(layout.sections[3]).toEqual({
       id: 'custom',
       label: 'Custom',
       keys: ['custom_referral'],
@@ -168,7 +197,18 @@ describe('renderPropertyLayout', () => {
     const catalog = codePropertyCatalog;
     const layout = defaultPropertyLayout('sim_order', catalog);
     const rendered = renderPropertyLayout(layout, 'sim_order', catalog);
-    expect(rendered.map((s) => s.id)).toEqual(['request', 'staff']);
+    expect(rendered.map((s) => s.id)).toEqual(['order', 'request', 'staff']);
+  });
+
+  it('puts the order properties under Other in a layout saved before they existed', () => {
+    const saved: PropertyLayout = {
+      sections: [{ id: 'request', label: 'Request', keys: ['planId'] }],
+    };
+    const rendered = renderPropertyLayout(saved, 'sim_order', codePropertyCatalog);
+    expect(rendered.at(-1)?.id).toBe('other');
+    expect(rendered.at(-1)?.properties.map((p) => p.key)).toEqual(
+      expect.arrayContaining(['plan', 'quantity', 'paymentStatus', 'carrierCommission']),
+    );
   });
 
   it('keeps an empty section of the layout', () => {

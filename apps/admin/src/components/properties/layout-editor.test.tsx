@@ -14,6 +14,7 @@ const referral: SiteProperty = {
   sensitive: false,
   staffOnly: false,
   hidden: false,
+  websiteVisible: false,
   leadTypes: [],
   editable: true,
   version: 1,

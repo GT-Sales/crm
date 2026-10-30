@@ -17,6 +17,8 @@ import {
   leadPropertyOperators,
   leadTypeProperties,
   leadTypePropertyKeys,
+  ORDER_PROPERTY_KEYS,
+  orderPropertyCatalog,
   parsePropertyValue,
   propertyKeySchema,
   propertyRowSchema,
@@ -24,20 +26,22 @@ import {
   updatePropertySchema,
   type ParsePropertyValueResult,
   type PropertyKind,
+  type PlanOption,
   type PropertyRow,
 } from './index';
 
 const STAMP = '2026-10-29T12:00:00.000Z';
 
+const ORDER_TYPES = ['sim_order', 'internet', 'mobility'] as const;
+
+const builtinDefinition = (key: string) => leadPropertyCatalog[key] ?? orderPropertyCatalog[key];
+
 function row(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'origin'>): PropertyRow {
   return propertyRowSchema.parse({
     object: 'lead',
-    label:
-      overrides.origin === 'builtin' ? (leadPropertyCatalog[overrides.key]?.label ?? 'X') : 'X',
+    label: overrides.origin === 'builtin' ? (builtinDefinition(overrides.key)?.label ?? 'X') : 'X',
     kind:
-      overrides.origin === 'builtin'
-        ? (leadPropertyCatalog[overrides.key]?.kind ?? 'text')
-        : 'text',
+      overrides.origin === 'builtin' ? (builtinDefinition(overrides.key)?.kind ?? 'text') : 'text',
     options: [],
     staffOnly: false,
     sensitive: false,
@@ -59,9 +63,10 @@ describe('buildPropertyCatalog', () => {
     expect(codePropertyCatalog.filterable('sim_order')).toEqual(
       filterableLeadProperties('sim_order'),
     );
-    expect(codePropertyCatalog.forType('internet').map((p) => p.key)).toEqual(
-      leadTypePropertyKeys('internet'),
-    );
+    expect(codePropertyCatalog.forType('internet').map((p) => p.key)).toEqual([
+      ...leadTypePropertyKeys('internet'),
+      ...ORDER_PROPERTY_KEYS,
+    ]);
     expect(buildPropertyCatalog([]).filterable()).toEqual(filterableLeadProperties());
   });
 
@@ -76,20 +81,33 @@ describe('buildPropertyCatalog', () => {
           ...(field.options !== undefined ? { options: field.options } : {}),
           ...(field.maxLength !== undefined ? { maxLength: field.maxLength } : {}),
         }));
-      expect(JSON.stringify(codePropertyCatalog.filterable(type))).toBe(JSON.stringify(expected));
+      // Order types add the order properties after the form ones.
+      const form = codePropertyCatalog.filterable(type).slice(0, expected.length);
+      expect(JSON.stringify(form)).toBe(JSON.stringify(expected));
     }
     const firstUse = [
       ...new Set(Object.values(leadTypeProperties).flatMap((uses) => uses.map((use) => use.key))),
     ].filter((key) => !leadPropertyCatalog[key]?.sensitive);
-    expect(codePropertyCatalog.filterable().map((p) => p.key)).toEqual(firstUse);
+    expect(codePropertyCatalog.filterable().map((p) => p.key)).toEqual([
+      ...firstUse,
+      ...ORDER_PROPERTY_KEYS,
+    ]);
     expect(codePropertyCatalog.filterable('unknown_type')).toEqual([]);
   });
 
   it('lists every built-in in catalogue order, each a valid site property', () => {
     expect(codePropertyCatalog.object).toBe('lead');
-    expect(codePropertyCatalog.all.map((p) => p.key)).toEqual(Object.keys(leadPropertyCatalog));
+    expect(codePropertyCatalog.all.map((p) => p.key)).toEqual([
+      ...Object.keys(leadPropertyCatalog),
+      ...ORDER_PROPERTY_KEYS,
+    ]);
     for (const property of codePropertyCatalog.all) {
-      expect(property).toMatchObject({ origin: 'builtin', storage: 'form', hidden: false });
+      expect(property).toMatchObject({
+        origin: 'builtin',
+        storage: Object.hasOwn(leadPropertyCatalog, property.key) ? 'form' : 'order',
+        hidden: false,
+        websiteVisible: false,
+      });
       expect(sitePropertySchema.safeParse(property).success).toBe(true);
     }
     expect(codePropertyCatalog.get('dateOfBirth')?.sensitive).toBe(true);
@@ -155,7 +173,9 @@ describe('buildPropertyCatalog', () => {
     ]);
     expect(c.get('city')).toMatchObject({ label: 'City', kind: 'text', origin: 'builtin' });
     expect(c.get('notAProperty')).toBeUndefined();
-    expect(c.all).toHaveLength(Object.keys(leadPropertyCatalog).length);
+    expect(c.all).toHaveLength(
+      Object.keys(leadPropertyCatalog).length + ORDER_PROPERTY_KEYS.length,
+    );
   });
 
   it('a custom property applies to every type when leadTypes is empty and to listed types otherwise', () => {
@@ -198,7 +218,7 @@ describe('buildPropertyCatalog', () => {
       custom('custom_b', { position: 0 }),
       custom('custom_a', { position: 1 }),
     ]);
-    const builtInCount = leadTypePropertyKeys('internet').length;
+    const builtInCount = leadTypePropertyKeys('internet').length + ORDER_PROPERTY_KEYS.length;
     expect(
       c
         .forType('internet')
@@ -233,6 +253,237 @@ describe('buildPropertyCatalog', () => {
         { value: 'old', label: 'Old', hidden: true },
       ],
     });
+  });
+});
+
+const PLANS: readonly PlanOption[] = [
+  { id: '0b9f3f5e-7c1a-4c2e-9a51-1d2e3f4a5b6c', name: 'Unlimited Data', active: true },
+  { id: '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f', name: 'Old 25GB', active: false },
+];
+
+describe('order properties', () => {
+  it('are defined in code with the brief’s keys, labels and options', () => {
+    expect(ORDER_PROPERTY_KEYS).toEqual(['plan', 'quantity', 'paymentStatus', 'carrierCommission']);
+    expect(Object.keys(orderPropertyCatalog)).toEqual([...ORDER_PROPERTY_KEYS]);
+    expect(orderPropertyCatalog.plan).toEqual({
+      key: 'plan',
+      label: 'Plan',
+      kind: 'choice',
+      options: [],
+    });
+    expect(orderPropertyCatalog.quantity).toEqual({
+      key: 'quantity',
+      label: 'Quantity',
+      kind: 'count',
+    });
+    expect(orderPropertyCatalog.paymentStatus?.options).toEqual([
+      { value: 'not_needed', label: 'Not needed' },
+      { value: 'pending', label: 'Pending' },
+      { value: 'paid', label: 'Paid' },
+    ]);
+    expect(orderPropertyCatalog.carrierCommission?.options).toEqual([
+      { value: 'not_yet', label: 'Not yet' },
+      { value: 'invoiced', label: 'Invoiced' },
+      { value: 'received', label: 'Received' },
+      { value: 'clawback', label: 'Clawback' },
+    ]);
+  });
+
+  it('follow the form properties and precede custom ones on every order type, and only there', () => {
+    const c = buildPropertyCatalog([custom('custom_ref')]);
+    for (const type of ORDER_TYPES) {
+      const keys = c.forType(type).map((p) => p.key);
+      expect(keys).toEqual([...leadTypePropertyKeys(type), ...ORDER_PROPERTY_KEYS, 'custom_ref']);
+      for (const property of c.forType(type).filter((p) => p.storage === 'order')) {
+        expect(property).toMatchObject({
+          origin: 'builtin',
+          storage: 'order',
+          editable: true,
+          staffOnly: false,
+          sensitive: false,
+          hidden: false,
+          websiteVisible: false,
+        });
+        expect(sitePropertySchema.safeParse(property).success).toBe(true);
+      }
+    }
+    const partner = c.forType('partner_application').map((p) => p.key);
+    expect(partner).toEqual([...leadTypePropertyKeys('partner_application'), 'custom_ref']);
+    expect(c.filterable('partner_application').some((p) => p.key === 'paymentStatus')).toBe(false);
+    expect(c.get('plan')?.leadTypes).toEqual([...ORDER_TYPES]);
+  });
+
+  it('read and write their order_details field: plan is stored as planId, the rest as themselves', () => {
+    const storageKeys = Object.fromEntries(
+      codePropertyCatalog
+        .forType('sim_order')
+        .filter((p) => p.storage === 'order')
+        .map((p) => [p.key, p.storageKey]),
+    );
+    expect(storageKeys).toEqual({
+      plan: 'planId',
+      quantity: 'quantity',
+      paymentStatus: 'paymentStatus',
+      carrierCommission: 'carrierCommission',
+    });
+    expect(codePropertyCatalog.get('plan')?.storageKey).toBe('planId');
+    expect(codePropertyCatalog.get('city')?.storageKey).toBeUndefined();
+  });
+
+  it('keep the submitted form plan beside the order plan, with no duplicate keys', () => {
+    const properties = codePropertyCatalog.forType('sim_order');
+    const keys = properties.map((p) => p.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(properties.find((p) => p.key === 'planId')).toMatchObject({
+      storage: 'form',
+      label: 'Plan (as submitted)',
+    });
+    expect(properties.find((p) => p.key === 'plan')).toMatchObject({
+      storage: 'order',
+      label: 'Plan',
+    });
+    for (const type of ORDER_TYPES) {
+      const across = codePropertyCatalog.forType(type).map((p) => p.key);
+      expect(new Set(across).size, type).toBe(across.length);
+    }
+    const filterKeys = codePropertyCatalog.filterable().map((p) => p.key);
+    expect(new Set(filterKeys).size).toBe(filterKeys.length);
+  });
+
+  it('take the plan options from the site’s plans, an inactive plan as a hidden option', () => {
+    expect(codePropertyCatalog.get('plan')?.options ?? []).toEqual([]);
+    const c = buildPropertyCatalog([], 'lead', { plans: PLANS });
+    const expected = [
+      { value: PLANS[0]?.id, label: 'Unlimited Data', hidden: false },
+      { value: PLANS[1]?.id, label: 'Old 25GB', hidden: true },
+    ];
+    expect(c.get('plan')?.options).toEqual(expected);
+    expect(c.forType('internet').find((p) => p.key === 'plan')?.options).toEqual(expected);
+    expect(c.filterable('mobility').find((p) => p.key === 'plan')?.options).toEqual(expected);
+    expect(c.filterable().find((p) => p.key === 'plan')?.options).toEqual(expected);
+    // An old value still reads; nobody picks it anew.
+    const plan = c.get('plan');
+    if (!plan) throw new Error('plan property missing');
+    expect(formatPropertyValue(plan, PLANS[1]?.id)).toBe('Old 25GB');
+    expect(parsePropertyValue(plan, PLANS[1]?.id).ok).toBe(false);
+    expect(parsePropertyValue(plan, PLANS[0]?.id).ok).toBe(true);
+  });
+
+  it('are filterable per order type and across types, with the choice operators', () => {
+    const payment = codePropertyCatalog
+      .filterable('sim_order')
+      .find((p) => p.key === 'paymentStatus');
+    expect(payment).toEqual({
+      key: 'paymentStatus',
+      label: 'Payment status',
+      kind: 'choice',
+      options: [
+        { value: 'not_needed', label: 'Not needed', hidden: false },
+        { value: 'pending', label: 'Pending', hidden: false },
+        { value: 'paid', label: 'Paid', hidden: false },
+      ],
+    });
+    expect(payment && leadPropertyOperators(payment.kind)).toEqual([
+      'eq',
+      'in',
+      'empty',
+      'notEmpty',
+    ]);
+    expect(codePropertyCatalog.filterable('sim_order').map((p) => p.key)).toEqual(
+      expect.arrayContaining([...ORDER_PROPERTY_KEYS]),
+    );
+    expect(codePropertyCatalog.filterable().find((p) => p.key === 'quantity')).toMatchObject({
+      kind: 'count',
+      label: 'Quantity',
+    });
+    expect(
+      isValidLeadPropertyFilter(
+        { key: 'paymentStatus', op: 'in', value: ['paid', 'pending'] },
+        'sim_order',
+      ),
+    ).toBe(true);
+  });
+
+  it('a built-in override relabels or hides them like any built-in', () => {
+    const hidden = buildPropertyCatalog([
+      row({ key: 'quantity', origin: 'builtin', hidden: true }),
+    ]);
+    expect(hidden.forType('sim_order').some((p) => p.key === 'quantity')).toBe(false);
+    expect(hidden.filterable('sim_order').some((p) => p.key === 'quantity')).toBe(false);
+    expect(hidden.filterable().some((p) => p.key === 'quantity')).toBe(false);
+    expect(hidden.get('quantity')).toMatchObject({ hidden: true, version: 1 });
+
+    const relabelled = buildPropertyCatalog([
+      row({ key: 'paymentStatus', origin: 'builtin', label: 'Paid?', version: 4 }),
+    ]);
+    expect(relabelled.forType('internet').find((p) => p.key === 'paymentStatus')).toMatchObject({
+      label: 'Paid?',
+      version: 4,
+      storage: 'order',
+    });
+    expect(relabelled.filterable('internet').find((p) => p.key === 'paymentStatus')?.label).toBe(
+      'Paid?',
+    );
+    expect(relabelled.filterable().find((p) => p.key === 'paymentStatus')?.label).toBe('Paid?');
+
+    const shadow = buildPropertyCatalog([row({ key: 'plan', origin: 'custom', label: 'Shadow' })]);
+    expect(shadow.get('plan')).toMatchObject({
+      origin: 'builtin',
+      storage: 'order',
+      label: 'Plan',
+    });
+  });
+
+  it('do not exist for plans', () => {
+    const plans = buildPropertyCatalog([], 'plan', { plans: PLANS });
+    expect(plans.all).toEqual([]);
+    expect(plans.forType('sim_order')).toEqual([]);
+  });
+});
+
+describe('websiteVisible', () => {
+  it('round-trips through propertyRowSchema and defaults to false', () => {
+    expect(custom('custom_ref').websiteVisible).toBe(false);
+    expect(
+      propertyRowSchema.parse({ ...custom('custom_ref', { object: 'plan' }), websiteVisible: true })
+        .websiteVisible,
+    ).toBe(true);
+    expect(
+      propertyRowSchema.safeParse({ ...custom('custom_ref'), websiteVisible: 'yes' }).success,
+    ).toBe(false);
+  });
+
+  it('is carried through the catalogue for a custom plan property, and false otherwise', () => {
+    const plans = buildPropertyCatalog(
+      [
+        custom('custom_network', { object: 'plan', websiteVisible: true }),
+        custom('custom_cost', { object: 'plan', position: 1 }),
+      ],
+      'plan',
+    );
+    expect(plans.get('custom_network')?.websiteVisible).toBe(true);
+    expect(plans.get('custom_cost')?.websiteVisible).toBe(false);
+    expect(sitePropertySchema.safeParse(plans.get('custom_network')).success).toBe(true);
+    // A lead property is never shown on a website, whatever its row says.
+    const leads = buildPropertyCatalog([custom('custom_ref', { websiteVisible: true })]);
+    expect(leads.get('custom_ref')?.websiteVisible).toBe(false);
+  });
+
+  it('is accepted on create (default false) and update', () => {
+    expect(
+      createCustomPropertySchema.parse({ label: 'Network', kind: 'text', websiteVisible: true })
+        .websiteVisible,
+    ).toBe(true);
+    expect(
+      createCustomPropertySchema.parse({ label: 'Network', kind: 'text' }).websiteVisible,
+    ).toBe(false);
+    expect(updatePropertySchema.parse({ expectedVersion: 1, websiteVisible: true })).toEqual({
+      expectedVersion: 1,
+      websiteVisible: true,
+    });
+    expect(
+      updatePropertySchema.safeParse({ expectedVersion: 1, websiteVisible: 'no' }).success,
+    ).toBe(false);
   });
 });
 
@@ -363,6 +614,7 @@ describe('createCustomPropertySchema', () => {
       options: [{ value: 'gold', label: 'Gold', hidden: false }],
       staffOnly: false,
       sensitive: false,
+      websiteVisible: false,
       leadTypes: [],
     });
     expect(

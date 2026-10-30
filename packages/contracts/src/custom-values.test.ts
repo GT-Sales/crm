@@ -135,7 +135,14 @@ describe('applyCustomValueEdits', () => {
   });
 
   it('refuses unknown keys, built-in keys, hidden properties and those of another type', () => {
-    for (const key of ['custom_nope', 'planId', 'custom_gone', 'custom_net']) {
+    for (const key of [
+      'custom_nope',
+      'planId',
+      'plan',
+      'paymentStatus',
+      'custom_gone',
+      'custom_net',
+    ]) {
       expect(
         applyCustomValueEdits({ properties: simProperties, current: {}, edits: { [key]: 'x' } }),
       ).toEqual({ ok: false, field: key });

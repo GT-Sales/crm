@@ -48,6 +48,7 @@ function propertyRow(
     staffOnly: false,
     sensitive: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     position: 0,
     version: 1,
@@ -303,6 +304,7 @@ describe('property routes', () => {
       options: [],
       staffOnly: true,
       sensitive: false,
+      websiteVisible: false,
       leadTypes: [],
     });
 
