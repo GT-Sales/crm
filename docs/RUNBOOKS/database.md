@@ -514,7 +514,11 @@ app_runtime`. The scheduler's `data_retention` run (on only with
 - Its tenant policy and `site_counters_backup_reader_read`, so `app` now has
   36 `_backup_reader_read` policies.
 - Drizzle hash `e5544ea194961ff67154ff03aae20a077a15283273314edc9675afed77619058`,
-  `created_at` `1793380650712`. **Not yet applied** to the hosted project.
+  `created_at` `1793380650712`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030175305`, name `0015_order_numbers`,
+  inserted by hand) through the Supabase tool's SQL runner, statement for
+  statement from the file, with the Drizzle tracker row. Pre-check A before:
+  no `app.site_counters`, 0 tracker rows.
 
 ## 0016_order_numbers_runtime
 
@@ -524,7 +528,13 @@ app_runtime`. The scheduler's `data_retention` run (on only with
   function change, no pruning, no data migration. Every statement is safe to
   run twice.
 - Drizzle hash `3e6c35c0b2f4c3e8f35adc61a195e8d23027ba9ecf7a39452f0586a4a0015fff`,
-  `created_at` `1793380656599`. **Not yet applied** to the hosted project.
+  `created_at` `1793380656599`. Applied right after 0015 the same way
+  (tracker version `20261030175306`, name `0016_order_numbers_runtime`).
+  Verification after both: `site_counters` row security on and forced; its
+  two policies; 36 backup read policies; `app_runtime` `SELECT`, `INSERT`,
+  `UPDATE` true and `DELETE` false; `backup_reader` `SELECT` true; the four
+  constraints; both Drizzle rows; no counter rows yet. No statement tripped
+  the confirmation prompt.
 - To apply, before deploying a backend that numbers SIM orders: in the SQL
   editor, as `postgres`, run
   [`manual/0015-0016-order-numbers.sql`](manual/0015-0016-order-numbers.sql)'s

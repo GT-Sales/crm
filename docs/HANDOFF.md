@@ -894,7 +894,8 @@ Built on branch `p5/a-crm` from
 (Part A, CRM tasks A1 to A5). The website side (Get Canada Sim's checkout
 through the CRM behind `CRM_ORDERS`, tasks A6 to A8) is built in parallel in
 that repository. Nothing is
-deployed or applied yet: migrations 0015 and 0016 are **not applied** (§5.1).
+deployed yet; migrations 0015 and 0016 were applied to the hosted project on
+2026-10-30 (§5.1).
 
 1. **Contracts.** `simOrderLeadPayloadSchema` (the checkout's ten optional
    keys), `SIM_ORDER_DELIVERIES`, `SIM_ORDER_PERMIT_TYPES`,
@@ -1071,7 +1072,7 @@ customer until they are done):
    orders: the pre-check, the paste and the six verification selects of
    [`RUNBOOKS/manual/0015-0016-order-numbers.sql`](RUNBOOKS/manual/0015-0016-order-numbers.sql)
    ([RUNBOOKS/database.md](RUNBOOKS/database.md#0015_order_numbers)).
-   Status: to do.
+   Status: **done** 2026-10-30 (all six verification selects as expected).
 2. **Create the Get Canada Sim site key** in the admin
    (`/w/getcanadasim/settings`), scopes `leads:write` and `uploads:customer`; it goes
    into Get Canada Sim's Vercel project as `CRM_SITE_KEY` with `CRM_API_URL`,
