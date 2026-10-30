@@ -21,7 +21,7 @@ export function inboxQueryToViewState(query: InboxQuery): SavedViewState {
   return {
     layout: query.layout,
     ...(query.type ? { leadType: query.type } : {}),
-    archived: query.trash,
+    archived: query.archived,
     ...(query.stage ? { stage: query.stage } : {}),
     ...(query.assignee ? { assignee: query.assignee } : {}),
     due: query.due,
@@ -35,7 +35,7 @@ export function inboxQueryToViewState(query: InboxQuery): SavedViewState {
 function queryFromState(state: SavedViewState, view: string | undefined): InboxQuery {
   return {
     ...(state.leadType ? { type: state.leadType } : {}),
-    trash: state.archived,
+    archived: state.archived,
     layout: state.layout,
     ...(view ? { view } : {}),
     ...(state.stage ? { stage: state.stage } : {}),

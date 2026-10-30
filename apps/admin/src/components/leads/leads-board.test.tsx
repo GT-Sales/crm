@@ -61,7 +61,7 @@ function renderBoard() {
       workspaceId={WORKSPACE}
       accessToken="staff-token"
       members={[]}
-      query={{ type: 'internet', trash: false, due: false, layout: 'board', hide: [], page: 1 }}
+      query={{ type: 'internet', archived: false, due: false, layout: 'board', hide: [], page: 1 }}
     />,
   );
 }

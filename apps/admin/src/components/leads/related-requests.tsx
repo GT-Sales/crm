@@ -8,7 +8,7 @@ import { StageBadge } from './lead-display';
 /**
  * The same person's other requests on this site, newest first, so whoever
  * calls them sees the whole picture: a second form, an earlier one already
- * won, a duplicate in the trash. Nothing shows when there are none.
+ * won, a duplicate in the archive. Nothing shows when there are none.
  */
 export function RelatedRequests({
   workspaceSlug,
@@ -32,7 +32,7 @@ export function RelatedRequests({
                 <span className="font-medium">{leadTypeLabel(entry.leadType)}</span>
                 <span className="flex items-center gap-2">
                   {entry.deletedAt ? (
-                    <span className="text-xs text-muted-foreground">In trash</span>
+                    <span className="text-xs text-muted-foreground">In archive</span>
                   ) : (
                     <StageBadge leadType={entry.leadType} stage={entry.stage} />
                   )}

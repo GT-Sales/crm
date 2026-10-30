@@ -11,6 +11,7 @@ import {
 } from '@gt-sales/contracts';
 import { Button, Textarea } from '@gt-sales/ui';
 import {
+  ArchiveIcon,
   ArrowRightIcon,
   CheckIcon,
   EyeIcon,
@@ -20,7 +21,6 @@ import {
   PencilIcon,
   RotateCcwIcon,
   StickyNoteIcon,
-  Trash2Icon,
   UserIcon,
   XIcon,
 } from 'lucide-react';
@@ -128,8 +128,8 @@ function describe(
           .join(', ')}`,
       };
     case 'system':
-      if (activity.event === 'trashed')
-        return { icon: <Trash2Icon />, text: 'moved this to the trash' };
+      // `trashed` is the API's name for an archive.
+      if (activity.event === 'trashed') return { icon: <ArchiveIcon />, text: 'archived this' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
       if (activity.event === 'change_requested') {
@@ -162,7 +162,7 @@ function describe(
 
 /**
  * The lead's history, newest first: notes, stage changes, assignments,
- * corrections and the trash, ending with the submission itself. Staff who
+ * corrections and the archive, ending with the submission itself. Staff who
  * manage leads write notes at the top.
  */
 export function LeadTimeline({
@@ -252,6 +252,8 @@ export function LeadTimeline({
           )
           .map((activity) => {
             const { icon, text } = describe(activity, lead.leadType, members, catalog);
+            // A data migration (the 0012 stage clean-up) says in words what it changed.
+            const body = activity.kind === 'system' ? activity.body : undefined;
             return (
               <li key={activity.id} className="relative flex gap-3 pb-5 last:pb-0">
                 <span
@@ -282,6 +284,7 @@ export function LeadTimeline({
                       {activity.body}
                     </p>
                   ) : null}
+                  {body ? <p className="mt-1 text-muted-foreground">{body}</p> : null}
                 </div>
               </li>
             );

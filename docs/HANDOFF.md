@@ -602,8 +602,8 @@ applied to the hosted project yet** (§5.1), so this is not deployed.
 
 Built on this branch from
 [docs/superpowers/plans/2026-10-30-phase-3-plans-stages-archive.md](superpowers/plans/2026-10-30-phase-3-plans-stages-archive.md).
-The backend, the contracts and the Settings pages are merged on the branch;
-the admin's record and Archive wording lands with the last task. The
+The backend, the contracts, the Settings pages, the admin's Order section
+and the Archive wording are merged on the branch. The
 migrations are **not applied to the hosted project yet** (§5.1), so this is
 not deployed, and the branch's backend must not be deployed before them (it
 selects `leads.order_details`).
@@ -659,10 +659,13 @@ selects `leads.order_details`).
    `order.manage` writes) with **Plan properties** as a page under it
    (`settings/plans/properties`: custom plan properties and their _Show on
    website_ switch, through the same `PropertiesSettings` with `object="plan"`).
-   The lead record gets an **Order** section (plan select, frozen copy,
-   quantity, payment status, carrier commission); the inbox filters and
-   columns cover them; the admin says Archive instead of Trash. The URL
-   parameter is `archived=1`, with the legacy `trash=1` still read.
+   The lead record gets an **Order** section (plan select of the site's
+   active plans, an inactive current one marked, with the frozen copy beneath
+   it or "No plan frozen yet"; quantity, payment status, carrier commission);
+   the inbox filters and columns cover them; the timeline shows what the 0012
+   migration changed. The admin says Archive instead of Trash. The URL
+   parameter is `archived=1`, with the legacy `trash=1` still read (and
+   rewritten), and a saved view with the legacy `trash` key opens the archive.
 
 ## 4. What is verified, and how
 

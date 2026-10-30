@@ -65,14 +65,14 @@ function detailUsage(error: BackendError): PropertyUsage | undefined {
 
 /**
  * Where the leads holding a value are, and what each group needs, e.g.
- * "Used on 5 leads: 2 active, 2 in the trash (restore, clear the value, trash
+ * "Used on 5 leads: 2 active, 2 in the archive (restore, clear the value, archive
  * again), 1 restricted (cannot be edited)". Groups with no lead are left out.
  */
 function usageText(usage: PropertyUsage): string {
   const parts: string[] = [];
   if (usage.active > 0) parts.push(`${usage.active} active`);
   if (usage.trashed > 0) {
-    parts.push(`${usage.trashed} in the trash (restore, clear the value, trash again)`);
+    parts.push(`${usage.trashed} in the archive (restore, clear the value, archive again)`);
   }
   if (usage.restricted > 0) parts.push(`${usage.restricted} restricted (cannot be edited)`);
   return `${leadsText(usage.leadCount)}: ${parts.join(', ')}`;

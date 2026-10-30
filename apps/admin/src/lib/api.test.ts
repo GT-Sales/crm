@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getStaffWorkspaces } from './api.js';
+import { getStaffWorkspaces, setLeadArchived } from './api.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -37,5 +37,54 @@ describe('staff backend client', () => {
     expect(init?.cache).toBe('no-store');
     expect(init?.redirect).toBe('error');
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer verified-access-token');
+  });
+});
+
+describe('archiving a lead', () => {
+  const WORKSPACE = '10000000-0000-4000-8000-000000000001';
+  const LEAD = '90000000-0000-4000-8000-000000000001';
+  const lead = {
+    id: LEAD,
+    workspaceId: WORKSPACE,
+    leadType: 'internet',
+    status: 'submitted',
+    stage: 'new',
+    contact: {},
+    contactId: null,
+    assignedActorId: null,
+    externalRef: null,
+    source: 'direct',
+    attribution: {},
+    consentVersion: null,
+    openTaskCount: 0,
+    nextTaskDueAt: null,
+    deletedAt: null,
+    createdAt: '2026-10-30T09:00:00.000Z',
+    updatedAt: '2026-10-30T09:00:00.000Z',
+    form: null,
+  };
+
+  it('posts to /archive to archive and /restore to restore', async () => {
+    const request = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            lead,
+            activity: null,
+            requestId: '70000000-0000-4000-8000-000000000001',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+
+    await setLeadArchived('token', WORKSPACE, LEAD, true);
+    await setLeadArchived('token', WORKSPACE, LEAD, false);
+
+    const calls = request.mock.calls.map(([input, init]) => [init?.method, String(input)]);
+    expect(calls).toEqual([
+      ['POST', `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/leads/${LEAD}/archive`],
+      ['POST', `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/leads/${LEAD}/restore`],
+    ]);
   });
 });

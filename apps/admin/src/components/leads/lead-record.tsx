@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   defaultPropertyLayout,
+  leadOrderEditSchema,
   leadTypeEntry,
   leadTypeLabel,
   type GetWorkspaceLeadResponse,
@@ -14,13 +15,13 @@ import {
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 import { Button, Card, CardContent, cn, Input, NativeSelect } from '@gt-sales/ui';
-import { ArrowLeftIcon, CopyIcon, PrinterIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react';
+import { ArchiveIcon, ArrowLeftIcon, CopyIcon, PrinterIcon, RotateCcwIcon } from 'lucide-react';
 
 import {
   emailLeadCustomer,
   getStaffLead,
   markLeadOpened,
-  setLeadTrashed,
+  setLeadArchived,
   updateStaffLead,
 } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
@@ -124,7 +125,7 @@ function ContactEditor({
 }
 
 /**
- * The lead page, laid out like a CRM record: the stage, owner and trash in
+ * The lead page, laid out like a CRM record: the stage, owner and archive in
  * the header; contact, the site's property sections and source on the left;
  * tasks and the timeline on the right. Roles that only read leads see the
  * stage and source without the customer's details. In the inbox's side panel
@@ -140,7 +141,7 @@ export function LeadRecord({
   workspaceSlug: string;
   leadId: string;
   variant?: 'page' | 'panel';
-  /** After any change saved here (stage, owner, properties, notes, tasks, trash, opened). */
+  /** After any change saved here (stage, owner, properties, notes, tasks, archive, opened). */
   onChange?(): void;
 }) {
   const { workspaceId, accessToken, members } = useLeadWorkspace(workspaceSlug);
@@ -281,11 +282,30 @@ export function LeadRecord({
     }
   }
 
-  /** A section's save: its built-in answers and custom values in one change. */
+  /**
+   * A section's save: its built-in answers, custom values and order details
+   * in one change. Order edits come keyed by property; the order's `plan` is
+   * sent as `planId`, which re-freezes the plan.
+   */
   async function saveProperties(edits: PropertyEdits): Promise<string | undefined> {
     if (!accessToken || !workspaceId) return 'The change was not saved. Sign in again.';
+    let order: UpdateWorkspaceLeadRequest['order'];
+    if (edits.order) {
+      const { plan, ...rest } = edits.order;
+      const parsed = leadOrderEditSchema.safeParse({
+        ...rest,
+        ...(plan !== undefined ? { planId: plan } : {}),
+      });
+      if (!parsed.success) return 'Check the order: a quantity and both statuses are needed.';
+      order = parsed.data;
+    }
+    const body: UpdateWorkspaceLeadRequest = {
+      ...(edits.form ? { form: edits.form } : {}),
+      ...(edits.customValues ? { customValues: edits.customValues } : {}),
+      ...(order ? { order } : {}),
+    };
     try {
-      const result = await updateStaffLead(accessToken, workspaceId, leadId, edits);
+      const result = await updateStaffLead(accessToken, workspaceId, leadId, body);
       changeRecord((current) => ({
         ...current,
         lead: result.lead,
@@ -340,12 +360,12 @@ export function LeadRecord({
     }
   }
 
-  async function setTrashed(trashed: boolean) {
+  async function setArchived(archived: boolean) {
     if (!accessToken || !workspaceId) return;
     setSaving(true);
     setMessage(undefined);
     try {
-      const result = await setLeadTrashed(accessToken, workspaceId, leadId, trashed);
+      const result = await setLeadArchived(accessToken, workspaceId, leadId, archived);
       changeRecord((current) => ({
         ...current,
         lead: result.lead,
@@ -353,7 +373,7 @@ export function LeadRecord({
       }));
     } catch (error) {
       setMessage(
-        `The lead was not ${trashed ? 'moved to the trash' : 'restored'}. Reason: ${errorReason(error)}.`,
+        `The lead was not ${archived ? 'archived' : 'restored'}. Reason: ${errorReason(error)}.`,
       );
     } finally {
       setSaving(false);
@@ -474,16 +494,16 @@ export function LeadRecord({
                   variant="outline"
                   size="sm"
                   disabled={saving}
-                  onClick={() => void setTrashed(true)}
+                  onClick={() => void setArchived(true)}
                 >
-                  <Trash2Icon className="size-4" aria-hidden="true" /> Move to trash
+                  <ArchiveIcon className="size-4" aria-hidden="true" /> Archive
                 </Button>
               ) : (
                 <Button
                   type="button"
                   size="sm"
                   disabled={saving}
-                  onClick={() => void setTrashed(false)}
+                  onClick={() => void setArchived(false)}
                 >
                   <RotateCcwIcon className="size-4" aria-hidden="true" /> Restore
                 </Button>
@@ -496,8 +516,8 @@ export function LeadRecord({
             role="status"
             className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm"
           >
-            This lead is in the trash (since {dateTimeLabel(lead.deletedAt)}). Restore it to work on
-            it again.
+            This lead is archived (since {dateTimeLabel(lead.deletedAt)}). Restore it to work on it
+            again.
           </p>
         ) : null}
         {waitingChange ? (
@@ -615,6 +635,7 @@ export function LeadRecord({
               catalog={catalog}
               form={payload}
               customValues={customValues}
+              order={lead.order}
               canEdit={canWrite}
               // Everyone who sees the customer's details sees these (the SIN keeps its own reveal).
               canRevealSensitive={access.contacts}

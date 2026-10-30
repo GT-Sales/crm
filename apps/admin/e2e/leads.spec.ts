@@ -132,19 +132,19 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
   expect(errors).toEqual([]);
 });
 
-test('the trash hides a lead and restores it', async ({ page }) => {
+test('the archive hides a lead and restores it', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet');
   await page.getByRole('link', { name: 'Blake Sample' }).click();
   await page.getByRole('link', { name: 'Open full page' }).click();
-  await page.getByRole('button', { name: 'Move to trash' }).click();
-  await expect(page.getByText(/This lead is in the trash/)).toBeVisible();
+  await page.getByRole('button', { name: 'Archive' }).click();
+  await expect(page.getByText(/This lead is archived/)).toBeVisible();
   await expect(page.getByLabel('Stage')).toHaveCount(0);
 
   await page.goto('/w/canadawide/leads');
   await expect(page.getByRole('tab', { name: /All leads\s*4/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Blake Sample' })).toHaveCount(0);
-  await page.getByRole('tab', { name: /Trash\s*1/ }).click();
+  await page.getByRole('tab', { name: /Archive\s*1/ }).click();
   await page.getByRole('link', { name: 'Blake Sample' }).click();
   await page.getByRole('button', { name: 'Restore' }).click();
   await expect(page.getByLabel('Stage')).toBeVisible();

@@ -164,7 +164,7 @@ export function LeadsTable({
               stage: query.stage,
               assignee: query.assignee,
               q: query.q,
-              view: query.trash ? 'trash' : 'active',
+              view: query.archived ? 'archived' : 'active',
               // Due by the viewer's own today: due dates are calendar days.
               dueBy: query.due ? todayDay() : undefined,
               ...(query.where && query.where.length > 0 ? { where: query.where } : {}),
@@ -181,7 +181,7 @@ export function LeadsTable({
       query.stage,
       query.assignee,
       query.q,
-      query.trash,
+      query.archived,
       query.due,
       query.where,
       query.sort,
@@ -206,7 +206,7 @@ export function LeadsTable({
   const openLead = (lead: LeadListItem) =>
     panel ? panel.onOpen(lead.id) : router.push(leadHref(lead));
   const contactsAllowed = leads.data ? leads.data.access.contacts : (canUseProperties ?? false);
-  const canSort = contactsAllowed && !query.trash && Boolean(onSort);
+  const canSort = contactsAllowed && !query.archived && Boolean(onSort);
 
   // The type's countdown (a SIM order's arrival) gets a column; on every type's
   // tab, when this page holds a lead that has one.
@@ -303,9 +303,9 @@ export function LeadsTable({
                 />
               ) : null}
               {showCol('activity') ? (
-                query.trash ? (
+                query.archived ? (
                   <th scope="col" className={HEAD_CELL}>
-                    Deleted
+                    Archived
                   </th>
                 ) : (
                   <SortableHeader
@@ -328,8 +328,8 @@ export function LeadsTable({
                 >
                   {leads.loading || waiting ? (
                     'Loading…'
-                  ) : query.trash ? (
-                    'The trash is empty.'
+                  ) : query.archived ? (
+                    'The archive is empty.'
                   ) : query.due ? (
                     'No follow-ups due today or earlier.'
                   ) : hasFilters ? (
@@ -357,7 +357,7 @@ export function LeadsTable({
               rows.map((lead) => {
                 const assignee = assigneeName(lead.assignedActorId, members);
                 const secondary = secondaryLine(lead);
-                const lastChange = query.trash
+                const lastChange = query.archived
                   ? (lead.deletedAt ?? lead.updatedAt)
                   : lead.updatedAt;
                 return (
