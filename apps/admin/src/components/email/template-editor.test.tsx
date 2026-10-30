@@ -189,7 +189,9 @@ describe('TemplateEditor preview', () => {
       templateProblem(
         new mocks.FakeBackendError('invalid_email_markup', 400, { reason: 'bad_link' }),
       ),
-    ).toBe('A link address must start with http:// or https://, or be {tracking link} on its own.');
+    ).toBe(
+      'A link address must start with http:// or https://, or be {tracking link} on its own. A typed address cannot hold { or }.',
+    );
   });
 });
 

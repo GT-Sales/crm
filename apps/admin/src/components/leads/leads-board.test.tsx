@@ -305,6 +305,36 @@ describe('LeadsBoard', () => {
     ]);
   });
 
+  it('clears the customer mail lines when the next move has none', async () => {
+    mocks.getLeadBoard.mockResolvedValue(orderBoard());
+    mocks.updateStaffLead
+      .mockResolvedValueOnce({
+        lead: { ...card, leadType: 'sim_order', stage: 'on_hold', form: null },
+        activities: [],
+        allowedMoves: [],
+        emailSkipped: [
+          {
+            automation: 'sim_order_information_needed',
+            template: 'information_needed',
+            reason: 'no_customer_email',
+          },
+        ],
+        requestId: NOW,
+      })
+      .mockResolvedValueOnce({
+        lead: { ...card, leadType: 'sim_order', stage: 'pending', form: null },
+        activities: [],
+        allowedMoves: [],
+        requestId: NOW,
+      });
+    renderBoard('sim_order');
+    await moveTo('On hold');
+    await screen.findByRole('list', { name: 'Customer emails' });
+
+    await moveTo('Pending');
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Customer emails' })).toBeNull());
+  });
+
   it('says when a move queued an email to the customer', async () => {
     mocks.getLeadBoard.mockResolvedValue(orderBoard());
     mocks.updateStaffLead.mockResolvedValue({

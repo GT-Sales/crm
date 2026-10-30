@@ -810,7 +810,12 @@ Owner rulings of 2026-10-30 on the plan's first draft:
    occurrence (the move's timeline entry, or `submitted`), so a retry never
    mails twice. A lead the customer never submitted (`status` still
    `incomplete`, an abandoned checkout) fires no stage rule at all, so moving
-   it to Cancelled mails nobody. Each firing writes a run: `queued` with its
+   it to Cancelled mails nobody. That also holds for a checkout staff rescue
+   by hand (Incomplete → Pending and onward): its Dispatched and Activated
+   emails stay silent, because a staff move never changes `status`. If the
+   owner wants rescued checkouts mailed, that is a small follow-up (flip
+   `status` on the first staff move out of Incomplete). Each firing writes a
+   run: `queued` with its
    outbox job, or `skipped` with the reason. A skipped rule never blocks the
    move or the submit; the move's response lists it as `emailSkipped` and the
    admin says so.
@@ -1202,10 +1207,11 @@ phases ([spec §12](superpowers/specs/2026-10-28-merge-canadian-plans-design.md#
     refused (`bad_link`); `{tracking link}` as the whole address still works.
     Two markup oddities remain: `[button: ](url)` with an empty label reads as
     an ordinary link, and a `**` can close inside a link label.
-  - If a template was saved elsewhere (another tab, another member) after the
-    editor loaded it, Save answers `version_conflict` and the editor keeps the
-    old version, so every further Save fails until the page is reloaded (copy
-    the text first).
+  - ~~If a template was saved elsewhere after the editor loaded it, Save
+    answers `version_conflict` and every further Save fails until the page is
+    reloaded.~~ Fixed in the phase 4 fix wave: on a conflict the page reloads
+    the templates itself, keeps the draft, and the next Save sends the fresh
+    version.
   - A skipped automation run says why (`no sender`, `no customer email`,
     `missing fill-ins`) but the Automations page does not name the missing fill-ins;
     only the immediate notice after a stage move does.
@@ -1231,8 +1237,9 @@ phases ([spec §12](superpowers/specs/2026-10-28-merge-canadian-plans-design.md#
   - The documents check reads files and reviews without locking them, so a
     review that lands during the same instant as a move may be missed; the
     window is narrow and a later move re-checks.
-  - The stage `PATCH` handler's outcome `switch` has no `never` guard, so a
-    new store outcome that is not mapped would leave the request unanswered.
+  - ~~The stage `PATCH` handler's outcome `switch` has no `never` guard.~~
+    Fixed in the phase 4 fix wave: an unmapped outcome fails typecheck and
+    answers 500 at runtime.
   - Tests: no test ties the SQL key lists of `0013` to the contracts
     (`BUILT_IN_AUTOMATION_KEYS` and the template keys are CHECK constraints, so
     a new rule needs a migration); the concurrency test of two simultaneous

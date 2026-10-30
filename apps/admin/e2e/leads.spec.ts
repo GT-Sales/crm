@@ -539,12 +539,14 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   await expect(order.locator('dt:text-is("Courier") + dd')).toHaveText('Canada Post');
   await expect(timeline).toContainText('Dispatched email queued by an automation (version 1)');
 
-  // Activated is dated today unless staff say otherwise.
-  const today = await page.evaluate(() => {
-    const now = new Date();
-    const pad = (value: number) => String(value).padStart(2, '0');
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  });
+  // Activated is dated today in Toronto unless staff say otherwise (the
+  // browser and CI may run in UTC, which is a different day late at night).
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
   await stage.selectOption({ label: 'Activated' });
   const activate = page.getByRole('dialog', { name: 'Move to Activated' });
   await expect(activate.getByLabel('Activated on')).toHaveValue(today);

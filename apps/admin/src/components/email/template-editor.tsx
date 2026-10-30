@@ -28,7 +28,8 @@ const BODY_MAX = 5000;
 const MARKUP_PROBLEMS: Readonly<Record<string, string>> = {
   two_buttons: 'An email can have one button only.',
   button_not_alone: 'Put the button in a paragraph of its own, with a blank line before and after.',
-  bad_link: 'A link address must start with http:// or https://, or be {tracking link} on its own.',
+  bad_link:
+    'A link address must start with http:// or https://, or be {tracking link} on its own. A typed address cannot hold { or }.',
 };
 
 /**

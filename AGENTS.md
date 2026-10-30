@@ -245,8 +245,8 @@ An **automation rule** is a trigger and an action, for example "when a SIM
 order moves to Delivered, send the Dispatched email". Phase 4 has six built-in
 rules (`BUILT_IN_AUTOMATIONS` in `packages/contracts/src/automations.ts`: a
 trigger `lead_submitted` or `stage_entered`, an action `send_email`), switched
-on or off per site in `app.automations` (every rule is off until the owner
-switches it on; a site without a row has it off). A **run** is one firing of a
+on or off per site in `app.automations` (every rule is off until someone with
+`integration.manage` switches it on; a site without a row has it off). A **run** is one firing of a
 rule for one lead, `queued` (with the outbox job) or `skipped` (with a reason:
 `no_sender`, `no_customer_email` or `missing_fill_in`), in the append-only
 `app.automation_runs` (pruned after 90 days). A rule that is off queues nothing

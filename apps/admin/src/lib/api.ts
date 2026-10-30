@@ -417,7 +417,7 @@ export async function listAutomationRuns(
 }
 
 // ---- Settings → Email: the site's sender and its seven templates. Every
-// call needs integration.manage (the owner), checked server-side. ----
+// call needs integration.manage (the owner has it), checked server-side. ----
 
 export async function getEmailSettings(
   accessToken: string,
