@@ -79,17 +79,20 @@ export function loadUmamiAnalyticsSink(
  * webhook reports from, when it has one; otherwise, for a site with its own
  * sender, the one configured account (its deliveries are then recorded
  * without inbound events until a webhook is registered). Either way it must
- * be `RESEND_ACCOUNT_ID`, or nothing sends.
+ * be `RESEND_ACCOUNT_ID`, or nothing sends. A mail that carries its own sender
+ * (`siteSender`) needs no entry in the configured sender list: its account is
+ * the registry's, else `RESEND_ACCOUNT_ID`.
  */
 export function resendAccountForWorkspace(
   env: NodeJS.ProcessEnv,
   registry: Pick<MachineRegistry, 'resendForWorkspace'> | undefined,
   senders: EmailSenders,
   workspaceId: string,
+  siteSender = false,
 ): string | undefined {
   const account =
     registry?.resendForWorkspace(workspaceId)?.providerAccount ??
-    (senders.forWorkspace(workspaceId) ? env.RESEND_ACCOUNT_ID : undefined);
+    (siteSender || senders.forWorkspace(workspaceId) ? env.RESEND_ACCOUNT_ID : undefined);
   return account && account === env.RESEND_ACCOUNT_ID ? account : undefined;
 }
 
@@ -172,12 +175,12 @@ export function createOutboxJobHandlers(
     deliveryOverride ??
     (eligibility instanceof DatabaseEmailStore
       ? {
-          prepare: async (input) => {
+          prepare: async ({ siteSender, ...input }) => {
             const provider = emailProvider;
             if (!provider) throw new JobHandlerError('provider_not_configured', false);
             const providerAccount =
               provider === 'resend'
-                ? resendAccountForWorkspace(env, registry, senders, input.workspaceId)
+                ? resendAccountForWorkspace(env, registry, senders, input.workspaceId, siteSender)
                 : provider;
             if (!providerAccount) {
               throw new JobHandlerError('email_account_not_configured', false);

@@ -1,6 +1,7 @@
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
 import {
+  allowedStageMoves,
   areValidLeadColumns,
   areValidLeadPropertyFilters,
   createDownloadLinkRequestSchema,
@@ -26,7 +27,7 @@ import {
   type LeadListItem,
   type PropertyCatalog,
 } from '@gt-sales/contracts';
-import { rateLimitHit, type TenantContext } from '@gt-sales/db';
+import { rateLimitHit, withTenantTx, type DatabaseClient, type TenantContext } from '@gt-sales/db';
 import { z } from 'zod';
 
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
@@ -44,7 +45,9 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { sensitiveFieldsKey } from '../crypto/cipher.js';
+import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
 import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
+import { DatabaseEmailSettingsStore, type EmailSettingsStore } from '../email/settings-store.js';
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import {
@@ -72,6 +75,8 @@ import {
   type WebsiteCredentialStore,
 } from '../website/store.js';
 
+import { createAutomationRoutes } from './automations.js';
+import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 
@@ -104,6 +109,12 @@ export interface StaffRouteDependencies {
   propertyStore?: PropertyStore;
   /** The site's plans; `createApp` supplies the database store when this is omitted. */
   planStore?: PlanStore;
+  /** The built-in automation rules' state and runs; omitted in route tests that do not reach them. */
+  automationStore?: AutomationStore;
+  /** The site's email settings and templates; omitted in route tests that do not reach them. */
+  emailSettingsStore?: EmailSettingsStore;
+  /** The transaction runner the test mail is composed and queued in; the database's by default. */
+  withTenantTx?: DatabaseClient['withTenantTx'];
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -120,6 +131,8 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     customerEmail: customerEmailFromEnv(),
     savedViewStore: new DatabaseSavedViewStore(),
     planStore: new DatabasePlanStore(),
+    automationStore: new DatabaseAutomationStore(),
+    emailSettingsStore: new DatabaseEmailSettingsStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
 }
@@ -154,6 +167,30 @@ const unconfiguredPlanStore: PlanStore = {
   update: () => notConfigured('plan store'),
   listForWebsite: () => notConfigured('plan store'),
   options: () => notConfigured('plan store'),
+};
+const unconfiguredAutomationStore: AutomationStore = {
+  list: () => notConfigured('automation store'),
+  setEnabled: () => notConfigured('automation store'),
+  recordRun: () => notConfigured('automation store'),
+  listRuns: () => notConfigured('automation store'),
+};
+const unconfiguredEmailSettingsStore: EmailSettingsStore = {
+  getSettings: () => notConfigured('email settings store'),
+  putSettings: () => notConfigured('email settings store'),
+  listTemplates: () => notConfigured('email settings store'),
+  putTemplate: () => notConfigured('email settings store'),
+};
+/** A deployment with no customer mail: no provider, no fallback sender, so no site can send. */
+const unconfiguredCustomerEmail: CustomerEmail = {
+  environment: {
+    providerReady: false,
+    contactHash: () => {
+      throw new Error('customer email is not configured');
+    },
+    fallbackSenders: { forWorkspace: () => undefined },
+  },
+  available: async () => false,
+  fallback: () => undefined,
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 
@@ -583,8 +620,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         ...leadAccessOf(decision.access),
         emailCustomer:
           decideAccess(decision.access, 'lead.manage').allowed &&
-          (dependencies.customerEmail?.available(params.workspaceId) ?? false),
+          ((await dependencies.customerEmail?.available({
+            workspaceId: params.workspaceId,
+            actorId: actor.actorId,
+          })) ??
+            false),
         downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
+        reviewDocuments: decideAccess(decision.access, 'order.manage').allowed,
+        overrideDocuments: decideAccess(decision.access, 'order.override').allowed,
       };
       // Form details, notes and tasks carry personal details as freely as
       // the contact fields do, so they travel only with contact visibility.
@@ -603,6 +646,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         lead: access.contacts ? result.lead : withoutPersonalDetails(result.lead),
         activities: result.activities,
         tasks: result.tasks,
+        allowedMoves: allowedStageMoves(result.lead.leadType, result.lead.stage),
         // Which requests belong to one person is personal data as well.
         related: access.contacts ? result.related : [],
         identities: access.contacts ? result.identities : [],
@@ -630,6 +674,15 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
+      // Only the owner and Orders members may move an order on without its
+      // documents approved; refused before the store is asked.
+      if (
+        body.data.documentsOverrideReason !== undefined &&
+        !decideAccess(decision.access, 'order.override').allowed
+      ) {
+        sendDomainError(res, req.id, 'documents_override_not_allowed', 409);
+        return;
+      }
       const store = leadWork(req, res);
       if (!store) return;
       const outcome = await store.updateLead({
@@ -643,11 +696,39 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         form: body.data.form,
         customValues: body.data.customValues,
         order: body.data.order,
+        documentsOverrideReason: body.data.documentsOverrideReason,
         catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       switch (outcome.status) {
         case 'updated':
-          res.json({ lead: outcome.lead, activities: outcome.activities, requestId: req.id });
+          res.json({
+            lead: outcome.lead,
+            activities: outcome.activities,
+            allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
+            ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
+            requestId: req.id,
+          });
+          return;
+        case 'illegal_stage_move':
+          sendDomainError(res, req.id, 'illegal_stage_move', 409, {
+            from: outcome.from,
+            to: outcome.to,
+            allowed: outcome.allowed,
+          });
+          return;
+        case 'dispatch_details_required':
+          sendDomainError(res, req.id, 'dispatch_details_required', 400, { field: 'courier' });
+          return;
+        case 'activation_details_required':
+          sendDomainError(res, req.id, 'activation_details_required', 400, {
+            field: 'activatedAt',
+          });
+          return;
+        case 'documents_incomplete':
+          sendDomainError(res, req.id, 'documents_incomplete', 409, { missing: outcome.missing });
+          return;
+        case 'document_override_reason_required':
+          sendDomainError(res, req.id, 'document_override_reason_required', 400);
           return;
         case 'invalid_field':
           sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
@@ -664,6 +745,11 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         case 'assignee_not_found':
           sendDomainError(res, req.id, 'assignee_not_found', 422);
           return;
+        default: {
+          // A new outcome fails typecheck here; at runtime it answers 500, never hangs.
+          const _unhandled: never = outcome;
+          throw new Error('unhandled lead update outcome');
+        }
       }
     } catch (error) {
       reportFailure(req, error);
@@ -842,7 +928,10 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       const mail = dependencies.customerEmail;
-      if (!mail?.available(params.workspaceId)) {
+      if (
+        !mail ||
+        !(await mail.available({ workspaceId: params.workspaceId, actorId: actor.actorId }))
+      ) {
         sendDomainError(res, req.id, 'feature_not_ready', 409);
         return;
       }
@@ -854,8 +943,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         requestId: req.id,
         leadId: params.id,
         template: body.data.template,
-        siteUrl: mail.sender(params.workspaceId)?.siteUrl,
-        contactHash: (email) => mail.contactHash(email),
       });
       if (outcome.status === 'not_found') {
         sendDomainError(res, req.id, 'lead_not_found', 404);
@@ -863,6 +950,10 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       }
       if (outcome.status === 'trashed') {
         sendDomainError(res, req.id, 'lead_trashed', 409);
+        return;
+      }
+      if (outcome.status === 'no_sender') {
+        sendDomainError(res, req.id, 'feature_not_ready', 409);
         return;
       }
       if (outcome.status === 'missing') {
@@ -1385,9 +1476,29 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.use(createPropertyRoutes({ store: propertyStore, decide, reportFailure }));
 
   router.use(
+    createEmailSettingsRoutes({
+      store: dependencies.emailSettingsStore ?? unconfiguredEmailSettingsStore,
+      customerEmail: dependencies.customerEmail ?? unconfiguredCustomerEmail,
+      withTenantTx: dependencies.withTenantTx ?? withTenantTx,
+      decide,
+      reportFailure,
+    }),
+  );
+
+  router.use(
     createPlanRoutes({
       store: dependencies.planStore ?? unconfiguredPlanStore,
       decide,
+      reportFailure,
+    }),
+  );
+
+  router.use(
+    createAutomationRoutes({
+      store: dependencies.automationStore ?? unconfiguredAutomationStore,
+      customerEmail: dependencies.customerEmail,
+      decide,
+      canSeeContacts,
       reportFailure,
     }),
   );

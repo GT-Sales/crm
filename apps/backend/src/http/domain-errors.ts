@@ -16,6 +16,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   unpriced_lead_required: 'Current pricing could not be verified. Save an unpriced callback lead.',
   priced_checkout_disabled: 'Priced checkout is disabled until the withdrawal policy is confirmed.',
   idempotency_conflict: 'This idempotency key was already used with a different request.',
+  idempotency_in_progress:
+    'A request with this idempotency key is still being processed. Retry shortly.',
   quote_not_found: 'The quote does not exist for this draft.',
   quote_expired: 'The quote has expired. Request a new quote and confirm it.',
   quote_withdrawn: 'The quoted offer was withdrawn before submission.',
@@ -30,6 +32,11 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   illegal_transition: 'That order status transition is not allowed.',
   cancellation_reason_required: 'A cancellation reason is required.',
   dispatch_details_required: 'A courier is required to dispatch this order.',
+  illegal_stage_move:
+    'That stage move is not allowed; `details.allowed` lists the moves from this stage.',
+  activation_details_required: 'An activation date is required to activate this order.',
+  documents_override_not_allowed:
+    'Only the site owner or an Orders member can override the documents check.',
   documents_incomplete: 'Required documents are not yet approved for this order.',
   document_override_reason_required: 'A reason is required to override the document checklist.',
   feature_not_ready: 'This action is not enabled for this site yet.',
@@ -42,6 +49,9 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   change_request_not_found: 'The change request does not exist on this order.',
   change_request_resolved: 'This change request has already been resolved.',
   invalid_request: 'The request body is invalid.',
+  invalid_fill_in: 'The email uses a fill-in that does not exist; `details` names it and where.',
+  invalid_email_markup: 'The email markup is invalid; `details` gives the reason.',
+  not_found: 'There is nothing at this address.',
   internal_error: 'An internal error occurred.',
   upload_not_found: 'The upload does not exist for this draft.',
   upload_expired: 'The upload authorisation has expired. Request a new upload.',
@@ -66,6 +76,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   plan_not_found: 'The plan does not exist on this site.',
   plan_name_taken: 'This site already has a plan of this type by this name.',
   plan_limit: 'This site already has the most plans it may have.',
+  automation_not_found: 'No automation rule with this key on this site.',
   plan_not_available: 'The chosen plan is not available on this site for this kind of order.',
 };
 

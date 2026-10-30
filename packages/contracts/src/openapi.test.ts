@@ -89,4 +89,42 @@ describe('OpenAPI generation', () => {
       else expect(proof).toMatchObject({ in: 'header', required: true });
     }
   });
+  it('registers the email settings, template and automation operations', () => {
+    const base = '/api/v1/staff/workspaces/{workspaceId}';
+    const expected = [
+      ['getEmailSettings', 'get', `${base}/email/settings`, 200],
+      ['updateEmailSettings', 'put', `${base}/email/settings`, 200],
+      ['listEmailTemplates', 'get', `${base}/email/templates`, 200],
+      ['updateEmailTemplate', 'put', `${base}/email/templates/{key}`, 200],
+      ['previewEmailTemplate', 'post', `${base}/email/templates/{key}/preview`, 200],
+      ['sendTestEmail', 'post', `${base}/email/templates/{key}/test`, 202],
+      ['listAutomations', 'get', `${base}/automations`, 200],
+      ['updateAutomation', 'put', `${base}/automations/{key}`, 200],
+      ['listAutomationRuns', 'get', `${base}/automations/{key}/runs`, 200],
+    ] as const;
+    const paths = asObject(doc['paths']);
+    for (const [operationId, method, path, status] of expected) {
+      const operation = asObject(asObject(paths[path])[method]);
+      expect(operation['operationId']).toBe(operationId);
+      expect(operation['security']).toEqual([{ staffSession: [] }]);
+      expect(asObject(operation['responses'])[String(status)]).toBeDefined();
+      const registered = endpoints.find((entry) => entry.operationId === operationId);
+      expect(registered?.method).toBe(method.toUpperCase());
+      expect(registered?.successStatus).toBe(status);
+    }
+  });
+
+  it('documents the optional Idempotency-Key header on website lead create and update', () => {
+    const paths = asObject(doc['paths']);
+    for (const [path, method] of [
+      ['/api/v1/website/leads', 'post'],
+      ['/api/v1/website/leads/{leadId}', 'patch'],
+    ] as const) {
+      const operation = asObject(asObject(paths[path])[method]);
+      const parameters = operation['parameters'];
+      if (!Array.isArray(parameters)) throw new Error('expected parameters');
+      const header = parameters.map(asObject).find((entry) => entry['name'] === 'Idempotency-Key');
+      expect(header).toMatchObject({ in: 'header', required: false });
+    }
+  });
 });

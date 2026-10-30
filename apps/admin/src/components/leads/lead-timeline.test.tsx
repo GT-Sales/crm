@@ -100,6 +100,7 @@ describe('LeadTimeline', () => {
         members={members}
         canWrite={false}
         accessToken="staff-token"
+        workspaceSlug="getcanadasim"
         onNoteAdded={vi.fn()}
       />,
     );
@@ -142,5 +143,68 @@ describe('LeadTimeline', () => {
     expect(
       within(region).getByText('corrected the plan, quantity, payment status, carrier commission'),
     ).toBeTruthy();
+  });
+
+  it('names the document a review approved or rejected', () => {
+    const region = timeline([
+      {
+        id: '92000000-0000-4000-8000-000000000005',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'document',
+        fileId: '50000000-0000-4000-8000-000000000011',
+        documentType: 'passport',
+        decision: 'approved',
+      },
+      {
+        id: '92000000-0000-4000-8000-000000000006',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'document',
+        fileId: '50000000-0000-4000-8000-000000000012',
+        documentType: 'visa',
+        decision: 'rejected',
+      },
+    ]);
+    expect(within(region).getByText('approved the passport')).toBeTruthy();
+    expect(within(region).getByText('rejected the visa or approval letter')).toBeTruthy();
+  });
+
+  it('says an order moved on without its documents, and why', () => {
+    const override = leadActivitySchema.parse(
+      entry('7', {
+        event: 'documents_override',
+        missing: ['passport', 'visa'],
+        reason: 'Customer sent them by email',
+      }),
+    );
+    const region = timeline([override]);
+    expect(
+      within(region).getByText(
+        'moved on without approved documents: Passport, Visa. Reason: Customer sent them by email',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('says which email an automation queued, at which version, linked to Automations', () => {
+    const queued = leadActivitySchema.parse(
+      entry('8', {
+        event: 'customer_emailed',
+        template: 'dispatched',
+        templateVersion: 3,
+        automation: 'sim_order_dispatched',
+      }),
+    );
+    const byHand = leadActivitySchema.parse(
+      entry('9', { event: 'customer_emailed', template: 'sim_number_ready' }),
+    );
+    const region = timeline([queued, byHand]);
+    const [first, second] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain('Dispatched email queued by an automation (version 3)');
+    expect(first?.textContent).not.toContain('You');
+    expect(within(first!).getByRole('link', { name: 'an automation' }).getAttribute('href')).toBe(
+      '/w/getcanadasim/automations',
+    );
+    expect(second?.textContent).toContain('You emailed the customer their SIM number');
   });
 });

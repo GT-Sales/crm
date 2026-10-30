@@ -262,6 +262,9 @@ importers:
       '@gt-sales/adapters':
         specifier: workspace:*
         version: link:../packages/adapters
+      '@gt-sales/contracts':
+        specifier: workspace:*
+        version: link:../packages/contracts
       tsx:
         specifier: 'catalog:'
         version: 4.23.13

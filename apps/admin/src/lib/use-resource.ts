@@ -9,7 +9,16 @@ export function errorReason(error: unknown): string {
   return error instanceof BackendError ? error.code : 'internal_error';
 }
 
+/** The strings a failed call's `details[key]` lists (`missing` on `documents_incomplete`), or none. */
+export function errorDetailList(error: unknown, key: string): readonly string[] {
+  const value = error instanceof BackendError ? error.details?.[key] : undefined;
+  return Array.isArray(value)
+    ? value.filter((entry: unknown): entry is string => typeof entry === 'string')
+    : [];
+}
+
 export interface Resource<T> {
+  /** The newest answer, kept while a later load is on its way or after it fails. */
   data: T | undefined;
   /** The failed load's error code; cleared by the next load. */
   error: string | undefined;

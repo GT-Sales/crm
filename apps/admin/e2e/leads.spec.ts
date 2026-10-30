@@ -9,9 +9,12 @@ import { expect, test, type Page } from '@playwright/test';
  * without) and a fourth SIM order, Nadia Khan's, submitted with Rogers 60GB
  * frozen on it, signed in as the owner "Takib" with a colleague "Sam". The journeys share those seeded sites
  * and run in order. A lead's name in the inbox opens it in the side panel
- * (`?lead=`); "Open full page" goes to its own page. The last journey adds a
+ * (`?lead=`); "Open full page" goes to its own page. One journey adds a
  * custom property, a saved view and a hidden built-in, and puts them back; the
- * one after it adds a plan, works an order and archives and restores it.
+ * one after it adds a plan, works an order and archives and restores it. The
+ * last takes that order to Activated: Rogers 60GB requires a passport, Nadia
+ * Khan's is attached and not reviewed, Get Canada Sim's email settings are
+ * saved with its Dispatched email at version 1, and every automation is off.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -351,20 +354,12 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   expect(errors).toEqual([]);
 });
 
-test('a plan is added, an order is marked paid, filtered on, archived and restored, and its stages are the order stages', async ({
+test('a plan is added, an order is marked paid, filtered on, archived and restored, and its stage moves are the order’s', async ({
   page,
 }) => {
   const errors = trackErrors(page);
-  const simStages = [
-    'Incomplete',
-    'Pending',
-    'Verified',
-    'On hold',
-    'Delivered',
-    'Activated',
-    'Completed',
-    'Cancelled',
-  ];
+  // Where a pending order is, and the moves it allows from there.
+  const simStages = ['Pending', 'Verified', 'On hold', 'Cancelled'];
 
   // Settings → Plans: the owner adds a SIM order plan beside the two seeded ones.
   await page.goto('/w/getcanadasim/settings');
@@ -442,7 +437,7 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   await panel.getByRole('button', { name: 'Restore' }).click();
   await expect(panel.getByText(/This lead is archived/)).toHaveCount(0);
 
-  // Restored, its stage select offers the eight order stages, no payment stages.
+  // Restored, its stage select offers the moves from Pending, no payment stages.
   const stage = panel.getByLabel('Stage');
   await expect(stage).toBeVisible();
   await expect(stage).toHaveValue('pending');
@@ -464,4 +459,139 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
     'Inactive',
   );
   expect(errors).toEqual([]);
+});
+
+test('a SIM order is approved, dispatched and activated by automations, and a template is edited and previewed', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  const dispatchedRule = 'When a SIM order moves to Delivered → send the Dispatched email';
+  const activatedRule = 'When a SIM order moves to Activated → send the Activated email';
+  const ruleRow = (label: string) =>
+    page
+      .getByRole('list', { name: 'Automations' })
+      .getByRole('listitem')
+      .filter({ has: page.getByRole('switch', { name: label, exact: true }) });
+
+  // Automations: every rule is off until the owner switches it on.
+  await page.goto('/w/getcanadasim/automations');
+  const switches = page.getByRole('list', { name: 'Automations' }).getByRole('switch');
+  await expect(switches).toHaveCount(6);
+  for (const toggle of await switches.all()) {
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  }
+  for (const rule of [dispatchedRule, activatedRule]) {
+    const toggle = page.getByRole('switch', { name: rule, exact: true });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  }
+  // Saved, not only shown: they are still on after a reload.
+  await page.reload();
+  for (const rule of [dispatchedRule, activatedRule]) {
+    await expect(page.getByRole('switch', { name: rule, exact: true })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  }
+
+  // Nadia Khan's order, on its own page: from Pending, Delivered is not a move.
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await page.getByRole('link', { name: 'Nadia Khan' }).click();
+  await page.getByRole('link', { name: 'Open full page' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Nadia Khan' })).toBeVisible();
+  const stage = page.getByLabel('Stage');
+  const timeline = page.getByRole('region', { name: 'Timeline' });
+  await expect(stage).toHaveValue('pending');
+  await expect(stage.locator('option', { hasText: 'Delivered' })).toHaveCount(0);
+  await stage.selectOption({ label: 'Verified' });
+  await expect(timeline).toContainText('moved this from Pending to Verified');
+  await expect(stage).toHaveValue('verified');
+
+  // Delivered asks for the dispatch details, then for the approved passport.
+  const moveToDelivered = async () => {
+    await stage.selectOption({ label: 'Delivered' });
+    const dialog = page.getByRole('dialog', { name: 'Move to Delivered' });
+    await dialog.getByLabel('Courier').fill('Canada Post');
+    await dialog.getByLabel('Tracking number').fill('LX123456789CA');
+    await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+    return dialog;
+  };
+  const refused = await moveToDelivered();
+  await expect(refused.getByRole('status')).toHaveText(/^Missing approved documents: Passport/);
+  // The owner may move it on anyway, with a reason; not this time.
+  await expect(refused.getByLabel('Reason for moving anyway')).toBeVisible();
+  await refused.getByRole('button', { name: 'Cancel' }).click();
+  await expect(refused).toHaveCount(0);
+  await expect(stage).toHaveValue('verified');
+
+  const passport = page
+    .getByRole('list', { name: 'Documents' })
+    .getByRole('listitem')
+    .filter({ hasText: 'Passport' });
+  await expect(passport.getByText('Not reviewed', { exact: true })).toBeVisible();
+  await passport.getByRole('button', { name: 'Approve Passport' }).click();
+  await expect(passport.getByText('Approved', { exact: true })).toBeVisible();
+
+  const delivered = await moveToDelivered();
+  await expect(delivered).toHaveCount(0);
+  await expect(stage).toHaveValue('delivered');
+  const order = page.getByRole('region', { name: 'Order' });
+  await expect(order.locator('dt:text-is("Courier") + dd')).toHaveText('Canada Post');
+  await expect(timeline).toContainText('Dispatched email queued by an automation (version 1)');
+
+  // Activated is dated today in Toronto unless staff say otherwise (the
+  // browser and CI may run in UTC, which is a different day late at night).
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  await stage.selectOption({ label: 'Activated' });
+  const activate = page.getByRole('dialog', { name: 'Move to Activated' });
+  await expect(activate.getByLabel('Activated on')).toHaveValue(today);
+  await activate.getByRole('button', { name: 'Move', exact: true }).click();
+  await expect(activate).toHaveCount(0);
+  await expect(stage).toHaveValue('activated');
+  await expect(timeline).toContainText('Activated email queued by an automation');
+
+  // Automations: each rule queued one email; the Dispatched rule's run is Nadia Khan's.
+  await page.goto('/w/getcanadasim/automations');
+  for (const rule of [dispatchedRule, activatedRule]) {
+    await expect(ruleRow(rule).locator('dt:text-is("Emails queued") + dd')).toHaveText('1');
+  }
+  await ruleRow(dispatchedRule).getByRole('button', { name: 'Recent runs' }).click();
+  const runs = ruleRow(dispatchedRule)
+    .getByRole('list', { name: 'Recent runs' })
+    .getByRole('listitem');
+  await expect(runs).toHaveCount(1);
+  await expect(runs.first().getByRole('link', { name: 'Nadia Khan' })).toBeVisible();
+  await expect(runs.first()).toContainText('Queued');
+
+  // Settings → Email: the Dispatched email is edited, previewed and saved as version 2.
+  await page.goto('/w/getcanadasim/settings');
+  await page
+    .getByRole('navigation', { name: 'More settings' })
+    .getByRole('link', { name: 'Email', exact: true })
+    .click();
+  const dispatchedEmail = page
+    .getByRole('list', { name: 'Emails' })
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('heading', { name: 'Dispatched', exact: true }) });
+  await expect(dispatchedEmail).toContainText('Version 1');
+  await dispatchedEmail.getByRole('button', { name: 'Edit Dispatched' }).click();
+  const editor = page.getByRole('dialog', { name: 'Dispatched' });
+  await editor.getByLabel('Subject').fill('Your order is on its way, {first name}');
+  await expect(editor.locator('[data-preview-subject]')).toHaveText(
+    'Your order is on its way, Nadia',
+  );
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editor.getByText('Saved.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await expect(dispatchedEmail).toContainText('Version 2');
+  // The browser logs the one refused move (documents_incomplete), and nothing else.
+  expect(errors).toEqual([
+    'Failed to load resource: the server responded with a status of 409 (Conflict)',
+  ]);
 });

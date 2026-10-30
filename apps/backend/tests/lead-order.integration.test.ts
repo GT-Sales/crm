@@ -265,6 +265,7 @@ databaseTest('order details on leads', () => {
       const paid = await leadStore.createLead(base({ submit: true, order }));
       expect(paid.lead.status).toBe('submitted');
       expect(await orderDetails(paid.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simPaid.id,
         // Only the website-visible custom value; the internal cost stays behind.
         plan: frozen(simPaid, [dataKey]),
@@ -280,6 +281,7 @@ databaseTest('order details on leads', () => {
         base({ submit: true, order: { planId: simFree.id, quantity: 3 } }),
       );
       expect(await orderDetails(free.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simFree.id,
         plan: frozen(simFree, [dataKey]),
         quantity: 3,
@@ -401,6 +403,7 @@ databaseTest('order details on leads', () => {
       });
       expect(submitted).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
       expect(await orderDetails(draft.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: plan.id,
         plan: frozen(edited.plan, [dataKey]),
         quantity: 2,
@@ -463,6 +466,7 @@ databaseTest('order details on leads', () => {
         }),
       ).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
       expect(await orderDetails(draft.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simFree.id,
         plan: frozen(simFree, [dataKey]),
         quantity: 1,
@@ -496,6 +500,14 @@ databaseTest('order details on leads', () => {
   });
 
   describe('staff order edits', () => {
+    const DETAIL_KEYS: readonly string[] = [
+      'courier',
+      'trackingNumber',
+      'dispatchedAt',
+      'activatedAt',
+      'activationNumber',
+      'activationAccount',
+    ];
     const auditOf = async (leadId: string) => {
       const [row] = await admin<{ before: unknown; after: unknown }[]>`
         select before, after from app.audit_events
@@ -516,6 +528,7 @@ databaseTest('order details on leads', () => {
       const replanned = await work.updateLead({ ...scope, order: { planId: simFree.id } });
       if (replanned.status !== 'updated') throw new Error(`got ${replanned.status}`);
       expect(replanned.lead.order).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simFree.id,
         plan: frozen(simFree, [dataKey]),
         quantity: 1,
@@ -526,11 +539,16 @@ databaseTest('order details on leads', () => {
       expect(replanned.activities).toEqual([
         expect.objectContaining({ kind: 'edit', fields: ['plan'] }),
       ]);
+      // The audit keeps the order without its dispatch and activation details.
+      const audited = (stored: unknown) =>
+        Object.fromEntries(
+          Object.entries(stored ?? {}).filter(([key]) => !DETAIL_KEYS.includes(key)),
+        );
       const audit = await auditOf(leadId);
-      expect(audit?.before).toEqual({ order: first });
+      expect(audit?.before).toEqual({ order: audited(first) });
       expect(audit?.after).toEqual({
         changedFields: ['plan'],
-        order: await orderDetails(leadId),
+        order: audited(await orderDetails(leadId)),
       });
 
       // The same plan again, unchanged since, keeps the copy and writes nothing.
@@ -554,10 +572,11 @@ databaseTest('order details on leads', () => {
         await work.updateLead({ ...scope, order: { quantity: 4, paymentStatus: 'paid' } }),
       ).toMatchObject({ status: 'updated', activities: [] });
 
-      // An inactive plan, or one of another type, is refused as the plan field.
+      // An inactive plan, or one of another type, is refused as the plan field,
+      // and the allowed move sent with it is not made.
       for (const planId of [simInactive.id, internetPlan.id, foreignPlan.id]) {
         expect(
-          await work.updateLead({ ...scope, stage: 'verified', order: { planId, quantity: 9 } }),
+          await work.updateLead({ ...scope, stage: 'pending', order: { planId, quantity: 9 } }),
         ).toEqual({ status: 'invalid_field', field: 'plan' });
       }
       expect(await orderDetails(leadId)).toMatchObject({ planId: simFree.id, quantity: 4 });
@@ -565,6 +584,7 @@ databaseTest('order details on leads', () => {
       const cleared = await work.updateLead({ ...scope, order: { planId: null } });
       if (cleared.status !== 'updated') throw new Error(`got ${cleared.status}`);
       expect(cleared.lead.order).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: null,
         plan: null,
         quantity: 4,
@@ -683,6 +703,7 @@ databaseTest('order details on leads', () => {
       const partial: LeadOrder = { ...DEFAULT_LEAD_ORDER, quantity: 2, paymentStatus: 'pending' };
       expect((await detail(L3))?.lead.order).toEqual(partial);
       expect((await detail(L1))?.lead.order).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: listPlan.id,
         plan: null,
         quantity: 3,

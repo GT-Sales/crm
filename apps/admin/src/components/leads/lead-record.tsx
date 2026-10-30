@@ -3,11 +3,14 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  allowedStageMoves,
   defaultPropertyLayout,
   leadOrderEditSchema,
   orderStorageKey,
   leadTypeEntry,
   leadTypeLabel,
+  stageGates,
+  type EmailSkipped,
   type GetWorkspaceLeadResponse,
   type LeadActivity,
   type LeadContactEdit,
@@ -27,7 +30,7 @@ import {
 } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { memberName } from '../../lib/people';
-import { errorReason, useResource } from '../../lib/use-resource';
+import { errorDetailList, errorReason, useResource } from '../../lib/use-resource';
 import { PropertySections } from '../properties/property-sections';
 import { usePropertyModel } from '../properties/use-property-model';
 import { leadDisplayName, StageBadge } from './lead-display';
@@ -38,6 +41,7 @@ import { deliveryLetterUrl, leadSummaryText } from './lead-summary';
 import { LeadTasks } from './lead-tasks';
 import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
+import { emailSkippedText, StageMoveDialog, stageMoveRefusal } from './stage-move-dialog';
 import { useLeadWorkspace } from './use-lead-workspace';
 
 const ATTRIBUTION_LABELS: Record<string, string> = {
@@ -188,7 +192,13 @@ export function LeadRecord({
   const [simEmailMessage, setSimEmailMessage] = useState<string>();
   const [editingContact, setEditingContact] = useState(false);
   const [message, setMessage] = useState<string>();
+  // The stage a move waits on details for (the dispatch or activation dialog).
+  const [moveTo, setMoveTo] = useState<string>();
+  // The mails the last change's automations did not send, and why.
+  const [emailSkipped, setEmailSkipped] = useState<readonly EmailSkipped[]>([]);
   const [copied, setCopied] = useState(false);
+  // Staff closed the notice of the last failed refresh.
+  const [refreshDismissed, setRefreshDismissed] = useState(false);
 
   // "Copied" reads for a moment, then the button is itself again.
   useEffect(() => {
@@ -200,7 +210,9 @@ export function LeadRecord({
   const inPanel = variant === 'panel';
   const Title = inPanel ? 'h2' : 'h1';
 
-  if (record.error) {
+  // A refresh that fails keeps the lead on screen with a notice; only a lead
+  // that could not be loaded at all shows the error.
+  if (record.error && !record.data) {
     return (
       <div className={cn('flex flex-col items-start gap-3', inPanel ? 'py-4' : 'py-10')}>
         <Title className="text-xl font-semibold">
@@ -229,6 +241,15 @@ export function LeadRecord({
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
+  // The stage it is at and the moves allowed from there, in board order; the
+  // catalogue's moves for a backend that sends none.
+  const moves =
+    record.data.allowedMoves.length > 0
+      ? record.data.allowedMoves
+      : allowedStageMoves(lead.leadType, lead.stage);
+  const stageChoices = stages.filter(
+    (entry) => entry.key === lead.stage || moves.includes(entry.key),
+  );
   const payload = lead.form?.payload ?? {};
   const customValues = lead.customValues ?? {};
   const layout =
@@ -260,6 +281,17 @@ export function LeadRecord({
     }));
   }
 
+  /** A saved change: the lead as the backend has it, its new entries, its moves and skipped mails. */
+  function applyUpdate(result: UpdateWorkspaceLeadResponse) {
+    changeRecord((current) => ({
+      ...current,
+      lead: result.lead,
+      activities: [...result.activities, ...current.activities],
+      allowedMoves: result.allowedMoves,
+    }));
+    setEmailSkipped(result.emailSkipped ?? []);
+  }
+
   async function update(
     body: UpdateWorkspaceLeadRequest,
   ): Promise<UpdateWorkspaceLeadResponse | undefined> {
@@ -268,19 +300,44 @@ export function LeadRecord({
     setMessage(undefined);
     try {
       const result = await updateStaffLead(accessToken, workspaceId, leadId, body);
-      changeRecord((current) => ({
-        ...current,
-        lead: result.lead,
-        activities: [...result.activities, ...current.activities],
-      }));
+      applyUpdate(result);
       setEditingContact(false);
       return result;
     } catch (error) {
-      setMessage(`The change was not saved. Reason: ${errorReason(error)}.`);
+      const code = errorReason(error);
+      const refusal =
+        body.stage === undefined ? undefined : stageMoveRefusal(code, lead.leadType, lead.stage);
+      setMessage(refusal ?? `The change was not saved. Reason: ${code}.`);
       return undefined;
     } finally {
       setSaving(false);
     }
+  }
+
+  /** A stage that asks for details first opens the dialog; any other moves at once. */
+  function changeStage(to: string) {
+    if (stageGates(lead.leadType, to).length > 0) setMoveTo(to);
+    else void update({ stage: to });
+  }
+
+  /** The dialog's move: it shows the refusals itself, so they are not caught here. */
+  async function moveWithDetails(
+    body: UpdateWorkspaceLeadRequest,
+  ): Promise<UpdateWorkspaceLeadResponse> {
+    if (!accessToken || !workspaceId) throw new Error('signed out');
+    setMessage(undefined);
+    return updateStaffLead(accessToken, workspaceId, leadId, body);
+  }
+
+  /** Reads the lead again; a failure keeps what is shown and says so. */
+  async function refresh() {
+    setRefreshDismissed(false);
+    await record.reload();
+  }
+
+  async function reviewed() {
+    await refresh();
+    onChangeRef.current?.();
   }
 
   /**
@@ -308,11 +365,7 @@ export function LeadRecord({
     };
     try {
       const result = await updateStaffLead(accessToken, workspaceId, leadId, body);
-      changeRecord((current) => ({
-        ...current,
-        lead: result.lead,
-        activities: [...result.activities, ...current.activities],
-      }));
+      applyUpdate(result);
       const saved = result.lead.form?.payload.simNumber;
       if (edits.form && 'simNumber' in edits.form && typeof saved === 'string' && saved.trim()) {
         setSimEmail('ask');
@@ -333,13 +386,19 @@ export function LeadRecord({
       setSimEmail('sent');
     } catch (error) {
       const reason = errorReason(error);
+      // What the mail lacks: its fill-ins, or the customer's address.
+      const missing = errorDetailList(error, 'missing');
       setSimEmail(undefined);
       setSimEmailMessage(
-        reason === 'conflict'
-          ? 'The order needs the customer’s email address and a SIM number first.'
-          : reason === 'feature_not_ready'
-            ? 'Emailing customers is not set up for this site yet.'
-            : `The email was not sent. Reason: ${reason}.`,
+        reason === 'conflict' && missing.includes('SIM number')
+          ? 'Add the SIM number first.'
+          : reason === 'conflict' && missing.includes('customer email')
+            ? 'The customer has no email address.'
+            : reason === 'conflict'
+              ? 'The order needs the customer’s email address and a SIM number first.'
+              : reason === 'feature_not_ready'
+                ? 'Emailing customers is not set up for this site yet.'
+                : `The email was not sent. Reason: ${reason}.`,
       );
     }
   }
@@ -439,10 +498,10 @@ export function LeadRecord({
                   <NativeSelect
                     value={lead.stage}
                     disabled={saving}
-                    onChange={(event) => void update({ stage: event.target.value })}
+                    onChange={(event) => changeStage(event.target.value)}
                   >
                     {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
-                    {stages.map((entry) => (
+                    {stageChoices.map((entry) => (
                       <option key={entry.key} value={entry.key}>
                         {entry.label}
                       </option>
@@ -545,6 +604,50 @@ export function LeadRecord({
             {message}
           </p>
         ) : null}
+        {record.error && !refreshDismissed ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm">
+            <p role="alert" className="mr-auto">
+              Couldn't refresh this lead. Try again.
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
+              Retry
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setRefreshDismissed(true)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        ) : null}
+        {emailSkipped.length > 0 ? (
+          <div role="status">
+            <ul
+              aria-label="Emails not sent"
+              className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+            >
+              {emailSkipped.map((skipped, index) => (
+                <li key={`${skipped.automation}:${index}`}>{emailSkippedText(skipped)}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {moveTo ? (
+          <StageMoveDialog
+            lead={lead}
+            to={moveTo}
+            gates={stageGates(lead.leadType, moveTo)}
+            canOverride={access.overrideDocuments === true}
+            onMove={moveWithDetails}
+            onDone={(result) => {
+              applyUpdate(result);
+              setMoveTo(undefined);
+            }}
+            onCancel={() => setMoveTo(undefined)}
+          />
+        ) : null}
       </div>
 
       <div
@@ -626,6 +729,8 @@ export function LeadRecord({
             workspaceId={workspaceId}
             documents={documents}
             canDownload={access.downloadDocuments === true}
+            canReview={access.reviewDocuments === true && lead.deletedAt === null}
+            onReviewed={reviewed}
           />
 
           <RelatedRequests workspaceSlug={workspaceSlug} related={related} />
@@ -746,6 +851,7 @@ export function LeadRecord({
                   members={members}
                   canWrite={canWrite}
                   accessToken={accessToken}
+                  workspaceSlug={workspaceSlug}
                   catalog={catalog}
                   onNoteAdded={(activity) => {
                     addActivities([activity]);

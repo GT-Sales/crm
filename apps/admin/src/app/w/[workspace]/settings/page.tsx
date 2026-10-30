@@ -32,6 +32,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ works
           <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/plans`}>
             Plans
           </Link>
+          <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/email`}>
+            Email
+          </Link>
           <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/jobs`}>
             View background jobs
           </Link>

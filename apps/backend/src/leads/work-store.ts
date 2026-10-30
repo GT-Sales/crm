@@ -4,7 +4,6 @@ import {
   leadActivities,
   leads,
   leadTasks,
-  outboxJobs,
   withTenantTx,
   type DatabaseClient,
   type TenantTransaction,
@@ -13,13 +12,16 @@ import {
   ORDER_PROPERTY_KEYS,
   ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
+  automationsForMove,
   applyLeadFormEdit,
   freezePlan,
   isLeadStage,
   isOrderLeadType,
   leadFormSchema,
   leadTypeEntry,
-  type CustomerEmailTemplate,
+  type EmailFillInKey,
+  type EmailSkipped,
+  type QueueCustomerEmailRequest,
   type LeadActivity,
   type LeadAssigneeFilter,
   type LeadBoardColumn,
@@ -38,9 +40,18 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 
-import { draftCustomerEmail } from '../email/customer-emails.js';
+import { automationLeadOf, readAutomationLead, runAutomations } from '../automations/run.js';
+import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
+import { composeCustomerEmail } from '../email/compose.js';
+import { queueComposedEmail } from '../email/queue.js';
+import {
+  customerEmailEnvironmentFromEnv,
+  type CustomerEmailEnvironment,
+} from '../email/senders.js';
 import { loadPlanForFreeze } from '../plans/store.js';
+import { findMissingDocuments } from './documents-check.js';
 import { isPlanAvailable, toLeadOrder } from './order.js';
+import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
 import {
   iso,
   selectLeadBoard,
@@ -56,6 +67,7 @@ import {
   type LeadStats,
   type LeadWithWork,
 } from './staff-queries.js';
+import type { Scope, WriteScope } from '../tenant-scope.js';
 import { upsertContact } from './store.js';
 
 /**
@@ -68,22 +80,27 @@ import { upsertContact } from './store.js';
  * time: an edit records the field names, a note's audit event its id.
  */
 
-interface Scope {
-  workspaceId: string;
-  actorId: string;
-}
-
-interface WriteScope extends Scope {
-  requestId: string;
-}
+export type { Scope, WriteScope };
 
 export type LeadWorkResult = LeadWithWork;
 
 export type UpdateLeadWorkOutcome =
-  | { status: 'updated'; lead: LeadDetail; activities: LeadActivity[] }
+  | {
+      status: 'updated';
+      lead: LeadDetail;
+      activities: LeadActivity[];
+      /** The mails the move's rules were on for but could not send; absent when none. */
+      emailSkipped?: EmailSkipped[];
+    }
   | { status: 'not_found' | 'trashed' | 'invalid_stage' | 'assignee_not_found' }
   /** A form correction the type does not allow; names the field, never the value. */
-  | { status: 'invalid_field'; field: string };
+  | { status: 'invalid_field'; field: string }
+  /** A move the type does not allow, or one whose dispatch or activation details are missing. */
+  | StageMoveRefusal
+  /** The required documents of the order's plan that have no approved current file. */
+  | { status: 'documents_incomplete'; missing: string[] }
+  /** An override reason was given but is blank. */
+  | { status: 'document_override_reason_required' };
 
 export type ArchiveLeadOutcome =
   | { status: 'changed' | 'unchanged'; lead: LeadDetail; activity: LeadActivity | null }
@@ -96,15 +113,14 @@ export type CustomerEmailOutcome =
   | { status: 'queued'; activity: LeadActivity }
   | { status: 'not_found' }
   | { status: 'trashed' }
-  | { status: 'missing'; missing: 'email' | 'simNumber' };
+  /** The site has no sender, or the deployment cannot send. */
+  | { status: 'no_sender' }
+  /** What the lead lacks for the mail: its fill-ins, or an address to send it to. */
+  | { status: 'missing'; missing: Array<EmailFillInKey | 'customer email'> };
 
 export interface QueueCustomerEmailInput extends WriteScope {
   leadId: string;
-  template: CustomerEmailTemplate;
-  /** The site's public address, for the mail's link back to it. */
-  siteUrl?: string;
-  /** The keyed digest of the address, for suppression and delivery records. */
-  contactHash(email: string): string;
+  template: QueueCustomerEmailRequest['template'];
 }
 
 export type TaskOutcome =
@@ -124,6 +140,12 @@ export interface UpdateLeadWorkInput extends WriteScope {
   catalog: PropertyCatalog;
   /** Order details of an order lead type: a new `planId` re-freezes the plan, null clears it. */
   order?: LeadOrderEdit;
+  /**
+   * Why the stage move goes ahead without the plan's documents approved. The
+   * route admits it only from an actor with `order.override`; the store
+   * trusts it. Ignored when nothing is missing.
+   */
+  documentsOverrideReason?: string;
 }
 
 export interface CreateTaskInput extends WriteScope {
@@ -189,6 +211,8 @@ interface LockedLead {
   [key: string]: unknown;
   id: string;
   leadType: string;
+  /** `incomplete` until the customer submits the form, then `submitted`. */
+  status: string;
   stage: string;
   assignedActorId: string | null;
   fullName: string | null;
@@ -221,6 +245,7 @@ async function lockLead(
     select
       l.id,
       l.lead_type as "leadType",
+      l.status,
       l.stage,
       l.assigned_actor_id as "assignedActorId",
       l.full_name as "fullName",
@@ -299,14 +324,22 @@ interface InsertedActivity {
   createdAt: Date;
 }
 
-/** Newly written timeline rows as entries, in the lead page's order: newest first, ties by id descending. */
+/** A newly written timeline row as an entry. */
+function insertedActivity(row: InsertedActivity): LeadActivity {
+  return toLeadActivity({ ...row, createdAt: row.createdAt.toISOString() });
+}
+
+/** Entries in the lead page's order: newest first, ties (one transaction's entries) by id descending. */
+function newestFirst(activities: readonly LeadActivity[]): LeadActivity[] {
+  return [...activities].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+}
+
+/** Newly written timeline rows as entries, in the lead page's order. */
 function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
-  return rows
-    .map((row) => toLeadActivity({ ...row, createdAt: row.createdAt.toISOString() }))
-    .sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
-      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
-    });
+  return newestFirst(rows.map(insertedActivity));
 }
 
 const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
@@ -344,11 +377,54 @@ function sameSnapshot(a: PlanSnapshot | null, b: PlanSnapshot | null): boolean {
   return canonicalJson({ ...a, frozenAt: '' }) === canonicalJson({ ...b, frozenAt: '' });
 }
 
+/** The dispatch and activation details: text or a date each, null clears one. */
+const ORDER_DETAIL_FIELDS = [
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
+] as const;
+
+/**
+ * The stored order as the audit trail keeps it: without the dispatch and
+ * activation details, whose activation number is the customer's phone and
+ * whose account and tracking number identify them too. The edit's
+ * `changedFields` names which of them changed; nothing scrubs an audit row.
+ */
+function auditedOrder(stored: unknown): Record<string, unknown> {
+  const details: ReadonlySet<string> = new Set(ORDER_DETAIL_FIELDS);
+  return Object.fromEntries(
+    Object.entries(storedObject(stored)).filter(([key]) => !details.has(key)),
+  );
+}
+
+/** One staff audit event on a lead. */
+async function auditLead(
+  tx: TenantTransaction,
+  scope: WriteScope & { leadId: string },
+  action: string,
+  values: { before?: Record<string, unknown>; after: Record<string, unknown> },
+): Promise<void> {
+  await tx.insert(auditEvents).values({
+    workspaceId: scope.workspaceId,
+    actorId: scope.actorId,
+    actorLabel: 'staff actor',
+    action,
+    entity: 'lead',
+    entityId: scope.leadId,
+    requestId: scope.requestId,
+    ...values,
+  });
+}
+
 /**
  * Staff's change to a lead's order: a new plan is frozen from the site's
  * current plan (it must be active and of the lead's type, else the `plan`
- * field is refused), null clears the link and the copy, and the quantity and
- * the two statuses are set as given. Names the changed catalogue keys.
+ * field is refused), null clears the link and the copy, and the quantity, the
+ * two statuses and the dispatch and activation details are set as given.
+ * Names the changed catalogue keys.
  * Only the changed fields are written over the stored object: a key the
  * parse does not know, or a stored value it cannot read, survives an
  * unrelated edit, and so does the frozen copy while the plan stays the same.
@@ -391,6 +467,13 @@ async function editOrder(
     next.carrierCommission = edit.carrierCommission;
     changed.add('carrierCommission');
   }
+  for (const field of ORDER_DETAIL_FIELDS) {
+    const value = edit[field];
+    if (value !== undefined && value !== current[field]) {
+      next[field] = value;
+      changed.add(field);
+    }
+  }
   // Each changed field under its stored name (`ORDER_STORAGE_KEYS`: `plan` is
   // `planId`); a new plan writes its frozen copy with it. A re-freeze of the
   // same plan with nothing new keeps the copy already held, as stored.
@@ -415,7 +498,12 @@ type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 const defaultLeadDatabase: LeadDatabase = { withTenantTx };
 
 export class DatabaseLeadWorkStore implements LeadWorkStore {
-  constructor(private readonly database: LeadDatabase = defaultLeadDatabase) {}
+  constructor(
+    private readonly database: LeadDatabase = defaultLeadDatabase,
+    /** What customer mail needs from the deployment: the provider, the hash secret, fallback senders. */
+    private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
+    private readonly automations: AutomationStore = new DatabaseAutomationStore(database),
+  ) {}
 
   summary(input: Scope & { dueBy?: string }) {
     return this.database.withTenantTx(input, (tx) => selectLeadSummary(tx, input.dueBy));
@@ -475,12 +563,56 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       const before: Record<string, unknown> = {};
       const after: Record<string, unknown> = {};
 
+      // The order edit to write: the one given, with the dates a move defaults.
+      let orderEdit = input.order;
+      let checkDocuments = false;
+      const reason = input.documentsOverrideReason?.trim();
+      let override: { reason: string; missing: string[] } | undefined;
       if (input.stage !== undefined && input.stage !== lead.stage) {
         if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
+        const current = toLeadOrder(lead.orderDetails);
+        const move = planStageMove({
+          leadType: lead.leadType,
+          from: lead.stage,
+          to: input.stage,
+          current,
+          edit: input.order,
+          today: todayInToronto(new Date()),
+        });
+        if (!move.ok) return move.refusal;
+        if (reason === '') return { status: 'document_override_reason_required' };
+        checkDocuments = move.gates.includes('documents');
+        orderEdit = move.order;
         set.stage = input.stage;
         entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
         before['stage'] = lead.stage;
         after['stage'] = input.stage;
+      }
+
+      // The order as this change leaves it, worked out before anything is
+      // written, so the documents check sees the plan the lead will have.
+      const changedOrder: string[] = [];
+      let storedOrder: Record<string, unknown> | undefined;
+      if (orderEdit) {
+        const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
+        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
+        if (edit.changedKeys.length > 0) {
+          storedOrder = edit.stored;
+          changedOrder.push(...edit.changedKeys);
+        }
+      }
+      if (checkDocuments) {
+        // What that frozen plan requires; no plan, or a plan from before the field, requires nothing.
+        const plan = toLeadOrder(storedOrder ?? lead.orderDetails).plan;
+        const missing = await findMissingDocuments(tx, {
+          workspaceId: input.workspaceId,
+          leadId: input.leadId,
+          required: plan?.requiredDocuments ?? [],
+        });
+        if (missing.length > 0) {
+          if (reason === undefined) return { status: 'documents_incomplete', missing };
+          override = { reason, missing };
+        }
       }
 
       if (input.assignedActorId !== undefined && input.assignedActorId !== lead.assignedActorId) {
@@ -564,16 +696,17 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         }
       }
 
-      const changedOrder: string[] = [];
-      if (input.order) {
-        const edit = await editOrder(tx, input.workspaceId, lead, input.order);
-        if (!edit.ok) return { status: 'invalid_field', field: edit.field };
-        if (edit.changedKeys.length > 0) {
-          set.orderDetails = edit.stored;
-          changedOrder.push(...edit.changedKeys);
-          before['order'] = lead.orderDetails;
-          after['order'] = edit.stored;
-        }
+      if (override) {
+        // Only a move that actually went past missing documents records an override.
+        storedOrder = {
+          ...(storedOrder ?? storedObject(lead.orderDetails)),
+          documentsOverride: { ...override, at: new Date().toISOString() },
+        };
+      }
+      if (storedOrder) {
+        set.orderDetails = storedOrder;
+        before['order'] = auditedOrder(lead.orderDetails);
+        after['order'] = auditedOrder(storedOrder);
       }
 
       // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
@@ -581,6 +714,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       if (changedFields.length > 0) {
         entries.push({ kind: 'edit', data: { fields: changedFields } });
         after['changedFields'] = changedFields;
+      }
+      if (override) {
+        entries.push({
+          kind: 'system',
+          data: { event: 'documents_override', missing: override.missing, reason: override.reason },
+        });
       }
 
       if (entries.length === 0) {
@@ -607,22 +746,42 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           })),
         )
         .returning(ACTIVITY_RETURNING);
-      await tx.insert(auditEvents).values({
-        workspaceId: input.workspaceId,
-        actorId: input.actorId,
-        actorLabel: 'staff actor',
-        action: 'lead.updated',
-        entity: 'lead',
-        entityId: input.leadId,
-        requestId: input.requestId,
-        before,
-        after,
-      });
+      await auditLead(tx, input, 'lead.updated', { before, after });
+      if (override) {
+        await auditLead(tx, input, 'lead.documents_overridden', {
+          after: {
+            from: lead.stage,
+            to: input.stage,
+            missing: override.missing,
+            reason: override.reason,
+          },
+        });
+      }
+
+      // The rules of the stage entered, from the lead as just written; each
+      // move is its own occurrence, so moving back and forth mails again.
+      const statusChange = inserted.find((row) => row.kind === 'status_change');
+      const fired =
+        statusChange && set.stage !== undefined
+          ? await runAutomations(tx, {
+              workspaceId: input.workspaceId,
+              actorId: input.actorId,
+              requestId: input.requestId,
+              lead: await readAutomationLead(tx, input.workspaceId, input.leadId),
+              automations: automationsForMove(lead.leadType, set.stage),
+              occurrence: statusChange.id,
+              environment: this.emailEnvironment,
+              store: this.automations,
+            })
+          : { skipped: [], activities: [] };
+      const emailSkipped = fired.skipped;
 
       return {
         status: 'updated',
         lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
-        activities: insertedActivities(inserted),
+        // Every entry the change wrote, the rules' mails among them.
+        activities: newestFirst([...inserted.map(insertedActivity), ...fired.activities]),
+        ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
       };
     });
   }
@@ -707,66 +866,38 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome> {
-    return this.database.withTenantTx(input, async (tx) => {
+    return this.database.withTenantTx(input, async (tx): Promise<CustomerEmailOutcome> => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
       if (!lead) return { status: 'not_found' };
       if (lead.trashed) return { status: 'trashed' };
-      const draft = draftCustomerEmail(
-        input.template,
-        { ...lead, form: storedForm(lead.payload).payload },
-        { siteUrl: input.siteUrl },
-      );
-      if (!draft.ok) return { status: 'missing', missing: draft.missing };
+      const composed = await composeCustomerEmail(tx, this.emailEnvironment, {
+        workspaceId: input.workspaceId,
+        template: input.template,
+        recipient: { kind: 'lead', lead: automationLeadOf(lead) },
+      });
+      if (composed.kind === 'skipped') {
+        if (composed.reason === 'no_sender') return { status: 'no_sender' };
+        if (composed.reason === 'no_customer_email') {
+          return { status: 'missing', missing: ['customer email'] };
+        }
+        return { status: 'missing', missing: composed.missing ?? [] };
+      }
 
       // Sent by the outbox, after this commits; the address and the mail's
-      // contents live only in the job, never on the timeline or in the audit.
-      const [job] = await tx
-        .insert(outboxJobs)
-        .values({
-          workspaceId: input.workspaceId,
-          jobType: draft.jobType,
-          // One mail per request: sending again is a second, deliberate mail.
-          dedupeKey: `${input.leadId}:${input.requestId}`,
-          payload: {
-            leadId: input.leadId,
-            toAddress: draft.toAddress,
-            contactHash: input.contactHash(draft.toAddress),
-            ...(draft.reference ? { reference: draft.reference } : {}),
-            variables: draft.variables,
-          },
-        })
-        .returning({ id: outboxJobs.id });
-      if (!job) throw new Error('outbox insert did not return a row');
-      const [entry] = await tx
-        .insert(leadActivities)
-        .values({
-          workspaceId: input.workspaceId,
-          leadId: input.leadId,
-          actorId: input.actorId,
-          kind: 'system',
-          data: { event: 'customer_emailed', template: input.template },
-        })
-        .returning(ACTIVITY_RETURNING);
-      if (!entry) throw new Error('activity insert did not return a row');
-      // Writing to the customer is work on the lead: it moves up the inbox.
-      await tx
-        .update(leads)
-        .set({ updatedAt: new Date() })
-        .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
-      await tx.insert(auditEvents).values({
+      // words live only in the job, never on the timeline or in the audit.
+      const queued = await queueComposedEmail(tx, {
         workspaceId: input.workspaceId,
         actorId: input.actorId,
-        actorLabel: 'staff actor',
-        action: 'lead.customer_emailed',
-        entity: 'lead',
-        entityId: input.leadId,
         requestId: input.requestId,
-        after: { template: input.template, jobId: job.id },
+        leadId: input.leadId,
+        // One mail per request: sending again is a second, deliberate mail.
+        dedupeKey: `${input.leadId}:${input.requestId}`,
+        payload: composed.payload,
+        automation: null,
       });
-
-      const [activity] = insertedActivities([entry]);
-      if (!activity) throw new Error('email entry did not map');
-      return { status: 'queued', activity };
+      // Request ids are the server's own, fresh per request: a hit is a bug.
+      if (!queued.activity) throw new Error('this request already queued its mail');
+      return { status: 'queued', activity: queued.activity };
     });
   }
 

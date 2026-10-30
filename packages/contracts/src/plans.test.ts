@@ -204,10 +204,18 @@ describe('plan snapshots and order details', () => {
       quantity: 1,
       paymentStatus: 'not_needed',
       carrierCommission: 'not_yet',
+      courier: null,
+      trackingNumber: null,
+      dispatchedAt: null,
+      activatedAt: null,
+      activationNumber: null,
+      activationAccount: null,
+      documentsOverride: null,
     });
     expect(leadOrderSchema.parse(DEFAULT_LEAD_ORDER)).toEqual(DEFAULT_LEAD_ORDER);
     expect(planSnapshotSchema.parse(SNAPSHOT)).toEqual(SNAPSHOT);
     const order = {
+      ...DEFAULT_LEAD_ORDER,
       planId: UUID_A,
       plan: SNAPSHOT,
       quantity: 2,
@@ -234,6 +242,45 @@ describe('plan snapshots and order details', () => {
     expect(leadOrderSchema.safeParse({ ...DEFAULT_LEAD_ORDER, priceMinor: 100 }).success).toBe(
       false,
     );
+  });
+
+  it('holds the dispatch and activation details and a documents override', () => {
+    const order = {
+      ...DEFAULT_LEAD_ORDER,
+      courier: 'Canada Post',
+      trackingNumber: '7023 4567 8901',
+      dispatchedAt: '2026-10-30',
+      activatedAt: '2026-11-02',
+      activationNumber: '+1 416 555 0100',
+      activationAccount: 'ACC-123',
+      documentsOverride: {
+        reason: 'Passport checked in person',
+        missing: ['passport'],
+        at: NOW,
+      },
+    };
+    expect(leadOrderSchema.parse(order)).toEqual(order);
+    expect(leadOrderSchema.parse({ ...order, courier: '  Purolator  ' }).courier).toBe('Purolator');
+  });
+
+  it('refuses an empty or too long detail, an impossible date and an override without a reason', () => {
+    const refuses = (patch: Record<string, unknown>) =>
+      expect(leadOrderSchema.safeParse({ ...DEFAULT_LEAD_ORDER, ...patch }).success).toBe(false);
+    refuses({ courier: '' });
+    refuses({ courier: '   ' });
+    refuses({ courier: 'x'.repeat(121) });
+    refuses({ trackingNumber: 'x'.repeat(121) });
+    refuses({ activationNumber: 'x'.repeat(41) });
+    refuses({ activationAccount: 'x'.repeat(81) });
+    refuses({ dispatchedAt: '2026-02-30' });
+    refuses({ activatedAt: '2026-10-30T12:00:00.000Z' });
+    refuses({ documentsOverride: { reason: ' ', missing: ['passport'], at: NOW } });
+    refuses({ documentsOverride: { reason: 'ok', missing: [], at: NOW } });
+    refuses({ documentsOverride: { reason: 'x'.repeat(2001), missing: ['passport'], at: NOW } });
+    refuses({ documentsOverride: { reason: 'ok', missing: ['passport'], at: NOW, by: UUID_A } });
+    expect(
+      leadOrderSchema.safeParse({ ...DEFAULT_LEAD_ORDER, courier: 'x'.repeat(120) }).success,
+    ).toBe(true);
   });
 
   it('takes only a plan and a quantity from the website, never a price', () => {
@@ -269,6 +316,34 @@ describe('plan snapshots and order details', () => {
     expect(leadOrderEditSchema.safeParse({ quantity: 100 }).success).toBe(false);
     expect(leadOrderEditSchema.safeParse({ plan: SNAPSHOT }).success).toBe(false);
     expect(leadOrderEditSchema.safeParse({ priceMinor: 1 }).success).toBe(false);
+  });
+
+  it('lets staff set or clear the dispatch and activation details, never the override', () => {
+    expect(leadOrderEditSchema.parse({ courier: null })).toEqual({ courier: null });
+    expect(
+      leadOrderEditSchema.parse({
+        courier: ' Canada Post ',
+        trackingNumber: 'CP123',
+        dispatchedAt: '2026-10-30',
+        activatedAt: null,
+        activationNumber: '4165550100',
+        activationAccount: 'ACC-1',
+      }),
+    ).toEqual({
+      courier: 'Canada Post',
+      trackingNumber: 'CP123',
+      dispatchedAt: '2026-10-30',
+      activatedAt: null,
+      activationNumber: '4165550100',
+      activationAccount: 'ACC-1',
+    });
+    expect(leadOrderEditSchema.safeParse({ courier: '' }).success).toBe(false);
+    expect(leadOrderEditSchema.safeParse({ dispatchedAt: '2026-02-30' }).success).toBe(false);
+    expect(
+      leadOrderEditSchema.safeParse({
+        documentsOverride: { reason: 'ok', missing: ['passport'], at: NOW },
+      }).success,
+    ).toBe(false);
   });
 
   it('starts the payment as pending only when the plan requires one', () => {

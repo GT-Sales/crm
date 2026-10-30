@@ -48,6 +48,25 @@ export function todayDay(now: Date = new Date()): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+const TORONTO_PARTS = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Toronto',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
+ * Today as `YYYY-MM-DD` in America/Toronto, whatever the viewer's own zone:
+ * the day an order's dispatch or activation is dated by default, as the
+ * backend dates it.
+ */
+export function torontoDay(now: Date = new Date()): string {
+  const parts = TORONTO_PARTS.formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
 /** A picked calendar day as the stored due time. */
 export function dueAtFromDay(day: string): string {
   return `${day}T12:00:00.000Z`;

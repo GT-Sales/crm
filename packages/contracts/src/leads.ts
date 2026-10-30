@@ -153,10 +153,25 @@ export const createLeadRequestSchema = z.object({
 export type CreateLeadRequest = z.infer<typeof createLeadRequestSchema>;
 export type CreateLeadRequestInput = z.input<typeof createLeadRequestSchema>;
 
+/**
+ * The header a website may send on a create or an update so a retry is safe:
+ * with `submit`, the same key and body within 24 hours returns the lead
+ * already created, marked `replayed`.
+ */
+export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+/** 8 to 200 characters of letters, digits and `_ - . :`. */
+export const idempotencyKeySchema = z
+  .string()
+  .min(8)
+  .max(200)
+  .regex(/^[A-Za-z0-9_.:-]+$/, 'letters, digits and _ . : -');
+
 export const createLeadResponseSchema = z.object({
   lead: leadSummarySchema,
   /** `null` when the lead was created with `submit: true`: there is no draft to resume. */
   draftGrant: draftGrantSchema.nullable(),
+  /** `true` when an `Idempotency-Key` retry returned the lead already created. */
+  replayed: z.literal(true).optional(),
   requestId: requestIdSchema,
 });
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;
@@ -183,6 +198,8 @@ export type UpdateLeadRequestInput = z.input<typeof updateLeadRequestSchema>;
 
 export const updateLeadResponseSchema = z.object({
   lead: leadSummarySchema,
+  /** `true` when an `Idempotency-Key` retry returned the submission already made. */
+  replayed: z.literal(true).optional(),
   requestId: requestIdSchema,
 });
 export type UpdateLeadResponse = z.infer<typeof updateLeadResponseSchema>;

@@ -1,9 +1,23 @@
 import {
   BackendError,
   createBackendClient,
+  type AutomationKey,
+  type AutomationResponse,
+  type ListAutomationRunsResponse,
+  type ListAutomationsResponse,
+  type UpdateAutomationRequest,
   type CreateDownloadLinkResponse,
   type CreateSavedViewRequestInput,
   type CreatePlanRequestInput,
+  type CustomerEmailTemplate,
+  type EmailSettingsResponse,
+  type EmailTemplateResponse,
+  type ListEmailTemplatesResponse,
+  type PreviewEmailTemplateRequest,
+  type PreviewEmailTemplateResponse,
+  type SendTestEmailResponse,
+  type UpdateEmailSettingsRequestInput,
+  type UpdateEmailTemplateRequest,
   type DeletePropertyResponse,
   type ListPlansQueryInput,
   type ListPlansResponse,
@@ -31,7 +45,7 @@ import {
   type LeadTaskResponse,
   type LeadTrashResponse,
   type MarkLeadOpenedResponse,
-  type CustomerEmailTemplate,
+  type QueueCustomerEmailRequest,
   type QueueCustomerEmailResponse,
   type ListWorkspaceTasksQuery,
   type ListWorkspaceTasksResponse,
@@ -199,7 +213,7 @@ export async function emailLeadCustomer(
   accessToken: string,
   workspaceId: string,
   leadId: string,
-  template: CustomerEmailTemplate,
+  template: QueueCustomerEmailRequest['template'],
 ): Promise<QueueCustomerEmailResponse> {
   return client(accessToken).staff.emailLeadCustomer(workspaceId, leadId, { template });
 }
@@ -372,6 +386,87 @@ export async function updatePlan(
   body: UpdatePlanRequest,
 ): Promise<PlanResponse> {
   return client(accessToken).staff.updatePlan(workspaceId, planId, body);
+}
+
+// ---- Automation rules. Reading them and their runs needs workspace access
+// (lead names only with contact access); switching one needs
+// integration.manage, checked server-side. ----
+
+export async function listAutomations(
+  accessToken: string,
+  workspaceId: string,
+): Promise<ListAutomationsResponse> {
+  return client(accessToken).staff.listAutomations(workspaceId);
+}
+
+export async function updateAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  body: UpdateAutomationRequest,
+): Promise<AutomationResponse> {
+  return client(accessToken).staff.updateAutomation(workspaceId, key, body);
+}
+
+export async function listAutomationRuns(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<ListAutomationRunsResponse> {
+  return client(accessToken).staff.listAutomationRuns(workspaceId, key);
+}
+
+// ---- Settings → Email: the site's sender and its seven templates. Every
+// call needs integration.manage (the owner has it), checked server-side. ----
+
+export async function getEmailSettings(
+  accessToken: string,
+  workspaceId: string,
+): Promise<EmailSettingsResponse> {
+  return client(accessToken).staff.getEmailSettings(workspaceId);
+}
+
+export async function updateEmailSettings(
+  accessToken: string,
+  workspaceId: string,
+  body: UpdateEmailSettingsRequestInput,
+): Promise<EmailSettingsResponse> {
+  return client(accessToken).staff.updateEmailSettings(workspaceId, body);
+}
+
+export async function listEmailTemplates(
+  accessToken: string,
+  workspaceId: string,
+): Promise<ListEmailTemplatesResponse> {
+  return client(accessToken).staff.listEmailTemplates(workspaceId);
+}
+
+export async function updateEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  key: CustomerEmailTemplate,
+  body: UpdateEmailTemplateRequest,
+): Promise<EmailTemplateResponse> {
+  return client(accessToken).staff.updateEmailTemplate(workspaceId, key, body);
+}
+
+/** The unsaved subject and body rendered with sample values; nothing is stored or sent. */
+export async function previewEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  key: CustomerEmailTemplate,
+  body: PreviewEmailTemplateRequest,
+): Promise<PreviewEmailTemplateResponse> {
+  return client(accessToken).staff.previewEmailTemplate(workspaceId, key, body);
+}
+
+/** The saved template mailed to the signed-in staff member; at most one per template a minute. */
+export async function sendTestEmail(
+  accessToken: string,
+  workspaceId: string,
+  key: CustomerEmailTemplate,
+): Promise<SendTestEmailResponse> {
+  return client(accessToken).staff.sendTestEmail(workspaceId, key);
 }
 
 // ---- Private saved views: the caller's own, never anyone else's. ----

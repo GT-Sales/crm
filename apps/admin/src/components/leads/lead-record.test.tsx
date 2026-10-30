@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_LEAD_ORDER,
   buildPropertyCatalog,
   codePropertyCatalog,
   type AssignableMember,
@@ -15,6 +16,7 @@ import {
   type SiteProperty,
 } from '@gt-sales/contracts';
 
+import { torontoDay } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
 import { catalogFromModel } from '../properties/use-property-model';
 import { REVEAL_SECONDS } from './identity-check';
@@ -40,12 +42,18 @@ const mocks = vi.hoisted(() => ({
   markLeadOpened: vi.fn(),
   emailLeadCustomer: vi.fn(),
   getPropertyModel: vi.fn(),
+  reviewFile: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
   ...mocks,
   BackendError: class extends Error {
-    constructor(readonly code: string) {
+    constructor(
+      readonly code: string,
+      readonly status?: number,
+      readonly requestId?: string,
+      readonly details?: Record<string, unknown>,
+    ) {
       super(code);
     }
   },
@@ -107,6 +115,7 @@ function response(overrides: Partial<GetWorkspaceLeadResponse> = {}): GetWorkspa
     related: [],
     identities: [],
     documents: [],
+    allowedMoves: [],
     access: { contacts: true, manage: true },
     requestId: '00000000-0000-4000-8000-000000000001',
     ...overrides,
@@ -182,6 +191,7 @@ describe('LeadRecord', () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...lead, stage: 'qualified' },
       activities: [entry],
+      allowedMoves: [],
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -202,6 +212,7 @@ describe('LeadRecord', () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...lead, assignedActorId: COLLEAGUE },
       activities: [],
+      allowedMoves: [],
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -417,6 +428,7 @@ describe('LeadRecord documents', () => {
     sizeBytes: 1_258_291,
     revision: 1,
     createdAt: NOW,
+    review: null,
   };
   const simPhoto: LeadDocument = {
     id: '50000000-0000-4000-8000-000000000012',
@@ -425,6 +437,7 @@ describe('LeadRecord documents', () => {
     sizeBytes: 84_000,
     revision: 2,
     createdAt: NOW,
+    review: null,
   };
   const owner = { contacts: true, manage: true, downloadDocuments: true };
 
@@ -506,6 +519,127 @@ describe('LeadRecord documents', () => {
     await waitFor(() => expect(open).toHaveBeenCalledWith('https://storage.example.test/download'));
     expect(mocks.createFileDownloadLink).toHaveBeenCalledWith('staff-token', WORKSPACE, PASSPORT);
     open.mockRestore();
+  });
+
+  it('approves a document, then shows the record as the backend has it', async () => {
+    const reviewer = { ...owner, reviewDocuments: true };
+    mocks.getStaffLead
+      .mockResolvedValueOnce(response({ documents: [passport], access: reviewer }))
+      .mockResolvedValueOnce(
+        response({
+          documents: [{ ...passport, review: { decision: 'approved', at: NOW } }],
+          access: reviewer,
+          activities: [
+            {
+              id: '92000000-0000-4000-8000-000000000020',
+              actorId: SELF,
+              createdAt: NOW,
+              kind: 'document',
+              fileId: PASSPORT,
+              documentType: 'passport',
+              decision: 'approved',
+            },
+          ],
+        }),
+      );
+    mocks.reviewFile.mockResolvedValue({ file: {}, requestId: NOW });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve Passport' }));
+
+    await waitFor(() =>
+      expect(mocks.reviewFile).toHaveBeenCalledWith('staff-token', WORKSPACE, PASSPORT, {
+        decision: 'approved',
+      }),
+    );
+    const list = screen.getByRole('list', { name: 'Documents' });
+    expect(await within(list).findByText('Approved')).toBeTruthy();
+    expect(mocks.getStaffLead).toHaveBeenCalledTimes(2);
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(within(timeline).getByText('approved the passport')).toBeTruthy();
+  });
+
+  describe('when the refresh after a review fails', () => {
+    const reviewer = { ...owner, reviewDocuments: true };
+    const order: LeadDetail = {
+      ...lead,
+      leadType: 'sim_order',
+      stage: 'pending',
+      form: { schemaVersion: 1, payload: {} },
+      order: DEFAULT_LEAD_ORDER,
+    };
+
+    /** The order, moved to On hold (its mail skipped), then its passport approved. */
+    async function approveAfterMove() {
+      const { BackendError } = await import('../../lib/api');
+      mocks.getStaffLead
+        .mockResolvedValueOnce(
+          response({
+            lead: order,
+            documents: [passport],
+            access: reviewer,
+            allowedMoves: ['verified', 'on_hold', 'cancelled'],
+          }),
+        )
+        .mockRejectedValueOnce(new BackendError('internal_error', 500, NOW));
+      mocks.updateStaffLead.mockResolvedValue({
+        lead: { ...order, stage: 'on_hold' },
+        activities: [],
+        allowedMoves: ['pending', 'verified', 'cancelled'],
+        emailSkipped: [
+          {
+            automation: 'sim_order_information_needed',
+            template: 'information_needed',
+            reason: 'no_customer_email',
+          },
+        ],
+        requestId: NOW,
+      });
+      mocks.reviewFile.mockResolvedValue({ file: {}, requestId: NOW });
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: 'on_hold' } });
+      await screen.findByRole('list', { name: 'Emails not sent' });
+      const contact = screen.getByRole('heading', { name: 'Contact' }).parentElement;
+      if (!contact) throw new Error('the Contact card has no header');
+      fireEvent.click(within(contact).getByRole('button', { name: 'Edit' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Approve Passport' }));
+      await waitFor(() => expect(mocks.getStaffLead).toHaveBeenCalledTimes(2));
+    }
+
+    it('keeps the record, its notices and open editor, and offers a retry', async () => {
+      await approveAfterMove();
+
+      expect(
+        (await screen.findByText("Couldn't refresh this lead. Try again.")).closest('[role]'),
+      ).toHaveProperty('role', 'alert');
+      expect(screen.getByRole('heading', { level: 1, name: 'Avery Example' })).toBeTruthy();
+      expect(screen.queryByText('The lead could not be loaded')).toBeNull();
+      expect(
+        within(screen.getByRole('list', { name: 'Emails not sent' })).getAllByRole('listitem'),
+      ).toHaveLength(1);
+      expect(screen.getByLabelText<HTMLInputElement>('Name').value).toBe('Avery Example');
+      expect(screen.getByLabelText<HTMLSelectElement>('Stage').value).toBe('on_hold');
+
+      mocks.getStaffLead.mockResolvedValueOnce(
+        response({
+          lead: { ...order, stage: 'on_hold' },
+          documents: [{ ...passport, review: { decision: 'approved', at: NOW } }],
+          access: reviewer,
+        }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      const list = screen.getByRole('list', { name: 'Documents' });
+      expect(await within(list).findByText('Approved')).toBeTruthy();
+      expect(screen.queryByText("Couldn't refresh this lead. Try again.")).toBeNull();
+      expect(mocks.getStaffLead).toHaveBeenCalledTimes(3);
+    });
+
+    it('lets staff dismiss the notice and keep working', async () => {
+      await approveAfterMove();
+      await screen.findByText("Couldn't refresh this lead. Try again.");
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByText("Couldn't refresh this lead. Try again.")).toBeNull();
+      expect(screen.getByRole('heading', { level: 1, name: 'Avery Example' })).toBeTruthy();
+    });
   });
 
   it('offers no View or Download without the permission, and says who can grant it', async () => {
@@ -634,6 +768,7 @@ describe('LeadRecord order details', () => {
           fields: ['arrivalDate'],
         },
       ],
+      allowedMoves: [],
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -660,6 +795,7 @@ describe('LeadRecord order details', () => {
         form: { schemaVersion: 1, payload: { ...orderPayload, simNumber: '4165550104' } },
       },
       activities: [],
+      allowedMoves: [],
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -686,6 +822,7 @@ describe('LeadRecord order details', () => {
         form: { schemaVersion: 1, payload: { ...orderPayload, simNumber: '4165550104' } },
       },
       activities: [],
+      allowedMoves: [],
       requestId: NOW,
     });
     mocks.emailLeadCustomer.mockResolvedValue({
@@ -741,6 +878,29 @@ describe('LeadRecord order details', () => {
     expect(alert.className).toContain('text-destructive');
   });
 
+  it('says what the SIM number mail is missing', async () => {
+    const withNumber = {
+      ...order,
+      form: { schemaVersion: 1 as const, payload: { ...orderPayload, simNumber: '4165550104' } },
+    };
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: withNumber, access: { contacts: true, manage: true, emailCustomer: true } }),
+    );
+    const { BackendError } = await import('../../lib/api');
+    mocks.emailLeadCustomer
+      .mockRejectedValueOnce(new BackendError('conflict', 409, NOW, { missing: ['SIM number'] }))
+      .mockRejectedValueOnce(
+        new BackendError('conflict', 409, NOW, { missing: ['customer email'] }),
+      );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Email it to the customer' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Add the SIM number first.');
+    fireEvent.click(screen.getByRole('button', { name: 'Email it to the customer' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('The customer has no email address.'),
+    );
+  });
+
   it('says when this site cannot email its customers yet', async () => {
     mocks.getStaffLead.mockResolvedValue(
       response({
@@ -765,6 +925,219 @@ describe('LeadRecord order details', () => {
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     await screen.findByRole('heading', { name: 'Request' });
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+});
+
+describe('LeadRecord stage moves', () => {
+  const simOrder = (stage: string, order: LeadOrder = DEFAULT_LEAD_ORDER): LeadDetail => ({
+    ...lead,
+    leadType: 'sim_order',
+    stage,
+    form: { schemaVersion: 1, payload: {} },
+    order,
+  });
+  const verified = simOrder('verified');
+  const delivered: LeadDetail = {
+    ...verified,
+    stage: 'delivered',
+    order: {
+      ...DEFAULT_LEAD_ORDER,
+      courier: 'Canada Post',
+      trackingNumber: 'LX1',
+      dispatchedAt: torontoDay(),
+    },
+  };
+  const moveEntry: LeadActivity = {
+    id: '92000000-0000-4000-8000-000000000040',
+    actorId: SELF,
+    createdAt: NOW,
+    kind: 'status_change',
+    from: 'verified',
+    to: 'delivered',
+  };
+  const stageOptions = (select: HTMLElement) =>
+    Array.from(select.querySelectorAll('option')).map((option) => option.textContent);
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+  });
+
+  it('offers only the stage the lead is at and the moves allowed from it', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: simOrder('pending'), allowedMoves: ['verified', 'on_hold', 'cancelled'] }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const select = await screen.findByLabelText('Stage');
+    expect(stageOptions(select)).toEqual(['Pending', 'Verified', 'On hold', 'Cancelled']);
+  });
+
+  it('falls back on the catalogue’s moves when the backend sends none', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ lead: simOrder('delivered') }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const select = await screen.findByLabelText('Stage');
+    expect(stageOptions(select)).toEqual(['On hold', 'Delivered', 'Activated', 'Cancelled']);
+  });
+
+  it('moves to Delivered through the dispatch dialog, and says which mails were not sent', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: verified, allowedMoves: ['delivered', 'on_hold', 'cancelled'] }),
+    );
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: delivered,
+      activities: [moveEntry],
+      allowedMoves: ['activated', 'on_hold', 'cancelled'],
+      emailSkipped: [
+        {
+          automation: 'sim_order_dispatched',
+          template: 'dispatched',
+          reason: 'missing_fill_in',
+          missing: ['SIM number', 'tracking number'],
+        },
+        { automation: 'sim_order_dispatched', template: 'dispatched', reason: 'no_sender' },
+        {
+          automation: 'sim_order_dispatched',
+          template: 'dispatched',
+          reason: 'no_customer_email',
+        },
+      ],
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: 'delivered' } });
+
+    // Nothing is sent until the dispatch details are in.
+    const dialog = await screen.findByRole('dialog', { name: 'Move to Delivered' });
+    expect(mocks.updateStaffLead).not.toHaveBeenCalled();
+    expect(screen.getByLabelText<HTMLSelectElement>('Stage').value).toBe('verified');
+    expect(within(dialog).getByLabelText<HTMLInputElement>(/^Dispatched on/).value).toBe(
+      torontoDay(),
+    );
+    fireEvent.change(within(dialog).getByLabelText(/^Courier/), {
+      target: { value: 'Canada Post' },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^Tracking number/), {
+      target: { value: 'LX1' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        stage: 'delivered',
+        order: { courier: 'Canada Post', trackingNumber: 'LX1', dispatchedAt: torontoDay() },
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const select = screen.getByLabelText<HTMLSelectElement>('Stage');
+    expect(select.value).toBe('delivered');
+    expect(stageOptions(select)).toEqual(['On hold', 'Delivered', 'Activated', 'Cancelled']);
+    const notices = screen.getByRole('list', { name: 'Emails not sent' });
+    expect(
+      within(notices)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'The Dispatched email was not sent: it needs the SIM number and tracking number.',
+      "The Dispatched email was not sent: this site has no sender yet. Check Settings → Email, and that the deployment's email provider is configured.",
+      'The Dispatched email was not sent: the customer has no email address.',
+    ]);
+    const timeline = screen.getByRole('region', { name: 'Timeline' });
+    expect(within(timeline).getByText('Delivered')).toBeTruthy();
+  });
+
+  it('moves on without the documents, with a reason, for someone allowed to', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({
+        lead: verified,
+        allowedMoves: ['delivered', 'on_hold', 'cancelled'],
+        access: { contacts: true, manage: true, overrideDocuments: true },
+      }),
+    );
+    const { BackendError } = await import('../../lib/api');
+    mocks.updateStaffLead
+      .mockRejectedValueOnce(
+        new BackendError('documents_incomplete', 409, NOW, { missing: ['passport'] }),
+      )
+      .mockResolvedValueOnce({
+        lead: delivered,
+        activities: [moveEntry],
+        allowedMoves: ['activated', 'on_hold', 'cancelled'],
+        requestId: NOW,
+      });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: 'delivered' } });
+    const dialog = await screen.findByRole('dialog', { name: 'Move to Delivered' });
+    fireEvent.change(within(dialog).getByLabelText(/^Courier/), {
+      target: { value: 'Canada Post' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+    expect(await within(dialog).findByText('Missing approved documents: Passport')).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText(/^Reason for moving anyway/), {
+      target: { value: 'Seen on a video call' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move anyway' }));
+
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenLastCalledWith('staff-token', WORKSPACE, LEAD, {
+        stage: 'delivered',
+        order: { courier: 'Canada Post', dispatchedAt: torontoDay() },
+        documentsOverrideReason: 'Seen on a video call',
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('asks someone without the override to have the documents approved', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: verified, allowedMoves: ['delivered', 'on_hold', 'cancelled'] }),
+    );
+    const { BackendError } = await import('../../lib/api');
+    mocks.updateStaffLead.mockRejectedValue(
+      new BackendError('documents_incomplete', 409, NOW, { missing: ['passport'] }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: 'delivered' } });
+    const dialog = await screen.findByRole('dialog', { name: 'Move to Delivered' });
+    fireEvent.change(within(dialog).getByLabelText(/^Courier/), {
+      target: { value: 'Canada Post' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+    expect(
+      await within(dialog).findByText(
+        'Approve the documents first, or ask someone with the Orders role.',
+      ),
+    ).toBeTruthy();
+    expect(within(dialog).queryByLabelText(/^Reason for moving anyway/)).toBeNull();
+
+    // Cancelled, the lead stays where it was.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByLabelText<HTMLSelectElement>('Stage').value).toBe('verified');
+  });
+
+  it('moves to a stage without details at once, and says when the move is not allowed', async () => {
+    mocks.getStaffLead.mockResolvedValue(
+      response({ lead: simOrder('pending'), allowedMoves: ['verified', 'on_hold', 'cancelled'] }),
+    );
+    const { BackendError } = await import('../../lib/api');
+    mocks.updateStaffLead.mockRejectedValue(
+      new BackendError('illegal_stage_move', 409, NOW, {
+        from: 'pending',
+        to: 'on_hold',
+        allowed: ['verified', 'cancelled'],
+      }),
+    );
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: 'on_hold' } });
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        stage: 'on_hold',
+      }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'That move is not allowed from Pending.',
+    );
   });
 });
 
@@ -985,6 +1358,7 @@ describe('LeadRecord from the site layout', () => {
           fields: ['arrivalDate', 'custom_referral_code', 'custom_vip'],
         },
       ],
+      allowedMoves: [],
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -1178,6 +1552,7 @@ describe('LeadRecord order section', () => {
     frozenAt: FROZEN_AT,
   };
   const frozenOrder: LeadOrder = {
+    ...DEFAULT_LEAD_ORDER,
     planId: OLD_PLAN,
     plan: frozenPlan,
     quantity: 2,
@@ -1199,13 +1574,24 @@ describe('LeadRecord order section', () => {
     mocks.getPropertyModel.mockResolvedValue(model);
   });
 
-  it('shows the four order fields and the copy frozen on the lead', async () => {
+  it('shows the order fields and the copy frozen on the lead', async () => {
     mocks.getStaffLead.mockResolvedValue(response({ lead: simOrder(frozenOrder) }));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const order = await screen.findByRole('region', { name: 'Order' });
     await within(order).findByText('Legacy 10');
     const rows = Array.from(order.querySelectorAll('dt')).map((term) => term.textContent);
-    expect(rows).toEqual(['Plan', 'Quantity', 'Payment status', 'Carrier commission']);
+    expect(rows).toEqual([
+      'Plan',
+      'Quantity',
+      'Payment status',
+      'Carrier commission',
+      'Courier',
+      'Tracking number',
+      'Dispatched on',
+      'Activated on',
+      'Activation number',
+      'Activation account',
+    ]);
     expect(within(order).getByText('2')).toBeTruthy();
     expect(within(order).getByText('Pending')).toBeTruthy();
     expect(within(order).getByText('Not yet')).toBeTruthy();
@@ -1240,6 +1626,7 @@ describe('LeadRecord order section', () => {
           fields: ['plan', 'paymentStatus'],
         },
       ],
+      allowedMoves: [],
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);

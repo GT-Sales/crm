@@ -1,7 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import {
+  CUSTOMER_EMAIL_TEMPLATE_LABELS,
   LEGACY_IMPORT_ACTOR_ID,
   leadStageLabel,
   type AssignableMember,
@@ -13,6 +15,7 @@ import { Button, Textarea } from '@gt-sales/ui';
 import {
   ArchiveIcon,
   ArrowRightIcon,
+  BotIcon,
   CheckIcon,
   EyeIcon,
   FilePenLineIcon,
@@ -20,6 +23,7 @@ import {
   MailIcon,
   PencilIcon,
   RotateCcwIcon,
+  ShieldAlertIcon,
   StickyNoteIcon,
   UserIcon,
   XIcon,
@@ -29,6 +33,7 @@ import { addLeadNote } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { actorName, memberName } from '../../lib/people';
 import { errorReason } from '../../lib/use-resource';
+import { documentTypeLabel } from '../plans/document-types';
 import { documentLabel } from './lead-documents';
 import { fieldLabel } from './lead-fields';
 
@@ -88,12 +93,17 @@ function personName(actorId: string | null, members: readonly AssignableMember[]
   return member.isSelf ? 'you' : memberName(member);
 }
 
+/**
+ * An entry's icon and words. `actor` null leaves out who: an automation
+ * queued the mail, whoever made the move that fired it.
+ */
 function describe(
   activity: LeadActivity,
   leadType: string,
   members: readonly AssignableMember[],
   catalog: PropertyCatalog | undefined,
-): { icon: ReactNode; text: ReactNode } {
+  workspaceSlug: string,
+): { icon: ReactNode; text: ReactNode; actor?: null } {
   switch (activity.kind) {
     case 'note':
       return { icon: <StickyNoteIcon />, text: 'added a note' };
@@ -127,6 +137,15 @@ function describe(
           .map((field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog))
           .join(', ')}`,
       };
+    case 'document': {
+      const approved = activity.decision === 'approved';
+      return {
+        icon: approved ? <CheckIcon /> : <XIcon />,
+        text: `${approved ? 'approved' : 'rejected'} the ${documentLabel(
+          activity.documentType,
+        ).toLowerCase()}`,
+      };
+    }
     case 'system':
       // `trashed` is the API's name for an archive.
       if (activity.event === 'trashed') return { icon: <ArchiveIcon />, text: 'archived this' };
@@ -147,6 +166,34 @@ function describe(
           }`,
         };
       }
+      if (activity.event === 'documents_override') {
+        return {
+          icon: <ShieldAlertIcon />,
+          text: `moved on without approved documents: ${(activity.missing ?? [])
+            .map(documentTypeLabel)
+            .join(', ')}. Reason: ${activity.reason ?? '—'}`,
+        };
+      }
+      if (activity.event === 'customer_emailed' && activity.automation && activity.template) {
+        return {
+          icon: <BotIcon />,
+          actor: null,
+          text: (
+            <>
+              {CUSTOMER_EMAIL_TEMPLATE_LABELS[activity.template]} email queued by{' '}
+              <Link
+                href={`/w/${workspaceSlug}/automations`}
+                className="underline-offset-2 hover:underline"
+              >
+                an automation
+              </Link>
+              {activity.templateVersion === undefined
+                ? ''
+                : ` (version ${activity.templateVersion})`}
+            </>
+          ),
+        };
+      }
       if (activity.event === 'customer_emailed') {
         return {
           icon: <MailIcon />,
@@ -162,7 +209,8 @@ function describe(
 
 /**
  * The lead's history, newest first: notes, stage changes, assignments,
- * corrections and the archive, ending with the submission itself. Staff who
+ * corrections, document reviews, customer emails (by hand or by an
+ * automation) and the archive, ending with the submission itself. Staff who
  * manage leads write notes at the top.
  */
 export function LeadTimeline({
@@ -171,6 +219,7 @@ export function LeadTimeline({
   members,
   canWrite,
   accessToken,
+  workspaceSlug,
   catalog,
   onNoteAdded,
 }: {
@@ -179,6 +228,8 @@ export function LeadTimeline({
   members: readonly AssignableMember[];
   canWrite: boolean;
   accessToken: string;
+  /** The site's slug, for the links an entry carries (Automations). */
+  workspaceSlug: string;
   /** The site's catalogue, so a correction names custom properties by label. */
   catalog?: PropertyCatalog;
   onNoteAdded(activity: LeadActivity): void;
@@ -251,7 +302,13 @@ export function LeadTimeline({
               ),
           )
           .map((activity) => {
-            const { icon, text } = describe(activity, lead.leadType, members, catalog);
+            const { icon, text, actor } = describe(
+              activity,
+              lead.leadType,
+              members,
+              catalog,
+              workspaceSlug,
+            );
             // A data migration (the 0012 stage clean-up) says in words what it changed.
             const body = activity.kind === 'system' ? activity.body : undefined;
             return (
@@ -264,12 +321,16 @@ export function LeadTimeline({
                 </span>
                 <div className="min-w-0 flex-1 pt-1 text-sm">
                   <p>
-                    <span className="font-medium">
-                      {/* The customer asked, through the website; the import only carried it over. */}
-                      {activity.kind === 'system' && activity.event === 'change_requested'
-                        ? 'Customer'
-                        : actorName(activity.actorId, members)}
-                    </span>{' '}
+                    {actor === null ? null : (
+                      <>
+                        <span className="font-medium">
+                          {/* The customer asked, through the website; the import only carried it over. */}
+                          {activity.kind === 'system' && activity.event === 'change_requested'
+                            ? 'Customer'
+                            : actorName(activity.actorId, members)}
+                        </span>{' '}
+                      </>
+                    )}
                     <span className="text-muted-foreground">{text}</span>{' '}
                     <time
                       dateTime={activity.createdAt}

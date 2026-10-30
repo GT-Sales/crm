@@ -385,6 +385,116 @@ Completed; carrier commission set to Invoiced (phase 3 migration)`, data
   sources, an archived and a restricted lead, one entry per moved lead, an
   `internet` lead left at `{}`, and a second run changing nothing.
 
+## 0013_order_tools
+
+- Phase 4's order tools and customer email
+  (docs/superpowers/plans/2026-10-30-phase-4-order-tools-email.md),
+  generated from `packages/db/src/schema.ts`. Additive: six new tables and
+  one new nullable column, no data migration.
+- `app.idempotency_keys`: a website's double-submit protection. `scope`
+  (`lead_submission`), `key_hash` (`^[0-9a-f]{64}$`), `request_fingerprint`
+  (`^sha256:[0-9a-f]{64}$`), `lead_id` (FK `(workspace_id, lead_id)` →
+  leads, cascade), `status` (`pending` default, `completed`),
+  `completed_at`, `created_at`; check `idempotency_keys_completed_check`
+  (`completed` exactly when `completed_at` and `lead_id` are set); unique
+  `idempotency_keys_scope_key_unique (workspace_id, scope, key_hash)`; index
+  `(workspace_id, created_at)` for pruning.
+- `app.workspace_email_settings`: one row per site (`workspace_id` is the
+  key). `from_name` (1–80 characters once trimmed), `from_address` (≤ 254,
+  `^[^\s@]+@[^\s@]+\.[^\s@]+$`), `reply_to` (nullable, the same check),
+  `logo_url` and `site_url` (nullable, `^https://`, ≤ 2048), `brand_color`
+  (`^#[0-9a-f]{6}$`, default `#d72638`), `footer_text` (≤ 500, default
+  `''`), `updated_by`, `updated_at`.
+- `app.email_templates`: a site's current copy of one email, content only
+  (no on/off: sending is an automation's call). `key` (`tracking_code`,
+  `order_received`, `information_needed`, `dispatched`, `activated`,
+  `cancelled`, `sim_number_ready`), `subject` (1–150), `body` (1–5000),
+  `version` (`> 0`), `updated_by`, `updated_at`; unique `(workspace_id,
+key)`.
+- `app.email_template_versions`: every saved version, append-only. `key`,
+  `version`, `subject`, `body` (the same checks), `created_by`,
+  `created_at`; unique `(workspace_id, key, version)`.
+- `app.automations`: a site's state of one built-in automation rule. `key`
+  (`order_received`, `sim_order_information_needed`,
+  `sim_order_dispatched`, `sim_order_activated`, `sim_order_cancelled`,
+  `mobility_activated`), `enabled` (default false), `last_run_at`,
+  `run_count` (`>= 0`, default 0), `updated_by`, `updated_at`; unique
+  `automations_workspace_key_unique (workspace_id, key)`.
+- `app.automation_runs`: one firing for a lead, append-only.
+  `automation_key` (the same six), `lead_id` (FK `(workspace_id, lead_id)`
+  → leads, cascade), `outcome` (`queued`, `skipped`), `reason` (null or
+  `no_sender`, `no_customer_email`, `missing_fill_in`), `job_id`,
+  `created_at`; checks: `skipped` exactly when there is a reason, `queued`
+  exactly when there is a job id; index
+  `automation_runs_workspace_key_created_idx (workspace_id, automation_key,
+created_at desc)`.
+- Each of the six has its tenant policy and `<table>_backup_reader_read`,
+  so `app` now has 35 `_backup_reader_read` policies.
+- `app.email_messages.template_version`: `integer`, nullable, no default,
+  check `email_messages_template_version_check` (`is null or >= 0`): the
+  template version a site-content email was rendered from. No rewrite; the
+  check scans `email_messages` once.
+- Drizzle hash `dc79cd6b92a16064141144d74734b4f9d1a0ca70ef28c7c1f90221e28ea47962`,
+  `created_at` `1793349931483`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030135521`, name `0013_order_tools`; the
+  Drizzle tracker row added in the same run), from the Supabase tool with the
+  file's statements verbatim. Pre-check A before: the six tables absent, no
+  `template_version` column, 0 tracker rows.
+
+## 0014_order_tools_runtime
+
+- Hand-written companion to 0013: `FORCE ROW LEVEL SECURITY` on the six;
+  `app_runtime` gets `SELECT, INSERT, UPDATE` on `idempotency_keys`,
+  `workspace_email_settings`, `email_templates` and `automations`, and
+  `SELECT, INSERT` only on `email_template_versions` and `automation_runs`
+  (append-only). No DELETE on any of them.
+- `app.prune_operational_rows` replaced (`CREATE OR REPLACE`) with 0001's
+  body plus two blocks: `idempotency_keys` older than 7 days (by
+  `created_at`, pending or completed) and `automation_runs` older than 90
+  days, each at most 1000 rows per call and reported under its table's name;
+  then the same `REVOKE ALL … FROM PUBLIC` and `GRANT EXECUTE … TO
+app_runtime`. The scheduler's `data_retention` run (on only with
+  `OPERATIONAL_RETENTION_ENABLED=1`) picks both up with no code change.
+- Every statement is safe to run twice. No data migration.
+- Drizzle hash `c84d2ebed00c0fb61f26e79e68887636a2db1e30701d406ef4c7d6acd2c0ea60`,
+  `created_at` `1793349941965`. Applied to the hosted project on 2026-10-30
+  (Supabase tracker version `20261030151130`, name `0014_order_tools_runtime`,
+  inserted by hand), right after 0013, statement for statement from the file:
+  the six `FORCE ROW LEVEL SECURITY` and six `GRANT`s through the Supabase
+  tool's SQL runner; the `prune_operational_rows` replacement pasted by the
+  owner in the SQL editor (the tool asks for a confirmation on a function body
+  with `DELETE`s, and the prompt could not be answered from the session); then
+  the `REVOKE`/`GRANT EXECUTE` and both tracker rows through the tool. The
+  seven verification selects afterwards: six tables `true, true`; twelve
+  policies; 35 backup read policies; grants as listed (no `DELETE` anywhere,
+  `UPDATE` false on the two append-only tables); `template_version integer`
+  nullable, no default, check present; prune function names both new tables
+  and is `SECURITY DEFINER`; both Drizzle rows present.
+- The steps that were used, kept for the next time a hand apply is needed: before deploying a backend that reads the six tables or
+  `email_messages.template_version`: in the SQL editor, as `postgres`, run
+  [`manual/0013-0014-order-tools.sql`](manual/0013-0014-order-tools.sql)'s
+  pre-check (A: the six tables absent, no `template_version` column, no
+  tracker rows); paste `BEGIN` … `COMMIT` once (one transaction, both files
+  verbatim and all four tracker rows; the migrator then finds nothing to
+  do); run the seven verification selects one at a time (the six forced,
+  their twelve policies, 35 backup read policies, the grants per table and
+  verb with no DELETE anywhere and no UPDATE on the two append-only tables,
+  the nullable column with its check, the prune function naming both new
+  tables, both Drizzle rows). Or apply both files verbatim through the
+  Supabase tool and add the Drizzle rows in the same sitting. Record the
+  date, the Supabase tracker versions and the results here.
+- Rehearsed 2026-10-30 on a local database migrated to 0012: pre-check A as
+  expected, the paste file ran as written, the seven selects gave the
+  expected rows, and the migrator then applied nothing.
+- `packages/db/tests/order-tools.integration.test.ts` covers RLS and FORCE
+  on the six, their policies and the 35 backup read policies, the grants (no
+  DELETE, no UPDATE on versions or runs), site isolation, every check and
+  unique constraint, `email_templates` having no `enabled` column, the
+  `template_version` column, and re-runs 0014 twice inside a rolled-back
+  transaction. `apps/backend/tests/operational-retention.integration.test.ts`
+  covers the two new prune blocks (a key 8 days old pruned, 6 days kept; a
+  run 91 days old pruned, 89 kept; both tables listed).
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

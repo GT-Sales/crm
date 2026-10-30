@@ -146,6 +146,27 @@ describe('staff document download permission (REQ 23; gate 5)', () => {
   });
 });
 
+describe('staff reviewing a document', () => {
+  const review = () =>
+    fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/files/${FILE_ID}/review`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'approved' }),
+    });
+
+  it('needs order.manage, which the access flag reviewDocuments reports', async () => {
+    for (const roles of [['viewer'], ['leads'], ['finance']] as const) {
+      store.access = { ...store.access, roles: [...roles] };
+      expect((await review()).status).toBe(403);
+    }
+    // The fake service answers an unknown file with not_found: the request got past the gate.
+    for (const roles of [['orders'], ['owner']] as const) {
+      store.access = { ...store.access, roles: [...roles] };
+      expect((await review()).status).toBe(404);
+    }
+  });
+});
+
 describe('staff viewing a document inline', () => {
   beforeEach(() => {
     store.access = {

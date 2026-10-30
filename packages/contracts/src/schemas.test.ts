@@ -13,25 +13,33 @@ import {
   createLeadResponseSchema,
   createUploadIntentRequestSchema,
   createUploadIntentResponseSchema,
+  domainErrorCodeSchema,
+  emailSkippedSchema,
   finalizeUploadRequestSchema,
   finalizeUploadResponseSchema,
   getWorkspaceLeadResponseSchema,
+  IDEMPOTENCY_KEY_HEADER,
+  idempotencyKeySchema,
   identityLeadTypes,
   initialLeadStage,
   isLeadStage,
   isValidDateOfBirth,
   isValidSin,
+  leadActivitySchema,
+  leadDocumentSchema,
   leadIdentitySchema,
   leadStageLabel,
   leadTypeCatalog,
   listAssignableMembersResponseSchema,
   listWorkspaceLeadsResponseSchema,
+  queueCustomerEmailRequestSchema,
   reviewFileRequestSchema,
   submitLeadIdentityRequestSchema,
   updateLeadRequestSchema,
   updateLeadResponseSchema,
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
+  updateWorkspaceLeadResponseSchema,
   versionedFormSchema,
   endpoints,
   leadViewSchema,
@@ -75,6 +83,16 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
     {
       lead: { id: UUID_A, workspaceId: UUID_B, status: 'incomplete', updatedAt: NOW },
       draftGrant: { token: 'grant', expiresAt: NOW },
+      requestId: UUID_C,
+    },
+  ],
+  [
+    'createLeadResponse+replayed',
+    createLeadResponseSchema,
+    {
+      lead: { id: UUID_A, workspaceId: UUID_B, status: 'submitted', updatedAt: NOW },
+      draftGrant: null,
+      replayed: true,
       requestId: UUID_C,
     },
   ],
@@ -170,6 +188,34 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
         { id: UUID_C, actorId: UUID_B, createdAt: NOW, kind: 'assignment', from: null, to: UUID_B },
         { id: UUID_A, actorId: UUID_B, createdAt: NOW, kind: 'edit', fields: ['phone'] },
         { id: UUID_B, actorId: UUID_B, createdAt: NOW, kind: 'system', event: 'restored' },
+        {
+          id: UUID_C,
+          actorId: UUID_B,
+          createdAt: NOW,
+          kind: 'document',
+          fileId: UUID_A,
+          documentType: 'passport',
+          decision: 'approved',
+        },
+        {
+          id: UUID_A,
+          actorId: UUID_B,
+          createdAt: NOW,
+          kind: 'system',
+          event: 'documents_override',
+          missing: ['passport', 'study_permit'],
+          reason: 'Checked the passport in person',
+        },
+        {
+          id: UUID_B,
+          actorId: UUID_B,
+          createdAt: NOW,
+          kind: 'system',
+          event: 'customer_emailed',
+          template: 'dispatched',
+          automation: 'sim_order_dispatched',
+          templateVersion: 2,
+        },
       ],
       tasks: [
         {
@@ -214,13 +260,27 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
           sizeBytes: 1200,
           revision: 1,
           createdAt: NOW,
+          review: { decision: 'approved', at: NOW },
         },
       ],
-      access: { contacts: true, manage: true, revealSensitive: true, downloadDocuments: true },
+      allowedMoves: ['won', 'lost'],
+      access: {
+        contacts: true,
+        manage: true,
+        revealSensitive: true,
+        downloadDocuments: true,
+        reviewDocuments: true,
+        overrideDocuments: false,
+      },
       requestId: UUID_C,
     },
   ],
   ['updateWorkspaceLeadRequest', updateWorkspaceLeadRequestSchema, { assignedActorId: null }],
+  [
+    'updateWorkspaceLeadRequest+override',
+    updateWorkspaceLeadRequestSchema,
+    { stage: 'activated', documentsOverrideReason: 'Checked the passport in person' },
+  ],
   [
     'createUploadIntentRequest',
     createUploadIntentRequestSchema,
@@ -354,12 +414,213 @@ describe('contract schemas reject invalid input', () => {
       related: _related,
       identities: _identities,
       documents: _documents,
+      allowedMoves: _allowedMoves,
       ...older
     } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
     const parsed = getWorkspaceLeadResponseSchema.parse(older);
     expect(parsed.related).toEqual([]);
     expect(parsed.identities).toEqual([]);
     expect(parsed.documents).toEqual([]);
+    expect(parsed.allowedMoves).toEqual([]);
+  });
+});
+
+describe('phase 4 stage moves and idempotent intake', () => {
+  const lead = {
+    id: UUID_A,
+    workspaceId: UUID_B,
+    leadType: 'sim_order',
+    status: 'submitted',
+    stage: 'new',
+    contact: {},
+    contactId: null,
+    assignedActorId: null,
+    externalRef: null,
+    source: 'direct',
+    attribution: {},
+    consentVersion: null,
+    openTaskCount: 0,
+    nextTaskDueAt: null,
+    deletedAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    form: null,
+  };
+
+  it('asks for an override reason only together with a stage', () => {
+    const reason = 'Checked the passport in person';
+    expect(
+      updateWorkspaceLeadRequestSchema.safeParse({
+        stage: 'activated',
+        documentsOverrideReason: reason,
+      }).success,
+    ).toBe(true);
+    expect(
+      updateWorkspaceLeadRequestSchema.safeParse({ documentsOverrideReason: reason }).success,
+    ).toBe(false);
+    expect(
+      updateWorkspaceLeadRequestSchema.safeParse({
+        assignedActorId: null,
+        documentsOverrideReason: reason,
+      }).success,
+    ).toBe(false);
+    expect(
+      updateWorkspaceLeadRequestSchema.safeParse({
+        stage: 'activated',
+        documentsOverrideReason: 'a'.repeat(2001),
+      }).success,
+    ).toBe(false);
+    // A blank reason parses; the store answers document_override_reason_required.
+    expect(
+      updateWorkspaceLeadRequestSchema.safeParse({
+        stage: 'activated',
+        documentsOverrideReason: '  ',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('answers a stage move with the next moves and the mails it skipped', () => {
+    const skipped = {
+      automation: 'sim_order_dispatched',
+      template: 'dispatched',
+      reason: 'missing_fill_in',
+      missing: ['courier', 'tracking number'],
+    };
+    const response = {
+      lead,
+      activities: [],
+      allowedMoves: ['activated', 'cancelled'],
+      emailSkipped: [skipped],
+      requestId: UUID_C,
+    };
+    expect(updateWorkspaceLeadResponseSchema.parse(response)).toEqual(response);
+    const { emailSkipped: _emailSkipped, ...withoutSkipped } = response;
+    expect(updateWorkspaceLeadResponseSchema.safeParse(withoutSkipped).success).toBe(true);
+    const { allowedMoves: _allowedMoves, ...withoutMoves } = response;
+    expect(updateWorkspaceLeadResponseSchema.safeParse(withoutMoves).success).toBe(false);
+    expect(
+      updateWorkspaceLeadResponseSchema.safeParse({
+        ...response,
+        emailSkipped: Array.from({ length: 7 }, () => skipped),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('describes a skipped mail by its rule, template and reason', () => {
+    const skipped = {
+      automation: 'order_received',
+      template: 'order_received',
+      reason: 'no_sender',
+    };
+    expect(emailSkippedSchema.parse(skipped)).toEqual(skipped);
+    const { automation: _automation, ...withoutAutomation } = skipped;
+    expect(emailSkippedSchema.safeParse(withoutAutomation).success).toBe(false);
+    expect(emailSkippedSchema.safeParse({ ...skipped, reason: 'other' }).success).toBe(false);
+    expect(emailSkippedSchema.safeParse({ ...skipped, missing: ['nope'] }).success).toBe(false);
+  });
+
+  it('accepts an idempotency key of 8 to 200 safe characters and nothing else', () => {
+    expect(IDEMPOTENCY_KEY_HEADER).toBe('Idempotency-Key');
+    expect(idempotencyKeySchema.safeParse('cp_9f2c:retry.1').success).toBe(true);
+    expect(idempotencyKeySchema.safeParse('short').success).toBe(false);
+    expect(idempotencyKeySchema.safeParse('a b c d e f').success).toBe(false);
+    expect(idempotencyKeySchema.safeParse('a'.repeat(200)).success).toBe(true);
+    expect(idempotencyKeySchema.safeParse('a'.repeat(201)).success).toBe(false);
+  });
+
+  it('marks a replayed create or update, and only with true', () => {
+    const summary = { id: UUID_A, workspaceId: UUID_B, status: 'submitted', updatedAt: NOW };
+    expect(
+      updateLeadResponseSchema.parse({ lead: summary, replayed: true, requestId: UUID_C }).replayed,
+    ).toBe(true);
+    expect(
+      updateLeadResponseSchema.safeParse({ lead: summary, replayed: false, requestId: UUID_C })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('phase 4 timeline entries and documents', () => {
+  const base = { id: UUID_A, actorId: UUID_B, createdAt: NOW };
+
+  it('records a document review by its file and type, never its note', () => {
+    const entry = {
+      ...base,
+      kind: 'document',
+      fileId: UUID_C,
+      documentType: 'passport',
+      decision: 'rejected',
+    };
+    expect(leadActivitySchema.parse(entry)).toEqual(entry);
+    expect(leadActivitySchema.safeParse({ ...entry, decision: 'pending' }).success).toBe(false);
+    expect(leadActivitySchema.parse({ ...entry, note: 'blurry' })).not.toHaveProperty('note');
+  });
+
+  it('records a documents override with what was missing and why', () => {
+    const entry = {
+      ...base,
+      kind: 'system',
+      event: 'documents_override',
+      missing: ['passport'],
+      reason: 'Seen in person',
+    };
+    expect(leadActivitySchema.parse(entry)).toEqual(entry);
+  });
+
+  it('records which rule and template version sent a customer email', () => {
+    const entry = {
+      ...base,
+      kind: 'system',
+      event: 'customer_emailed',
+      template: 'dispatched',
+      automation: 'sim_order_dispatched',
+      templateVersion: 0,
+    };
+    expect(leadActivitySchema.parse(entry)).toEqual(entry);
+    expect(leadActivitySchema.safeParse({ ...entry, automation: 'custom_x' }).success).toBe(false);
+    expect(leadActivitySchema.safeParse({ ...entry, templateVersion: -1 }).success).toBe(false);
+  });
+
+  it('reads a document without a review as not reviewed', () => {
+    const document = {
+      id: UUID_A,
+      documentType: 'passport',
+      contentType: 'application/pdf',
+      sizeBytes: 1200,
+      revision: 1,
+      createdAt: NOW,
+    };
+    expect(leadDocumentSchema.parse(document)).toEqual({ ...document, review: null });
+    expect(
+      leadDocumentSchema.safeParse({ ...document, review: { decision: 'maybe', at: NOW } }).success,
+    ).toBe(false);
+  });
+
+  it('lets staff queue only the SIM number mail by hand', () => {
+    expect(queueCustomerEmailRequestSchema.parse({ template: 'sim_number_ready' })).toEqual({
+      template: 'sim_number_ready',
+    });
+    expect(queueCustomerEmailRequestSchema.safeParse({ template: 'dispatched' }).success).toBe(
+      false,
+    );
+  });
+
+  it('knows the phase 4 error codes', () => {
+    for (const code of [
+      'illegal_stage_move',
+      'activation_details_required',
+      'documents_override_not_allowed',
+      'idempotency_in_progress',
+      'invalid_fill_in',
+      'invalid_email_markup',
+      'automation_not_found',
+      'dispatch_details_required',
+      'documents_incomplete',
+      'document_override_reason_required',
+      'idempotency_conflict',
+    ]) {
+      expect(domainErrorCodeSchema.safeParse(code).success, code).toBe(true);
+    }
   });
 });
 

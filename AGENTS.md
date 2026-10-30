@@ -106,14 +106,33 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   with staff routes in `src/routes/plans.ts`, the website's plan list in
   `src/routes/website.ts` and an order lead's details in `src/leads/order.ts`;
   contracts in `packages/contracts/src/plans.ts`.
-- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,settings}`
-  (Settings → Properties at `settings/properties`); lead screens in
-  `src/components/leads/`; the CRM filter chip, menus, side panel and page header
-  in `src/components/crm/` (tokens in `src/app/crm-theme.css`); property
-  rendering, editing and the settings screens in `src/components/properties/`;
-  Settings → Plans in `src/components/plans/` (`settings/plans`, with plan
-  properties at `settings/plans/properties`);
-  API client `apps/admin/src/lib/api.ts`.
+- Stage moves, the documents check and website retries:
+  `apps/backend/src/leads/stage-move.ts` (which moves a type allows and what a
+  move into a stage asks first), `documents-check.ts` (the required-documents
+  check) and `idempotency.ts` (a website submission's key and request
+  fingerprint). The staff `PATCH` that uses the first two is in
+  `src/routes/staff.ts` and the write in `src/leads/work-store.ts`; the website
+  header is read in `src/routes/website.ts`.
+- Customer email: `apps/backend/src/email/` (`senders.ts` resolves a site's
+  sender, `settings-store.ts` holds its settings and templates, `markup.ts` and
+  `layout.ts` are the template language and the one shared layout, `compose.ts`
+  and `queue.ts` render a mail and queue it) with the staff routes in
+  `src/routes/email-settings.ts`; contracts in
+  `packages/contracts/src/customer-email.ts`.
+- Automations: `apps/backend/src/automations/` (`store.ts` for each site's
+  state and runs, `run.ts` fires the rules a stage move or a website submit
+  triggers) with the staff routes in `src/routes/automations.ts`; the built-in
+  rules in `packages/contracts/src/automations.ts`.
+- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,automations,settings}`
+  (Settings → Properties at `settings/properties`, Settings → Email at
+  `settings/email`); lead screens in `src/components/leads/` (the stage-move
+  dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus, side panel and
+  page header in `src/components/crm/` (tokens in `src/app/crm-theme.css`);
+  property rendering, editing and the settings screens in
+  `src/components/properties/`; Settings → Plans in `src/components/plans/`
+  (`settings/plans`, with plan properties at `settings/plans/properties`);
+  Settings → Email in `src/components/email/`; the Automations page in
+  `src/components/automations/`; API client `apps/admin/src/lib/api.ts`.
 - Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
   (docs/RUNBOOKS/legacy-import.md).
 
@@ -170,6 +189,69 @@ commission are order details, not stages: `sim_order` has no `paid` or
 is to soft-delete it (`deleted_at`); it can be restored. This replaces the word
 "trash" in the admin, but `/trash` routes, `view=trash` and the `trash=1` URL
 parameter are still accepted as aliases.
+
+An **allowed move** is a stage a lead may be moved to from where it is
+(`moves` in `leadTypeCatalog`, read through `allowedStageMoves`; `isStageMoveAllowed`
+checks one). Every type allows any other listed stage except `sim_order`, whose
+path is `incomplete` → `pending` → `verified` → `delivered` → `activated` →
+`completed`, with `on_hold` and `cancelled` off to the side; a lead at a stage
+its type no longer lists may move to any listed one. A **gate** is what a move
+into a stage asks first (`gates`, read through `stageGates`): `dispatch` (a
+courier), `activation` (an activation date) and `documents` (the required
+documents approved). `sim_order` gates `delivered` with dispatch + documents
+and `activated` with activation + documents; `mobility` gates `activated` with
+activation + documents. `planStageMove` in `leads/stage-move.ts` decides a move.
+The **dispatch details** (`courier`, `trackingNumber`, `dispatchedAt`) and the
+**activation details** (`activatedAt`, `activationNumber`, `activationAccount`)
+are six more built-in order properties in `leads.order_details`; a move that
+needs a date and was given none uses today in `America/Toronto`. The timeline
+and audit name these keys, never their values. The **documents check**
+(`leads/documents-check.ts`) needs every document type in the order's frozen
+plan's `requiredDocuments` to have a current file on the lead whose latest
+review is `approved`; it is derived on every move, never stored, and a lead
+with no frozen plan requires nothing. The **override** moves an order on
+without them: action `order.override` (the roles `owner` and `orders`; no
+individual permission grants it) and a required reason of 1–2000 characters
+(`documentsOverrideReason`), recorded as a `documents_override` timeline entry
+and a `lead.documents_overridden` audit. Moving a stage still needs
+`lead.manage`, so in practice the override is for the owner or a member with the
+Leads and Orders roles. An **idempotency key** is the optional
+`Idempotency-Key` header a website sends when it creates or submits a lead so a
+retry never makes a second one (`app.idempotency_keys`, scope
+`lead_submission`): the key is stored as a SHA-256 hash with a fingerprint of the
+request, a retry within 24 hours returns the first lead marked `replayed`, the
+same key with another body is `idempotency_conflict`, and rows are pruned after
+7 days.
+
+**Email settings** are a site's sender and look (`app.workspace_email_settings`,
+Settings → Email): from name and address, reply-to, logo, brand colour, footer
+and site address. A **template** is the current copy of one of seven emails
+(`tracking_code`, `order_received`, `information_needed`, `dispatched`,
+`activated`, `cancelled`, `sim_number_ready`; `app.email_templates`): a subject,
+a body and a **version**, content only, so a template never says whether it is
+sent. Every save is a new version in the append-only
+`app.email_template_versions` (`expectedVersion` guards a concurrent save,
+version 0 is the starter text that was never saved), and a sent mail records the
+version it was rendered from in `email_messages.template_version`. A template is
+written in a small markup (`email/markup.ts`: paragraphs, `**bold**`, links, one
+`[button: Label](url)`) with **fill-ins** in braces, such as `{first name}`: the
+list is `EMAIL_FILL_IN_KEYS` and each template may use only some
+(`fillInsForTemplate`). A misspelt or disallowed fill-in is refused when the
+template is saved. The backend renders a mail when it queues it, so the outbox
+job (`lead_customer_email`) only sends it. Until a site saves its email
+settings, its `EMAIL_SENDERS_JSON` entry is the sender (docs/ENV.md).
+
+An **automation rule** is a trigger and an action, for example "when a SIM
+order moves to Delivered, send the Dispatched email". Phase 4 has six built-in
+rules (`BUILT_IN_AUTOMATIONS` in `packages/contracts/src/automations.ts`: a
+trigger `lead_submitted` or `stage_entered`, an action `send_email`), switched
+on or off per site in `app.automations` (every rule is off until someone with
+`integration.manage` switches it on; a site without a row has it off). A **run** is one firing of a
+rule for one lead, `queued` (with the outbox job) or `skipped` (with a reason:
+`no_sender`, `no_customer_email` or `missing_fill_in`), in the append-only
+`app.automation_runs` (pruned after 90 days). A rule that is off queues nothing
+and records no run. The tables are built so the phase 8 automation builder adds
+custom rules to them.
 
 ## Git
 

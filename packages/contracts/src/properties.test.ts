@@ -36,6 +36,15 @@ const STAMP = '2026-10-29T12:00:00.000Z';
 
 const ORDER_TYPES = ['sim_order', 'internet', 'mobility'] as const;
 
+const DISPATCH_AND_ACTIVATION_KEYS = [
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
+] as const;
+
 const builtinDefinition = (key: string) => leadPropertyCatalog[key] ?? orderPropertyCatalog[key];
 
 function row(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'origin'>): PropertyRow {
@@ -293,7 +302,13 @@ const TYPED_PLANS: readonly PlanOption[] = [
 
 describe('order properties', () => {
   it('are defined in code with the brief’s keys, labels and options', () => {
-    expect(ORDER_PROPERTY_KEYS).toEqual(['plan', 'quantity', 'paymentStatus', 'carrierCommission']);
+    expect(ORDER_PROPERTY_KEYS).toEqual([
+      'plan',
+      'quantity',
+      'paymentStatus',
+      'carrierCommission',
+      ...DISPATCH_AND_ACTIVATION_KEYS,
+    ]);
     expect(Object.keys(orderPropertyCatalog)).toEqual([...ORDER_PROPERTY_KEYS]);
     expect(orderPropertyCatalog.plan).toEqual({
       key: 'plan',
@@ -317,6 +332,44 @@ describe('order properties', () => {
       { value: 'received', label: 'Received' },
       { value: 'clawback', label: 'Clawback' },
     ]);
+    expect(DISPATCH_AND_ACTIVATION_KEYS.map((key) => orderPropertyCatalog[key])).toEqual([
+      { key: 'courier', label: 'Courier', kind: 'text', maxLength: 120 },
+      { key: 'trackingNumber', label: 'Tracking number', kind: 'text', maxLength: 120 },
+      { key: 'dispatchedAt', label: 'Dispatched on', kind: 'date' },
+      { key: 'activatedAt', label: 'Activated on', kind: 'date' },
+      { key: 'activationNumber', label: 'Activation number', kind: 'text', maxLength: 40 },
+      { key: 'activationAccount', label: 'Activation account', kind: 'text', maxLength: 80 },
+    ]);
+  });
+
+  it('end each order type’s order properties with the dispatch and activation details', () => {
+    const order = codePropertyCatalog
+      .forType('sim_order')
+      .filter((p) => p.storage === 'order')
+      .map((p) => p.key);
+    expect(order.slice(-6)).toEqual([...DISPATCH_AND_ACTIVATION_KEYS]);
+    const courier = codePropertyCatalog.forType('sim_order').find((p) => p.key === 'courier');
+    expect(courier).toMatchObject({ kind: 'text', maxLength: 120, storageKey: 'courier' });
+    const dispatchedAt = codePropertyCatalog
+      .filterable('sim_order')
+      .find((p) => p.key === 'dispatchedAt');
+    expect(dispatchedAt).toEqual({ key: 'dispatchedAt', label: 'Dispatched on', kind: 'date' });
+    expect(dispatchedAt && leadPropertyOperators(dispatchedAt.kind)).toEqual([
+      'eq',
+      'lte',
+      'gte',
+      'empty',
+      'notEmpty',
+    ]);
+    expect(
+      isValidLeadPropertyFilter(
+        { key: 'dispatchedAt', op: 'gte', value: '2026-10-01' },
+        'sim_order',
+      ),
+    ).toBe(true);
+    expect(
+      codePropertyCatalog.filterable('sim_order').find((p) => p.key === 'activationNumber'),
+    ).toMatchObject({ kind: 'text', maxLength: 40 });
   });
 
   it('follow the form properties and precede custom ones on every order type, and only there', () => {
@@ -355,6 +408,7 @@ describe('order properties', () => {
       quantity: 'quantity',
       paymentStatus: 'paymentStatus',
       carrierCommission: 'carrierCommission',
+      ...Object.fromEntries(DISPATCH_AND_ACTIVATION_KEYS.map((key) => [key, key])),
     });
     expect(codePropertyCatalog.get('plan')?.storageKey).toBe('planId');
     expect(codePropertyCatalog.get('city')?.storageKey).toBeUndefined();
@@ -413,6 +467,12 @@ describe('order properties', () => {
       quantity: 'quantity',
       paymentStatus: 'paymentStatus',
       carrierCommission: 'carrierCommission',
+      courier: 'courier',
+      trackingNumber: 'trackingNumber',
+      dispatchedAt: 'dispatchedAt',
+      activatedAt: 'activatedAt',
+      activationNumber: 'activationNumber',
+      activationAccount: 'activationAccount',
     });
     for (const key of ORDER_PROPERTY_KEYS) {
       expect(orderStorageKey(key)).toBe(ORDER_STORAGE_KEYS[key]);

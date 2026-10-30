@@ -75,8 +75,18 @@ describe('AppSidebar', () => {
       'Leads',
       'My tasks',
       'Documents',
+      'Automations',
       'Settings',
     ]);
+  });
+
+  it('lists Automations, linked to the site', () => {
+    usePathname.mockReturnValue('/w/canadawide/automations');
+    renderSidebar('canadawide');
+
+    const link = screen.getByRole('link', { name: 'Automations' });
+    expect(link.getAttribute('href')).toBe('/w/canadawide/automations');
+    expect(link.getAttribute('aria-current')).toBe('page');
   });
 
   it('counts the leads no one has opened yet beside Leads', async () => {

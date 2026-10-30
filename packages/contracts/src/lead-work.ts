@@ -8,8 +8,10 @@ import {
   leadStatusSchema,
   leadTypeSchema,
 } from './leads';
+import { automationKeySchema } from './automations';
+import { EMAIL_FILL_IN_KEYS, customerEmailTemplateSchema } from './customer-email';
 import { documentChecklistKeySchema } from './domain';
-import { leadDocumentSchema } from './files';
+import { fileReviewDecisionSchema, leadDocumentSchema } from './files';
 import { leadFormEditSchema } from './lead-fields';
 import { leadIdentitySchema } from './lead-identity';
 import {
@@ -20,7 +22,7 @@ import {
   leadStageSchema,
 } from './workspace-leads';
 import { propertyKeySchema } from './properties';
-import { leadOrderEditSchema, leadOrderSchema } from './plans';
+import { documentsOverrideReasonSchema, leadOrderEditSchema, leadOrderSchema } from './plans';
 
 /**
  * Staff working a lead — the lead page, its timeline, notes and tasks, and
@@ -36,6 +38,9 @@ import { leadOrderEditSchema, leadOrderSchema } from './plans';
  * It is no one's account; the admin shows it as "Old admin".
  */
 export const LEGACY_IMPORT_ACTOR_ID = '00000000-0000-4000-8000-00000000a001';
+
+/** The mails a site sends its customers, defined with the rest of the email vocabulary. */
+export { customerEmailTemplateSchema, type CustomerEmailTemplate } from './customer-email';
 
 /** A contact, form or custom property key (`custom_referral_code`) an entry names; never a value. */
 const activityFieldKeySchema = propertyKeySchema;
@@ -53,14 +58,6 @@ const activityBase = {
  * values, so the history holds no personal data a later erasure would have to
  * rewrite.
  */
-/**
- * The mails staff can send a lead's customer from its page:
- * `sim_number_ready`, a SIM order's Canadian number (Get Canada Sim's
- * "email the customer this number?").
- */
-export const customerEmailTemplateSchema = z.enum(['sim_number_ready']);
-export type CustomerEmailTemplate = z.infer<typeof customerEmailTemplateSchema>;
-
 export const leadActivitySchema = z.discriminatedUnion('kind', [
   z.object({ ...activityBase, kind: z.literal('note'), body: z.string().min(1).max(4000) }),
   z.object({
@@ -83,14 +80,24 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     ...activityBase,
+    /** Staff approved or rejected one of the lead's documents (the review's note is not copied here). */
+    kind: z.literal('document'),
+    fileId: z.uuid(),
+    documentType: documentChecklistKeySchema,
+    decision: fileReviewDecisionSchema,
+  }),
+  z.object({
+    ...activityBase,
     kind: z.literal('system'),
     /**
      * `opened`: the first time someone who works leads opened it (the "New"
-     * badge goes); `customer_emailed`: staff queued `template` to the
-     * customer (the address and the mail's contents are not kept here);
-     * `change_requested`, `change_approved`, `change_rejected`: the customer
-     * asked the website to change their order (Get Canada Sim's `/track`) and
-     * how its admin decided, by the website's `requestNo`.
+     * badge goes); `customer_emailed`: staff or the `automation` rule queued
+     * `template` (at `templateVersion`) to the customer (the address and the
+     * mail's contents are not kept here); `change_requested`,
+     * `change_approved`, `change_rejected`: the customer asked the website to
+     * change their order (Get Canada Sim's `/track`) and how its admin
+     * decided, by the website's `requestNo`; `documents_override`: staff
+     * moved the order on without the `missing` documents, for `reason`.
      */
     event: z.enum([
       'trashed',
@@ -100,9 +107,18 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
       'change_requested',
       'change_approved',
       'change_rejected',
+      'documents_override',
       'unknown',
     ]),
     template: customerEmailTemplateSchema.optional(),
+    /** For `customer_emailed`: the rule that queued it; absent when staff sent it by hand. */
+    automation: automationKeySchema.optional(),
+    /** For `customer_emailed`: the template's version (0 is the starter text). */
+    templateVersion: z.int().min(0).optional(),
+    /** For `documents_override`: the required documents that were not approved. */
+    missing: z.array(documentChecklistKeySchema).min(1).max(16).optional(),
+    /** For `documents_override`: why staff moved the order on without them. */
+    reason: documentsOverrideReasonSchema.optional(),
     requestNo: z.int().positive().optional(),
     /** For `change_requested`: the fields asked to change (contact or form keys), never their values. */
     fields: z.array(activityFieldKeySchema).max(50).optional(),
@@ -182,6 +198,8 @@ export const getWorkspaceLeadResponseSchema = z.object({
   identities: z.array(leadIdentitySchema).default([]),
   /** The lead's current documents, one per type; empty without contact access. */
   documents: z.array(leadDocumentSchema).default([]),
+  /** The stages staff may move the lead to from where it is now. */
+  allowedMoves: z.array(leadStageSchema).default([]),
   access: leadAccessSchema,
   requestId: requestIdSchema,
 });
@@ -225,8 +243,18 @@ export const updateWorkspaceLeadRequestSchema = z
       .optional(),
     /** Order details of an order lead type; a new `planId` re-freezes the plan. */
     order: leadOrderEditSchema.optional(),
+    /**
+     * With `stage`: why the order moves on without its required documents
+     * approved (`order.override`). Not trimmed or required here: a blank reason
+     * reaches the store, which answers `document_override_reason_required`.
+     */
+    documentsOverrideReason: z.string().max(2000).optional(),
   })
   .strict()
+  .refine((value) => value.documentsOverrideReason === undefined || value.stage !== undefined, {
+    message: 'an override reason needs a stage',
+    path: ['documentsOverrideReason'],
+  })
   .refine(
     (value) =>
       value.stage !== undefined ||
@@ -239,10 +267,29 @@ export const updateWorkspaceLeadRequestSchema = z
   );
 export type UpdateWorkspaceLeadRequest = z.infer<typeof updateWorkspaceLeadRequestSchema>;
 
-/** The updated lead and the timeline entries the change wrote (none for a no-op). */
+/**
+ * A customer mail an automation rule did not queue when staff moved the lead,
+ * so the admin can say so: the rule, its template and why. `missing` lists
+ * the fill-ins the order lacked, for `missing_fill_in`.
+ */
+export const emailSkippedSchema = z.object({
+  automation: automationKeySchema,
+  template: customerEmailTemplateSchema,
+  reason: z.enum(['no_sender', 'no_customer_email', 'missing_fill_in']),
+  missing: z.array(z.enum(EMAIL_FILL_IN_KEYS)).optional(),
+});
+export type EmailSkipped = z.infer<typeof emailSkippedSchema>;
+
+/**
+ * The updated lead and the timeline entries the change wrote (none for a
+ * no-op), the stages it can move to now and the mails the move's rules
+ * skipped (one entry per skipped rule; absent when none).
+ */
 export const updateWorkspaceLeadResponseSchema = z.object({
   lead: leadDetailSchema,
   activities: z.array(leadActivitySchema),
+  allowedMoves: z.array(leadStageSchema),
+  emailSkipped: z.array(emailSkippedSchema).max(6).optional(),
   requestId: requestIdSchema,
 });
 export type UpdateWorkspaceLeadResponse = z.infer<typeof updateWorkspaceLeadResponseSchema>;
@@ -307,7 +354,10 @@ export type LeadTrashResponse = z.infer<typeof leadTrashResponseSchema>;
  * the field: `email`, `simNumber`). `activity` is its timeline entry.
  */
 export const queueCustomerEmailRequestSchema = z
-  .object({ template: customerEmailTemplateSchema })
+  .object({
+    /** The one mail staff send by hand: a SIM order's Canadian number (Get Canada Sim's "email the customer this number?"). */
+    template: z.literal('sim_number_ready'),
+  })
   .strict();
 export type QueueCustomerEmailRequest = z.infer<typeof queueCustomerEmailRequestSchema>;
 

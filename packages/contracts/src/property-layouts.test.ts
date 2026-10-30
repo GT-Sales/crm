@@ -21,6 +21,15 @@ import {
 } from './index';
 
 const STAMP = '2026-10-29T12:00:00.000Z';
+
+const DISPATCH_AND_ACTIVATION_KEYS = [
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
+] as const;
 const REQUEST_ID = '3f0c6a52-1f0e-4b6e-9d0e-6f2a7f5f1c11';
 
 function row(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'origin'>): PropertyRow {
@@ -108,6 +117,7 @@ describe('defaultPropertyLayout', () => {
       'quantity',
       'paymentStatus',
       'carrierCommission',
+      ...DISPATCH_AND_ACTIVATION_KEYS,
     ]);
     expect(layout.sections[1]?.keys).toContain('planId');
     expect(propertyLayoutSchema.safeParse(layout).success).toBe(true);
@@ -131,7 +141,7 @@ describe('defaultPropertyLayout', () => {
     expect(layout.sections[0]).toEqual({
       id: 'order',
       label: 'Order',
-      keys: ['plan', 'paymentStatus', 'carrierCommission'],
+      keys: ['plan', 'paymentStatus', 'carrierCommission', ...DISPATCH_AND_ACTIVATION_KEYS],
     });
   });
 
@@ -218,6 +228,22 @@ describe('renderPropertyLayout', () => {
     // Nothing is left for Other, and nothing is shown twice.
     const placed = rendered.flatMap((s) => s.properties.map((p) => p.key));
     expect(new Set(placed).size).toBe(placed.length);
+  });
+
+  it('shows the dispatch and activation details of a layout saved in phase 3 under Other', () => {
+    const phase3 = defaultPropertyLayout('sim_order', codePropertyCatalog);
+    const saved: PropertyLayout = {
+      sections: phase3.sections.map((section) =>
+        section.id === 'order'
+          ? { ...section, keys: ['plan', 'quantity', 'paymentStatus', 'carrierCommission'] }
+          : section,
+      ),
+    };
+    const rendered = renderPropertyLayout(saved, 'sim_order', codePropertyCatalog);
+    expect(rendered.map((s) => s.id)).toEqual(['order', 'request', 'staff', 'other']);
+    expect(rendered.at(-1)?.properties.map((p) => p.key)).toEqual([
+      ...DISPATCH_AND_ACTIVATION_KEYS,
+    ]);
   });
 
   it('leaves a layout that places an order property as it is: the rest go under Other', () => {

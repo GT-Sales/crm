@@ -198,6 +198,61 @@ describe('a lead’s SIM number mail', () => {
     expect(resendAccountForWorkspace(env, sameAccount, senders, WORKSPACE)).toBe('gt-sales-resend');
     expect(resendAccountForWorkspace({}, noWebhook, senders, GCS)).toBeUndefined();
   });
+
+  it('lets a site mail from the payload’s sender with no entry in EMAIL_SENDERS_JSON', () => {
+    const senders = loadEmailSenders({});
+    const env = { RESEND_ACCOUNT_ID: 'gt-sales-resend' };
+    const noWebhook = { resendForWorkspace: () => undefined };
+    // The deployment's sender list is not consulted for a site sender.
+    expect(resendAccountForWorkspace(env, noWebhook, senders, WORKSPACE)).toBeUndefined();
+    expect(resendAccountForWorkspace(env, noWebhook, senders, WORKSPACE, true)).toBe(
+      'gt-sales-resend',
+    );
+    // The registry's account still wins, and must still be the configured one.
+    const sameAccount = { resendForWorkspace: () => ({ providerAccount: 'gt-sales-resend' }) };
+    expect(resendAccountForWorkspace(env, sameAccount, senders, WORKSPACE, true)).toBe(
+      'gt-sales-resend',
+    );
+    const otherAccount = { resendForWorkspace: () => ({ providerAccount: 'someone-else' }) };
+    expect(resendAccountForWorkspace(env, otherAccount, senders, WORKSPACE, true)).toBeUndefined();
+    expect(resendAccountForWorkspace({}, noWebhook, senders, WORKSPACE, true)).toBeUndefined();
+  });
+});
+
+describe('a lead’s customer mail', () => {
+  const payload = {
+    leadId: '33333333-3333-4333-8333-333333333333',
+    template: 'order_received',
+    templateVersion: 2,
+    toAddress: 'customer@example.com',
+    contactHash: 'hash-1',
+    sender: { fromName: 'Get Canada Sim', fromAddress: 'order@getcanadasim.example' },
+    rendered: { subject: 'We have your order', html: '<p>Thanks</p>', text: 'Thanks' },
+  };
+
+  it('is registered and sends the rendered message, recording its version', async () => {
+    const prepared: unknown[] = [];
+    const handlers = createOutboxJobHandlers(
+      { EMAIL_PROVIDER: 'fake', NODE_ENV: 'test' },
+      alwaysEligible,
+      {
+        prepare: async (input) => {
+          prepared.push(input);
+        },
+        recordResult: async () => {},
+      },
+    );
+    const claimed = job({ jobType: 'lead_customer_email', payload });
+    expect(await handlers.get('lead_customer_email')?.(claimed)).toMatchObject({
+      status: 'completed',
+    });
+    expect(prepared).toMatchObject([{ template: 'order_received', templateVersion: 2 }]);
+    await expect(
+      handlers.get('lead_customer_email')?.(
+        job({ jobType: 'lead_customer_email', payload: { ...payload, extra: 1 } }),
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_job_payload', retryable: false });
+  });
 });
 
 describe('Umami analytics sink configuration', () => {

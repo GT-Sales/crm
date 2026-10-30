@@ -4,6 +4,7 @@ import {
   fileRevisions,
   fileReviewEvents,
   files,
+  leadActivities,
   leads,
   withTenantTx,
   type TenantTransaction,
@@ -165,6 +166,7 @@ export interface DocumentRecordStore {
     recordType: DocumentParentType;
     recordId: string;
   }): Promise<StaffFileRow[]>;
+  /** Staff's decision on a file; on a lead's file (lead not restricted) also a `document` entry on its timeline. */
   recordReview(input: {
     workspaceId: string;
     actorId: string;
@@ -642,6 +644,33 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
             createdAt: fileReviewEvents.createdAt,
           });
         if (!review) throw new Error('review insert did not return a row');
+        if (file.recordType === 'lead') {
+          // The decision goes on the lead's timeline too; the note stays on the review.
+          const [lead] = await tx
+            .select({ id: leads.id })
+            .from(leads)
+            .where(
+              and(
+                eq(leads.workspaceId, input.workspaceId),
+                eq(leads.id, file.recordId),
+                isNull(leads.customerDataRestrictedAt),
+              ),
+            )
+            .limit(1);
+          if (lead) {
+            await tx.insert(leadActivities).values({
+              workspaceId: input.workspaceId,
+              leadId: lead.id,
+              actorId: input.actorId,
+              kind: 'document',
+              data: {
+                fileId: input.fileId,
+                documentType: file.documentType,
+                decision: input.decision,
+              },
+            });
+          }
+        }
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
           actorId: input.actorId,

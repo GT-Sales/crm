@@ -110,6 +110,133 @@ describe('createBackendClient transport', () => {
     expect(call?.headers.get('x-draft-grant')).toBe('grant-token');
   });
 
+  it('sends the Idempotency-Key header on create and update only when given', async () => {
+    const summary = {
+      id: UUID,
+      workspaceId: UUID,
+      status: 'submitted',
+      updatedAt: '2026-09-14T00:00:00.000Z',
+    };
+    const created = harness(201, { lead: summary, draftGrant: null, requestId: UUID });
+    await created.client.leads.create(leadCreateBody);
+    await created.client.leads.create(leadCreateBody, {
+      turnstileToken: 'proof',
+      idempotencyKey: 'cp_9f2c:retry.1',
+    });
+    expect(created.calls[0]?.headers.has('idempotency-key')).toBe(false);
+    expect(created.calls[1]?.headers.get('idempotency-key')).toBe('cp_9f2c:retry.1');
+    expect(created.calls[1]?.headers.get('x-turnstile-token')).toBe('proof');
+
+    const updated = harness(200, { lead: summary, replayed: true, requestId: UUID });
+    await updated.client.leads.update(UUID, { submit: true }, { draftGrant: 'g' });
+    const replay = await updated.client.leads.update(
+      UUID,
+      { submit: true },
+      { draftGrant: 'g', idempotencyKey: 'cp_9f2c:retry.1' },
+    );
+    expect(updated.calls[0]?.headers.has('idempotency-key')).toBe(false);
+    expect(updated.calls[1]?.headers.get('idempotency-key')).toBe('cp_9f2c:retry.1');
+    expect(replay.replayed).toBe(true);
+  });
+
+  it('refuses a malformed idempotency key before sending', async () => {
+    const { client, calls } = harness(201, {});
+    expect(() => client.leads.create(leadCreateBody, { idempotencyKey: 'short' })).toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('calls the email settings, template and automation endpoints', async () => {
+    const settings = {
+      fromName: 'Get Canada Sim',
+      fromAddress: 'orders@example.com',
+      replyTo: null,
+      logoUrl: null,
+      siteUrl: null,
+    };
+    const saved = await harness(200, {
+      settings: {
+        ...settings,
+        brandColor: '#d72638',
+        footerText: '',
+        updatedAt: '2026-10-30T12:00:00.000Z',
+        updatedBy: UUID,
+      },
+      fallback: null,
+      requestId: UUID,
+    });
+    await saved.client.staff.getEmailSettings(UUID);
+    await saved.client.staff.updateEmailSettings(UUID, settings);
+    expect(saved.calls.map((call) => [call.method, call.url])).toEqual([
+      ['GET', `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/settings`],
+      ['PUT', `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/settings`],
+    ]);
+    expect(JSON.parse(saved.calls[1]?.body ?? '{}')).toEqual({
+      ...settings,
+      brandColor: '#d72638',
+      footerText: '',
+    });
+
+    const template = {
+      key: 'dispatched',
+      subject: 'On its way',
+      body: 'Hi {first name}',
+      version: 1,
+      updatedAt: '2026-10-30T12:00:00.000Z',
+      updatedBy: UUID,
+    };
+    const templates = harness(200, { template, requestId: UUID });
+    await templates.client.staff.updateEmailTemplate(UUID, 'dispatched', {
+      expectedVersion: 0,
+      subject: 'On its way',
+      body: 'Hi {first name}',
+    });
+    expect(templates.calls[0]?.method).toBe('PUT');
+    expect(templates.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/templates/dispatched`,
+    );
+
+    const rule = {
+      key: 'order_received',
+      label: 'When an order is submitted on the website → send the Order received email',
+      trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
+      action: { kind: 'send_email', template: 'order_received' },
+      enabled: true,
+      lastRunAt: null,
+      runCount: 0,
+    };
+    const automations = harness(200, { automation: rule, requestId: UUID });
+    await automations.client.staff.updateAutomation(UUID, 'order_received', { enabled: true });
+    expect(automations.calls[0]?.method).toBe('PUT');
+    expect(automations.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations/order_received`,
+    );
+    expect(JSON.parse(automations.calls[0]?.body ?? '{}')).toEqual({ enabled: true });
+
+    const runs = harness(200, { runs: [], requestId: UUID });
+    await runs.client.staff.listAutomationRuns(UUID, 'order_received');
+    expect(runs.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations/order_received/runs`,
+    );
+
+    const preview = harness(200, { subject: 'S', html: '<p>x</p>', text: 'x', requestId: UUID });
+    await preview.client.staff.previewEmailTemplate(UUID, 'dispatched', {
+      subject: 'S',
+      body: 'B',
+    });
+    expect(preview.calls[0]?.method).toBe('POST');
+    expect(preview.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/templates/dispatched/preview`,
+    );
+
+    const test = harness(202, { queued: true, requestId: UUID });
+    await test.client.staff.sendTestEmail(UUID, 'dispatched');
+    expect(test.calls[0]?.method).toBe('POST');
+    expect(test.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/templates/dispatched/test`,
+    );
+    expect(test.calls[0]?.body).toBeUndefined();
+  });
+
   it('throws a BackendError carrying the code and request id from the error envelope', async () => {
     const { client } = harness(409, {
       error: { code: 'draft_already_submitted', message: 'submitted', requestId: UUID },
