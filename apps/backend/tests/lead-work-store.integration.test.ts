@@ -296,6 +296,10 @@ databaseTest('DatabaseLeadWorkStore', () => {
       submit: true,
     });
     const leadId = created.lead.id;
+    // A submitted order starts incomplete; verified is reached through pending.
+    expect(await work.updateLead({ ...orderScope, leadId, stage: 'pending' })).toMatchObject({
+      status: 'updated',
+    });
 
     const outcome = await work.updateLead({
       ...orderScope,

@@ -282,6 +282,99 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
     });
   });
 
+  test('each review of a lead’s document writes one document entry on its timeline', async () => {
+    const lead = await order();
+    const input = imported(lead);
+    await store.insertImportedFile(input);
+    await store.recordReview({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR_B,
+      requestId: REQUEST,
+      fileId: input.fileId,
+      decision: 'approved',
+    });
+    await store.recordReview({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      requestId: REQUEST,
+      fileId: input.fileId,
+      decision: 'rejected',
+      note: 'expired passport',
+    });
+    const entries = await admin`
+      select actor_id, kind, body, data from app.lead_activities
+      where lead_id = ${lead}
+      order by created_at, id
+    `;
+    expect(entries).toEqual([
+      {
+        actor_id: ACTOR_B,
+        kind: 'document',
+        body: null,
+        data: { fileId: input.fileId, documentType: 'passport', decision: 'approved' },
+      },
+      {
+        actor_id: ACTOR,
+        kind: 'document',
+        body: null,
+        data: { fileId: input.fileId, documentType: 'passport', decision: 'rejected' },
+      },
+    ]);
+
+    // The lead page shows the latest review on the document.
+    const page = await work.getLead({
+      workspaceId: WORKSPACE,
+      catalog: codePropertyCatalog,
+      actorId: ACTOR,
+      leadId: lead,
+      includeWork: true,
+    });
+    expect(page?.documents).toEqual([
+      expect.objectContaining({
+        id: input.fileId,
+        review: { decision: 'rejected', at: expect.any(String) },
+      }),
+    ]);
+    expect(page?.activities.filter((activity) => activity.kind === 'document')).toHaveLength(2);
+  });
+
+  test('a review of a file on a restricted lead writes no timeline entry', async () => {
+    const lead = await order();
+    const input = imported(lead);
+    await store.insertImportedFile(input);
+    await admin`update app.leads set customer_data_restricted_at = now() where id = ${lead}`;
+    expect(
+      await store.recordReview({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        requestId: REQUEST,
+        fileId: input.fileId,
+        decision: 'approved',
+      }),
+    ).toMatchObject({ status: 'recorded' });
+    const entries = await admin`select 1 from app.lead_activities where lead_id = ${lead}`;
+    expect(entries).toHaveLength(0);
+  });
+
+  test('a review of a file on another kind of record writes no lead timeline entry', async () => {
+    // Even an order record that shares the id of a lead is not that lead.
+    const recordId = await order();
+    const file = await store.createIntent({ ...intent(), recordType: 'order', recordId });
+    expect(
+      await store.recordReview({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        requestId: REQUEST,
+        fileId: file.id,
+        decision: 'approved',
+      }),
+    ).toMatchObject({ status: 'recorded' });
+    const entries = await admin`
+      select 1 from app.lead_activities where lead_id = ${recordId}
+    `;
+    expect(entries).toHaveLength(0);
+  });
+
   test('the lead page lists the current document of each type, not the ID check photo', async () => {
     const lead = await order();
     const older = imported(lead, { checksum: 'c'.repeat(64) });
@@ -314,6 +407,7 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
     ]);
     expect(documents[0]).toMatchObject({
       id: newer.fileId,
+      review: null,
       contentType: 'application/pdf',
       sizeBytes: 2048,
       createdAt: '2026-09-01T10:00:00.000Z',
