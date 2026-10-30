@@ -30,6 +30,12 @@ import {
 
 import { loadPlanForFreeze } from '../plans/store.js';
 import { sanitizeAttribution } from './attribution.js';
+import {
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  IdempotencyError,
+  type IdempotencyInput,
+} from './idempotency.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
@@ -65,23 +71,39 @@ export interface CreateLeadInput {
   submit?: boolean;
   /** An order lead type's plan; frozen when the lead is submitted. */
   order?: LeadOrderIntake;
+  /**
+   * The hashed idempotency key and body fingerprint of a website submit. A
+   * retry with both replays the first lead; a key reused with another body
+   * throws `IdempotencyError`.
+   */
+  idempotency?: IdempotencyInput;
 }
 
 export interface CreateLeadResult {
   lead: LeadSummary;
-  /** `null` for a lead created submitted: there is no draft to resume. */
+  /**
+   * `null` for a lead created submitted: there is no draft to resume. A
+   * replayed draft gets a fresh grant, since the first token is never stored.
+   */
   grant: { token: string; expiresAt: string } | null;
+  /** True when the idempotency key had already created this lead. */
+  replayed: boolean;
 }
 
 export type UpdateLeadOutcome =
-  | { status: 'updated'; lead: LeadSummary }
+  /** `replayed`: the idempotency key had already submitted this lead; nothing was written. */
+  | { status: 'updated'; lead: LeadSummary; replayed?: true }
   | { status: 'grant_invalid' }
   | { status: 'grant_expired' }
   | { status: 'draft_submitted' }
   /** The lead's type takes no order. */
   | { status: 'order_not_allowed' }
   /** The plan named, or the one the draft holds at submission, is not one the site sells now. */
-  | { status: 'plan_not_available' };
+  | { status: 'plan_not_available' }
+  /** The idempotency key was used with another body or for another lead. */
+  | { status: 'idempotency_conflict' }
+  /** The idempotency key is claimed by a request that never completed. */
+  | { status: 'idempotency_in_progress' };
 
 export interface UpdateLeadInput {
   workspaceId: string;
@@ -97,6 +119,8 @@ export interface UpdateLeadInput {
   order?: LeadOrderIntake;
   /** Submit the draft with this save: its plan is frozen and the grant edits nothing more. */
   submit?: boolean;
+  /** As on `CreateLeadInput`; honoured only with `submit: true`. */
+  idempotency?: IdempotencyInput;
 }
 
 export interface ListLeadsInput {
@@ -219,6 +243,63 @@ async function intakeOrder(
     : { planId: input.order.planId, quantity: input.order.quantity };
 }
 
+/** A new draft grant for a lead; only its hash is stored, so the token is returned once. */
+async function issueDraftGrant(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+): Promise<{ token: string; expiresAt: string }> {
+  const { token, tokenHash } = generateDraftGrantToken();
+  const expiresAt = new Date(Date.now() + DEFAULT_DRAFT_GRANT_TTL_SECONDS * 1000);
+  await tx.insert(draftGrants).values({ workspaceId, leadId, tokenHash, expiresAt });
+  return { token, expiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * The result a replayed keyed create returns: the lead the key created, as a
+ * fresh create would have described it. A draft still open gets a new grant
+ * (the first token was never stored); a submitted, deleted or restricted lead
+ * gets none. Nothing else is written.
+ */
+async function replayCreatedLead(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+): Promise<CreateLeadResult> {
+  const [row] = await tx
+    .select({
+      id: leads.id,
+      workspaceId: leads.workspaceId,
+      status: leads.status,
+      updatedAt: leads.updatedAt,
+      deletedAt: leads.deletedAt,
+      customerDataRestrictedAt: leads.customerDataRestrictedAt,
+    })
+    .from(leads)
+    .where(and(eq(leads.workspaceId, workspaceId), eq(leads.id, leadId)))
+    .limit(1);
+  if (!row) throw new Error('idempotency_lead_missing');
+  const open =
+    row.status === 'incomplete' && row.deletedAt === null && row.customerDataRestrictedAt === null;
+  return {
+    lead: toSummary(row),
+    grant: open ? await issueDraftGrant(tx, workspaceId, row.id) : null,
+    replayed: true,
+  };
+}
+
+/**
+ * A refused update, thrown so its transaction rolls back: an idempotency key
+ * claimed earlier in it is then never left pending. `updateLead` returns the
+ * outcome.
+ */
+class UpdateRefused extends Error {
+  constructor(readonly outcome: UpdateLeadOutcome) {
+    super(`lead update refused: ${outcome.status}`);
+    this.name = 'UpdateRefused';
+  }
+}
+
 /** The plan and quantity a draft of an order type was saved with, when it names a plan. */
 function resumedOrder(leadType: string, stored: unknown): { order?: LeadOrderIntake } {
   if (!isOrderLeadType(leadType)) return {};
@@ -283,6 +364,23 @@ export class DatabaseLeadStore implements LeadStore {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
+        const now = new Date();
+        // The claim comes first: a concurrent duplicate waits here, on the
+        // key's unique index, before touching the contact or the lead.
+        let claimId: string | undefined;
+        if (input.idempotency) {
+          const claim = await claimIdempotencyKey(tx, {
+            ...input.idempotency,
+            workspaceId: input.workspaceId,
+            now,
+          });
+          if (claim.kind === 'conflict') throw new IdempotencyError('idempotency_conflict');
+          if (claim.kind === 'in_progress') throw new IdempotencyError('idempotency_in_progress');
+          if (claim.kind === 'replay')
+            return replayCreatedLead(tx, input.workspaceId, claim.leadId);
+          claimId = claim.id;
+        }
+
         const attribution = sanitizeAttribution(input.attribution);
         const status = input.submit ? 'submitted' : 'incomplete';
         const orderDetails = await intakeOrder(tx, input);
@@ -334,26 +432,39 @@ export class DatabaseLeadStore implements LeadStore {
           },
         });
 
+        if (claimId) {
+          await completeIdempotencyKey(tx, {
+            workspaceId: input.workspaceId,
+            id: claimId,
+            leadId: leadRow.id,
+            now,
+          });
+        }
+
         // Websites keep their own conversion events until phase 3 (docs/PLAN.md
         // §5.8, §5.10: the server-side analytics sink was dropped), so intake
         // queues no analytics job; one with no provider would only fail.
-        if (input.submit) return { lead: toSummary(leadRow), grant: null };
+        if (input.submit) return { lead: toSummary(leadRow), grant: null, replayed: false };
 
-        const { token, tokenHash } = generateDraftGrantToken();
-        const expiresAt = new Date(Date.now() + DEFAULT_DRAFT_GRANT_TTL_SECONDS * 1000);
-        await tx.insert(draftGrants).values({
-          workspaceId: input.workspaceId,
-          leadId: leadRow.id,
-          tokenHash,
-          expiresAt,
-        });
-
-        return { lead: toSummary(leadRow), grant: { token, expiresAt: expiresAt.toISOString() } };
+        return {
+          lead: toSummary(leadRow),
+          grant: await issueDraftGrant(tx, input.workspaceId, leadRow.id),
+          replayed: false,
+        };
       },
     );
   }
 
   async updateLead(input: UpdateLeadInput): Promise<UpdateLeadOutcome> {
+    try {
+      return await this.updateLeadInTransaction(input);
+    } catch (error) {
+      if (error instanceof UpdateRefused) return error.outcome;
+      throw error;
+    }
+  }
+
+  private async updateLeadInTransaction(input: UpdateLeadInput): Promise<UpdateLeadOutcome> {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
@@ -369,6 +480,7 @@ export class DatabaseLeadStore implements LeadStore {
             expiresAt: draftGrants.expiresAt,
             revokedAt: draftGrants.revokedAt,
             leadStatus: leads.status,
+            leadUpdatedAt: leads.updatedAt,
             leadEmail: leads.email,
             leadType: leads.leadType,
             orderDetails: leads.orderDetails,
@@ -391,26 +503,63 @@ export class DatabaseLeadStore implements LeadStore {
           .for('update');
 
         if (!grant) return { status: 'grant_invalid' };
+
+        // A keyed submit claims its key under the grant lock, so a retry of
+        // the same submit waits for the first and then replays it. Every
+        // refusal below throws `UpdateRefused`, rolling the claim back.
+        const now = new Date();
+        const idempotency = input.submit ? input.idempotency : undefined;
+        let claimId: string | undefined;
+        if (idempotency) {
+          const claim = await claimIdempotencyKey(tx, {
+            ...idempotency,
+            workspaceId: input.workspaceId,
+            now,
+          });
+          if (claim.kind === 'conflict') return { status: 'idempotency_conflict' };
+          if (claim.kind === 'in_progress') return { status: 'idempotency_in_progress' };
+          if (claim.kind === 'replay') {
+            // The key submitted another lead, or never submitted this one.
+            if (claim.leadId !== input.leadId || grant.leadStatus === 'incomplete') {
+              return { status: 'idempotency_conflict' };
+            }
+            const lead = toSummary({
+              id: input.leadId,
+              workspaceId: input.workspaceId,
+              status: grant.leadStatus,
+              updatedAt: grant.leadUpdatedAt,
+            });
+            return { status: 'updated', lead, replayed: true };
+          }
+          claimId = claim.id;
+        }
+
         if (grant.revokedAt !== null || grant.expiresAt.getTime() <= Date.now()) {
-          return { status: 'grant_expired' };
+          throw new UpdateRefused({ status: 'grant_expired' });
         }
         // A submitted draft's grant must not authorise further edits to the
         // lead's contact, form or attribution.
-        if (grant.leadStatus !== 'incomplete') return { status: 'draft_submitted' };
+        if (grant.leadStatus !== 'incomplete') {
+          throw new UpdateRefused({ status: 'draft_submitted' });
+        }
 
         // The order is settled before anything is written, so a refused plan changes nothing.
-        const updates: Partial<typeof leads.$inferInsert> = { updatedAt: new Date() };
+        const updates: Partial<typeof leads.$inferInsert> = { updatedAt: now };
         const changedFields: string[] = [];
-        if (input.order && !isOrderLeadType(grant.leadType)) return { status: 'order_not_allowed' };
+        if (input.order && !isOrderLeadType(grant.leadType)) {
+          throw new UpdateRefused({ status: 'order_not_allowed' });
+        }
         const draftOrder = toLeadOrder(grant.orderDetails);
         const planId = input.order?.planId ?? draftOrder.planId;
         const quantity = input.order?.quantity ?? draftOrder.quantity;
         if (planId !== null && (input.order || input.submit)) {
           const found = await loadPlanForFreeze(tx, input.workspaceId, planId);
-          if (!isPlanAvailable(found, grant.leadType)) return { status: 'plan_not_available' };
+          if (!isPlanAvailable(found, grant.leadType)) {
+            throw new UpdateRefused({ status: 'plan_not_available' });
+          }
           // A draft keeps the plan and quantity only; submission freezes the plan as sold now.
           updates.orderDetails = input.submit
-            ? submittedOrder(found, quantity, new Date())
+            ? submittedOrder(found, quantity, now)
             : { planId, quantity };
           changedFields.push('order');
         }
@@ -458,8 +607,8 @@ export class DatabaseLeadStore implements LeadStore {
             updatedAt: leads.updatedAt,
           });
         // The grant resolved but the lead itself is gone — treat identically
-        // to an invalid grant rather than throwing.
-        if (!row) return { status: 'grant_invalid' };
+        // to an invalid grant.
+        if (!row) throw new UpdateRefused({ status: 'grant_invalid' });
 
         await tx.insert(auditEvents).values({
           workspaceId: input.workspaceId,
@@ -474,6 +623,15 @@ export class DatabaseLeadStore implements LeadStore {
             ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
           },
         });
+
+        if (claimId) {
+          await completeIdempotencyKey(tx, {
+            workspaceId: input.workspaceId,
+            id: claimId,
+            leadId: input.leadId,
+            now,
+          });
+        }
 
         return { status: 'updated', lead: toSummary(row) };
       },

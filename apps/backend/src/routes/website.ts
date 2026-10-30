@@ -356,6 +356,9 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           sendDomainError(res, req.id, code, 400, { field: 'order' });
           return;
         }
+        // This route sends the store no idempotency key yet, so neither key
+        // outcome can arise here.
+        if (outcome.status !== 'updated') throw new Error(`unexpected outcome: ${outcome.status}`);
 
         res.json({ lead: outcome.lead, requestId: req.id });
       } catch (error) {
