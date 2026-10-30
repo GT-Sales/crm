@@ -18,6 +18,7 @@ export function errorDetailList(error: unknown, key: string): readonly string[] 
 }
 
 export interface Resource<T> {
+  /** The newest answer, kept while a later load is on its way or after it fails. */
   data: T | undefined;
   /** The failed load's error code; cleared by the next load. */
   error: string | undefined;

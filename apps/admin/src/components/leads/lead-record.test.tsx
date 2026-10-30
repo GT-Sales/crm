@@ -558,6 +558,90 @@ describe('LeadRecord documents', () => {
     expect(within(timeline).getByText('approved the passport')).toBeTruthy();
   });
 
+  describe('when the refresh after a review fails', () => {
+    const reviewer = { ...owner, reviewDocuments: true };
+    const order: LeadDetail = {
+      ...lead,
+      leadType: 'sim_order',
+      stage: 'pending',
+      form: { schemaVersion: 1, payload: {} },
+      order: DEFAULT_LEAD_ORDER,
+    };
+
+    /** The order, moved to On hold (its mail skipped), then its passport approved. */
+    async function approveAfterMove() {
+      const { BackendError } = await import('../../lib/api');
+      mocks.getStaffLead
+        .mockResolvedValueOnce(
+          response({
+            lead: order,
+            documents: [passport],
+            access: reviewer,
+            allowedMoves: ['verified', 'on_hold', 'cancelled'],
+          }),
+        )
+        .mockRejectedValueOnce(new BackendError('internal_error', 500, NOW));
+      mocks.updateStaffLead.mockResolvedValue({
+        lead: { ...order, stage: 'on_hold' },
+        activities: [],
+        allowedMoves: ['pending', 'verified', 'cancelled'],
+        emailSkipped: [
+          {
+            automation: 'sim_order_information_needed',
+            template: 'information_needed',
+            reason: 'no_customer_email',
+          },
+        ],
+        requestId: NOW,
+      });
+      mocks.reviewFile.mockResolvedValue({ file: {}, requestId: NOW });
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: 'on_hold' } });
+      await screen.findByRole('list', { name: 'Emails not sent' });
+      const contact = screen.getByRole('heading', { name: 'Contact' }).parentElement;
+      if (!contact) throw new Error('the Contact card has no header');
+      fireEvent.click(within(contact).getByRole('button', { name: 'Edit' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Approve Passport' }));
+      await waitFor(() => expect(mocks.getStaffLead).toHaveBeenCalledTimes(2));
+    }
+
+    it('keeps the record, its notices and open editor, and offers a retry', async () => {
+      await approveAfterMove();
+
+      expect(
+        (await screen.findByText("Couldn't refresh this lead. Try again.")).closest('[role]'),
+      ).toHaveProperty('role', 'alert');
+      expect(screen.getByRole('heading', { level: 1, name: 'Avery Example' })).toBeTruthy();
+      expect(screen.queryByText('The lead could not be loaded')).toBeNull();
+      expect(
+        within(screen.getByRole('list', { name: 'Emails not sent' })).getAllByRole('listitem'),
+      ).toHaveLength(1);
+      expect(screen.getByLabelText<HTMLInputElement>('Name').value).toBe('Avery Example');
+      expect(screen.getByLabelText<HTMLSelectElement>('Stage').value).toBe('on_hold');
+
+      mocks.getStaffLead.mockResolvedValueOnce(
+        response({
+          lead: { ...order, stage: 'on_hold' },
+          documents: [{ ...passport, review: { decision: 'approved', at: NOW } }],
+          access: reviewer,
+        }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      const list = screen.getByRole('list', { name: 'Documents' });
+      expect(await within(list).findByText('Approved')).toBeTruthy();
+      expect(screen.queryByText("Couldn't refresh this lead. Try again.")).toBeNull();
+      expect(mocks.getStaffLead).toHaveBeenCalledTimes(3);
+    });
+
+    it('lets staff dismiss the notice and keep working', async () => {
+      await approveAfterMove();
+      await screen.findByText("Couldn't refresh this lead. Try again.");
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByText("Couldn't refresh this lead. Try again.")).toBeNull();
+      expect(screen.getByRole('heading', { level: 1, name: 'Avery Example' })).toBeTruthy();
+    });
+  });
+
   it('offers no View or Download without the permission, and says who can grant it', async () => {
     mocks.getStaffLead.mockResolvedValue(response({ documents: [passport] }));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
