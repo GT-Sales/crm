@@ -1935,7 +1935,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads": {
       "get": {
         "operationId": "listWorkspaceLeads",
-        "summary": "List leads with filters (type, stage, assignee, search, trash, follow-ups due) and attribution.",
+        "summary": "List leads with filters (type, stage, assignee, search, archive, follow-ups due) and attribution.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -1993,7 +1993,7 @@
             "name": "view",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["active", "trash"] }
+            "schema": { "type": "string", "enum": ["active", "archived", "trash"] }
           },
           {
             "name": "dueBy",
@@ -2382,7 +2382,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads/summary": {
       "get": {
         "operationId": "getWorkspaceLeadsSummary",
-        "summary": "Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the trash.",
+        "summary": "Count active leads per type (unopened ones, and with `dueBy` those with a follow-up due), and the archive.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -2433,6 +2433,7 @@
                         "additionalProperties": false
                       }
                     },
+                    "archived": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                     "trash": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                     "access": {
                       "type": "object",
@@ -2452,7 +2453,7 @@
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
-                  "required": ["types", "trash", "access", "requestId"],
+                  "required": ["types", "archived", "trash", "access", "requestId"],
                   "additionalProperties": false
                 }
               }
@@ -4896,10 +4897,561 @@
         }
       }
     },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/archive": {
+      "post": {
+        "operationId": "archiveWorkspaceLead",
+        "summary": "Archive a lead; it can be restored (lead management).",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lead": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "workspaceId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "leadType": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9_]+$"
+                        },
+                        "status": { "type": "string", "enum": ["incomplete", "submitted"] },
+                        "stage": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9_]+$"
+                        },
+                        "contact": {
+                          "type": "object",
+                          "properties": {
+                            "fullName": { "type": "string", "minLength": 1, "maxLength": 160 },
+                            "email": {
+                              "type": "string",
+                              "maxLength": 254,
+                              "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+                            },
+                            "phone": { "type": "string", "maxLength": 40 },
+                            "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" }
+                          },
+                          "additionalProperties": false
+                        },
+                        "contactId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "assignedActorId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "externalRef": {
+                          "anyOf": [
+                            { "type": "string", "minLength": 1, "maxLength": 128 },
+                            { "type": "null" }
+                          ]
+                        },
+                        "source": { "type": "string", "minLength": 1, "maxLength": 160 },
+                        "attribution": {
+                          "type": "object",
+                          "properties": {
+                            "utmSource": { "type": "string", "maxLength": 120 },
+                            "utmMedium": { "type": "string", "maxLength": 120 },
+                            "utmCampaign": { "type": "string", "maxLength": 120 },
+                            "utmTerm": { "type": "string", "maxLength": 120 },
+                            "utmContent": { "type": "string", "maxLength": 120 },
+                            "partnerCode": { "type": "string", "maxLength": 64 },
+                            "partnerCodeMatched": { "type": "boolean" },
+                            "landingPath": { "type": "string", "maxLength": 512 },
+                            "referrerHost": { "type": "string", "maxLength": 253 }
+                          },
+                          "additionalProperties": false
+                        },
+                        "consentVersion": {
+                          "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }]
+                        },
+                        "openTaskCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "nextTaskDueAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "isNew": { "type": "boolean" },
+                        "countdownDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "properties": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "deletedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "form": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "payload": {
+                                  "type": "object",
+                                  "propertyNames": { "type": "string" },
+                                  "additionalProperties": {}
+                                }
+                              },
+                              "required": ["schemaVersion", "payload"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "customValues": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                          },
+                          "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "workspaceId",
+                        "leadType",
+                        "status",
+                        "stage",
+                        "contact",
+                        "contactId",
+                        "assignedActorId",
+                        "externalRef",
+                        "source",
+                        "attribution",
+                        "consentVersion",
+                        "openTaskCount",
+                        "nextTaskDueAt",
+                        "deletedAt",
+                        "createdAt",
+                        "updatedAt",
+                        "form"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "activity": {
+                      "anyOf": [
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "note" },
+                                "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "body"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "status_change" },
+                                "from": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "to": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "from", "to"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "assignment" },
+                                "from": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "to": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "from", "to"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "edit" },
+                                "fields": {
+                                  "minItems": 1,
+                                  "maxItems": 200,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "fields"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "kind": { "type": "string", "const": "system" },
+                                "event": {
+                                  "type": "string",
+                                  "enum": [
+                                    "trashed",
+                                    "restored",
+                                    "opened",
+                                    "customer_emailed",
+                                    "change_requested",
+                                    "change_approved",
+                                    "change_rejected",
+                                    "unknown"
+                                  ]
+                                },
+                                "template": { "type": "string", "enum": ["sim_number_ready"] },
+                                "requestNo": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "fields": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  }
+                                },
+                                "documents": {
+                                  "maxItems": 10,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9_]+$"
+                                  }
+                                }
+                              },
+                              "required": ["id", "actorId", "createdAt", "kind", "event"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["lead", "activity", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/trash": {
       "post": {
         "operationId": "trashWorkspaceLead",
-        "summary": "Move a lead to the trash; it can be restored (lead management).",
+        "summary": "Deprecated alias of archiveWorkspaceLead (lead management).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -6081,7 +6633,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/restore": {
       "post": {
         "operationId": "restoreWorkspaceLead",
-        "summary": "Bring a lead back from the trash (lead management).",
+        "summary": "Bring a lead back from the archive (lead management).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -9761,7 +10313,7 @@
                                 "maxLength": 64,
                                 "pattern": "^[a-z0-9_]+$"
                               },
-                              "trash": { "type": "boolean" },
+                              "archived": { "type": "boolean" },
                               "stage": {
                                 "type": "string",
                                 "minLength": 1,
@@ -9859,7 +10411,7 @@
                             },
                             "required": [
                               "layout",
-                              "trash",
+                              "archived",
                               "due",
                               "where",
                               "columns",
@@ -10062,7 +10614,7 @@
                               "maxLength": 64,
                               "pattern": "^[a-z0-9_]+$"
                             },
-                            "trash": { "type": "boolean" },
+                            "archived": { "type": "boolean" },
                             "stage": {
                               "type": "string",
                               "minLength": 1,
@@ -10157,7 +10709,7 @@
                           },
                           "required": [
                             "layout",
-                            "trash",
+                            "archived",
                             "due",
                             "where",
                             "columns",
@@ -10341,7 +10893,7 @@
                         "maxLength": 64,
                         "pattern": "^[a-z0-9_]+$"
                       },
-                      "trash": { "type": "boolean" },
+                      "archived": { "type": "boolean" },
                       "stage": {
                         "type": "string",
                         "minLength": 1,
@@ -10419,7 +10971,7 @@
                         }
                       }
                     },
-                    "required": ["layout", "trash", "due", "where", "columns", "hiddenColumns"],
+                    "required": ["layout", "archived", "due", "where", "columns", "hiddenColumns"],
                     "additionalProperties": false
                   }
                 },
@@ -10469,7 +11021,7 @@
                               "maxLength": 64,
                               "pattern": "^[a-z0-9_]+$"
                             },
-                            "trash": { "type": "boolean" },
+                            "archived": { "type": "boolean" },
                             "stage": {
                               "type": "string",
                               "minLength": 1,
@@ -10564,7 +11116,7 @@
                           },
                           "required": [
                             "layout",
-                            "trash",
+                            "archived",
                             "due",
                             "where",
                             "columns",
@@ -10752,7 +11304,7 @@
                         "maxLength": 64,
                         "pattern": "^[a-z0-9_]+$"
                       },
-                      "trash": { "type": "boolean" },
+                      "archived": { "type": "boolean" },
                       "stage": {
                         "type": "string",
                         "minLength": 1,
@@ -10830,7 +11382,7 @@
                         }
                       }
                     },
-                    "required": ["layout", "trash", "due", "where", "columns", "hiddenColumns"],
+                    "required": ["layout", "archived", "due", "where", "columns", "hiddenColumns"],
                     "additionalProperties": false
                   }
                 },

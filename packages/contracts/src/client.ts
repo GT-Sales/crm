@@ -325,6 +325,8 @@ export interface BackendClient {
       leadId: string,
       body: UpdateWorkspaceLeadRequest,
     ): Promise<UpdateWorkspaceLeadResponse>;
+    archiveLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
+    /** @deprecated Use `archiveLead`. */
     trashLead(workspaceId: string, leadId: string): Promise<LeadTrashResponse>;
     markLeadOpened(workspaceId: string, leadId: string): Promise<MarkLeadOpenedResponse>;
     emailLeadCustomer(
@@ -726,6 +728,12 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/customer-emails`,
           body: queueCustomerEmailRequestSchema.parse(body),
           responseSchema: queueCustomerEmailResponseSchema,
+        }),
+      archiveLead: (workspaceId, leadId) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(leadId)}/archive`,
+          responseSchema: leadTrashResponseSchema,
         }),
       trashLead: (workspaceId, leadId) =>
         call({
