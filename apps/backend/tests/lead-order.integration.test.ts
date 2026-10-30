@@ -108,6 +108,7 @@ databaseTest('order details on leads', () => {
     leadType: 'sim_order',
     consentVersion: 'ci',
     contact: { fullName: 'Order Person', email: 'order.person@example.test' },
+    form: { schemaVersion: 1, payload: { delivery: 'esim' } },
     ...overrides,
   });
 

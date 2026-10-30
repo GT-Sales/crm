@@ -105,6 +105,8 @@ export const leadSummarySchema = z.object({
   id: z.uuid(),
   workspaceId: z.uuid(),
   status: leadStatusSchema,
+  /** The lead's own reference: a SIM order's `MS-<n>`, or what the website sent; null when it has none. */
+  externalRef: leadExternalRefSchema.nullable(),
   updatedAt: isoDateTimeSchema,
 });
 export type LeadSummary = z.infer<typeof leadSummarySchema>;

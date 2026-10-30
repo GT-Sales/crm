@@ -495,6 +495,57 @@ app_runtime`. The scheduler's `data_retention` run (on only with
   covers the two new prune blocks (a key 8 days old pruned, 6 days kept; a
   run 91 days old pruned, 89 kept; both tables listed).
 
+## 0015_order_numbers
+
+- Merge phase 5, step A
+  (docs/superpowers/plans/2026-10-30-phase-5-gcs-orders-and-tracking.md),
+  generated from `packages/db/src/schema.ts`. Additive: one new table, no
+  data migration.
+- `app.site_counters`: a site's own running numbers, one row per site and
+  counter. `workspace_id` (FK → workspaces, cascade), `counter` (check
+  `site_counters_counter_check`: `sim_order_ref` only; Part B adds
+  `change_request_no`), `last_value` (`integer`, check
+  `site_counters_last_value_check` `>= 0`: the last number issued),
+  `updated_at`; primary key `(workspace_id, counter)`. `sim_order_ref` is the
+  last `MS-<n>` order number the backend gave a new SIM order: it is advanced
+  in the lead's own transaction (`apps/backend/src/leads/site-counter.ts`),
+  seeds itself from the site's highest imported `MS-<n>` on first use, and
+  is raised on switch day by `manual/gcs-switch-day.sql`.
+- Its tenant policy and `site_counters_backup_reader_read`, so `app` now has
+  36 `_backup_reader_read` policies.
+- Drizzle hash `e5544ea194961ff67154ff03aae20a077a15283273314edc9675afed77619058`,
+  `created_at` `1793380650712`. **Not yet applied** to the hosted project.
+
+## 0016_order_numbers_runtime
+
+- Hand-written companion to 0015: `FORCE ROW LEVEL SECURITY` on
+  `app.site_counters`; `app_runtime` gets `SELECT, INSERT, UPDATE` (no
+  DELETE: a counter only goes up, and its row goes with its site). No
+  function change, no pruning, no data migration. Every statement is safe to
+  run twice.
+- Drizzle hash `3e6c35c0b2f4c3e8f35adc61a195e8d23027ba9ecf7a39452f0586a4a0015fff`,
+  `created_at` `1793380656599`. **Not yet applied** to the hosted project.
+- To apply, before deploying a backend that numbers SIM orders: in the SQL
+  editor, as `postgres`, run
+  [`manual/0015-0016-order-numbers.sql`](manual/0015-0016-order-numbers.sql)'s
+  pre-check (A: `site_counters` absent, no tracker rows); paste `BEGIN` …
+  `COMMIT` once (one transaction, both files verbatim and all four tracker
+  rows; the migrator then finds nothing to do); run the six verification
+  selects one at a time (the table forced, its two policies, 36 backup read
+  policies, the grants with no DELETE, the two checks, both Drizzle rows).
+  Or apply the plain statements through the Supabase tool in small batches,
+  hand the `ALTER`s to the owner as a paste, add the tracker rows by hand and
+  verify against the catalog. Record the date, the Supabase tracker versions
+  and the results here.
+- Rehearsed 2026-10-30 on a local database migrated to 0014: pre-check A
+  gave `null, 0`, the paste file ran as written, the six selects gave the
+  expected rows, and the migrator then applied nothing.
+- `packages/db/tests/order-numbers.integration.test.ts` covers RLS and FORCE,
+  the two policies and the 36 backup read policies, the grants (no DELETE),
+  site isolation, both checks (`change_request_no` and `x` refused, `-1`
+  refused), the primary key, the cascade with the site, and re-runs 0016
+  twice inside a rolled-back transaction.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

@@ -428,6 +428,11 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           sendIdempotencyRefusal(res, req.id, outcome.status);
           return;
         }
+        // As on a create: the detail names the part refused, never a value.
+        if (outcome.status === 'submission_incomplete') {
+          sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.problem });
+          return;
+        }
 
         res.json({
           lead: outcome.lead,

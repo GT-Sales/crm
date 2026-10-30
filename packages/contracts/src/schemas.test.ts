@@ -81,7 +81,13 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
     'createLeadResponse',
     createLeadResponseSchema,
     {
-      lead: { id: UUID_A, workspaceId: UUID_B, status: 'incomplete', updatedAt: NOW },
+      lead: {
+        id: UUID_A,
+        workspaceId: UUID_B,
+        status: 'incomplete',
+        externalRef: 'MS-153',
+        updatedAt: NOW,
+      },
       draftGrant: { token: 'grant', expiresAt: NOW },
       requestId: UUID_C,
     },
@@ -90,7 +96,13 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
     'createLeadResponse+replayed',
     createLeadResponseSchema,
     {
-      lead: { id: UUID_A, workspaceId: UUID_B, status: 'submitted', updatedAt: NOW },
+      lead: {
+        id: UUID_A,
+        workspaceId: UUID_B,
+        status: 'submitted',
+        externalRef: null,
+        updatedAt: NOW,
+      },
       draftGrant: null,
       replayed: true,
       requestId: UUID_C,
@@ -101,7 +113,13 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
     'updateLeadResponse',
     updateLeadResponseSchema,
     {
-      lead: { id: UUID_A, workspaceId: UUID_B, status: 'incomplete', updatedAt: NOW },
+      lead: {
+        id: UUID_A,
+        workspaceId: UUID_B,
+        status: 'incomplete',
+        externalRef: null,
+        updatedAt: NOW,
+      },
       requestId: UUID_C,
     },
   ],
@@ -528,8 +546,28 @@ describe('phase 4 stage moves and idempotent intake', () => {
     expect(idempotencyKeySchema.safeParse('a'.repeat(201)).success).toBe(false);
   });
 
+  it("carries the lead's own reference (an order number) or null, never omitted", () => {
+    const lead = { id: UUID_A, workspaceId: UUID_B, status: 'incomplete', updatedAt: NOW };
+    const response = (externalRef?: unknown) => ({
+      lead: externalRef === undefined ? lead : { ...lead, externalRef },
+      draftGrant: null,
+      requestId: UUID_C,
+    });
+    expect(createLeadResponseSchema.parse(response('MS-153')).lead.externalRef).toBe('MS-153');
+    expect(createLeadResponseSchema.parse(response(null)).lead.externalRef).toBeNull();
+    expect(createLeadResponseSchema.safeParse(response()).success).toBe(false);
+    expect(createLeadResponseSchema.safeParse(response('')).success).toBe(false);
+    expect(updateLeadResponseSchema.safeParse({ lead, requestId: UUID_C }).success).toBe(false);
+  });
+
   it('marks a replayed create or update, and only with true', () => {
-    const summary = { id: UUID_A, workspaceId: UUID_B, status: 'submitted', updatedAt: NOW };
+    const summary = {
+      id: UUID_A,
+      workspaceId: UUID_B,
+      status: 'submitted',
+      externalRef: 'MS-153',
+      updatedAt: NOW,
+    };
     expect(
       updateLeadResponseSchema.parse({ lead: summary, replayed: true, requestId: UUID_C }).replayed,
     ).toBe(true);

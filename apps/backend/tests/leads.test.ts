@@ -23,6 +23,7 @@ import {
   requestFingerprint,
 } from '../src/leads/idempotency.js';
 import { OrderIntakeError } from '../src/leads/store.js';
+import { checkLeadForm } from '../src/leads/types.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
 import { generateServiceSecret } from '../src/website/credential.js';
@@ -61,11 +62,18 @@ class FakeLeadStore implements LeadStore {
     [LEAD_A, 'incomplete'],
     [LEAD_B, 'incomplete'],
   ]);
+  /** The type each lead was created as; the real store reads it from the lead row. */
+  leadType = new Map<string, string>([
+    [LEAD_A, 'sim_order'],
+    [LEAD_B, 'sim_order'],
+  ]);
 
   /** What the next create throws, as the real store does inside its transaction. */
   createError: Error | undefined;
   /** Whether the next create answers as a replay of the first outcome. */
   createReplayed = false;
+  /** The order number the store gives a create that names none, as the site counter does. */
+  nextExternalRef: string | null = null;
   /** What the next update answers once its grant checks pass. */
   updateOutcome: UpdateLeadOutcome | undefined;
 
@@ -74,13 +82,25 @@ class FakeLeadStore implements LeadStore {
     if (this.createError) throw this.createError;
     if (input.submit) {
       return {
-        lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'submitted', updatedAt: NOW },
+        lead: {
+          id: LEAD_A,
+          workspaceId: input.workspaceId,
+          status: 'submitted',
+          externalRef: input.externalRef ?? this.nextExternalRef,
+          updatedAt: NOW,
+        },
         grant: null,
         replayed: this.createReplayed,
       };
     }
     return {
-      lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'incomplete', updatedAt: NOW },
+      lead: {
+        id: LEAD_A,
+        workspaceId: input.workspaceId,
+        status: 'incomplete',
+        externalRef: input.externalRef ?? this.nextExternalRef,
+        updatedAt: NOW,
+      },
       grant: { token: VALID_GRANT_A, expiresAt: new Date(Date.now() + 60_000).toISOString() },
       replayed: this.createReplayed,
     };
@@ -92,6 +112,8 @@ class FakeLeadStore implements LeadStore {
     if (!grant || grant.leadId !== input.leadId) return { status: 'grant_invalid' };
     if (grant.revoked || grant.expiresAt <= Date.now()) return { status: 'grant_expired' };
     if (this.leadStatus.get(input.leadId) !== 'incomplete') return { status: 'draft_submitted' };
+    const form = checkLeadForm(this.leadType.get(input.leadId) ?? '', input.form);
+    if (!form.ok) return { status: 'submission_incomplete', problem: form.problem };
     if (this.updateOutcome) return this.updateOutcome;
     return {
       status: 'updated',
@@ -99,6 +121,7 @@ class FakeLeadStore implements LeadStore {
         id: input.leadId,
         workspaceId: input.workspaceId,
         status: 'incomplete',
+        externalRef: null,
         updatedAt: NOW,
       },
     };
@@ -603,7 +626,14 @@ describe('PATCH /api/v1/website/leads/:leadId', () => {
 
 describe('Idempotency-Key on website submission', () => {
   const KEY = 'cp_9f2c:retry.1';
-  const POST_BODY = { leadType: 'sim_order', consentVersion: 'terms-2026-09', submit: true };
+  const POST_BODY = {
+    leadType: 'sim_order',
+    consentVersion: 'terms-2026-09',
+    submit: true,
+    contact: { fullName: 'Jane Doe', email: 'jane@example.test' },
+    form: { schemaVersion: 1, payload: { delivery: 'esim' } },
+    order: { planId: '93000000-0000-4000-8000-000000000303', quantity: 1 },
+  };
   const PATCH_BODY = { contact: { fullName: 'Jane Doe' }, submit: true };
   const post = (headers: Record<string, string>, body: unknown = POST_BODY) =>
     request('POST', '/api/v1/website/leads', headers, body);
@@ -679,7 +709,13 @@ describe('Idempotency-Key on website submission', () => {
   it('marks a replayed update 200 with replayed true', async () => {
     leadStore.updateOutcome = {
       status: 'updated',
-      lead: { id: LEAD_A, workspaceId: WORKSPACE, status: 'submitted', updatedAt: NOW },
+      lead: {
+        id: LEAD_A,
+        workspaceId: WORKSPACE,
+        status: 'submitted',
+        externalRef: null,
+        updatedAt: NOW,
+      },
       replayed: true,
     };
     const response = await patch({ 'idempotency-key': KEY });
@@ -775,12 +811,93 @@ describe('Idempotency-Key on website submission', () => {
   });
 });
 
+describe('SIM order intake', () => {
+  const PLAN = '93000000-0000-4000-8000-000000000302';
+  const submitted = {
+    leadType: 'sim_order',
+    consentVersion: 'getcanadasim-order-2026-10',
+    submit: true,
+    contact: { fullName: 'Nadia Khan', email: 'nadia@example.test' },
+    form: { schemaVersion: 1, payload: { delivery: 'esim', arrivalDate: '2026-11-20' } },
+  };
+  const save = (body: unknown) =>
+    request('PATCH', `/api/v1/website/leads/${LEAD_A}`, { 'x-draft-grant': VALID_GRANT_A }, body);
+
+  async function errorOf(response: Response) {
+    expect(response.status).toBe(400);
+    return apiErrorResponseSchema.parse(await response.json()).error;
+  }
+
+  it("returns the order's number on the created lead", async () => {
+    leadStore.nextExternalRef = 'MS-153';
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      { leadType: 'sim_order', consentVersion: 'gcs-v1', contact: { fullName: 'Nadia Khan' } },
+    );
+    expect(response.status).toBe(201);
+    expect(createLeadResponseSchema.parse(await response.json()).lead.externalRef).toBe('MS-153');
+  });
+
+  it('saves a draft with only a name', async () => {
+    const response = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      { leadType: 'sim_order', consentVersion: 'gcs-v1', contact: { fullName: 'Nadia Khan' } },
+    );
+    expect(response.status).toBe(201);
+    expect(leadStore.createCalls).toHaveLength(1);
+  });
+
+  it('refuses a submission without a plan before the store, naming only the part', async () => {
+    const response = await request('POST', '/api/v1/website/leads', {}, submitted);
+    expect(await errorOf(response)).toMatchObject({
+      code: 'validation_error',
+      details: { field: 'order' },
+    });
+    expect(leadStore.createCalls).toHaveLength(0);
+
+    const complete = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      { ...submitted, order: { planId: PLAN } },
+    );
+    expect(complete.status).toBe(201);
+  });
+
+  it("refuses a save whose form is not the type's, without echoing it", async () => {
+    const response = await save({
+      form: { schemaVersion: 1, payload: { delivery: 'esim', simNumber: '+16475550123' } },
+    });
+    const text = await response.clone().text();
+    expect(await errorOf(response)).toMatchObject({
+      code: 'validation_error',
+      details: { field: 'form' },
+    });
+    expect(text).not.toContain('6475550123');
+  });
+
+  it('answers an incomplete submission 400 with the part it lacks', async () => {
+    for (const problem of ['contact', 'order', 'form'] as const) {
+      leadStore.updateOutcome = { status: 'submission_incomplete', problem };
+      expect(await errorOf(await save({ submit: true }))).toMatchObject({
+        code: 'validation_error',
+        details: { field: problem },
+      });
+    }
+  });
+});
+
 describe('order intake', () => {
   const PLAN = '93000000-0000-4000-8000-000000000301';
   const simOrder = (extra: Record<string, unknown> = {}) => ({
     leadType: 'sim_order',
     consentVersion: 'gcs-v1',
-    contact: { email: 'traveller@example.test' },
+    contact: { fullName: 'Nadia Khan', email: 'traveller@example.test' },
+    form: { schemaVersion: 1, payload: { delivery: 'esim' } },
     ...extra,
   });
 
