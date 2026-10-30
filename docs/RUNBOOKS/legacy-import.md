@@ -107,6 +107,18 @@ below). Order details and stages already match, unless the old admin changed
 the order since. **Apply 0011 and 0012 first** (the script writes
 `order_details`).
 
+**The import writes stages directly.** Since phase 4 staff move a stage only
+along the type's allowed moves, with the dispatch and activation details and the
+documents check (`apps/backend/src/leads/stage-move.ts`), and a move fires the
+site's automation rules. Both imports (this one and CanadaWide's above)
+bypass all of that: they copy the old admin's status into `stage` as it is,
+however far it is from the lead's previous stage, never check or write the
+dispatch and activation details, and never fire an automation rule, so a re-run
+queues no customer email even when a rule is on. An order the import carries to
+Delivered or Activated therefore has no courier, tracking or activation details
+unless staff add them on the lead page. A re-run still skips a lead someone has
+worked in the CRM, as above.
+
 **No import from `main`'s old script between 0012 and the phase 3 deploy.**
 The script on `main` before phase 3 writes the old admin's `orders.status`
 straight into `stage`: run after 0012, it would put the 20 orders 0012 moved
