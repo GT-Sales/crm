@@ -129,6 +129,75 @@ describe('SiteAutomations', () => {
     expect(control.hasAttribute('disabled')).toBe(false);
   });
 
+  it('keeps the confirmed state when a later change fails', async () => {
+    mocks.updateAutomation.mockResolvedValueOnce({
+      automation: rules({ order_received: { enabled: true, runCount: 4 } })[0],
+      requestId: 'req_test',
+    });
+    mocks.updateAutomation.mockRejectedValueOnce(new mocks.FakeBackendError('internal_error'));
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    const control = await screen.findByRole('switch', { name: ORDER_RECEIVED });
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('true'));
+    // The saved rule as the backend answered it, counts included.
+    await waitFor(() =>
+      expect(
+        within(row(ORDER_RECEIVED)).getByText('Emails queued').nextElementSibling?.textContent,
+      ).toBe('4'),
+    );
+
+    fireEvent.click(control);
+
+    expect((await within(row(ORDER_RECEIVED)).findByRole('alert')).textContent).toBe(
+      'The change was not saved. Reason: internal_error.',
+    );
+    expect(mocks.updateAutomation).toHaveBeenLastCalledWith(
+      'staff-token',
+      WORKSPACE,
+      'order_received',
+      { enabled: false },
+    );
+    expect(control.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('ignores a second click while a change is being saved', async () => {
+    let settle: (value: unknown) => void = () => undefined;
+    mocks.updateAutomation.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    const control = await screen.findByRole('switch', { name: ORDER_RECEIVED });
+
+    fireEvent.click(control);
+    expect(control.getAttribute('aria-checked')).toBe('true');
+    expect(control.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(control);
+    expect(mocks.updateAutomation).toHaveBeenCalledTimes(1);
+    expect(control.getAttribute('aria-checked')).toBe('true');
+
+    settle({
+      automation: rules({ order_received: { enabled: true } })[0],
+      requestId: 'req_test',
+    });
+    await waitFor(() => expect(control.hasAttribute('aria-disabled')).toBe(false));
+    expect(control.getAttribute('aria-checked')).toBe('true');
+    expect(mocks.updateAutomation).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces the recent runs while they load', async () => {
+    mocks.listAutomationRuns.mockReturnValue(new Promise(() => undefined));
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    await screen.findByRole('list', { name: 'Automations' });
+    fireEvent.click(within(row(DISPATCHED)).getByRole('button', { name: 'Recent runs' }));
+
+    expect(within(row(DISPATCHED)).getByRole('status').textContent).toBe(
+      'Loading the recent runs…',
+    );
+  });
+
   it('says a refused change needs the site owner', async () => {
     mocks.updateAutomation.mockRejectedValue(new mocks.FakeBackendError('permission_denied'));
     render(<SiteAutomations workspaceSlug="canadawide" />);

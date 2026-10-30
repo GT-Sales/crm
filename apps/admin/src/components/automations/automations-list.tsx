@@ -49,29 +49,26 @@ function AutomationRow({
 }): JSX.Element {
   const labelId = useId();
   const runsId = useId();
-  // The switch as the viewer last set it; dropped again when the change fails.
-  const [override, setOverride] = useState<boolean>();
-  const [pending, setPending] = useState(false);
+  // The value being saved, shown until the backend answers; after that the
+  // switch reads the rule as last confirmed (the saved one, or the old one).
+  const [saving, setSaving] = useState<boolean>();
   const [notice, setNotice] = useState<string>();
   const [open, setOpen] = useState(false);
   const [runs, setRuns] = useState<RunsState>({ status: 'loading' });
   // Only the newest opening's answer is shown.
   const runsRequest = useRef(0);
 
-  const enabled = override ?? automation.enabled;
+  const pending = saving !== undefined;
+  const enabled = saving ?? automation.enabled;
 
   async function toggle() {
     if (!canManage || pending) return;
-    const next = !enabled;
+    const next = !automation.enabled;
     setNotice(undefined);
-    setOverride(next);
-    setPending(true);
+    setSaving(next);
     const reason = await onToggle(automation.key, next);
-    setPending(false);
-    if (reason !== undefined) {
-      setOverride(undefined);
-      setNotice(reason);
-    }
+    setSaving(undefined);
+    if (reason !== undefined) setNotice(reason);
   }
 
   function toggleRuns() {
@@ -181,7 +178,7 @@ function AutomationRow({
 
       <div id={runsId} hidden={!open}>
         {!open ? null : runs.status === 'loading' ? (
-          <p className="text-sm text-muted-foreground" aria-busy="true">
+          <p role="status" className="text-sm text-muted-foreground">
             Loading the recent runs…
           </p>
         ) : runs.status === 'failed' ? (
@@ -248,12 +245,13 @@ export function SiteAutomations({ workspaceSlug }: { workspaceSlug: string }): J
   const staff = useStaffSession();
   const workspaceId = staff.workspaces.find((item) => item.slug === workspaceSlug)?.id;
   const accessToken = staff.accessToken;
-  const { data, reload, error } = useAutomations(workspaceId);
+  const { data, reload, replace, error } = useAutomations(workspaceId);
 
   async function onToggle(key: AutomationKey, enabled: boolean): Promise<string | undefined> {
     if (!accessToken || !workspaceId) return SIGNED_OUT;
     try {
-      await updateAutomation(accessToken, workspaceId, key, { enabled });
+      const { automation } = await updateAutomation(accessToken, workspaceId, key, { enabled });
+      replace(automation);
       return undefined;
     } catch (caught) {
       return toggleError(caught);
