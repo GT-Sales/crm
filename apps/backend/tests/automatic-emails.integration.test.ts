@@ -119,10 +119,11 @@ databaseTest('automation rules send customer emails', () => {
     };
   };
 
-  /** A submitted order already being worked, stored as given. */
+  /** An order already being worked (submitted unless said otherwise), stored as given. */
   const insertLead = async (input: {
     workspaceId?: string;
     leadType?: string;
+    status?: 'incomplete' | 'submitted';
     stage: string;
     email?: string | null;
     form?: Record<string, unknown>;
@@ -134,7 +135,8 @@ databaseTest('automation rules send customer emails', () => {
         id, workspace_id, lead_type, status, stage, consent_version, attribution, payload,
         full_name, email, order_details
       ) values (
-        ${id}, ${input.workspaceId ?? SITE}, ${input.leadType ?? 'sim_order'}, 'submitted',
+        ${id}, ${input.workspaceId ?? SITE}, ${input.leadType ?? 'sim_order'},
+        ${input.status ?? 'submitted'},
         ${input.stage}, 'ci', '{}'::jsonb,
         ${admin.json(JSON.parse(JSON.stringify({ schemaVersion: 1, payload: input.form ?? {} })))}, 'Nadia Khan',
         ${input.email === undefined ? `${id}@example.test` : input.email},
@@ -487,6 +489,39 @@ databaseTest('automation rules send customer emails', () => {
     ]);
   });
 
+  it('mails nothing when a checkout the customer never submitted is cancelled', async () => {
+    const before = (await runCount('sim_order_cancelled')) ?? 0;
+    const abandoned = await insertLead({ status: 'incomplete', stage: 'incomplete' });
+    const outcome = await move(abandoned, 'cancelled');
+    expect(outcome).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
+    expect(outcome).not.toHaveProperty('emailSkipped');
+    expect(await jobs(abandoned)).toEqual([]);
+    expect(await runs(abandoned)).toEqual([]);
+    // Not even the skip a missing address would otherwise record.
+    const noAddress = await insertLead({ status: 'incomplete', stage: 'incomplete', email: null });
+    const quiet = await move(noAddress, 'cancelled');
+    expect(quiet).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
+    expect(quiet).not.toHaveProperty('emailSkipped');
+    expect(await runs(noAddress)).toEqual([]);
+    expect(await runCount('sim_order_cancelled')).toBe(before);
+
+    // The same move of an order that was placed mails the customer.
+    const placed = await insertLead({ stage: 'pending' });
+    expect(await move(placed, 'cancelled')).toMatchObject({ status: 'updated' });
+    const queued = await jobs(placed);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.payload).toMatchObject({ template: 'cancelled' });
+    expect(await runs(placed)).toEqual([
+      {
+        automationKey: 'sim_order_cancelled',
+        outcome: 'queued',
+        reason: null,
+        jobId: queued[0]?.id,
+      },
+    ]);
+    expect(await runCount('sim_order_cancelled')).toBe(before + 1);
+  });
+
   it('fires nothing for a rule that is off or a type with no rules', async () => {
     const mobility = await insertLead({ leadType: 'mobility', stage: 'qualified' });
     const activated = await move(mobility, 'activated');
@@ -542,6 +577,7 @@ databaseTest('automation rules send customer emails', () => {
             id: leadId,
             fullName: 'Nadia Khan',
             email: 'once@example.test',
+            submitted: true,
             form: {},
             order: null,
           },

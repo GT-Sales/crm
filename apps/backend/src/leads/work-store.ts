@@ -211,6 +211,8 @@ interface LockedLead {
   [key: string]: unknown;
   id: string;
   leadType: string;
+  /** `incomplete` until the customer submits the form, then `submitted`. */
+  status: string;
   stage: string;
   assignedActorId: string | null;
   fullName: string | null;
@@ -243,6 +245,7 @@ async function lockLead(
     select
       l.id,
       l.lead_type as "leadType",
+      l.status,
       l.stage,
       l.assigned_actor_id as "assignedActorId",
       l.full_name as "fullName",
