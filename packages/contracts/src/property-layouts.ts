@@ -96,7 +96,7 @@ export type SavePropertyLayoutRequest = z.infer<typeof savePropertyLayoutRequest
 
 /**
  * The layout a site gets before it saves one: Order (an order type's order
- * properties), Request (built-in, not staff-only), Staff details (built-in,
+ * properties, `ORDER_PROPERTY_KEYS` in order), Request (built-in, not staff-only), Staff details (built-in,
  * staff-only) and Custom (custom properties of the type). Empty sections are
  * dropped; a type with no properties at all (`contact_message`) gets one empty
  * Request section, since a layout holds at least one section.
@@ -135,6 +135,9 @@ export interface RenderedSection {
  * saved before order types had order properties (phase 2) places none of
  * them: for such a layout the order properties open the record in an "Order"
  * section, as the default layout has them, rather than trail under "Other".
+ * A layout saved in phase 3 places the four it knew (plan, quantity, payment
+ * status, carrier commission), so the dispatch and activation details added
+ * after it show under "Other" until the site places them.
  */
 export function renderPropertyLayout(
   layout: PropertyLayout,

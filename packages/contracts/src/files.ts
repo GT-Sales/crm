@@ -104,7 +104,9 @@ export type ReviewFileResponse = z.infer<typeof reviewFileResponseSchema>;
 
 /**
  * A document on the lead page: the current verified file of each type (one
- * it replaced is not listed). Its storage key never leaves the backend.
+ * it replaced is not listed), with its latest staff review, null when it has
+ * none (a backend before phase 4 sends no `review`, which reads as none). Its
+ * storage key never leaves the backend.
  */
 export const leadDocumentSchema = z.object({
   id: z.uuid(),
@@ -113,6 +115,10 @@ export const leadDocumentSchema = z.object({
   sizeBytes: z.int().nonnegative(),
   revision: z.int().positive(),
   createdAt: isoDateTimeSchema,
+  review: z
+    .object({ decision: fileReviewDecisionSchema, at: isoDateTimeSchema })
+    .nullable()
+    .default(null),
 });
 export type LeadDocument = z.infer<typeof leadDocumentSchema>;
 

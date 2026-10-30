@@ -1,4 +1,4 @@
-import { leadFields, type CustomerEmailTemplate } from '@gt-sales/contracts';
+import { leadFields, type QueueCustomerEmailRequest } from '@gt-sales/contracts';
 import { z } from 'zod';
 
 /** What a customer mail is made from: the lead as it stands when staff send it. */
@@ -55,7 +55,7 @@ function planLabel(form: Readonly<Record<string, unknown>>): string | undefined 
  * website's number for the order and the template's variables.
  */
 export function draftCustomerEmail(
-  template: CustomerEmailTemplate,
+  template: QueueCustomerEmailRequest['template'],
   lead: CustomerEmailLead,
   site: { siteUrl?: string },
 ): CustomerEmailDraft {

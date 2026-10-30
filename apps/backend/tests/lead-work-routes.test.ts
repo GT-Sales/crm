@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_LEAD_ORDER,
   apiErrorResponseSchema,
   buildPropertyCatalog,
   codePropertyCatalog,
@@ -75,6 +76,7 @@ const lead: LeadDetail = {
   form: { schemaVersion: 1, payload: { planId: 'ab-1gbps', dateOfBirth: '1990-04-12' } },
   customValues: { custom_ref: 'R-77', custom_paid: true },
   order: {
+    ...DEFAULT_LEAD_ORDER,
     planId: PLAN,
     plan: null,
     quantity: 2,
@@ -130,6 +132,7 @@ const leadDocument: LeadDocument = {
   sizeBytes: 1200,
   revision: 1,
   createdAt: NOW,
+  review: null,
 };
 
 const { form: _form, customValues: _customValues, order: _order, ...baseListItem } = lead;

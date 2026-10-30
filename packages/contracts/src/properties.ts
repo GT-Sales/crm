@@ -308,6 +308,12 @@ export const ORDER_PROPERTY_KEYS = [
   'quantity',
   'paymentStatus',
   'carrierCommission',
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
 ] as const;
 export type OrderPropertyKey = (typeof ORDER_PROPERTY_KEYS)[number];
 
@@ -341,6 +347,23 @@ export const orderPropertyCatalog: Readonly<Record<string, LeadPropertyDefinitio
       { value: 'clawback', label: 'Clawback' },
     ],
   },
+  // The dispatch and activation details a move to Delivered or Activated asks for.
+  courier: { key: 'courier', label: 'Courier', kind: 'text', maxLength: 120 },
+  trackingNumber: { key: 'trackingNumber', label: 'Tracking number', kind: 'text', maxLength: 120 },
+  dispatchedAt: { key: 'dispatchedAt', label: 'Dispatched on', kind: 'date' },
+  activatedAt: { key: 'activatedAt', label: 'Activated on', kind: 'date' },
+  activationNumber: {
+    key: 'activationNumber',
+    label: 'Activation number',
+    kind: 'text',
+    maxLength: 40,
+  },
+  activationAccount: {
+    key: 'activationAccount',
+    label: 'Activation account',
+    kind: 'text',
+    maxLength: 80,
+  },
 };
 
 /**
@@ -353,11 +376,23 @@ export const ORDER_STORAGE_KEYS: {
   readonly quantity: 'quantity';
   readonly paymentStatus: 'paymentStatus';
   readonly carrierCommission: 'carrierCommission';
+  readonly courier: 'courier';
+  readonly trackingNumber: 'trackingNumber';
+  readonly dispatchedAt: 'dispatchedAt';
+  readonly activatedAt: 'activatedAt';
+  readonly activationNumber: 'activationNumber';
+  readonly activationAccount: 'activationAccount';
 } = {
   plan: 'planId',
   quantity: 'quantity',
   paymentStatus: 'paymentStatus',
   carrierCommission: 'carrierCommission',
+  courier: 'courier',
+  trackingNumber: 'trackingNumber',
+  dispatchedAt: 'dispatchedAt',
+  activatedAt: 'activatedAt',
+  activationNumber: 'activationNumber',
+  activationAccount: 'activationAccount',
 };
 export type OrderStorageKey = (typeof ORDER_STORAGE_KEYS)[OrderPropertyKey];
 
@@ -485,6 +520,7 @@ function orderProperties(
       websiteVisible: false,
       leadTypes: [...orderLeadTypes],
       editable: true,
+      ...(property.maxLength !== undefined ? { maxLength: property.maxLength } : {}),
       ...(override ? { version: override.version } : {}),
     });
   }

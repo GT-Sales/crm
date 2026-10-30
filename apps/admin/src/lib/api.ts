@@ -31,7 +31,7 @@ import {
   type LeadTaskResponse,
   type LeadTrashResponse,
   type MarkLeadOpenedResponse,
-  type CustomerEmailTemplate,
+  type QueueCustomerEmailRequest,
   type QueueCustomerEmailResponse,
   type ListWorkspaceTasksQuery,
   type ListWorkspaceTasksResponse,
@@ -199,7 +199,7 @@ export async function emailLeadCustomer(
   accessToken: string,
   workspaceId: string,
   leadId: string,
-  template: CustomerEmailTemplate,
+  template: QueueCustomerEmailRequest['template'],
 ): Promise<QueueCustomerEmailResponse> {
   return client(accessToken).staff.emailLeadCustomer(workspaceId, leadId, { template });
 }

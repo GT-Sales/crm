@@ -10,7 +10,7 @@ import {
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import { documentChecklistKeySchema } from './domain';
-import { PLAN_NAME_MAX, propertyKeySchema } from './properties';
+import { PLAN_NAME_MAX, isCalendarDate, propertyKeySchema } from './properties';
 import { leadPropertyValueSchema } from './workspace-leads';
 
 /**
@@ -150,7 +150,39 @@ export const planSnapshotSchema = z
   .strict();
 export type PlanSnapshot = z.infer<typeof planSnapshotSchema>;
 
-/** The order details of a lead of an order type. */
+/** Who carries the order to the customer, as staff name it (`Canada Post`). */
+export const courierSchema = z.string().trim().min(1).max(120);
+/** The courier's tracking number for the parcel. */
+export const trackingNumberSchema = z.string().trim().min(1).max(120);
+/** The number the carrier activated for the customer. */
+export const activationNumberSchema = z.string().trim().min(1).max(40);
+/** The carrier account the line was activated on. */
+export const activationAccountSchema = z.string().trim().min(1).max(80);
+/** A calendar day of the order (`dispatchedAt`, `activatedAt`), `YYYY-MM-DD`. */
+export const orderDateSchema = z.string().refine(isCalendarDate, 'a calendar date, YYYY-MM-DD');
+
+/** Why staff moved the order on without its required documents approved. */
+export const documentsOverrideReasonSchema = z.string().trim().min(1).max(2000);
+/**
+ * The last time staff moved the order past the documents check without its
+ * documents (`order.override`): why, which documents were missing and when.
+ * Set only by the stage move, never by an order edit.
+ */
+export const documentsOverrideSchema = z
+  .object({
+    reason: documentsOverrideReasonSchema,
+    missing: z.array(documentChecklistKeySchema).min(1).max(16),
+    at: isoDateTimeSchema,
+  })
+  .strict();
+export type DocumentsOverride = z.infer<typeof documentsOverrideSchema>;
+
+/**
+ * The order details of a lead of an order type: its plan, quantity and money
+ * states, the dispatch details (`courier`, `trackingNumber`, `dispatchedAt`),
+ * the activation details (`activatedAt`, `activationNumber`,
+ * `activationAccount`) and the last documents override, each null until set.
+ */
 export const leadOrderSchema = z
   .object({
     planId: z.uuid().nullable(),
@@ -158,6 +190,13 @@ export const leadOrderSchema = z
     quantity: orderQuantitySchema,
     paymentStatus: paymentStatusSchema,
     carrierCommission: carrierCommissionStatusSchema,
+    courier: courierSchema.nullable(),
+    trackingNumber: trackingNumberSchema.nullable(),
+    dispatchedAt: orderDateSchema.nullable(),
+    activatedAt: orderDateSchema.nullable(),
+    activationNumber: activationNumberSchema.nullable(),
+    activationAccount: activationAccountSchema.nullable(),
+    documentsOverride: documentsOverrideSchema.nullable(),
   })
   .strict();
 export type LeadOrder = z.infer<typeof leadOrderSchema>;
@@ -169,6 +208,13 @@ export const DEFAULT_LEAD_ORDER: LeadOrder = {
   quantity: 1,
   paymentStatus: 'not_needed',
   carrierCommission: 'not_yet',
+  courier: null,
+  trackingNumber: null,
+  dispatchedAt: null,
+  activatedAt: null,
+  activationNumber: null,
+  activationAccount: null,
+  documentsOverride: null,
 };
 
 /** Website: only what a storefront needs; custom values limited to website-visible properties. */
@@ -197,13 +243,23 @@ export const listWebsitePlansResponseSchema = z.object({
 });
 export type ListWebsitePlansResponse = z.infer<typeof listWebsitePlansResponseSchema>;
 
-/** Staff edit of the order fields; `planId` re-freezes the snapshot, null clears the plan. */
+/**
+ * Staff edit of the order fields; `planId` re-freezes the snapshot, null
+ * clears the plan or a dispatch or activation detail. The documents override
+ * is never an edit: only a stage move records it.
+ */
 export const leadOrderEditSchema = z
   .object({
     planId: z.uuid().nullable().optional(),
     quantity: orderQuantitySchema.optional(),
     paymentStatus: paymentStatusSchema.optional(),
     carrierCommission: carrierCommissionStatusSchema.optional(),
+    courier: courierSchema.nullable().optional(),
+    trackingNumber: trackingNumberSchema.nullable().optional(),
+    dispatchedAt: orderDateSchema.nullable().optional(),
+    activatedAt: orderDateSchema.nullable().optional(),
+    activationNumber: activationNumberSchema.nullable().optional(),
+    activationAccount: activationAccountSchema.nullable().optional(),
   })
   .strict()
   .refine((value) => Object.values(value).some((field) => field !== undefined), {
