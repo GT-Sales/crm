@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ResendEmailAdapter } from './messaging.js';
+import { formatFrom, ResendEmailAdapter } from './messaging.js';
 import { z } from 'zod';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -249,12 +249,72 @@ describe('a pre-rendered customer email', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('uses a message’s sender over the workspace’s and the deployment’s, only when it has one', async () => {
+  it('falls back to the workspace’s sender, then the deployment’s, for a message without one', async () => {
     const { adapter, send } = adapterWithStub();
     const { sender: _sender, ...withoutSender } = message;
     await adapter.send({ ...withoutSender, template: 'dispatched' });
     expect(bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body))).from).toBe(
       'Registry <registry@example.test>',
+    );
+
+    const bare = new ResendEmailAdapter({
+      apiKey: 'synthetic-key',
+      sender: { fromAddress: 'deployment@example.test', fromName: 'Deployment' },
+    });
+    await bare.send({ ...withoutSender, template: 'dispatched' });
+    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[1]![1]!.body))).from).toBe(
+      'Deployment <deployment@example.test>',
+    );
+  });
+
+  it('sends no reply_to when the sender has none', async () => {
+    const { adapter, send } = adapterWithStub();
+    await adapter.send({
+      ...message,
+      template: 'dispatched',
+      sender: { fromName: 'Get Canada Sim', fromAddress: 'order@getcanadasim.example' },
+    });
+    const body = bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body)));
+    expect(body.from).toBe('Get Canada Sim <order@getcanadasim.example>');
+    expect(body).not.toHaveProperty('reply_to');
+  });
+
+  it('quotes a display name with specials so the header stays one address', async () => {
+    const { adapter, send } = adapterWithStub();
+    await adapter.send({
+      ...message,
+      template: 'dispatched',
+      sender: { fromName: 'Acme, "Co" <x>', fromAddress: 'order@acme.example' },
+    });
+    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body))).from).toBe(
+      '"Acme, \\"Co\\" <x>" <order@acme.example>',
+    );
+  });
+});
+
+describe('formatFrom', () => {
+  const address = 'order@site.example';
+
+  it('leaves a plain name unquoted', () => {
+    expect(formatFrom({ fromName: 'Get Canada Sim', fromAddress: address })).toBe(
+      `Get Canada Sim <${address}>`,
+    );
+  });
+
+  it.each([
+    ['Acme, "Co" <x>', '"Acme, \\"Co\\" <x>"'],
+    ['Smith, Jones & Co', '"Smith, Jones & Co"'],
+    ['Joe "Best" SIMs', '"Joe \\"Best\\" SIMs"'],
+    ['Acme Inc.', '"Acme Inc."'],
+    ['back\\slash', '"back\\\\slash"'],
+    ['Café Mobile', '"Café Mobile"'],
+  ])('quotes %s', (fromName, quoted) => {
+    expect(formatFrom({ fromName, fromAddress: address })).toBe(`${quoted} <${address}>`);
+  });
+
+  it('drops control characters, so a name cannot add a header line', () => {
+    expect(formatFrom({ fromName: 'Site\r\nBcc: x@evil.example', fromAddress: address })).toBe(
+      `"SiteBcc: x@evil.example" <${address}>`,
     );
   });
 });

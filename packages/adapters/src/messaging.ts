@@ -1,14 +1,6 @@
 import { z } from 'zod';
 
 /**
- * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
- * plus `sim_number_ready`, Get Canada Sim's "your Canadian number is ready"
- * mail to a SIM order's customer, plus the site-content templates a site's
- * staff edit. `abandoned_form_marketing` is the one
- * marketing template; every other template is transactional and is never
- * gated on marketing opt-out.
- */
-/**
  * A site's own mails (Settings → Email), besides `sim_number_ready`: the backend
  * renders them from the site's template when it queues the mail and
  * `EmailMessage.rendered` carries the result, so no copy for them lives here.
@@ -22,6 +14,13 @@ const siteContentEmailTemplates = [
   'cancelled',
 ] as const;
 
+/**
+ * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
+ * plus `sim_number_ready`, Get Canada Sim's "your Canadian number is ready"
+ * mail to a SIM order's customer, plus the site-content templates a site's
+ * staff edit. `abandoned_form_marketing` is the one marketing template; every
+ * other template is transactional and is never gated on marketing opt-out.
+ */
 export const emailTemplates = [
   'order_acknowledgement',
   'tracking_otp',
@@ -106,6 +105,27 @@ export interface SenderIdentity {
   replyToAddress?: string;
 }
 
+/**
+ * The `From` header for a sender. The display name is free-form staff input,
+ * so control characters are dropped and a name with RFC 5322 specials, or
+ * anything outside printable ASCII, is quoted (escaping `\` and `"`), which
+ * keeps the header one address however the name is typed. Plain names stay
+ * unquoted.
+ */
+export function formatFrom(sender: SenderIdentity): string {
+  const name = Array.from(sender.fromName)
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join('')
+    .trim();
+  const needsQuotes = /[()<>[\]:;@\\,."]|[^\x20-\x7e]/.test(name);
+  if (!name) return sender.fromAddress;
+  const display = needsQuotes ? `"${name.replace(/[\\"]/g, '\\$&')}"` : name;
+  return `${display} <${sender.fromAddress}>`;
+}
+
 /** Deterministic, deduplicating provider fake used by tests and non-production environments. */
 export class FakeEmailAdapter implements EmailAdapter {
   readonly deliveries: EmailMessage[] = [];
@@ -171,7 +191,7 @@ export class SesEmailAdapter implements EmailAdapter {
     try {
       const result = await client.send(
         new SendEmailCommand({
-          FromEmailAddress: `${sender.fromName} <${sender.fromAddress}>`,
+          FromEmailAddress: formatFrom(sender),
           ReplyToAddresses: sender.replyToAddress ? [sender.replyToAddress] : undefined,
           ConfigurationSetName: this.config.configurationSetName,
           Destination: { ToAddresses: [message.toAddress] },
@@ -243,7 +263,7 @@ export class ResendEmailAdapter implements EmailAdapter {
           'Idempotency-Key': `${message.workspaceId}/${message.messageId}`,
         },
         body: JSON.stringify({
-          from: `${sender.fromName} <${sender.fromAddress}>`,
+          from: formatFrom(sender),
           reply_to: sender.replyToAddress,
           to: [message.toAddress],
           subject,
