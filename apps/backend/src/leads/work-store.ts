@@ -56,6 +56,7 @@ import {
   type LeadStats,
   type LeadWithWork,
 } from './staff-queries.js';
+import type { Scope, WriteScope } from '../tenant-scope.js';
 import { upsertContact } from './store.js';
 
 /**
@@ -68,14 +69,7 @@ import { upsertContact } from './store.js';
  * time: an edit records the field names, a note's audit event its id.
  */
 
-interface Scope {
-  workspaceId: string;
-  actorId: string;
-}
-
-interface WriteScope extends Scope {
-  requestId: string;
-}
+export type { Scope, WriteScope };
 
 export type LeadWorkResult = LeadWithWork;
 
