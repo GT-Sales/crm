@@ -7,6 +7,7 @@ import {
   staffRoleNames,
 } from '@gt-sales/types';
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -406,6 +407,14 @@ export const leads = appSchema
        * parses each value by its property's kind before it is stored.
        */
       customValues: jsonb('custom_values').notNull().default({}),
+      /**
+       * An order lead's order (`sim_order`, `internet`, `mobility`): the plan
+       * link, the plan frozen at submission, `quantity`, `paymentStatus` and
+       * `carrierCommission` (contracts `leadOrderSchema`). `{}` for every
+       * other type, and for an order not yet given one (the backend reads it
+       * as the default order).
+       */
+      orderDetails: jsonb('order_details').notNull().default({}),
       consentVersion: text('consent_version').notNull(),
       customerDataRestrictedAt: timestamp('customer_data_restricted_at', {
         withTimezone: true,
@@ -421,6 +430,7 @@ export const leads = appSchema
       check('leads_stage_check', sql`${table.stage} ~ '^[a-z0-9_]{1,64}$'`),
       check('leads_lead_type_check', sql`${table.leadType} ~ '^[a-z0-9_]{1,64}$'`),
       check('leads_custom_values_check', sql`jsonb_typeof(${table.customValues}) = 'object'`),
+      check('leads_order_details_check', sql`jsonb_typeof(${table.orderDetails}) = 'object'`),
       check(
         'leads_external_ref_check',
         sql`${table.externalRef} is null or char_length(${table.externalRef}) between 1 and 128`,
@@ -1334,9 +1344,9 @@ const propertyKindList = sql.raw(
 );
 
 /**
- * A site's property definitions per object (`lead` now, `plan` later): a
- * custom property (`origin = 'custom'`, its values in `leads.custom_values`)
- * or an override of a built-in from the code catalogue (`origin =
+ * A site's property definitions per object (`lead` or `plan`): a custom
+ * property (`origin = 'custom'`, its values in `leads.custom_values` or
+ * `plans.custom_values`) or an override of a built-in from the code catalogue (`origin =
  * 'builtin'`: a relabel or a hide). The runtime role cannot DELETE: a custom
  * property is tombstoned with `deleted_at`, and the unique key includes
  * tombstones, so a deleted key is reserved forever. `drizzle/0010_*.sql`
@@ -1360,6 +1370,12 @@ export const properties = appSchema
       staffOnly: boolean('staff_only').default(false).notNull(),
       sensitive: boolean('sensitive').default(false).notNull(),
       hidden: boolean('hidden').default(false).notNull(),
+      /**
+       * A plan property's value is shown to the website (in its plan list
+       * and in the plan frozen onto an order). Meaningful for `object =
+       * 'plan'` only; the backend refuses it elsewhere.
+       */
+      websiteVisible: boolean('website_visible').default(false).notNull(),
       /** The lead types the property applies to; empty means every type. */
       leadTypes: text('lead_types')
         .array()
@@ -1472,6 +1488,70 @@ export const savedViews = appSchema
   )
   .enableRLS();
 
+// ---------------------------------------------------------------------------
+// Plans
+// ---------------------------------------------------------------------------
+
+const billingPeriodList = sql.raw(
+  ['one_time', 'month', '30_days', '90_days', 'year'].map((period) => `'${period}'`).join(', '),
+);
+
+/**
+ * A site's plans, one order lead type each (`sim_order`, `internet`,
+ * `mobility`): the built-in name, price (integer cents, CAD), billing period,
+ * payment rule, active switch and required documents, plus the site's custom
+ * plan properties in `custom_values` (`app.properties` with `object =
+ * 'plan'`). An order keeps its own frozen copy of the plan in
+ * `leads.order_details`, so changing a plan rewrites no order. The runtime
+ * role cannot DELETE: a plan that is no longer sold is made inactive.
+ * Grants, FORCE RLS and the Get Canada Sim seed are in `drizzle/0012_*.sql`.
+ */
+export const plans = appSchema
+  .table(
+    'plans',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      leadType: text('lead_type').notNull(),
+      name: text('name').notNull(),
+      priceMinor: bigint('price_minor', { mode: 'number' }).default(0).notNull(),
+      currency: text('currency').default('CAD').notNull(),
+      billingPeriod: text('billing_period').default('month').notNull(),
+      paymentRequired: boolean('payment_required').default(false).notNull(),
+      active: boolean('active').default(true).notNull(),
+      requiredDocuments: text('required_documents')
+        .array()
+        .default(sql`'{}'::text[]`)
+        .notNull(),
+      customValues: jsonb('custom_values').notNull().default({}),
+      position: integer('position').default(0).notNull(),
+      version: integer('version').default(1).notNull(),
+      createdBy: uuid('created_by'),
+      updatedBy: uuid('updated_by'),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('plans_workspace_id_id_unique').on(table.workspaceId, table.id),
+      uniqueIndex('plans_workspace_type_name_unique').on(
+        table.workspaceId,
+        table.leadType,
+        sql`lower(${table.name})`,
+      ),
+      check('plans_lead_type_check', sql`${table.leadType} ~ '^[a-z0-9_]{1,64}$'`),
+      check('plans_name_check', sql`length(btrim(${table.name})) between 1 and 120`),
+      check('plans_price_minor_check', sql`${table.priceMinor} >= 0`),
+      check('plans_currency_check', sql`${table.currency} = 'CAD'`),
+      check('plans_billing_period_check', sql`${table.billingPeriod} in (${billingPeriodList})`),
+      check('plans_custom_values_check', sql`jsonb_typeof(${table.customValues}) = 'object'`),
+      tenantPolicy('plans_tenant_policy', table.workspaceId),
+      backupReadPolicy('plans'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
   workspaces,
   memberships,
@@ -1502,4 +1582,5 @@ export const schema = {
   properties,
   propertyLayouts,
   savedViews,
+  plans,
 };

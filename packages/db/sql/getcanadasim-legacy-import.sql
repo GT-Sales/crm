@@ -28,15 +28,23 @@
 -- what an earlier one wrote.
 --
 -- Mapping: an order's status is its stage (the same keys, sim_order's stages
--- in the contracts catalogue), and `incomplete` is also the lead's status (a
--- checkout that never finished; the CRM's 90-day rule for abandoned forms
--- applies to it). An archived order goes to the CRM's trash, from which it
--- can be restored. `MS-<order_no>` and `PT-<partner_no>` become the leads'
--- external references, so staff find them by the numbers they know.
+-- in the contracts catalogue), except `paid`, which is `pending`, and
+-- `invoiced`, which is `completed` (neither is a stage since phase 3, as in
+-- migration 0012); `incomplete` is also the lead's status (a checkout that
+-- never finished; the CRM's 90-day rule for abandoned forms applies to it).
+-- Each order also gets its order (`order_details`, as 0012 gives the orders
+-- already here): no plan link, quantity 1, the payment status its status
+-- implies (`paid` for paid, verified, delivered, activated, completed and
+-- invoiced; `not_needed` for cancelled and on hold; otherwise `pending`) and
+-- the carrier commission from `commission_status` (`invoiced`,
+-- `commission_received` -> `received`, `claw_back` -> `clawback`; an invoiced
+-- order is `invoiced`; otherwise `not_yet`). An archived order goes to the
+-- CRM's trash, from which it can be restored. `MS-<order_no>` and
+-- `PT-<partner_no>` become the leads' external references, so staff find
+-- them by the numbers they know.
 --
--- The SIM number staff gave the order and the carrier commission's state
--- travel in the form too, as the staff-only `simNumber` and
--- `commissionStatus` fields (contracts `leadFields`).
+-- The SIM number staff gave the order travels in the form too, as the
+-- staff-only `simNumber` field (contracts `leadFields`).
 --
 -- Documents (passport, approval letter, SIM photo, billing contract, partner
 -- licence) are queued here and copied by the backend's outbox, verified, onto
@@ -91,7 +99,8 @@ begin
     o.id,
     'sim_order'::text as lead_type,
     case when o.status = 'incomplete' then 'incomplete' else 'submitted' end as status,
-    o.status as stage,
+    case o.status when 'paid' then 'pending' when 'invoiced' then 'completed' else o.status end
+      as stage,
     nullif(btrim(o.full_name), '') as full_name,
     nullif(btrim(o.email), '') as email,
     nullif(btrim(o.phone), '') as phone,
@@ -127,9 +136,28 @@ begin
       'reference', nullif(btrim(o.reference), ''),
       'customerNotes', case when o.notes ~* '^Shipping address:' then null
                             else nullif(btrim(o.notes), '') end,
-      'simNumber', nullif(btrim(o.sim_number), ''),
-      'commissionStatus', nullif(btrim(o.commission_status), '')
-    ))) as form
+      'simNumber', nullif(btrim(o.sim_number), '')
+    ))) as form,
+    jsonb_build_object(
+      'planId', null,
+      'plan', null,
+      'quantity', 1,
+      'paymentStatus', case
+        when o.status in ('paid', 'verified', 'delivered', 'activated', 'completed', 'invoiced')
+          then 'paid'
+        when o.status in ('cancelled', 'on_hold') then 'not_needed'
+        else 'pending'
+      end,
+      'carrierCommission', case
+        when o.status = 'invoiced' then 'invoiced'
+        else case btrim(o.commission_status)
+          when 'invoiced' then 'invoiced'
+          when 'commission_received' then 'received'
+          when 'claw_back' then 'clawback'
+          else 'not_yet'
+        end
+      end
+    ) as order_details
   from public.orders as o
   left join public.partners as p on p.id = o.partner_id
   left join gcs_plan_labels as pl on pl.slug = o.plan
@@ -163,7 +191,8 @@ begin
       'businessType', nullif(btrim(p.business_type), ''),
       'volume', nullif(btrim(p.volume), ''),
       'message', nullif(btrim(p.message), '')
-    )))
+    ))),
+    '{}'::jsonb
   from public.partners as p;
 
   -- Contacts, one per normalised email, named from that person's latest row.
@@ -181,13 +210,13 @@ begin
 
   insert into app.leads as l (
     id, workspace_id, lead_type, status, stage, full_name, email, phone, country_code,
-    contact_id, external_ref, payload, attribution, consent_version, deleted_at, created_at,
-    updated_at
+    contact_id, external_ref, payload, attribution, order_details, consent_version, deleted_at,
+    created_at, updated_at
   )
   select
     r.id, v_workspace, r.lead_type, r.status, r.stage, r.full_name, r.email, r.phone,
-    r.country_code, c.id, r.external_ref, r.form, r.attribution, 'gcs-legacy-import',
-    r.deleted_at, r.created_at,
+    r.country_code, c.id, r.external_ref, r.form, r.attribution, r.order_details,
+    'gcs-legacy-import', r.deleted_at, r.created_at,
     greatest(
       r.created_at,
       coalesce(r.staff_note_at, r.created_at),
@@ -202,14 +231,16 @@ begin
     phone = excluded.phone,
     payload = excluded.payload,
     attribution = excluded.attribution,
+    order_details = excluded.order_details,
     deleted_at = excluded.deleted_at,
     updated_at = greatest(l.updated_at, excluded.updated_at)
   where l.workspace_id = excluded.workspace_id
     and l.customer_data_restricted_at is null
-    and (l.stage, l.status, l.full_name, l.phone, l.payload, l.attribution, l.deleted_at)
+    and (l.stage, l.status, l.full_name, l.phone, l.payload, l.attribution, l.order_details,
+         l.deleted_at)
         is distinct from
         (excluded.stage, excluded.status, excluded.full_name, excluded.phone, excluded.payload,
-         excluded.attribution, excluded.deleted_at)
+         excluded.attribution, excluded.order_details, excluded.deleted_at)
     and not exists (
       select 1 from app.lead_activities as a
       where a.workspace_id = l.workspace_id and a.lead_id = l.id and a.actor_id <> v_actor
@@ -391,8 +422,11 @@ select
      where not exists (select 1 from app.leads l where l.id = o.id))
   + (select count(*) from public.partners p
      where not exists (select 1 from app.leads l where l.id = p.id)) as rows_missing,
+  -- With the phase 3 mapping: `paid` is `pending`, `invoiced` is `completed`.
   (select count(*) from public.orders o join app.leads l on l.id = o.id
-     where l.stage <> o.status) as stage_mismatches,
+     where l.stage <> case o.status when 'paid' then 'pending'
+                                    when 'invoiced' then 'completed'
+                                    else o.status end) as stage_mismatches,
   (select count(*) from app.leads l join app.workspaces w on w.id = l.workspace_id
      where w.slug = 'getcanadasim' and l.deleted_at is not null) as crm_trash,
   (select count(*) from app.lead_activities a join app.workspaces w on w.id = a.workspace_id

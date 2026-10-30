@@ -271,6 +271,90 @@ NULL` and its check. Record the date and the Supabase tracker versions
   guard, the shape checks, `custom_values`, FORCE RLS, the policies and the
   grants.
 
+## 0011_plans
+
+- Phase 3's plans and order details
+  (docs/superpowers/plans/2026-10-30-phase-3-plans-stages-archive.md),
+  generated from `packages/db/src/schema.ts`. Additive: one new table and two
+  new columns with constant defaults.
+- `app.plans`: a site's plans, one order lead type each. `lead_type`
+  (`^[a-z0-9_]{1,64}$`), `name` (1–120 characters once trimmed),
+  `price_minor bigint` (cents, `>= 0`, default 0), `currency` (`= 'CAD'`),
+  `billing_period` (`one_time`, `month`, `30_days`, `90_days`, `year`;
+  default `month`), `payment_required` (default false), `active` (default
+  true), `required_documents text[]` (default `{}`), `custom_values` (a JSON
+  object: the site's custom plan properties), `position`, `version`,
+  `created_by`, `updated_by`, timestamps. Unique `(workspace_id, id)` and
+  unique index `plans_workspace_type_name_unique (workspace_id, lead_type,
+lower(name))`. Tenant policy and `plans_backup_reader_read`, so `app` now
+  has 29 `_backup_reader_read` policies.
+- `app.leads.order_details`: `jsonb not null default '{}'`, check
+  `leads_order_details_check` (`jsonb_typeof = 'object'`): an order lead's
+  plan link, frozen plan, quantity, payment status and carrier commission;
+  `{}` for every other lead. `app.properties.website_visible`: `boolean not
+null default false` (plan properties shown to the website). Neither
+  rewrites rows (constant defaults); the check scans `leads` once.
+- Drizzle hash `ce21f737d78ea05f0c3ccd46dbe86d76aff29a01bee10b1a997095770e524ca0`,
+  `created_at` `1793326396341`. Not applied in production yet.
+
+## 0012_plans_runtime
+
+- Hand-written companion to 0011: `FORCE ROW LEVEL SECURITY` on `plans`;
+  `app_runtime` gets `SELECT, INSERT, UPDATE` (no DELETE: a plan no longer
+  sold is made inactive).
+- Seed: for the site with slug `getcanadasim`, when it exists, Get Canada
+  Sim's six SIM plans (contracts `SIM_PLANS`; the labels are the names, the
+  label's dollars ×100 the price: 5000, 4000, 3500, 4000, 3500, 7500;
+  `sim_order`, `month`, payment required, active, positions 0–5), `ON
+CONFLICT DO NOTHING` on the name index.
+- Data migration, every `sim_order` lead whose `order_details` is still `{}`
+  (archived and restricted ones included): `order_details = { planId: null,
+plan: null, quantity: 1, paymentStatus, carrierCommission }`, where
+  `paymentStatus` is `paid` for the stages paid, verified, delivered,
+  activated, completed and invoiced, `not_needed` for cancelled and on_hold,
+  otherwise `pending`; `carrierCommission` is `invoiced` for an invoiced
+  lead, else from the form's `commissionStatus` (`invoiced`,
+  `commission_received` → `received`, `claw_back` → `clawback`), else
+  `not_yet`. Then `paid` → `pending` and `invoiced` → `completed`, with one
+  `system` timeline entry per moved lead (body `Stage Paid became Pending;
+payment status set to Paid (phase 3 migration)` or `Stage Invoiced became
+Completed; carrier commission set to Invoiced (phase 3 migration)`, data
+  `{"migration":"0012"}`, actor the legacy-import actor
+  `00000000-0000-4000-8000-00000000a001`, which the Get Canada Sim import
+  does not count as CRM work). `updated_at` is left alone. Other lead types
+  keep `{}`. Re-running changes nothing (only `{}` leads are touched).
+- Drizzle hash `e243ef2f8914f732d0357f88f2b3e97661354b6b3d803d4cba66f9e24e1c36ff`,
+  `created_at` `1793326400817`. Not applied in production yet.
+- To apply both, before deploying a backend that reads `plans` or
+  `order_details` and before the next Get Canada Sim import run: in the SQL
+  editor, as `postgres`, run
+  [`manual/0011-0012-plans.sql`](manual/0011-0012-plans.sql)'s pre-check (A:
+  no `plans`, neither column, no tracker rows, `getcanadasim` present) and
+  its reconciliation (B: `sim_order` leads per site, stage and payment
+  status, archived and restricted counted) and keep B's rows as the
+  **before** counts; paste `BEGIN` … `COMMIT` once (one transaction, both
+  files verbatim and all four tracker rows; the migrator then finds nothing
+  to do); run the seven verification selects one at a time (`plans` forced,
+  its two policies, 29 backup read policies, the grants, both columns, the
+  six plans, the 20 moved leads with nothing left in `paid`/`invoiced`), then
+  B again for the **after** counts. Expected from production on 2026-10-30
+  (139 `sim_order` leads, 44 archived): before incomplete 23, pending 59,
+  verified 1, delivered 1, activated 8, completed 13, cancelled 14, paid 20;
+  after pending 79 (59 `pending` + 20 `paid`), every other stage unchanged,
+  no `paid` or `invoiced`, every lead with a payment status. Record the date,
+  the Supabase tracker versions and both sets of counts here afterwards.
+- Rehearsed 2026-10-30 on a local database migrated to 0010 with those
+  production counts: the paste file ran as written and its checks and the
+  after counts were as above; the migrator then applied nothing.
+- `packages/db/tests/plans.integration.test.ts` covers RLS and FORCE on
+  `plans`, the policies and grants (no DELETE), site isolation, the name
+  unique per type ignoring case, the defaults and every check,
+  `order_details` and `website_visible`, and re-runs 0012 inside a
+  rolled-back transaction: the seed (six plans for `getcanadasim`, none
+  elsewhere, idempotent) and the mapping for every stage, both commission
+  sources, an archived and a restricted lead, one entry per moved lead, an
+  `internet` lead left at `{}`, and a second run changing nothing.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,
