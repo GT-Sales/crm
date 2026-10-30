@@ -82,6 +82,29 @@ describe('central staff authorization', () => {
     }
   });
 
+  it('grants the documents override to the owner and the Orders role only, never by an individual permission', async () => {
+    const store = new MemoryAccessStore();
+    const authorize = createAuthorize({ accessStore: store });
+    const override = () =>
+      authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'order.override' });
+    const everyPermission = staffPermissionNames.map((name) => ({
+      name,
+      effect: 'allow' as const,
+    }));
+
+    for (const role of ['owner', 'orders'] as const) {
+      store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess([role]));
+      await expect(override()).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+    }
+    for (const role of ['leads', 'partners', 'finance', 'content', 'viewer'] as const) {
+      store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess([role], everyPermission));
+      await expect(override()).resolves.toEqual({ allowed: false, reason: 'permission_denied' });
+    }
+    // A member holding Leads and Orders together has it through Orders.
+    store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['leads', 'orders']));
+    await expect(override()).resolves.toMatchObject({ allowed: true });
+  });
+
   it('denies the Orders role a document download without an individual permission', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['orders']));

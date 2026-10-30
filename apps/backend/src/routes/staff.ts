@@ -626,6 +626,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           })) ??
             false),
         downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
+        reviewDocuments: decideAccess(decision.access, 'order.manage').allowed,
+        overrideDocuments: decideAccess(decision.access, 'order.override').allowed,
       };
       // Form details, notes and tasks carry personal details as freely as
       // the contact fields do, so they travel only with contact visibility.
@@ -644,6 +646,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         lead: access.contacts ? result.lead : withoutPersonalDetails(result.lead),
         activities: result.activities,
         tasks: result.tasks,
+        allowedMoves: allowedStageMoves(result.lead.leadType, result.lead.stage),
         // Which requests belong to one person is personal data as well.
         related: access.contacts ? result.related : [],
         identities: access.contacts ? result.identities : [],
@@ -671,6 +674,15 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
         return;
       }
+      // Only the owner and Orders members may move an order on without its
+      // documents approved; refused before the store is asked.
+      if (
+        body.data.documentsOverrideReason !== undefined &&
+        !decideAccess(decision.access, 'order.override').allowed
+      ) {
+        sendDomainError(res, req.id, 'documents_override_not_allowed', 409);
+        return;
+      }
       const store = leadWork(req, res);
       if (!store) return;
       const outcome = await store.updateLead({
@@ -684,6 +696,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         form: body.data.form,
         customValues: body.data.customValues,
         order: body.data.order,
+        documentsOverrideReason: body.data.documentsOverrideReason,
         catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
       switch (outcome.status) {
@@ -692,8 +705,30 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
             lead: outcome.lead,
             activities: outcome.activities,
             allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
+            ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
             requestId: req.id,
           });
+          return;
+        case 'illegal_stage_move':
+          sendDomainError(res, req.id, 'illegal_stage_move', 409, {
+            from: outcome.from,
+            to: outcome.to,
+            allowed: outcome.allowed,
+          });
+          return;
+        case 'dispatch_details_required':
+          sendDomainError(res, req.id, 'dispatch_details_required', 400, { field: 'courier' });
+          return;
+        case 'activation_details_required':
+          sendDomainError(res, req.id, 'activation_details_required', 400, {
+            field: 'activatedAt',
+          });
+          return;
+        case 'documents_incomplete':
+          sendDomainError(res, req.id, 'documents_incomplete', 409, { missing: outcome.missing });
+          return;
+        case 'document_override_reason_required':
+          sendDomainError(res, req.id, 'document_override_reason_required', 400);
           return;
         case 'invalid_field':
           sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
