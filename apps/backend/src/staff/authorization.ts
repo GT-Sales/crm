@@ -26,6 +26,9 @@ const actionNames = tuple(
   // Defining the site's properties and record layouts (custom properties,
   // built-in relabels and hides). Owner only; no individual permission grants it.
   'property.manage',
+  // Moving an order on without its required documents approved, with a reason.
+  // The owner and the Orders role have it; no individual permission grants it.
+  'order.override',
 );
 
 export type StaffAction = (typeof actionNames)[number];
@@ -35,7 +38,7 @@ const actions = (...values: StaffAction[]): ReadonlySet<StaffAction> => new Set(
 const roleActions = {
   owner: actions(...actionNames),
   leads: actions('workspace.read', 'lead.manage'),
-  orders: actions('workspace.read', 'order.manage'),
+  orders: actions('workspace.read', 'order.manage', 'order.override'),
   partners: actions('workspace.read'),
   finance: actions('workspace.read', 'financial.read', 'invoice.approve'),
   content: actions('workspace.read'),

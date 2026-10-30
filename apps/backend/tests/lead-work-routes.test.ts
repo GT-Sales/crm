@@ -18,6 +18,7 @@ import {
   queueCustomerEmailResponseSchema,
   updateStaffProfileResponseSchema,
   updateWorkspaceLeadResponseSchema,
+  type EmailSkipped,
   type LeadActivity,
   type LeadDetail,
   type LeadDocument,
@@ -32,7 +33,11 @@ import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { LeadStore, ListLeadsInput } from '../src/leads/store.js';
-import type { LeadWorkStore, UpdateLeadWorkInput } from '../src/leads/work-store.js';
+import type {
+  LeadWorkStore,
+  UpdateLeadWorkInput,
+  UpdateLeadWorkOutcome,
+} from '../src/leads/work-store.js';
 import type { PropertyStore } from '../src/properties/store.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
@@ -685,7 +690,19 @@ describe('staff lead work routes', () => {
       revealSensitive: false,
       emailCustomer: false,
       downloadDocuments: false,
+      reviewDocuments: false,
+      overrideDocuments: false,
     });
+    expect(body.allowedMoves).toEqual([
+      'contacted',
+      'qualified',
+      'existing_shaw',
+      'non_serviceable_address',
+      'old_due',
+      'installed',
+      'won',
+      'lost',
+    ]);
     expect(work.getLead).toHaveBeenCalledWith(expect.objectContaining({ includeWork: false }));
   });
 
@@ -726,6 +743,11 @@ describe('staff lead work routes', () => {
       details: { missing: ['SIM number'] },
     });
 
+    work.queueCustomerEmail.mockResolvedValueOnce({ status: 'no_sender' });
+    const noSender = await send();
+    expect(noSender.status).toBe(409);
+    expect((await errorCode(noSender)).code).toBe('feature_not_ready');
+
     work.queueCustomerEmail.mockResolvedValueOnce({ status: 'trashed' });
     expect((await errorCode(await send())).code).toBe('lead_trashed');
     work.queueCustomerEmail.mockResolvedValueOnce({ status: 'not_found' });
@@ -759,6 +781,106 @@ describe('staff lead work routes', () => {
     const missing = await call(`${leadsUrl()}/90000000-0000-4000-8000-0000000000ff`);
     expect(missing.status).toBe(404);
     expect((await errorCode(missing)).code).toBe('lead_not_found');
+  });
+
+  it('reports the stage moves and whether the caller may review or override documents', async () => {
+    const detail = async () =>
+      getWorkspaceLeadResponseSchema.parse(await (await call(`${leadsUrl()}/${LEAD}`)).json());
+    for (const roles of [['owner'], ['orders']] as const) {
+      store.access = { ...store.access, roles: [...roles] };
+      expect((await detail()).access).toMatchObject({
+        reviewDocuments: true,
+        overrideDocuments: true,
+      });
+    }
+    for (const roles of [['leads'], ['viewer'], ['finance']] as const) {
+      store.access = { ...store.access, roles: [...roles] };
+      expect((await detail()).access).toMatchObject({
+        reviewDocuments: false,
+        overrideDocuments: false,
+      });
+    }
+
+    store.access = { ...store.access, roles: ['leads'] };
+    work.getLead.mockResolvedValueOnce({
+      lead: { ...lead, leadType: 'sim_order', stage: 'pending' },
+      activities: [],
+      tasks: [],
+      related: [],
+      identities: [],
+      documents: [],
+    });
+    expect((await detail()).allowedMoves).toEqual(['verified', 'on_hold', 'cancelled']);
+  });
+
+  it('answers an override reason from someone who cannot override before the store', async () => {
+    store.access = { ...store.access, roles: ['leads'] };
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { stage: 'delivered', documentsOverrideReason: 'Customer will send them later' },
+    });
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toMatchObject({
+      code: 'documents_override_not_allowed',
+      message: 'Only the site owner or an Orders member can override the documents check.',
+    });
+    expect(work.updateLead).not.toHaveBeenCalled();
+
+    // The same body without a reason is an ordinary move.
+    expect(
+      (await call(`${leadsUrl()}/${LEAD}`, { method: 'PATCH', body: { stage: 'contacted' } }))
+        .status,
+    ).toBe(200);
+  });
+
+  it('passes the override reason to the store for an Orders member and the owner', async () => {
+    for (const roles of [['leads', 'orders'], ['owner']] as const) {
+      store.access = { ...store.access, roles: [...roles] };
+      work.updateLead.mockClear();
+      const response = await call(`${leadsUrl()}/${LEAD}`, {
+        method: 'PATCH',
+        body: { stage: 'delivered', documentsOverrideReason: 'Customer will send them later' },
+      });
+      expect(response.status).toBe(200);
+      expect(work.updateLead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'delivered',
+          documentsOverrideReason: 'Customer will send them later',
+        }),
+      );
+    }
+  });
+
+  it('answers an update with the next moves and passes the skipped mails through', async () => {
+    const skipped: EmailSkipped[] = [
+      { automation: 'sim_order_dispatched', template: 'dispatched', reason: 'no_customer_email' },
+      {
+        automation: 'sim_order_activated',
+        template: 'activated',
+        reason: 'missing_fill_in',
+        missing: ['SIM number'],
+      },
+    ];
+    work.updateLead.mockResolvedValueOnce({
+      status: 'updated',
+      lead: { ...lead, leadType: 'sim_order', stage: 'verified' },
+      activities: [],
+      emailSkipped: skipped,
+    });
+    const response = await call(`${leadsUrl()}/${LEAD}`, {
+      method: 'PATCH',
+      body: { stage: 'verified' },
+    });
+    expect(response.status).toBe(200);
+    const body = updateWorkspaceLeadResponseSchema.parse(await response.json());
+    expect(body.allowedMoves).toEqual(['on_hold', 'delivered', 'cancelled']);
+    expect(body.emailSkipped).toEqual(skipped);
+
+    // Nothing skipped: the field is absent, not an empty list.
+    const plain = await (
+      await call(`${leadsUrl()}/${LEAD}`, { method: 'PATCH', body: { stage: 'contacted' } })
+    ).json();
+    expect(plain).not.toHaveProperty('emailSkipped');
   });
 
   it('lets only lead managers change a lead', async () => {
@@ -813,6 +935,69 @@ describe('staff lead work routes', () => {
       expect(error.code).toBe(code);
       if (code === 'validation_error') expect(error.details).toEqual({ field: 'stage' });
     }
+  });
+
+  it('maps each refused stage move to its status, code and details', async () => {
+    const cases: Array<[UpdateLeadWorkOutcome, number, string, object | undefined]> = [
+      [
+        { status: 'illegal_stage_move', from: 'pending', to: 'activated', allowed: ['verified'] },
+        409,
+        'illegal_stage_move',
+        { from: 'pending', to: 'activated', allowed: ['verified'] },
+      ],
+      [
+        { status: 'dispatch_details_required' },
+        400,
+        'dispatch_details_required',
+        { field: 'courier' },
+      ],
+      [
+        { status: 'activation_details_required' },
+        400,
+        'activation_details_required',
+        { field: 'activatedAt' },
+      ],
+      [
+        { status: 'documents_incomplete', missing: ['passport', 'proof_of_address'] },
+        409,
+        'documents_incomplete',
+        { missing: ['passport', 'proof_of_address'] },
+      ],
+      [
+        { status: 'document_override_reason_required' },
+        400,
+        'document_override_reason_required',
+        undefined,
+      ],
+    ];
+    for (const [outcome, status, code, details] of cases) {
+      work.updateLead.mockResolvedValueOnce(outcome);
+      const response = await call(`${leadsUrl()}/${LEAD}`, {
+        method: 'PATCH',
+        body: { stage: 'activated' },
+      });
+      expect(response.status).toBe(status);
+      const error = await errorCode(response);
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual(details);
+    }
+  });
+
+  it('words the refusals that need an explanation', async () => {
+    const message = async (outcome: UpdateLeadWorkOutcome) => {
+      work.updateLead.mockResolvedValueOnce(outcome);
+      const response = await call(`${leadsUrl()}/${LEAD}`, {
+        method: 'PATCH',
+        body: { stage: 'activated' },
+      });
+      return (await errorCode(response)).message;
+    };
+    expect(
+      await message({ status: 'illegal_stage_move', from: 'new', to: 'won', allowed: [] }),
+    ).toBe('That stage move is not allowed; `details.allowed` lists the moves from this stage.');
+    expect(await message({ status: 'activation_details_required' })).toBe(
+      'An activation date is required to activate this order.',
+    );
   });
 
   it('passes form corrections through and names a refused field, never its value', async () => {

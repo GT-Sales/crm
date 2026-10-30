@@ -32,6 +32,11 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   illegal_transition: 'That order status transition is not allowed.',
   cancellation_reason_required: 'A cancellation reason is required.',
   dispatch_details_required: 'A courier is required to dispatch this order.',
+  illegal_stage_move:
+    'That stage move is not allowed; `details.allowed` lists the moves from this stage.',
+  activation_details_required: 'An activation date is required to activate this order.',
+  documents_override_not_allowed:
+    'Only the site owner or an Orders member can override the documents check.',
   documents_incomplete: 'Required documents are not yet approved for this order.',
   document_override_reason_required: 'A reason is required to override the document checklist.',
   feature_not_ready: 'This action is not enabled for this site yet.',
