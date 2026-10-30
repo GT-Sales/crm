@@ -10,6 +10,8 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  ORDER_PROPERTY_KEYS,
+  ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
   applyLeadFormEdit,
   freezePlan,
@@ -310,14 +312,6 @@ function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
 const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
 type ContactField = (typeof CONTACT_FIELDS)[number];
 
-/** Each order field as the catalogue's order property names it (`plan` is stored as `planId`). */
-const ORDER_FIELD_KEYS: ReadonlyArray<readonly [keyof LeadOrderEdit, string]> = [
-  ['planId', 'plan'],
-  ['quantity', 'quantity'],
-  ['paymentStatus', 'paymentStatus'],
-  ['carrierCommission', 'carrierCommission'],
-];
-
 type OrderEditResult =
   | {
       ok: true;
@@ -397,18 +391,18 @@ async function editOrder(
     next.carrierCommission = edit.carrierCommission;
     changed.add('carrierCommission');
   }
-  // A re-freeze of the same plan with nothing new keeps the copy already held, as stored.
+  // Each changed field under its stored name (`ORDER_STORAGE_KEYS`: `plan` is
+  // `planId`); a new plan writes its frozen copy with it. A re-freeze of the
+  // same plan with nothing new keeps the copy already held, as stored.
   const written: Record<string, unknown> = {};
-  if (changed.has('planId')) {
-    written['planId'] = next.planId;
-    written['plan'] = next.plan;
+  const changedKeys: string[] = [];
+  for (const key of ORDER_PROPERTY_KEYS) {
+    const field = ORDER_STORAGE_KEYS[key];
+    if (!changed.has(field)) continue;
+    changedKeys.push(key);
+    written[field] = next[field];
+    if (field === 'planId') written['plan'] = next.plan;
   }
-  if (changed.has('quantity')) written['quantity'] = next.quantity;
-  if (changed.has('paymentStatus')) written['paymentStatus'] = next.paymentStatus;
-  if (changed.has('carrierCommission')) written['carrierCommission'] = next.carrierCommission;
-  const changedKeys = ORDER_FIELD_KEYS.filter(([field]) => changed.has(field)).map(
-    ([, key]) => key,
-  );
   return {
     ok: true,
     stored: { ...storedObject(lead.orderDetails), ...written },

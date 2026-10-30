@@ -5,7 +5,6 @@ import {
   carrierCommissionStatuses,
   orderLeadTypes,
   paymentStatuses,
-  type OrderLeadType,
   type PaymentStatus,
 } from '@gt-sales/types';
 
@@ -28,6 +27,8 @@ import { leadPropertyValueSchema } from './workspace-leads';
  */
 
 export { leadOrderIntakeSchema, type LeadOrderIntake, type LeadOrderIntakeInput } from './leads';
+/** Whether leads of this type carry order details; defined beside the order properties. */
+export { isOrderLeadType } from './properties';
 
 /** The most plans one site keeps, across its order lead types. */
 export const PLAN_LIMIT = 200;
@@ -206,11 +207,6 @@ export const leadOrderEditSchema = z
     message: 'at least one order field',
   });
 export type LeadOrderEdit = z.infer<typeof leadOrderEditSchema>;
-
-/** Whether leads of this type carry order details (`orderLeadTypes`). */
-export function isOrderLeadType(leadType: string): leadType is OrderLeadType {
-  return orderLeadTypes.some((entry) => entry === leadType);
-}
 
 /** Where a new order's payment starts: owed when its plan takes a payment, else not needed. */
 export function initialPaymentStatus(plan: Pick<Plan, 'paymentRequired'> | null): PaymentStatus {

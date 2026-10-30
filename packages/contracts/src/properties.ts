@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { orderLeadTypes } from '@gt-sales/types';
+import { orderLeadTypes, type OrderLeadType } from '@gt-sales/types';
 
 import { isoDateTimeSchema } from './common';
 import {
@@ -336,18 +336,36 @@ export const orderPropertyCatalog: Readonly<Record<string, LeadPropertyDefinitio
   },
 };
 
-/** The `order_details` field of each order property. */
-const ORDER_STORAGE_KEYS: Readonly<Record<OrderPropertyKey, string>> = {
+/**
+ * The `order_details` field of each order property: the one place `plan` is
+ * mapped to `planId` (the catalogue's `storageKey`, the backend's order edit
+ * and the admin's save all read it).
+ */
+export const ORDER_STORAGE_KEYS: {
+  readonly plan: 'planId';
+  readonly quantity: 'quantity';
+  readonly paymentStatus: 'paymentStatus';
+  readonly carrierCommission: 'carrierCommission';
+} = {
   plan: 'planId',
   quantity: 'quantity',
   paymentStatus: 'paymentStatus',
   carrierCommission: 'carrierCommission',
 };
+export type OrderStorageKey = (typeof ORDER_STORAGE_KEYS)[OrderPropertyKey];
 
-const isOrderPropertyKey = (key: string): key is OrderPropertyKey =>
+export const isOrderPropertyKey = (key: string): key is OrderPropertyKey =>
   ORDER_PROPERTY_KEYS.some((entry) => entry === key);
 
-const isOrderType = (leadType: string) => orderLeadTypes.some((entry) => entry === leadType);
+/** The `order_details` field an order property is stored under, or `undefined` for any other key. */
+export function orderStorageKey(key: string): OrderStorageKey | undefined {
+  return isOrderPropertyKey(key) ? ORDER_STORAGE_KEYS[key] : undefined;
+}
+
+/** Whether leads of this type carry order details (`orderLeadTypes`). */
+export function isOrderLeadType(leadType: string): leadType is OrderLeadType {
+  return orderLeadTypes.some((entry) => entry === leadType);
+}
 
 export interface PropertyCatalog {
   readonly object: PropertyObject;
@@ -625,7 +643,7 @@ export function buildPropertyCatalog(
    * lists only its own (a chip still reads a stale value through `forType`).
    */
   const orderForType = (leadType: string, others: boolean): SiteProperty[] =>
-    isOrderType(leadType)
+    isOrderLeadType(leadType)
       ? resolve()
           .order.filter((property) => !property.hidden)
           .map((property) =>

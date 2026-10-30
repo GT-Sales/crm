@@ -18,7 +18,9 @@ import {
   leadTypeProperties,
   leadTypePropertyKeys,
   ORDER_PROPERTY_KEYS,
+  ORDER_STORAGE_KEYS,
   orderPropertyCatalog,
+  orderStorageKey,
   parsePropertyValue,
   propertyKeySchema,
   propertyRowSchema,
@@ -403,6 +405,21 @@ describe('order properties', () => {
     expect(formatPropertyValue(plan, PLANS[1]?.id)).toBe('Old 25GB');
     expect(parsePropertyValue(plan, PLANS[1]?.id).ok).toBe(false);
     expect(parsePropertyValue(plan, PLANS[0]?.id).ok).toBe(true);
+  });
+
+  it('name their stored field in one map, which the catalogue’s storageKey reads', () => {
+    expect(ORDER_STORAGE_KEYS).toEqual({
+      plan: 'planId',
+      quantity: 'quantity',
+      paymentStatus: 'paymentStatus',
+      carrierCommission: 'carrierCommission',
+    });
+    for (const key of ORDER_PROPERTY_KEYS) {
+      expect(orderStorageKey(key)).toBe(ORDER_STORAGE_KEYS[key]);
+      expect(codePropertyCatalog.get(key)?.storageKey).toBe(ORDER_STORAGE_KEYS[key]);
+    }
+    expect(orderStorageKey('city')).toBeUndefined();
+    expect(orderStorageKey('planId')).toBeUndefined();
   });
 
   it('offer each order type only its own plans; another type’s plan only reads', () => {
