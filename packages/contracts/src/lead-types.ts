@@ -54,9 +54,24 @@ export interface LeadStageDefinition {
   readonly label: string;
 }
 
+/**
+ * What a move into a stage asks of the lead first: the dispatch details
+ * (courier, tracking number, dispatch date), the activation details (number,
+ * account, activation date) or its required documents approved.
+ */
+export type StageGate = 'dispatch' | 'activation' | 'documents';
+
 export interface LeadTypeCatalogEntry {
   readonly label: string;
   readonly stages: readonly LeadStageDefinition[];
+  /**
+   * The stages staff may move a lead to from each stage, or `'any'` for every
+   * other listed stage. A lead at a stage its type does not list (an older
+   * stage) may move to any listed one. Read through `allowedStageMoves`.
+   */
+  readonly moves: Readonly<Record<string, readonly string[]>> | 'any';
+  /** What a move into the stage asks first, by stage; a stage not named asks nothing. */
+  readonly gates?: Readonly<Record<string, readonly StageGate[]>>;
   /**
    * The lead is an order of one of the site's plans: it carries order details
    * (`leadOrderSchema` in `./plans`). Matches `orderLeadTypes`.
@@ -110,11 +125,14 @@ export const leadTypeCatalog = {
       WON,
       LOST,
     ],
+    moves: 'any',
     order: true,
   },
   mobility: {
     label: 'Mobility',
     stages: [NEW, CONTACTED, QUALIFIED, stage('activated', 'Activated'), WON, LOST],
+    moves: 'any',
+    gates: { activated: ['activation', 'documents'] },
     order: true,
     takesIdentity: true,
   },
@@ -133,6 +151,22 @@ export const leadTypeCatalog = {
       stage('completed', 'Completed'),
       stage('cancelled', 'Cancelled'),
     ],
+    // The order's path: checked, dispatched, activated. On hold waits on the
+    // customer; a cancelled order can be taken up again as pending.
+    moves: {
+      incomplete: ['pending', 'cancelled'],
+      pending: ['verified', 'on_hold', 'cancelled'],
+      verified: ['delivered', 'on_hold', 'cancelled'],
+      on_hold: ['pending', 'verified', 'cancelled'],
+      delivered: ['activated', 'on_hold', 'cancelled'],
+      activated: ['completed', 'cancelled'],
+      completed: [],
+      cancelled: ['pending'],
+    },
+    gates: {
+      delivered: ['dispatch', 'documents'],
+      activated: ['activation', 'documents'],
+    },
     order: true,
     deliveryLetterUrl: 'https://getcanadasim.com/delivery-letter.html',
     // Get Canada Sim's dashboard tiles, in its words.
@@ -149,10 +183,12 @@ export const leadTypeCatalog = {
   partner_application: {
     label: 'Partner application',
     stages: [NEW, CONTACTED, stage('approved', 'Approved'), stage('declined', 'Declined')],
+    moves: 'any',
   },
   contact_message: {
     label: 'Contact message',
     stages: [NEW, stage('replied', 'Replied'), stage('closed', 'Closed')],
+    moves: 'any',
   },
 } as const satisfies Record<string, LeadTypeCatalogEntry>;
 
@@ -174,6 +210,34 @@ export function leadStageLabel(leadType: string, stageKey: string): string {
 
 export function isLeadStage(leadType: string, stageKey: string): boolean {
   return catalog.get(leadType)?.stages.some((entry) => entry.key === stageKey) ?? false;
+}
+
+/**
+ * The stages staff may move a lead of this type to from `from`, in catalogue
+ * order and never `from` itself: the type's moves from that stage, every
+ * other stage for a type that allows any move, and every stage when the type
+ * does not list `from`. An unknown type has none.
+ */
+export function allowedStageMoves(leadType: string, from: string): readonly string[] {
+  const entry = catalog.get(leadType);
+  if (!entry) return [];
+  const keys = entry.stages.map((definition) => definition.key);
+  if (!keys.includes(from)) return keys;
+  const { moves } = entry;
+  if (moves === 'any') return keys.filter((key) => key !== from);
+  const targets = Object.hasOwn(moves, from) ? (moves[from] ?? []) : [];
+  return keys.filter((key) => key !== from && targets.includes(key));
+}
+
+export function isStageMoveAllowed(leadType: string, from: string, to: string): boolean {
+  return allowedStageMoves(leadType, from).includes(to);
+}
+
+/** What a move of this type into `to` asks first (`StageGate`), in check order; none for most stages. */
+export function stageGates(leadType: string, to: string): readonly StageGate[] {
+  const gates = catalog.get(leadType)?.gates;
+  if (!gates || !Object.hasOwn(gates, to)) return [];
+  return gates[to] ?? [];
 }
 
 /** The lead types whose website may send a customer's identity (`POST /website/leads/:id/identity`). */

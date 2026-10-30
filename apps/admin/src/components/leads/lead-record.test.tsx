@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_LEAD_ORDER,
   buildPropertyCatalog,
   codePropertyCatalog,
   type AssignableMember,
@@ -417,6 +418,7 @@ describe('LeadRecord documents', () => {
     sizeBytes: 1_258_291,
     revision: 1,
     createdAt: NOW,
+    review: null,
   };
   const simPhoto: LeadDocument = {
     id: '50000000-0000-4000-8000-000000000012',
@@ -425,6 +427,7 @@ describe('LeadRecord documents', () => {
     sizeBytes: 84_000,
     revision: 2,
     createdAt: NOW,
+    review: null,
   };
   const owner = { contacts: true, manage: true, downloadDocuments: true };
 
@@ -1178,6 +1181,7 @@ describe('LeadRecord order section', () => {
     frozenAt: FROZEN_AT,
   };
   const frozenOrder: LeadOrder = {
+    ...DEFAULT_LEAD_ORDER,
     planId: OLD_PLAN,
     plan: frozenPlan,
     quantity: 2,
@@ -1199,13 +1203,24 @@ describe('LeadRecord order section', () => {
     mocks.getPropertyModel.mockResolvedValue(model);
   });
 
-  it('shows the four order fields and the copy frozen on the lead', async () => {
+  it('shows the order fields and the copy frozen on the lead', async () => {
     mocks.getStaffLead.mockResolvedValue(response({ lead: simOrder(frozenOrder) }));
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const order = await screen.findByRole('region', { name: 'Order' });
     await within(order).findByText('Legacy 10');
     const rows = Array.from(order.querySelectorAll('dt')).map((term) => term.textContent);
-    expect(rows).toEqual(['Plan', 'Quantity', 'Payment status', 'Carrier commission']);
+    expect(rows).toEqual([
+      'Plan',
+      'Quantity',
+      'Payment status',
+      'Carrier commission',
+      'Courier',
+      'Tracking number',
+      'Dispatched on',
+      'Activated on',
+      'Activation number',
+      'Activation account',
+    ]);
     expect(within(order).getByText('2')).toBeTruthy();
     expect(within(order).getByText('Pending')).toBeTruthy();
     expect(within(order).getByText('Not yet')).toBeTruthy();

@@ -19,7 +19,7 @@ import {
   isOrderLeadType,
   leadFormSchema,
   leadTypeEntry,
-  type CustomerEmailTemplate,
+  type QueueCustomerEmailRequest,
   type LeadActivity,
   type LeadAssigneeFilter,
   type LeadBoardColumn,
@@ -100,7 +100,7 @@ export type CustomerEmailOutcome =
 
 export interface QueueCustomerEmailInput extends WriteScope {
   leadId: string;
-  template: CustomerEmailTemplate;
+  template: QueueCustomerEmailRequest['template'];
   /** The site's public address, for the mail's link back to it. */
   siteUrl?: string;
   /** The keyed digest of the address, for suppression and delivery records. */

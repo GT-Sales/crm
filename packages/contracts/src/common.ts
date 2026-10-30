@@ -122,6 +122,13 @@ export const domainErrorCodeSchema = z.enum([
   'plan_not_found',
   'plan_name_taken',
   'plan_limit',
+  'illegal_stage_move',
+  'activation_details_required',
+  'documents_override_not_allowed',
+  'idempotency_in_progress',
+  'invalid_fill_in',
+  'invalid_email_markup',
+  'automation_not_found',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

@@ -38,6 +38,29 @@ export function toLeadOrder(stored: unknown): LeadOrder {
       'carrierCommission',
       DEFAULT_LEAD_ORDER.carrierCommission,
     ),
+    courier: field(shape.courier, 'courier', DEFAULT_LEAD_ORDER.courier),
+    trackingNumber: field(
+      shape.trackingNumber,
+      'trackingNumber',
+      DEFAULT_LEAD_ORDER.trackingNumber,
+    ),
+    dispatchedAt: field(shape.dispatchedAt, 'dispatchedAt', DEFAULT_LEAD_ORDER.dispatchedAt),
+    activatedAt: field(shape.activatedAt, 'activatedAt', DEFAULT_LEAD_ORDER.activatedAt),
+    activationNumber: field(
+      shape.activationNumber,
+      'activationNumber',
+      DEFAULT_LEAD_ORDER.activationNumber,
+    ),
+    activationAccount: field(
+      shape.activationAccount,
+      'activationAccount',
+      DEFAULT_LEAD_ORDER.activationAccount,
+    ),
+    documentsOverride: field(
+      shape.documentsOverride,
+      'documentsOverride',
+      DEFAULT_LEAD_ORDER.documentsOverride,
+    ),
   };
 }
 
@@ -52,6 +75,7 @@ export function isPlanAvailable(
 /** The order a website submission stores: the plan frozen now, its payment status owed or not. */
 export function submittedOrder(found: PlanForFreeze, quantity: number, now: Date): LeadOrder {
   return {
+    ...DEFAULT_LEAD_ORDER,
     planId: found.plan.id,
     plan: freezePlan(found.plan, found.visibleKeys, now),
     quantity,

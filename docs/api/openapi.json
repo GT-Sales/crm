@@ -160,7 +160,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -357,7 +364,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -519,7 +533,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -744,7 +765,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -912,7 +940,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1117,7 +1152,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1321,7 +1363,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1520,7 +1569,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1712,7 +1768,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1904,7 +1967,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2351,7 +2421,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2564,7 +2641,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2811,7 +2895,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3222,7 +3313,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3519,6 +3617,65 @@
                             "carrierCommission": {
                               "type": "string",
                               "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            },
+                            "courier": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "trackingNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "dispatchedAt": { "type": ["string", "null"] },
+                            "activatedAt": { "type": ["string", "null"] },
+                            "activationNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 40 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "activationAccount": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 80 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "documentsOverride": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "missing": {
+                                      "minItems": 1,
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "at": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": ["reason", "missing", "at"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
                           "required": [
@@ -3526,7 +3683,14 @@
                             "plan",
                             "quantity",
                             "paymentStatus",
-                            "carrierCommission"
+                            "carrierCommission",
+                            "courier",
+                            "trackingNumber",
+                            "dispatchedAt",
+                            "activatedAt",
+                            "activationNumber",
+                            "activationAccount",
+                            "documentsOverride"
                           ],
                           "additionalProperties": false
                         }
@@ -3709,6 +3873,49 @@
                                 "format": "date-time",
                                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                               },
+                              "kind": { "type": "string", "const": "document" },
+                              "fileId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "documentType": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              },
+                              "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                            },
+                            "required": [
+                              "id",
+                              "actorId",
+                              "createdAt",
+                              "kind",
+                              "fileId",
+                              "documentType",
+                              "decision"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "actorId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                              },
                               "kind": { "type": "string", "const": "system" },
                               "event": {
                                 "type": "string",
@@ -3720,10 +3927,50 @@
                                   "change_requested",
                                   "change_approved",
                                   "change_rejected",
+                                  "documents_override",
                                   "unknown"
                                 ]
                               },
-                              "template": { "type": "string", "enum": ["sim_number_ready"] },
+                              "template": {
+                                "type": "string",
+                                "enum": [
+                                  "tracking_code",
+                                  "order_received",
+                                  "information_needed",
+                                  "dispatched",
+                                  "activated",
+                                  "cancelled",
+                                  "sim_number_ready"
+                                ]
+                              },
+                              "automation": {
+                                "type": "string",
+                                "enum": [
+                                  "order_received",
+                                  "sim_order_information_needed",
+                                  "sim_order_dispatched",
+                                  "sim_order_activated",
+                                  "sim_order_cancelled",
+                                  "mobility_activated"
+                                ]
+                              },
+                              "templateVersion": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "missing": {
+                                "minItems": 1,
+                                "maxItems": 16,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              },
+                              "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                               "requestNo": {
                                 "type": "integer",
                                 "exclusiveMinimum": 0,
@@ -3981,6 +4228,28 @@
                             "type": "string",
                             "format": "date-time",
                             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "review": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "decision": {
+                                    "type": "string",
+                                    "enum": ["approved", "rejected"]
+                                  },
+                                  "at": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  }
+                                },
+                                "required": ["decision", "at"],
+                                "additionalProperties": false
+                              },
+                              { "type": "null" }
+                            ]
                           }
                         },
                         "required": [
@@ -3989,7 +4258,8 @@
                           "contentType",
                           "sizeBytes",
                           "revision",
-                          "createdAt"
+                          "createdAt",
+                          "review"
                         ],
                         "additionalProperties": false
                       }
@@ -4132,7 +4402,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4427,6 +4704,65 @@
                             "carrierCommission": {
                               "type": "string",
                               "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            },
+                            "courier": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "trackingNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "dispatchedAt": { "type": ["string", "null"] },
+                            "activatedAt": { "type": ["string", "null"] },
+                            "activationNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 40 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "activationAccount": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 80 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "documentsOverride": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "missing": {
+                                      "minItems": 1,
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "at": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": ["reason", "missing", "at"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
                           "required": [
@@ -4434,7 +4770,14 @@
                             "plan",
                             "quantity",
                             "paymentStatus",
-                            "carrierCommission"
+                            "carrierCommission",
+                            "courier",
+                            "trackingNumber",
+                            "dispatchedAt",
+                            "activatedAt",
+                            "activationNumber",
+                            "activationAccount",
+                            "documentsOverride"
                           ],
                           "additionalProperties": false
                         }
@@ -4617,6 +4960,49 @@
                                 "format": "date-time",
                                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                               },
+                              "kind": { "type": "string", "const": "document" },
+                              "fileId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "documentType": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              },
+                              "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                            },
+                            "required": [
+                              "id",
+                              "actorId",
+                              "createdAt",
+                              "kind",
+                              "fileId",
+                              "documentType",
+                              "decision"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "actorId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                              },
                               "kind": { "type": "string", "const": "system" },
                               "event": {
                                 "type": "string",
@@ -4628,10 +5014,50 @@
                                   "change_requested",
                                   "change_approved",
                                   "change_rejected",
+                                  "documents_override",
                                   "unknown"
                                 ]
                               },
-                              "template": { "type": "string", "enum": ["sim_number_ready"] },
+                              "template": {
+                                "type": "string",
+                                "enum": [
+                                  "tracking_code",
+                                  "order_received",
+                                  "information_needed",
+                                  "dispatched",
+                                  "activated",
+                                  "cancelled",
+                                  "sim_number_ready"
+                                ]
+                              },
+                              "automation": {
+                                "type": "string",
+                                "enum": [
+                                  "order_received",
+                                  "sim_order_information_needed",
+                                  "sim_order_dispatched",
+                                  "sim_order_activated",
+                                  "sim_order_cancelled",
+                                  "mobility_activated"
+                                ]
+                              },
+                              "templateVersion": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "missing": {
+                                "minItems": 1,
+                                "maxItems": 16,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              },
+                              "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                               "requestNo": {
                                 "type": "integer",
                                 "exclusiveMinimum": 0,
@@ -4780,7 +5206,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4887,6 +5320,32 @@
                       "carrierCommission": {
                         "type": "string",
                         "enum": ["not_yet", "invoiced", "received", "clawback"]
+                      },
+                      "courier": {
+                        "anyOf": [
+                          { "type": "string", "minLength": 1, "maxLength": 120 },
+                          { "type": "null" }
+                        ]
+                      },
+                      "trackingNumber": {
+                        "anyOf": [
+                          { "type": "string", "minLength": 1, "maxLength": 120 },
+                          { "type": "null" }
+                        ]
+                      },
+                      "dispatchedAt": { "type": ["string", "null"] },
+                      "activatedAt": { "type": ["string", "null"] },
+                      "activationNumber": {
+                        "anyOf": [
+                          { "type": "string", "minLength": 1, "maxLength": 40 },
+                          { "type": "null" }
+                        ]
+                      },
+                      "activationAccount": {
+                        "anyOf": [
+                          { "type": "string", "minLength": 1, "maxLength": 80 },
+                          { "type": "null" }
+                        ]
                       }
                     },
                     "additionalProperties": false
@@ -5168,6 +5627,65 @@
                             "carrierCommission": {
                               "type": "string",
                               "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            },
+                            "courier": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "trackingNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "dispatchedAt": { "type": ["string", "null"] },
+                            "activatedAt": { "type": ["string", "null"] },
+                            "activationNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 40 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "activationAccount": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 80 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "documentsOverride": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "missing": {
+                                      "minItems": 1,
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "at": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": ["reason", "missing", "at"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
                           "required": [
@@ -5175,7 +5693,14 @@
                             "plan",
                             "quantity",
                             "paymentStatus",
-                            "carrierCommission"
+                            "carrierCommission",
+                            "courier",
+                            "trackingNumber",
+                            "dispatchedAt",
+                            "activatedAt",
+                            "activationNumber",
+                            "activationAccount",
+                            "documentsOverride"
                           ],
                           "additionalProperties": false
                         }
@@ -5358,6 +5883,49 @@
                                   "format": "date-time",
                                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                                 },
+                                "kind": { "type": "string", "const": "document" },
+                                "fileId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "documentType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                              },
+                              "required": [
+                                "id",
+                                "actorId",
+                                "createdAt",
+                                "kind",
+                                "fileId",
+                                "documentType",
+                                "decision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
                                 "kind": { "type": "string", "const": "system" },
                                 "event": {
                                   "type": "string",
@@ -5369,10 +5937,50 @@
                                     "change_requested",
                                     "change_approved",
                                     "change_rejected",
+                                    "documents_override",
                                     "unknown"
                                   ]
                                 },
-                                "template": { "type": "string", "enum": ["sim_number_ready"] },
+                                "template": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tracking_code",
+                                    "order_received",
+                                    "information_needed",
+                                    "dispatched",
+                                    "activated",
+                                    "cancelled",
+                                    "sim_number_ready"
+                                  ]
+                                },
+                                "automation": {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                "templateVersion": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "missing": {
+                                  "minItems": 1,
+                                  "maxItems": 16,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9_]+$"
+                                  }
+                                },
+                                "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                                 "requestNo": {
                                   "type": "integer",
                                   "exclusiveMinimum": 0,
@@ -5523,7 +6131,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5820,6 +6435,65 @@
                             "carrierCommission": {
                               "type": "string",
                               "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            },
+                            "courier": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "trackingNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "dispatchedAt": { "type": ["string", "null"] },
+                            "activatedAt": { "type": ["string", "null"] },
+                            "activationNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 40 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "activationAccount": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 80 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "documentsOverride": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "missing": {
+                                      "minItems": 1,
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "at": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": ["reason", "missing", "at"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
                           "required": [
@@ -5827,7 +6501,14 @@
                             "plan",
                             "quantity",
                             "paymentStatus",
-                            "carrierCommission"
+                            "carrierCommission",
+                            "courier",
+                            "trackingNumber",
+                            "dispatchedAt",
+                            "activatedAt",
+                            "activationNumber",
+                            "activationAccount",
+                            "documentsOverride"
                           ],
                           "additionalProperties": false
                         }
@@ -6010,6 +6691,49 @@
                                   "format": "date-time",
                                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                                 },
+                                "kind": { "type": "string", "const": "document" },
+                                "fileId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "documentType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                              },
+                              "required": [
+                                "id",
+                                "actorId",
+                                "createdAt",
+                                "kind",
+                                "fileId",
+                                "documentType",
+                                "decision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
                                 "kind": { "type": "string", "const": "system" },
                                 "event": {
                                   "type": "string",
@@ -6021,10 +6745,50 @@
                                     "change_requested",
                                     "change_approved",
                                     "change_rejected",
+                                    "documents_override",
                                     "unknown"
                                   ]
                                 },
-                                "template": { "type": "string", "enum": ["sim_number_ready"] },
+                                "template": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tracking_code",
+                                    "order_received",
+                                    "information_needed",
+                                    "dispatched",
+                                    "activated",
+                                    "cancelled",
+                                    "sim_number_ready"
+                                  ]
+                                },
+                                "automation": {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                "templateVersion": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "missing": {
+                                  "minItems": 1,
+                                  "maxItems": 16,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9_]+$"
+                                  }
+                                },
+                                "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                                 "requestNo": {
                                   "type": "integer",
                                   "exclusiveMinimum": 0,
@@ -6175,7 +6939,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6340,7 +7111,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6542,6 +7320,49 @@
                                   "format": "date-time",
                                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                                 },
+                                "kind": { "type": "string", "const": "document" },
+                                "fileId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "documentType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                              },
+                              "required": [
+                                "id",
+                                "actorId",
+                                "createdAt",
+                                "kind",
+                                "fileId",
+                                "documentType",
+                                "decision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
                                 "kind": { "type": "string", "const": "system" },
                                 "event": {
                                   "type": "string",
@@ -6553,10 +7374,50 @@
                                     "change_requested",
                                     "change_approved",
                                     "change_rejected",
+                                    "documents_override",
                                     "unknown"
                                   ]
                                 },
-                                "template": { "type": "string", "enum": ["sim_number_ready"] },
+                                "template": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tracking_code",
+                                    "order_received",
+                                    "information_needed",
+                                    "dispatched",
+                                    "activated",
+                                    "cancelled",
+                                    "sim_number_ready"
+                                  ]
+                                },
+                                "automation": {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                "templateVersion": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "missing": {
+                                  "minItems": 1,
+                                  "maxItems": 16,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9_]+$"
+                                  }
+                                },
+                                "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                                 "requestNo": {
                                   "type": "integer",
                                   "exclusiveMinimum": 0,
@@ -6707,7 +7568,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7004,6 +7872,65 @@
                             "carrierCommission": {
                               "type": "string",
                               "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            },
+                            "courier": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "trackingNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 120 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "dispatchedAt": { "type": ["string", "null"] },
+                            "activatedAt": { "type": ["string", "null"] },
+                            "activationNumber": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 40 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "activationAccount": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 80 },
+                                { "type": "null" }
+                              ]
+                            },
+                            "documentsOverride": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "missing": {
+                                      "minItems": 1,
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "at": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": ["reason", "missing", "at"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
                             }
                           },
                           "required": [
@@ -7011,7 +7938,14 @@
                             "plan",
                             "quantity",
                             "paymentStatus",
-                            "carrierCommission"
+                            "carrierCommission",
+                            "courier",
+                            "trackingNumber",
+                            "dispatchedAt",
+                            "activatedAt",
+                            "activationNumber",
+                            "activationAccount",
+                            "documentsOverride"
                           ],
                           "additionalProperties": false
                         }
@@ -7194,6 +8128,49 @@
                                   "format": "date-time",
                                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                                 },
+                                "kind": { "type": "string", "const": "document" },
+                                "fileId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "documentType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                              },
+                              "required": [
+                                "id",
+                                "actorId",
+                                "createdAt",
+                                "kind",
+                                "fileId",
+                                "documentType",
+                                "decision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
                                 "kind": { "type": "string", "const": "system" },
                                 "event": {
                                   "type": "string",
@@ -7205,10 +8182,50 @@
                                     "change_requested",
                                     "change_approved",
                                     "change_rejected",
+                                    "documents_override",
                                     "unknown"
                                   ]
                                 },
-                                "template": { "type": "string", "enum": ["sim_number_ready"] },
+                                "template": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tracking_code",
+                                    "order_received",
+                                    "information_needed",
+                                    "dispatched",
+                                    "activated",
+                                    "cancelled",
+                                    "sim_number_ready"
+                                  ]
+                                },
+                                "automation": {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                "templateVersion": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "missing": {
+                                  "minItems": 1,
+                                  "maxItems": 16,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9_]+$"
+                                  }
+                                },
+                                "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                                 "requestNo": {
                                   "type": "integer",
                                   "exclusiveMinimum": 0,
@@ -7359,7 +8376,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7556,6 +8580,49 @@
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                             },
+                            "kind": { "type": "string", "const": "document" },
+                            "fileId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "documentType": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9_]+$"
+                            },
+                            "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                          },
+                          "required": [
+                            "id",
+                            "actorId",
+                            "createdAt",
+                            "kind",
+                            "fileId",
+                            "documentType",
+                            "decision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "actorId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
                             "kind": { "type": "string", "const": "system" },
                             "event": {
                               "type": "string",
@@ -7567,10 +8634,50 @@
                                 "change_requested",
                                 "change_approved",
                                 "change_rejected",
+                                "documents_override",
                                 "unknown"
                               ]
                             },
-                            "template": { "type": "string", "enum": ["sim_number_ready"] },
+                            "template": {
+                              "type": "string",
+                              "enum": [
+                                "tracking_code",
+                                "order_received",
+                                "information_needed",
+                                "dispatched",
+                                "activated",
+                                "cancelled",
+                                "sim_number_ready"
+                              ]
+                            },
+                            "automation": {
+                              "type": "string",
+                              "enum": [
+                                "order_received",
+                                "sim_order_information_needed",
+                                "sim_order_dispatched",
+                                "sim_order_activated",
+                                "sim_order_cancelled",
+                                "mobility_activated"
+                              ]
+                            },
+                            "templateVersion": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "missing": {
+                              "minItems": 1,
+                              "maxItems": 16,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              }
+                            },
+                            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                             "requestNo": {
                               "type": "integer",
                               "exclusiveMinimum": 0,
@@ -7715,7 +8822,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7747,7 +8861,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": { "template": { "type": "string", "enum": ["sim_number_ready"] } },
+                "properties": { "template": { "type": "string", "const": "sim_number_ready" } },
                 "required": ["template"],
                 "additionalProperties": false
               }
@@ -7925,6 +9039,49 @@
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                             },
+                            "kind": { "type": "string", "const": "document" },
+                            "fileId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "documentType": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9_]+$"
+                            },
+                            "decision": { "type": "string", "enum": ["approved", "rejected"] }
+                          },
+                          "required": [
+                            "id",
+                            "actorId",
+                            "createdAt",
+                            "kind",
+                            "fileId",
+                            "documentType",
+                            "decision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "actorId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
                             "kind": { "type": "string", "const": "system" },
                             "event": {
                               "type": "string",
@@ -7936,10 +9093,50 @@
                                 "change_requested",
                                 "change_approved",
                                 "change_rejected",
+                                "documents_override",
                                 "unknown"
                               ]
                             },
-                            "template": { "type": "string", "enum": ["sim_number_ready"] },
+                            "template": {
+                              "type": "string",
+                              "enum": [
+                                "tracking_code",
+                                "order_received",
+                                "information_needed",
+                                "dispatched",
+                                "activated",
+                                "cancelled",
+                                "sim_number_ready"
+                              ]
+                            },
+                            "automation": {
+                              "type": "string",
+                              "enum": [
+                                "order_received",
+                                "sim_order_information_needed",
+                                "sim_order_dispatched",
+                                "sim_order_activated",
+                                "sim_order_cancelled",
+                                "mobility_activated"
+                              ]
+                            },
+                            "templateVersion": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "missing": {
+                              "minItems": 1,
+                              "maxItems": 16,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              }
+                            },
+                            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
                             "requestNo": {
                               "type": "integer",
                               "exclusiveMinimum": 0,
@@ -8084,7 +9281,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8335,7 +9539,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8608,7 +9819,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9001,7 +10219,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9355,7 +10580,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9612,7 +10844,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9931,7 +11170,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10148,7 +11394,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10369,7 +11622,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10726,7 +11986,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11023,7 +12290,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11430,7 +12704,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11707,7 +12988,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11967,7 +13255,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12205,7 +13500,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12492,7 +13794,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12760,7 +14069,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12929,7 +14245,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13098,7 +14421,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13302,7 +14632,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13607,7 +14944,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13791,7 +15135,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14021,7 +15372,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14296,7 +15654,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14603,7 +15968,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14836,7 +16208,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15029,7 +16408,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15242,7 +16628,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15478,7 +16871,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15758,7 +17158,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15961,7 +17368,14 @@
                             "plan_not_available",
                             "plan_not_found",
                             "plan_name_taken",
-                            "plan_limit"
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found"
                           ]
                         },
                         "message": { "type": "string" },

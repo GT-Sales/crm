@@ -265,6 +265,7 @@ databaseTest('order details on leads', () => {
       const paid = await leadStore.createLead(base({ submit: true, order }));
       expect(paid.lead.status).toBe('submitted');
       expect(await orderDetails(paid.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simPaid.id,
         // Only the website-visible custom value; the internal cost stays behind.
         plan: frozen(simPaid, [dataKey]),
@@ -280,6 +281,7 @@ databaseTest('order details on leads', () => {
         base({ submit: true, order: { planId: simFree.id, quantity: 3 } }),
       );
       expect(await orderDetails(free.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simFree.id,
         plan: frozen(simFree, [dataKey]),
         quantity: 3,
@@ -401,6 +403,7 @@ databaseTest('order details on leads', () => {
       });
       expect(submitted).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
       expect(await orderDetails(draft.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: plan.id,
         plan: frozen(edited.plan, [dataKey]),
         quantity: 2,
@@ -463,6 +466,7 @@ databaseTest('order details on leads', () => {
         }),
       ).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
       expect(await orderDetails(draft.lead.id)).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simFree.id,
         plan: frozen(simFree, [dataKey]),
         quantity: 1,
@@ -516,6 +520,7 @@ databaseTest('order details on leads', () => {
       const replanned = await work.updateLead({ ...scope, order: { planId: simFree.id } });
       if (replanned.status !== 'updated') throw new Error(`got ${replanned.status}`);
       expect(replanned.lead.order).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: simFree.id,
         plan: frozen(simFree, [dataKey]),
         quantity: 1,
@@ -565,6 +570,7 @@ databaseTest('order details on leads', () => {
       const cleared = await work.updateLead({ ...scope, order: { planId: null } });
       if (cleared.status !== 'updated') throw new Error(`got ${cleared.status}`);
       expect(cleared.lead.order).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: null,
         plan: null,
         quantity: 4,
@@ -683,6 +689,7 @@ databaseTest('order details on leads', () => {
       const partial: LeadOrder = { ...DEFAULT_LEAD_ORDER, quantity: 2, paymentStatus: 'pending' };
       expect((await detail(L3))?.lead.order).toEqual(partial);
       expect((await detail(L1))?.lead.order).toEqual({
+        ...DEFAULT_LEAD_ORDER,
         planId: listPlan.id,
         plan: null,
         quantity: 3,

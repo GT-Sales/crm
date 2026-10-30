@@ -127,6 +127,15 @@ function describe(
           .map((field) => CONTACT_LABELS[field] ?? fieldLabel(leadType, field, catalog))
           .join(', ')}`,
       };
+    case 'document': {
+      const approved = activity.decision === 'approved';
+      return {
+        icon: approved ? <CheckIcon /> : <XIcon />,
+        text: `${approved ? 'approved' : 'rejected'} the ${documentLabel(
+          activity.documentType,
+        ).toLowerCase()}`,
+      };
+    }
     case 'system':
       // `trashed` is the API's name for an archive.
       if (activity.event === 'trashed') return { icon: <ArchiveIcon />, text: 'archived this' };
