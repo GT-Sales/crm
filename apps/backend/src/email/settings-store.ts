@@ -22,7 +22,7 @@ import type { Scope, WriteScope } from '../tenant-scope.js';
 
 /**
  * A site's customer email settings (Settings → Email: its sender and look)
- * and its seven templates. A template is content only, versioned: a site that
+ * and its nine templates. A template is content only, versioned: a site that
  * never saved one has its starter text at version 0, and each save writes
  * version + 1 and appends that version to `app.email_template_versions`, so a
  * sent mail's version always names the words it was rendered from. Audit
