@@ -1,5 +1,10 @@
 import type { AnalyticsSink, EmailAdapter, EmailTemplate } from '@gt-sales/adapters';
-import { CUSTOMER_EMAIL_JOB_TYPE, customerEmailJobPayloadSchema } from '@gt-sales/contracts';
+import {
+  CUSTOMER_EMAIL_JOB_TYPE,
+  TRACKING_CODE_JOB_TYPE,
+  customerEmailJobPayloadSchema,
+  type CustomerEmailJobPayload,
+} from '@gt-sales/contracts';
 import { z } from 'zod';
 
 export const outboxJobTypes = [
@@ -11,6 +16,8 @@ export const outboxJobTypes = [
   'abandoned_form_marketing_email',
   // A site-content mail rendered when it was queued; this job only sends it.
   CUSTOMER_EMAIL_JOB_TYPE,
+  // A customer's tracking code, rendered only when it is sent (the backend's handler).
+  TRACKING_CODE_JOB_TYPE,
   'analytics_order_submitted',
   'analytics_lead_saved',
   // Composed in the backend, which holds the document store.
@@ -276,61 +283,78 @@ function transactionalEmailHandler(
 }
 
 /**
+ * Sends one rendered customer mail exactly as `payload` carries it: the
+ * suppression check, the delivery record (with the template version and the
+ * mail's own sender), the send and its result.
+ */
+export async function sendRenderedCustomerEmail(
+  dependencies: {
+    email: EmailAdapter;
+    eligibility: EmailEligibilityChecker;
+    delivery?: EmailDeliveryRecorder;
+  },
+  job: ClaimedJob,
+  payload: CustomerEmailJobPayload,
+): Promise<JobHandlerResult> {
+  const { leadId, template, templateVersion, toAddress, contactHash, sender, rendered } = payload;
+  const actorId = emailActor(job);
+  const check = await dependencies.eligibility.checkTransactional({
+    workspaceId: job.workspaceId,
+    actorId,
+    contactHash,
+    leadId,
+  });
+  if (!check.eligible) {
+    return {
+      status: 'completed',
+      providerId: `skipped:${safeErrorCode(check.reason ?? 'suppressed', 'suppressed')}`,
+    };
+  }
+  await dependencies.delivery?.prepare({
+    workspaceId: job.workspaceId,
+    actorId,
+    messageId: job.messageId,
+    template,
+    templateVersion,
+    messageClass: 'transactional',
+    contactHash,
+    leadId,
+  });
+  const result = await dependencies.email.send({
+    workspaceId: job.workspaceId,
+    messageId: job.messageId,
+    template,
+    toAddress,
+    leadId,
+    sender,
+    rendered,
+  });
+  await dependencies.delivery?.recordResult({
+    workspaceId: job.workspaceId,
+    actorId,
+    messageId: job.messageId,
+    result,
+  });
+  return result.status === 'delivered'
+    ? { status: 'completed', providerId: result.providerId }
+    : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+}
+
+/**
  * A site-content mail to a lead's customer: the backend rendered it and chose
  * its sender when it was queued, so this only checks suppression, records the
  * template version and sends exactly what the payload carries.
  */
-function customerEmailHandler(
-  email: EmailAdapter,
-  eligibility: EmailEligibilityChecker,
-  delivery?: EmailDeliveryRecorder,
-): JobHandler {
+function customerEmailHandler(dependencies: {
+  email: EmailAdapter;
+  eligibility: EmailEligibilityChecker;
+  delivery?: EmailDeliveryRecorder;
+}): JobHandler {
   return async (job) => {
     if (job.payloadVersion !== 1) throw new JobHandlerError('unsupported_payload_version', false);
     const parsed = customerEmailJobPayloadSchema.safeParse(job.payload);
     if (!parsed.success) throw new JobHandlerError('invalid_job_payload', false);
-    const { leadId, template, templateVersion, toAddress, contactHash, sender, rendered } =
-      parsed.data;
-    const check = await eligibility.checkTransactional({
-      workspaceId: job.workspaceId,
-      actorId: emailActor(job),
-      contactHash,
-      leadId,
-    });
-    if (!check.eligible) {
-      return {
-        status: 'completed',
-        providerId: `skipped:${safeErrorCode(check.reason ?? 'suppressed', 'suppressed')}`,
-      };
-    }
-    await delivery?.prepare({
-      workspaceId: job.workspaceId,
-      actorId: emailActor(job),
-      messageId: job.messageId,
-      template,
-      templateVersion,
-      messageClass: 'transactional',
-      contactHash,
-      leadId,
-    });
-    const result = await email.send({
-      workspaceId: job.workspaceId,
-      messageId: job.messageId,
-      template,
-      toAddress,
-      leadId,
-      sender,
-      rendered,
-    });
-    await delivery?.recordResult({
-      workspaceId: job.workspaceId,
-      actorId: emailActor(job),
-      messageId: job.messageId,
-      result,
-    });
-    return result.status === 'delivered'
-      ? { status: 'completed', providerId: result.providerId }
-      : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+    return sendRenderedCustomerEmail(dependencies, job, parsed.data);
   };
 }
 
@@ -387,10 +411,7 @@ export function createJobHandlerRegistry(dependencies: {
         dependencies.delivery,
       ),
     ],
-    [
-      CUSTOMER_EMAIL_JOB_TYPE,
-      customerEmailHandler(dependencies.email, dependencies.eligibility, dependencies.delivery),
-    ],
+    [CUSTOMER_EMAIL_JOB_TYPE, customerEmailHandler(dependencies)],
     [
       'abandoned_form_marketing_email',
       async (job) => {

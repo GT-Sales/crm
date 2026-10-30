@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatFrom, ResendEmailAdapter } from './messaging.js';
+import { emailTemplates, formatFrom, ResendEmailAdapter } from './messaging.js';
 import { z } from 'zod';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -37,6 +37,13 @@ describe('Resend send correlation', () => {
   });
 });
 
+describe('the template list', () => {
+  it('no longer knows the old tracking_otp copy; the code mail is the site’s tracking_code', () => {
+    expect(emailTemplates).not.toContain('tracking_otp');
+    expect(emailTemplates).toContain('tracking_code');
+  });
+});
+
 describe('sender identification', () => {
   it.each([
     'order_acknowledgement',
@@ -44,7 +51,6 @@ describe('sender identification', () => {
     'order_awaiting_customer',
     'order_dispatch',
     'order_activation',
-    'tracking_otp',
     'abandoned_form_marketing',
   ] as const)('every %s email names the site that sends it', async (template) => {
     const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'provider-email-id' }));

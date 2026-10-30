@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createJobHandlerRegistry,
   outboxJobTypes,
+  sendRenderedCustomerEmail,
   type ClaimedJob,
   type EmailDeliveryRecorder,
   type EmailEligibilityChecker,
@@ -86,6 +87,7 @@ describe('lead_customer_email', () => {
     expect(outboxJobTypes).toContain('lead_customer_email');
     // The SIM number mail is a site template now; its old job type is gone.
     expect(outboxJobTypes).not.toContain('lead_sim_number_email');
+    expect(outboxJobTypes).toContain('tracking_code_email');
   });
 
   it('has no handler for the old SIM number job', () => {
@@ -132,6 +134,48 @@ describe('lead_customer_email', () => {
       },
     ]);
     expect(recorded).toMatchObject([{ messageId: claimed.messageId }]);
+  });
+
+  it('sends through sendRenderedCustomerEmail, which another handler can call with its own payload', async () => {
+    const sent: EmailMessage[] = [];
+    const prepared: Parameters<EmailDeliveryRecorder['prepare']>[0][] = [];
+    const claimed = job({ jobType: 'tracking_code_email' });
+    const { leadId: _leadId, ...codeMail } = { ...payload, template: 'tracking_code' as const };
+    expect(
+      await sendRenderedCustomerEmail(
+        {
+          email: {
+            send: async (message) => {
+              sent.push(message);
+              return { status: 'delivered', providerId: 'provider-2' };
+            },
+          },
+          eligibility: {
+            checkTransactional: async () => ({ eligible: true }),
+            checkMarketing: async () => ({ eligible: false }),
+          },
+          delivery: {
+            prepare: async (input) => {
+              prepared.push(input);
+            },
+            recordResult: async () => {},
+          },
+        },
+        claimed,
+        codeMail,
+      ),
+    ).toEqual({ status: 'completed', providerId: 'provider-2' });
+    expect(prepared).toMatchObject([{ template: 'tracking_code', templateVersion: 4 }]);
+    expect(sent).toEqual([
+      {
+        workspaceId: WORKSPACE,
+        messageId: claimed.messageId,
+        template: 'tracking_code',
+        toAddress: 'customer@example.test',
+        sender: payload.sender,
+        rendered: payload.rendered,
+      },
+    ]);
   });
 
   it('sends a test mail without a lead', async () => {

@@ -331,6 +331,34 @@ databaseTest('customer email composer and queue', () => {
     });
   });
 
+  it('composes a tracking code to its address with the code and the site name only', async () => {
+    await reset();
+    const payload = await ready(SITE, 'tracking_code', {
+      kind: 'tracking_code',
+      toAddress: ` ${CUSTOMER} `,
+      code: '042917',
+    });
+    expect(customerEmailJobPayloadSchema.parse(payload)).toEqual(payload);
+    expect(payload).toMatchObject({
+      template: 'tracking_code',
+      templateVersion: 0,
+      toAddress: CUSTOMER,
+      contactHash: hashContact(CUSTOMER, SECRET),
+      sender: { fromName: 'Compose Sim', fromAddress: 'orders@compose.example' },
+      rendered: { subject: 'Your Compose Sim tracking code' },
+    });
+    expect(payload.leadId).toBeUndefined();
+    expect(payload.test).toBeUndefined();
+    expect(payload.rendered.text).toContain('042917');
+    expect(
+      await compose(NO_SENDER_SITE, 'tracking_code', {
+        kind: 'tracking_code',
+        toAddress: CUSTOMER,
+        code: '042917',
+      }),
+    ).toEqual({ kind: 'skipped', reason: 'no_sender' });
+  });
+
   it('composes a staff test with sample values to the staff member', async () => {
     await reset();
     const payload = await ready(SITE, 'dispatched', { kind: 'staff_test', toAddress: STAFF });

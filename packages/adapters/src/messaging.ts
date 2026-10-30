@@ -24,7 +24,6 @@ const siteContentEmailTemplates = [
  */
 export const emailTemplates = [
   'order_acknowledgement',
-  'tracking_otp',
   'order_status',
   'order_awaiting_customer',
   'order_dispatch',
@@ -322,11 +321,6 @@ function renderTemplateBody(message: EmailMessage): {
 } {
   const ref = message.reference ?? message.variables?.reference ?? '';
   switch (message.template) {
-    case 'tracking_otp':
-      return {
-        subject: `Your GT Sales tracking code`,
-        text: `Your code for order ${ref} is ${message.variables?.code ?? ''}. It expires 10 minutes after your request. Use only the most recently requested code. If you did not request this code, ignore this email.`,
-      };
     case 'order_acknowledgement':
       return {
         subject: `We received your order ${ref}`,

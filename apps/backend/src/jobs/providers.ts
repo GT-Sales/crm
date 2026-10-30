@@ -13,13 +13,17 @@ import {
   type EmailDeliveryRecorder,
   type JobHandlerRegistry,
 } from '@gt-sales/jobs';
+import { TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
 import { z } from 'zod';
 
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
 import { createLegacyDocumentImportHandler } from '../documents/import-job.js';
 import type { DocumentService } from '../documents/service.js';
+import { customerEmailEnvironmentFromEnv } from '../email/senders.js';
 import { DatabaseEmailStore } from '../email/store.js';
 import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { createTrackingCodeHandler } from '../tracking/delivery.js';
+import { loadTrackingSecret } from '../tracking/secrets.js';
 
 /**
  * The explicit opt-in for the in-memory analytics fake. There is deliberately
@@ -194,5 +198,15 @@ export function createOutboxJobHandlers(
     }),
   );
   handlers.set('legacy_document_import', createLegacyDocumentImportHandler(documents));
+  handlers.set(
+    TRACKING_CODE_JOB_TYPE,
+    createTrackingCodeHandler({
+      email,
+      eligibility,
+      delivery,
+      environment: customerEmailEnvironmentFromEnv(env),
+      secret: loadTrackingSecret(env),
+    }),
+  );
   return handlers;
 }

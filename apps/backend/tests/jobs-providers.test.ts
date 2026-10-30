@@ -113,6 +113,23 @@ describe('outbox provider configuration', () => {
   });
 });
 
+describe('the tracking code mail', () => {
+  it('is registered as tracking_code_email', async () => {
+    const handlers = createOutboxJobHandlers(
+      { EMAIL_PROVIDER: 'fake', NODE_ENV: 'test' },
+      alwaysEligible,
+    );
+    const handler = handlers.get('tracking_code_email');
+    expect(handler).toBeDefined();
+    // A finished job keeps only its challenge id: nothing to send.
+    expect(
+      await handler?.(
+        job({ jobType: 'tracking_code_email', payload: { challengeId: crypto.randomUUID() } }),
+      ),
+    ).toEqual({ status: 'completed', providerId: 'skipped:tracking_challenge_inactive' });
+  });
+});
+
 describe('the old SIM number job', () => {
   it('is gone: no handler for lead_sim_number_email', () => {
     const handlers = createOutboxJobHandlers(
