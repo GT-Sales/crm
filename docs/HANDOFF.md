@@ -739,6 +739,18 @@ other lead changes stage (`pending` gains those 20: 59 → 79), none is left in 
 139 and the same archived counts remain. The statement-by-statement record goes
 in [RUNBOOKS/database.md](RUNBOOKS/database.md#0011_plans) afterwards. The next
 Get Canada Sim import run needs them too (it writes `order_details`).
+**Between applying 0012 and deploying this branch, freeze SIM orders:** run no
+Get Canada Sim import from `main`'s old script (it writes the old admin's
+`orders.status` straight into `stage`, so it would put the 20 orders back on
+`paid`, and 0012 cannot be run again to repair them: its data step only
+touches leads whose `order_details` is still `'{}'`), and staff should not move
+SIM orders in the old admin in that window (a later import would carry the
+move over). After the deploy, run verification select 7 again: `old_stages_left`
+must be `0`. If it is not, run this branch's import (it maps the old statuses),
+or remap the stragglers by hand in the SQL Editor; for a `paid` row:
+`UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';`
+(an `invoiced` row becomes `completed` with `paymentStatus` `paid` and
+`carrierCommission` `invoiced`).
 Status: **to do**.
 
 Then the CRM's own owner items:

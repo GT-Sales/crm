@@ -16,6 +16,18 @@
 -- and before the next Get Canada Sim import run (the updated script writes
 -- order_details).
 --
+-- FREEZE SIM ORDERS from here until this branch's backend is deployed: run
+-- no Get Canada Sim import from main's old script (it writes orders.status
+-- straight into stage and would put the 20 orders this moves back on
+-- `paid`; this file cannot repair them, since its data step only touches
+-- leads whose order_details is still '{}'), and staff should not move SIM
+-- orders in the old admin. After the deploy, run verification select 7
+-- again: old_stages_left must be 0. If it is not, run the new import (it
+-- maps the old statuses) or remap the stragglers by hand; a `paid` row:
+--   UPDATE app.leads SET stage = 'pending', order_details = order_details || '{"paymentStatus":"paid"}'::jsonb, updated_at = now() WHERE lead_type = 'sim_order' AND stage = 'paid';
+-- (an `invoiced` row: stage completed, paymentStatus paid, carrierCommission
+-- invoiced).
+--
 -- Additive except for the sim_order data migration in 0012: one new table,
 -- two new columns with constant defaults, six seeded plans, and every
 -- sim_order lead given its order_details, `paid` -> `pending`, `invoiced` ->
