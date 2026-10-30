@@ -180,7 +180,7 @@ databaseTest('order tools tables, email_messages.template_version and migration 
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(35);
+    expect(backupPolicies?.count).toBe(36);
   });
 
   it('app_runtime may not DELETE any of them, nor UPDATE versions or runs; backup_reader reads all', async () => {

@@ -1571,6 +1571,8 @@ const quotedList = (values: readonly string[]) =>
 
 /** Must match contracts' idempotency scopes. */
 const idempotencyScopeList = quotedList(['lead_submission']);
+/** Must match the backend's `SiteCounter` (`apps/backend/src/leads/site-counter.ts`). */
+const siteCounterList = quotedList(['sim_order_ref']);
 /** Must match contracts' email template keys. */
 const emailTemplateKeyList = quotedList([
   'tracking_code',
@@ -1639,6 +1641,34 @@ export const idempotencyKeys = appSchema
       index('idempotency_keys_workspace_created_idx').on(table.workspaceId, table.createdAt),
       tenantPolicy('idempotency_keys_tenant_policy', table.workspaceId),
       backupReadPolicy('idempotency_keys'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A site's own running numbers: `sim_order_ref` is the last `MS-<n>` order
+ * number issued to a SIM order. Advanced with a row lock in the transaction
+ * that uses the number, so two orders never share one; it only ever goes up.
+ * Rows go with their site.
+ */
+export const siteCounters = appSchema
+  .table(
+    'site_counters',
+    {
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      counter: text('counter').notNull(),
+      /** The last number issued. */
+      lastValue: integer('last_value').notNull(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.workspaceId, table.counter] }),
+      check('site_counters_counter_check', sql`${table.counter} in (${siteCounterList})`),
+      check('site_counters_last_value_check', sql`${table.lastValue} >= 0`),
+      tenantPolicy('site_counters_tenant_policy', table.workspaceId),
+      backupReadPolicy('site_counters'),
     ],
   )
   .enableRLS();
@@ -1895,6 +1925,7 @@ export const schema = {
   savedViews,
   plans,
   idempotencyKeys,
+  siteCounters,
   workspaceEmailSettings,
   emailTemplates,
   emailTemplateVersions,
