@@ -33,6 +33,7 @@ const tier: SiteProperty = {
   sensitive: false,
   staffOnly: false,
   hidden: false,
+  websiteVisible: false,
   leadTypes: ['sim_order'],
   editable: true,
   version: 3,
@@ -54,6 +55,7 @@ describe('PropertyEditor when adding', () => {
         options: [],
         staffOnly: false,
         sensitive: false,
+        websiteVisible: false,
         leadTypes: [],
       });
     },
@@ -91,6 +93,7 @@ describe('PropertyEditor when adding', () => {
       ],
       staffOnly: false,
       sensitive: false,
+      websiteVisible: false,
       leadTypes: [],
     });
   });
@@ -121,6 +124,7 @@ describe('PropertyEditor when adding', () => {
       options: [],
       staffOnly: true,
       sensitive: true,
+      websiteVisible: false,
       leadTypes: ['sim_order'],
     });
   });

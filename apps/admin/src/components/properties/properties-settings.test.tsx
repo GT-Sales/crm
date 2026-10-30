@@ -63,6 +63,7 @@ function custom(
     sensitive: false,
     staffOnly: false,
     hidden: false,
+    websiteVisible: false,
     leadTypes: [],
     editable: true,
     version: 2,
@@ -223,6 +224,7 @@ describe('PropertiesSettings properties', () => {
         options: [],
         staffOnly: false,
         sensitive: false,
+        websiteVisible: false,
         leadTypes: [],
       }),
     );

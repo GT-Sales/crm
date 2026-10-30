@@ -47,6 +47,7 @@ const textInput = (label: string): CreateCustomProperty => ({
   options: [],
   staffOnly: false,
   sensitive: false,
+  websiteVisible: false,
   leadTypes: [],
 });
 
