@@ -5080,6 +5080,102 @@
                             "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
                           },
                           "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "planId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "plan": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    "priceMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000000
+                                    },
+                                    "currency": { "type": "string", "const": "CAD" },
+                                    "billingPeriod": {
+                                      "type": "string",
+                                      "enum": ["one_time", "month", "30_days", "90_days", "year"]
+                                    },
+                                    "paymentRequired": { "type": "boolean" },
+                                    "requiredDocuments": {
+                                      "maxItems": 16,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64,
+                                        "pattern": "^[a-z0-9_]+$"
+                                      }
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                      },
+                                      "additionalProperties": {
+                                        "type": ["string", "number", "boolean"]
+                                      }
+                                    },
+                                    "frozenAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                    }
+                                  },
+                                  "required": [
+                                    "planId",
+                                    "name",
+                                    "priceMinor",
+                                    "currency",
+                                    "billingPeriod",
+                                    "paymentRequired",
+                                    "requiredDocuments",
+                                    "properties",
+                                    "frozenAt"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                            "paymentStatus": {
+                              "type": "string",
+                              "enum": ["not_needed", "pending", "paid"]
+                            },
+                            "carrierCommission": {
+                              "type": "string",
+                              "enum": ["not_yet", "invoiced", "received", "clawback"]
+                            }
+                          },
+                          "required": [
+                            "planId",
+                            "plan",
+                            "quantity",
+                            "paymentStatus",
+                            "carrierCommission"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -5420,7 +5516,11 @@
                             "unknown_property_key",
                             "saved_view_not_found",
                             "saved_view_name_taken",
-                            "saved_view_limit"
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit"
                           ]
                         },
                         "message": { "type": "string" },

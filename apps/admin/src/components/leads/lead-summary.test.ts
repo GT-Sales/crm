@@ -104,8 +104,6 @@ describe('leadSummaryText', () => {
     expect(lines).toContain('SIM number: 4165550104');
     expect(lines).toContain('Documents: Passport');
     expect(lines.at(-1)).toBe('Source: partner:PT-7');
-    // An empty staff field is left out rather than copied as a dash.
-    expect(text).not.toContain('Carrier commission');
   });
 
   it('leaves out what the reader was not shown', () => {
