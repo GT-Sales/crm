@@ -249,26 +249,20 @@ describe('email settings', () => {
     expect(refuses({ updatedAt: '2026-10-30T12:00:00.000Z' })).toBe(false);
   });
 
-  it('answers with the saved settings, or the fallback sender while none are saved', () => {
+  it('answers with the saved settings, or null while none are saved, and no fallback sender', () => {
     expect(emailSettingsSchema.parse(SAVED_SETTINGS)).toEqual(SAVED_SETTINGS);
     expect(
-      emailSettingsResponseSchema.parse({
-        settings: SAVED_SETTINGS,
-        fallback: null,
-        requestId: UUID_A,
-      }),
-    ).toMatchObject({ settings: SAVED_SETTINGS, fallback: null });
-    const fallback = {
-      fromName: 'Get Canada Sim',
-      fromAddress: 'orders@example.com',
-      siteUrl: null,
-    };
+      emailSettingsResponseSchema.parse({ settings: SAVED_SETTINGS, requestId: UUID_A }),
+    ).toEqual({ settings: SAVED_SETTINGS, requestId: UUID_A });
+    expect(emailSettingsResponseSchema.parse({ settings: null, requestId: UUID_A })).toEqual({
+      settings: null,
+      requestId: UUID_A,
+    });
+    // An older server's fallback key is dropped, never passed on.
     expect(
-      emailSettingsResponseSchema.parse({ settings: null, fallback, requestId: UUID_A }),
-    ).toMatchObject({ settings: null, fallback });
-    expect(
-      emailSettingsResponseSchema.safeParse({ fallback: null, requestId: UUID_A }).success,
-    ).toBe(false);
+      emailSettingsResponseSchema.parse({ settings: null, fallback: null, requestId: UUID_A }),
+    ).not.toHaveProperty('fallback');
+    expect(emailSettingsResponseSchema.safeParse({ requestId: UUID_A }).success).toBe(false);
   });
 });
 

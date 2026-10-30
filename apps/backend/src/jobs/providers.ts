@@ -13,14 +13,17 @@ import {
   type EmailDeliveryRecorder,
   type JobHandlerRegistry,
 } from '@gt-sales/jobs';
+import { TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
 import { z } from 'zod';
 
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
 import { createLegacyDocumentImportHandler } from '../documents/import-job.js';
 import type { DocumentService } from '../documents/service.js';
-import { loadEmailSenders, type EmailSenders } from '../email/senders.js';
+import { customerEmailEnvironmentFromEnv } from '../email/senders.js';
 import { DatabaseEmailStore } from '../email/store.js';
 import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { createTrackingCodeHandler } from '../tracking/delivery.js';
+import { loadTrackingSecret } from '../tracking/secrets.js';
 
 /**
  * The explicit opt-in for the in-memory analytics fake. There is deliberately
@@ -76,23 +79,17 @@ export function loadUmamiAnalyticsSink(
 
 /**
  * The Resend account a site's mail is recorded against: the one its Resend
- * webhook reports from, when it has one; otherwise, for a site with its own
- * sender, the one configured account (its deliveries are then recorded
- * without inbound events until a webhook is registered). Either way it must
- * be `RESEND_ACCOUNT_ID`, or nothing sends. A mail that carries its own sender
- * (`siteSender`) needs no entry in the configured sender list: its account is
- * the registry's, else `RESEND_ACCOUNT_ID`.
+ * webhook reports from, when it has one, else the one configured account (its
+ * deliveries are then recorded without inbound events until a webhook is
+ * registered). Either way it must be `RESEND_ACCOUNT_ID`, or nothing sends.
  */
 export function resendAccountForWorkspace(
   env: NodeJS.ProcessEnv,
   registry: Pick<MachineRegistry, 'resendForWorkspace'> | undefined,
-  senders: EmailSenders,
   workspaceId: string,
-  siteSender = false,
 ): string | undefined {
   const account =
-    registry?.resendForWorkspace(workspaceId)?.providerAccount ??
-    (siteSender || senders.forWorkspace(workspaceId) ? env.RESEND_ACCOUNT_ID : undefined);
+    registry?.resendForWorkspace(workspaceId)?.providerAccount ?? env.RESEND_ACCOUNT_ID;
   return account && account === env.RESEND_ACCOUNT_ID ? account : undefined;
 }
 
@@ -140,7 +137,6 @@ export function createOutboxJobHandlers(
   env: NodeJS.ProcessEnv = process.env,
   eligibility: EmailEligibilityChecker = new DatabaseEmailStore(),
   deliveryOverride?: EmailDeliveryRecorder,
-  senders: EmailSenders = loadEmailSenders(env),
   documents:
     Pick<DocumentService, 'importWebsiteDocument'> | undefined = createDocumentServiceFromEnv(env),
 ): JobHandlerRegistry {
@@ -162,7 +158,6 @@ export function createOutboxJobHandlers(
         fromName: requireEnv(env, 'RESEND_FROM_NAME', 'resend'),
         replyToAddress: env.RESEND_REPLY_TO_EMAIL,
       },
-      senderForWorkspace: (workspaceId) => senders.forWorkspace(workspaceId),
     });
   } else {
     // No email provider selected: email jobs fail per-job, but analytics still works.
@@ -175,12 +170,12 @@ export function createOutboxJobHandlers(
     deliveryOverride ??
     (eligibility instanceof DatabaseEmailStore
       ? {
-          prepare: async ({ siteSender, ...input }) => {
+          prepare: async (input) => {
             const provider = emailProvider;
             if (!provider) throw new JobHandlerError('provider_not_configured', false);
             const providerAccount =
               provider === 'resend'
-                ? resendAccountForWorkspace(env, registry, senders, input.workspaceId, siteSender)
+                ? resendAccountForWorkspace(env, registry, input.workspaceId)
                 : provider;
             if (!providerAccount) {
               throw new JobHandlerError('email_account_not_configured', false);
@@ -203,5 +198,15 @@ export function createOutboxJobHandlers(
     }),
   );
   handlers.set('legacy_document_import', createLegacyDocumentImportHandler(documents));
+  handlers.set(
+    TRACKING_CODE_JOB_TYPE,
+    createTrackingCodeHandler({
+      email,
+      eligibility,
+      delivery,
+      environment: customerEmailEnvironmentFromEnv(env),
+      secret: loadTrackingSecret(env),
+    }),
+  );
   return handlers;
 }

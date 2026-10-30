@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { TRACKING_GRANT_TTL_MS } from '@gt-sales/contracts';
 
 import { openTrackingCode, sealTrackingCode, sealTrackingEmail } from '../src/crypto/cipher.js';
-import { normalizeContactEmail } from '../src/leads/store.js';
 import {
   codeBindingHash,
   emailBindingHash,
@@ -13,6 +12,7 @@ import {
   generateTrackingCode,
   hashesEqual,
   loadTrackingSecret,
+  normalizeTrackingEmail,
   signTrackingGrant,
   verifyTrackingGrant,
 } from '../src/tracking/secrets.js';
@@ -39,9 +39,17 @@ describe('tracking hashing', () => {
   });
 
   it('gives the same hash for an email typed with spaces and capitals', () => {
-    expect(emailBindingHash(SECRET, SITE_A, normalizeContactEmail(' Nadia@Example.COM '))).toBe(
+    expect(emailBindingHash(SECRET, SITE_A, normalizeTrackingEmail(' Nadia@Example.COM '))).toBe(
       emailBindingHash(SECRET, SITE_A, NADIA),
     );
+  });
+
+  it('normalizes as Postgres lower(btrim(...)) does: spaces only, then lower case', () => {
+    expect(normalizeTrackingEmail('  Nadia@Example.COM  ')).toBe(NADIA);
+    // btrim strips only spaces, so neither does this: a tab or a no-break space stays.
+    expect(normalizeTrackingEmail('\tNadia@Example.com')).toBe('\tnadia@example.com');
+    expect(normalizeTrackingEmail('nadia@example.com\u00a0')).toBe('nadia@example.com\u00a0');
+    expect(normalizeTrackingEmail('   ')).toBe('');
   });
 
   it('binds the code hash to the site, the email and the code', () => {
@@ -118,9 +126,12 @@ describe('tracking grant', () => {
     signTrackingGrant(SECRET, { workspaceId: SITE_A, normalizedEmail: NADIA }, NOW);
 
   /** Re-signs an edited body, as an attacker who somehow held the key would. */
-  function resign(body: Record<string, unknown>): string {
+  /** The grant's own signing key: derived from the secret for this purpose only. */
+  const GRANT_KEY = createHmac('sha256', SECRET).update('gt-sales-crm:tracking-grant:v1').digest();
+
+  function resign(body: Record<string, unknown>, key: Buffer | string = GRANT_KEY): string {
     const encoded = Buffer.from(JSON.stringify(body), 'utf8').toString('base64url');
-    return `${encoded}.${createHmac('sha256', SECRET).update(encoded).digest('base64url')}`;
+    return `${encoded}.${createHmac('sha256', key).update(encoded).digest('base64url')}`;
   }
 
   function bodyOf(token: string): Record<string, unknown> {
@@ -203,6 +214,12 @@ describe('tracking grant', () => {
       emailHash: emailBindingHash(SECRET, SITE_B, NADIA),
     });
     expect(verifyTrackingGrant(SECRET, token, NOW)).toBeUndefined();
+  });
+
+  it('is signed with a key derived for grants, never the raw secret', () => {
+    const body = bodyOf(sign().token);
+    expect(verifyTrackingGrant(SECRET, resign(body), NOW)).toBeDefined();
+    expect(verifyTrackingGrant(SECRET, resign(body, SECRET), NOW)).toBeUndefined();
   });
 
   it('refuses an extra key, another version and an order-bound grant', () => {

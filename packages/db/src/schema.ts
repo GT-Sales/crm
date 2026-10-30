@@ -456,6 +456,8 @@ export const leads = appSchema
       // Covers the single-column contacts FK, so removing a contact does not scan leads.
       index('leads_contact_id_idx').on(table.contactId),
       index('leads_workspace_id_assigned_actor_idx').on(table.workspaceId, table.assignedActorId),
+      // Customer tracking finds a site's leads by the normalized email (`/track`).
+      index('leads_workspace_email_idx').on(table.workspaceId, sql`lower(btrim(${table.email}))`),
       tenantPolicy('leads_tenant_policy', table.workspaceId),
       backupReadPolicy('leads'),
     ],
@@ -1996,7 +1998,7 @@ export const changeRequests = appSchema
       check('change_requests_version_check', sql`${table.version} > 0`),
       check(
         'change_requests_resolved_check',
-        sql`(${table.status} = 'pending') = (${table.resolvedAt} is null and ${table.resolvedBy} is null)`,
+        sql`(${table.status} = 'pending') = (${table.resolvedAt} is null) and (${table.resolvedAt} is null) = (${table.resolvedBy} is null)`,
       ),
       uniqueIndex('change_requests_one_pending')
         .on(table.workspaceId, table.leadId)

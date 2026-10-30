@@ -21,15 +21,18 @@
 -- Additive only, no data migration: two new tables (app.tracking_challenges,
 -- app.change_requests, both empty), one new column with a constant default
 -- (app.files.held_for_change_request boolean not null default false: no
--- rewrite), the two template key checks and the site counter check widened
+-- rewrite), one new expression index on app.leads (workspace_id,
+-- lower(btrim(email))) for the tracking lookups (a plain CREATE INDEX: it
+-- holds writes to app.leads for the few seconds it takes), the two template
+-- key checks and the site counter check widened
 -- (each re-added check scans its table once), FORCE RLS and grants on the
 -- two tables (no DELETE), and prune_operational_rows() replaced with 0014's
 -- body plus tracking challenges 24 hours after they expire. The two files are
 -- below verbatim but for drizzle's `--> statement-breakpoint` markers and the
 -- OWNER PASTE note. Drizzle hashes (sha256 of each file) and journal `when`
 -- values:
---   0017_customer_tracking          561b17d20aa70ea4632e280cf3c8f13d9a7761720392defb57681c9a05014ee2  1793383643743
---   0018_customer_tracking_runtime  900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2  1793383650873
+--   0017_customer_tracking          7b4e5292e29ac1fdc8ab891e604d82dbbe9e3997e5756d73f6d2f120c817ad94  1793385700370
+--   0018_customer_tracking_runtime  900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2  1793385701352
 
 -- A. Pre-check. Expect one row: tracking_challenges null, change_requests
 -- null, held_column false, tracker_rows 0.
@@ -40,7 +43,7 @@ SELECT to_regclass('app.tracking_challenges') AS tracking_challenges,
          WHERE table_schema = 'app' AND table_name = 'files' AND column_name = 'held_for_change_request'
        ) AS held_column,
        (SELECT count(*) FROM drizzle.__drizzle_migrations
-        WHERE created_at IN (1793383643743, 1793383650873)) AS tracker_rows;
+        WHERE created_at IN (1793385700370, 1793385701352)) AS tracker_rows;
 
 BEGIN;
 
@@ -66,7 +69,7 @@ CREATE TABLE "app"."change_requests" (
 	CONSTRAINT "change_requests_request_no_check" CHECK ("app"."change_requests"."request_no" > 0),
 	CONSTRAINT "change_requests_status_check" CHECK ("app"."change_requests"."status" in ('pending', 'approved', 'rejected')),
 	CONSTRAINT "change_requests_version_check" CHECK ("app"."change_requests"."version" > 0),
-	CONSTRAINT "change_requests_resolved_check" CHECK (("app"."change_requests"."status" = 'pending') = ("app"."change_requests"."resolved_at" is null and "app"."change_requests"."resolved_by" is null))
+	CONSTRAINT "change_requests_resolved_check" CHECK (("app"."change_requests"."status" = 'pending') = ("app"."change_requests"."resolved_at" is null) and ("app"."change_requests"."resolved_at" is null) = ("app"."change_requests"."resolved_by" is null))
 );
 
 ALTER TABLE "app"."change_requests" ENABLE ROW LEVEL SECURITY;
@@ -98,6 +101,7 @@ ALTER TABLE "app"."tracking_challenges" ADD CONSTRAINT "tracking_challenges_work
 CREATE UNIQUE INDEX "change_requests_one_pending" ON "app"."change_requests" USING btree ("workspace_id","lead_id") WHERE "app"."change_requests"."status" = 'pending';
 CREATE INDEX "change_requests_workspace_lead_created_idx" ON "app"."change_requests" USING btree ("workspace_id","lead_id","created_at" DESC NULLS LAST);
 CREATE INDEX "tracking_challenges_workspace_email_idx" ON "app"."tracking_challenges" USING btree ("workspace_id","email_hash","status","created_at" DESC NULLS LAST);
+CREATE INDEX "leads_workspace_email_idx" ON "app"."leads" USING btree ("workspace_id",lower(btrim("email")));
 ALTER TABLE "app"."email_template_versions" ADD CONSTRAINT "email_template_versions_key_check" CHECK ("app"."email_template_versions"."key" in ('tracking_code', 'order_received', 'information_needed', 'dispatched', 'activated', 'cancelled', 'sim_number_ready', 'change_approved', 'change_rejected'));
 ALTER TABLE "app"."email_templates" ADD CONSTRAINT "email_templates_key_check" CHECK ("app"."email_templates"."key" in ('tracking_code', 'order_received', 'information_needed', 'dispatched', 'activated', 'cancelled', 'sim_number_ready', 'change_approved', 'change_rejected'));
 ALTER TABLE "app"."site_counters" ADD CONSTRAINT "site_counters_counter_check" CHECK ("app"."site_counters"."counter" in ('sim_order_ref', 'change_request_no'));
@@ -129,7 +133,6 @@ CREATE POLICY "tracking_challenges_tenant_policy" ON "app"."tracking_challenges"
       ''
     )::uuid is not null);
 CREATE POLICY "tracking_challenges_backup_reader_read" ON "app"."tracking_challenges" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);
-
 -- ---------------------------------------------------------------------------
 -- 0018_customer_tracking_runtime
 -- ---------------------------------------------------------------------------
@@ -228,11 +231,11 @@ REVOKE ALL ON FUNCTION app.prune_operational_rows(uuid, timestamptz) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION app.prune_operational_rows(uuid, timestamptz) TO app_runtime;
 
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT '561b17d20aa70ea4632e280cf3c8f13d9a7761720392defb57681c9a05014ee2', 1793383643743
-WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793383643743);
+SELECT '7b4e5292e29ac1fdc8ab891e604d82dbbe9e3997e5756d73f6d2f120c817ad94', 1793385700370
+WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793385700370);
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT '900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2', 1793383650873
-WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793383650873);
+SELECT '900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2', 1793385701352
+WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793385701352);
 -- now() is fixed for the whole transaction, so the second version is one
 -- second later: the two rows need distinct versions.
 INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
@@ -288,19 +291,27 @@ SELECT 'tracking_challenges' AS table_name,
        has_table_privilege('backup_reader', 'app.tracking_challenges', 'SELECT') AS backup_select
 ORDER BY table_name;
 
--- 5. Expect one row: held_for_change_request, boolean, NO (not null), false.
-SELECT column_name, data_type, is_nullable, column_default
+-- 5. Expect one row: held_for_change_request, boolean, NO (not null), false,
+-- and email_index true (leads_workspace_email_idx on lower(btrim(email))).
+SELECT column_name, data_type, is_nullable, column_default,
+       EXISTS (
+         SELECT 1 FROM pg_indexes
+         WHERE schemaname = 'app' AND tablename = 'leads' AND indexname = 'leads_workspace_email_idx'
+           AND indexdef LIKE '%lower(btrim(email))%'
+       ) AS email_index
 FROM information_schema.columns
 WHERE table_schema = 'app' AND table_name = 'files' AND column_name = 'held_for_change_request';
 
--- 6. Expect three rows: email_template_versions_key_check and
+-- 6. Expect four rows: change_requests_resolved_check (pending exactly when
+-- resolved_at is null, and resolved_at null exactly when resolved_by is),
+-- email_template_versions_key_check and
 -- email_templates_key_check each naming 'change_approved' and
 -- 'change_rejected', and site_counters_counter_check naming 'sim_order_ref'
 -- and 'change_request_no'.
 SELECT conname, pg_get_constraintdef(oid) AS definition
 FROM pg_constraint
 WHERE connamespace = 'app'::regnamespace
-  AND conname IN ('email_template_versions_key_check', 'email_templates_key_check', 'site_counters_counter_check')
+  AND conname IN ('change_requests_resolved_check', 'email_template_versions_key_check', 'email_templates_key_check', 'site_counters_counter_check')
 ORDER BY conname;
 
 -- 7. Expect one row: true, true, true (the prune function names
@@ -314,5 +325,5 @@ WHERE p.pronamespace = 'app'::regnamespace AND p.proname = 'prune_operational_ro
 
 -- 8. Expect two rows: the hashes and `when` values in the header.
 SELECT hash, created_at FROM drizzle.__drizzle_migrations
-WHERE created_at IN (1793383643743, 1793383650873)
+WHERE created_at IN (1793385700370, 1793385701352)
 ORDER BY created_at;

@@ -6,8 +6,9 @@ import {
   type DatabaseClient,
   type TenantTransaction,
 } from '@gt-sales/db';
+import { TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
 import type { ClaimedJob, JobOutcome, OutboxStore } from '@gt-sales/jobs';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 
 interface ClaimedRow {
   [key: string]: unknown;
@@ -65,6 +66,15 @@ function adminJobStatus(value: string): AdminJob['status'] {
   }
 }
 
+/**
+ * A job's payload once it ends (completed, failed or uncertain): a tracking
+ * code mail keeps only its challenge id, never the address or the sealed code;
+ * every other job keeps its payload.
+ */
+function endedPayload(): SQL {
+  return sql`case when ${outboxJobs.jobType} = ${TRACKING_CODE_JOB_TYPE} then jsonb_build_object('challengeId', ${outboxJobs.payload}->>'challengeId') else ${outboxJobs.payload} end`;
+}
+
 async function alertTerminalJobs(
   tx: TenantTransaction,
   workspaceId: string,
@@ -76,6 +86,7 @@ async function alertTerminalJobs(
     .set({
       status: 'failed',
       lastErrorCode: 'max_attempts_exhausted',
+      payload: endedPayload(),
       leaseOwnerId: null,
       leaseExpiresAt: null,
       updatedAt: now,
@@ -230,7 +241,7 @@ export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
                     status: 'failed',
                     lastErrorCode: input.outcome.errorCode,
                   };
-        // A tracking code's delivery details are needed only until the job ends.
+        // A tracking code's address and sealed code are needed only until the job ends.
         const terminal = input.outcome.status !== 'retry';
         const updated = await tx
           .update(outboxJobs)
@@ -238,7 +249,7 @@ export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
             ...update,
             ...(terminal
               ? {
-                  payload: sql`case when ${outboxJobs.jobType} = 'tracking_otp_email' then jsonb_build_object('orderId', ${outboxJobs.payload}->>'orderId', 'challengeId', ${outboxJobs.payload}->>'challengeId') else ${outboxJobs.payload} end`,
+                  payload: endedPayload(),
                 }
               : {}),
           })

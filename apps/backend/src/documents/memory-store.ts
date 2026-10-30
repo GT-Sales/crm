@@ -29,6 +29,7 @@ import type {
 export class InMemoryDocumentRecordStore implements DocumentRecordStore {
   private readonly rows = new Map<string, FileRow>();
   private readonly reviews = new Map<string, ReviewEventRow[]>();
+  private readonly held = new Set<string>();
   readonly audits: { action: string; fileId: string; audience: string; disposition: string }[] = [];
 
   async recordDownloadIssued(input: {
@@ -42,6 +43,11 @@ export class InMemoryDocumentRecordStore implements DocumentRecordStore {
       audience: input.audience,
       disposition: input.disposition,
     });
+  }
+
+  /** The file was created held for a change request (`CreateIntentInput.held`). */
+  isHeld(fileId: string): boolean {
+    return this.held.has(fileId);
   }
 
   snapshot(fileId: string): FileRow | undefined {
@@ -87,6 +93,7 @@ export class InMemoryDocumentRecordStore implements DocumentRecordStore {
       createdAt: new Date(),
     };
     this.rows.set(row.id, row);
+    if (input.held) this.held.add(row.id);
     return { ...row };
   }
 

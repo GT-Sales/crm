@@ -8,7 +8,7 @@ import {
 import { z } from 'zod';
 
 import { fillInValuesForLead, sampleFillInValues, type FillInLead } from './fill-in-values.js';
-import { renderCustomerEmail } from './layout.js';
+import { renderCustomerEmail, type FillInValues } from './layout.js';
 import { resolveSiteSender, type CustomerEmailEnvironment } from './senders.js';
 import { readEmailTemplate } from './settings-store.js';
 
@@ -29,7 +29,9 @@ export type ComposeRecipient =
   /** A lead's customer, with the lead's values in the mail. */
   | { kind: 'lead'; lead: FillInLead & { id: string; email: string | null } }
   /** A staff member trying the template, with sample values. */
-  | { kind: 'staff_test'; toAddress: string };
+  | { kind: 'staff_test'; toAddress: string }
+  /** A customer's tracking code: the code and the site's name only, no lead and no test. */
+  | { kind: 'tracking_code'; toAddress: string; code: string };
 
 export type ComposeOutcome =
   | { kind: 'ready'; payload: CustomerEmailJobPayload }
@@ -48,13 +50,27 @@ function validAddress(value: string | null): string | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
+function fillInValues(
+  recipient: ComposeRecipient,
+  site: { siteName: string; siteUrl: string | null },
+): FillInValues {
+  switch (recipient.kind) {
+    case 'lead':
+      return fillInValuesForLead(recipient.lead, site);
+    case 'staff_test':
+      return sampleFillInValues(site);
+    case 'tracking_code':
+      return { 'site name': site.siteName, code: recipient.code };
+  }
+}
+
 export async function composeCustomerEmail(
   tx: TenantTransaction,
   environment: CustomerEmailEnvironment,
   input: { workspaceId: string; template: CustomerEmailTemplate; recipient: ComposeRecipient },
 ): Promise<ComposeOutcome> {
   if (!environment.providerReady) return { kind: 'skipped', reason: 'no_sender' };
-  const site = await resolveSiteSender(tx, environment, input.workspaceId);
+  const site = await resolveSiteSender(tx, input.workspaceId);
   if (!site) return { kind: 'skipped', reason: 'no_sender' };
 
   const { recipient } = input;
@@ -70,10 +86,7 @@ export async function composeCustomerEmail(
     subject: stored.subject,
     body: stored.body,
     branding: site.branding,
-    values:
-      recipient.kind === 'lead'
-        ? fillInValuesForLead(recipient.lead, siteValues)
-        : sampleFillInValues(siteValues),
+    values: fillInValues(recipient, siteValues),
   });
   if (!rendered.ok) {
     if ('missing' in rendered) {

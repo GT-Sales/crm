@@ -815,22 +815,22 @@ databaseTest('DatabaseLeadWorkStore', () => {
   });
 
   test('a mail to the customer waits in the outbox; its entry keeps no address or number', async () => {
-    // On the other site, beside the order-correction test's order; its sender is the deployment's.
+    // On the other site, beside the order-correction test's order; its sender is its saved settings.
     const mailScope = { ...writeScope, workspaceId: OTHER_WORKSPACE };
+    await admin`
+      insert into app.workspace_email_settings (
+        workspace_id, from_name, from_address, site_url, updated_by
+      ) values (${OTHER_WORKSPACE}, 'The Site', 'order@site.example', 'https://site.example', ${ACTOR})
+      on conflict (workspace_id) do update
+        set from_name = excluded.from_name, from_address = excluded.from_address,
+            reply_to = null, site_url = excluded.site_url
+    `;
     const mailWork = new DatabaseLeadWorkStore(
       database,
       customerEmailEnvironmentFromEnv({
         EMAIL_PROVIDER: 'fake',
         NODE_ENV: 'test',
         EMAIL_CONTACT_HASH_SECRET: MAIL_SECRET,
-        EMAIL_SENDERS_JSON: JSON.stringify([
-          {
-            workspaceId: OTHER_WORKSPACE,
-            fromAddress: 'order@site.example',
-            fromName: 'The Site',
-            siteUrl: 'https://site.example',
-          },
-        ]),
       }),
     );
     const created = await leadStore.createLead({

@@ -579,10 +579,15 @@ app_runtime`. The scheduler's `data_retention` run (on only with
   personal data, never copied elsewhere), `staged_file_ids` (`uuid[]`,
   default empty), `version` (`> 0`, default 1), `created_by`,
   `resolved_by`, `resolved_at`, `created_at`, `updated_at`; check
-  `change_requests_resolved_check` (`pending` exactly when `resolved_at`
-  and `resolved_by` are both null); unique `(workspace_id, id)`; partial
+  `change_requests_resolved_check` (`pending` exactly when `resolved_at` is
+  null, and `resolved_at` null exactly when `resolved_by` is: never half
+  resolved); unique `(workspace_id, id)`; partial
   unique index `change_requests_one_pending (workspace_id, lead_id) where
 status = 'pending'`; index `(workspace_id, lead_id, created_at desc)`.
+- `app.leads` index `leads_workspace_email_idx (workspace_id,
+lower(btrim(email)))`: the tracking lookups match a site's leads by the
+  normalized email. A plain `CREATE INDEX`, which holds writes to
+  `app.leads` while it builds (seconds at today's size).
 - `app.files.held_for_change_request`: `boolean not null default false`
   (constant default, no rewrite): a customer's document sent with a pending
   change request, not current until the request is approved.
@@ -593,8 +598,8 @@ status = 'pending'`; index `(workspace_id, lead_id, created_at desc)`.
   once.
 - Each new table has its tenant policy and `<table>_backup_reader_read`, so
   `app` now has 38 `_backup_reader_read` policies.
-- Drizzle hash `561b17d20aa70ea4632e280cf3c8f13d9a7761720392defb57681c9a05014ee2`,
-  `created_at` `1793383643743`. **Not yet applied** to the hosted project.
+- Drizzle hash `7b4e5292e29ac1fdc8ab891e604d82dbbe9e3997e5756d73f6d2f120c817ad94`,
+  `created_at` `1793385700370`. **Not yet applied** to the hosted project.
 
 ## 0018_customer_tracking_runtime
 
@@ -613,7 +618,7 @@ status = 'pending'`; index `(workspace_id, lead_id, created_at desc)`.
   it is marked `OWNER PASTE` in the paste file.
 - Every statement is safe to run twice. No data migration.
 - Drizzle hash `900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2`,
-  `created_at` `1793383650873`. **Not yet applied** to the hosted project.
+  `created_at` `1793385701352`. **Not yet applied** to the hosted project.
 - To apply, before deploying a backend that uses customer tracking: in the
   SQL editor, as `postgres`, run
   [`manual/0017-0018-customer-tracking.sql`](manual/0017-0018-customer-tracking.sql)'s
@@ -622,8 +627,9 @@ status = 'pending'`; index `(workspace_id, lead_id, created_at desc)`.
   verbatim and all four tracker rows; the migrator then finds nothing to
   do); run the eight verification selects one at a time (the two forced,
   their four policies, 38 backup read policies, the grants per table and
-  verb with no DELETE, the column with its default, the two template checks
-  and the counter check naming the new keys, the prune function naming
+  verb with no DELETE, the column with its default and the email index, the
+  resolved check, the two template checks and the counter check naming the
+  new keys, the prune function naming
   `tracking_challenges`, both Drizzle rows). Or apply the plain DDL and
   grants through the Supabase tool in small batches, hand the `ALTER`s, the
   `REVOKE` and the function replacement to the owner as a paste, add the
@@ -636,7 +642,8 @@ status = 'pending'`; index `(workspace_id, lead_id, created_at desc)`.
 - `packages/db/tests/customer-tracking.integration.test.ts` covers RLS and
   FORCE on both, their policies and the 38 backup read policies, the grants
   (no DELETE), site isolation, every check and unique constraint (one
-  pending request per lead, request numbers per site), the cross-site lead
+  pending request per lead, request numbers per site, no half-resolved
+  request), the leads email index, the cross-site lead
   FK and the cascade, the two template keys in both tables, the
   `change_request_no` counter, the file column's default, and re-runs 0018
   twice inside a rolled-back transaction.

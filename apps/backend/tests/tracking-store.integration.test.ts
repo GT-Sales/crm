@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   TRACKING_CODE_JOB_TYPE,
   TRACKING_CODE_TTL_MS,
@@ -11,7 +11,11 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { openTrackingCode } from '../src/crypto/cipher.js';
 import { hashContact } from '../src/email/hash.js';
-import { emailBindingHash, signTrackingGrant } from '../src/tracking/secrets.js';
+import {
+  emailBindingHash,
+  normalizeTrackingEmail,
+  signTrackingGrant,
+} from '../src/tracking/secrets.js';
 import { TrackingService } from '../src/tracking/service.js';
 import { DatabaseTrackingStore, pendingDelivery } from '../src/tracking/store.js';
 
@@ -263,7 +267,7 @@ databaseTest('tracking store and service (challenges and the customer’s orders
     database = createDatabaseClient({
       connectionString: runtimeUrl.toString(),
       ssl: false,
-      maxConnections: 5,
+      maxConnections: 10,
     });
     store = new DatabaseTrackingStore(database);
   });
@@ -416,6 +420,53 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       status: 'expired',
     });
     expect((await challenges())[0]?.status).toBe('consumed');
+  });
+
+  it('verifies the right code once when two verifications race', async () => {
+    await service.requestCode({ ...scope, email: NADIA });
+    const code = await issuedCode();
+    const outcomes = await Promise.all([
+      service.verifyCode({ ...scope, email: NADIA, code }),
+      service.verifyCode({ ...scope, email: NADIA, code }),
+    ]);
+    expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(['not_found', 'verified']);
+  });
+
+  it('counts every one of N racing wrong guesses, and never answers invalid more than five times', async () => {
+    await service.requestCode({ ...scope, email: NADIA });
+    const code = await issuedCode();
+    const guesses = (n: number) =>
+      Promise.all(
+        Array.from({ length: n }, (_, index) =>
+          service.verifyCode({ ...scope, email: NADIA, code: wrong(code, index + 1) }),
+        ),
+      );
+
+    const four = await guesses(4);
+    expect(four.map((outcome) => outcome.status)).toEqual(Array(4).fill('invalid'));
+    expect((await challenges())[0]?.attempts).toBe(4);
+
+    await service.requestCode({ ...scope, email: NADIA });
+    const eight = (await guesses(8)).map((outcome) => outcome.status);
+    expect(eight.filter((status) => status === 'invalid')).toHaveLength(5);
+    expect(eight.filter((status) => status === 'exhausted')).toHaveLength(1);
+    expect(eight.filter((status) => status === 'not_found')).toHaveLength(2);
+    const [, second] = await challenges();
+    expect(second).toMatchObject({ attempts: 5, status: 'consumed' });
+  });
+
+  it('normalizes an email exactly as the lookup compares it', async () => {
+    for (const typed of [
+      '  Nadia@Example.COM  ',
+      '\tNadia@Example.com',
+      'nadia@example.com\u00a0',
+      '\u2003NADIA@example.com',
+    ]) {
+      const [row] = await admin<
+        { normalized: string }[]
+      >`select lower(btrim(${typed})) as normalized`;
+      expect(normalizeTrackingEmail(typed), JSON.stringify(typed)).toBe(row?.normalized);
+    }
   });
 
   it('a challenge is deliverable while pending, never after it is verified', async () => {
@@ -577,6 +628,71 @@ databaseTest('tracking store and service (challenges and the customer’s orders
       `;
       expect(await passport()).toBe('needs_replacement');
       await admin`delete from app.files where workspace_id = ${SITE} and record_id = ${lead}`;
+    });
+
+    it('drops an order a stored value keeps from the contract, logging only its id and the path', async () => {
+      const rosa = 'rosa@example.com';
+      const good = await insertLead({
+        stage: 'pending',
+        email: rosa,
+        externalRef: 'MS-6510',
+        createdAt: days(3),
+      });
+      const blankRef = await insertLead({
+        stage: 'pending',
+        email: rosa,
+        externalRef: '   ',
+        createdAt: days(2),
+      });
+      const badDocument = await insertLead({
+        stage: 'pending',
+        email: rosa,
+        externalRef: 'MS-6512',
+        createdAt: days(1),
+      });
+      await admin`
+        insert into app.files (workspace_id, record_type, record_id, document_type, bucket,
+          staging_key, candidate_key, object_key, declared_content_type, detected_mime,
+          declared_size_bytes, size_bytes, checksum_sha256, status, uploaded_by, expires_at)
+        values (${SITE}, 'lead', ${badDocument}, 'Passport Scan', 'ci', ${`staging/${badDocument}`},
+          ${`docs/${badDocument}`}, ${`docs/${badDocument}`}, 'application/pdf', 'application/pdf',
+          100, 100, ${'a'.repeat(64)}, 'available', ${CREDENTIAL}, ${T0})
+      `;
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const orders = await service.listOrders(scope, {
+          workspaceId: SITE,
+          normalizedEmail: rosa,
+          emailHash: emailBindingHash(SECRET, SITE, rosa),
+        });
+        expect(orders.map((order) => order.reference)).toEqual(['MS-6510']);
+        const logged = warn.mock.calls.map((call) => String(call[0]));
+        expect(logged).toHaveLength(2);
+        expect(logged.map((line) => JSON.parse(line))).toEqual(
+          expect.arrayContaining([
+            {
+              event: 'tracking_order_unlistable',
+              workspaceId: SITE,
+              leadId: blankRef,
+              path: 'reference',
+            },
+            {
+              event: 'tracking_order_unlistable',
+              workspaceId: SITE,
+              leadId: badDocument,
+              path: 'documents.0.documentType',
+            },
+          ]),
+        );
+        for (const line of logged) {
+          expect(line).not.toContain('rosa');
+          expect(line).not.toContain('Passport Scan');
+          expect(line).not.toContain(good);
+        }
+      } finally {
+        warn.mockRestore();
+        await admin`delete from app.leads where id in (${good}, ${blankRef}, ${badDocument})`;
+      }
     });
 
     it('resolves a reference only together with its email', async () => {

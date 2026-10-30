@@ -158,7 +158,7 @@ function documentsDependencies(): Pick<WebsiteRouteDependencies, 'documents'> {
  * row surfaces as a non-retryable 500 instead of being masked as transient.
  * Each failure is logged with scrubbed identifiers only.
  */
-function failRequest(req: Request, res: Response, route: string, error: unknown): void {
+export function failRequest(req: Request, res: Response, route: string, error: unknown): void {
   const workspaceId = req.websiteContext?.workspaceId;
   if (isConnectionLevelError(error)) {
     logRequestError({

@@ -64,19 +64,10 @@ const saved: EmailSettingsResponse = {
     updatedAt: STAMP,
     updatedBy: STAFF,
   },
-  fallback: null,
   requestId: 'req_test',
 };
 
-const unsaved: EmailSettingsResponse = {
-  settings: null,
-  fallback: {
-    fromName: 'CanadaWide',
-    fromAddress: 'hello@canadawide.example',
-    siteUrl: 'https://canadawide.example',
-  },
-  requestId: 'req_test',
-};
+const unsaved: EmailSettingsResponse = { settings: null, requestId: 'req_test' };
 
 function template(key: CustomerEmailTemplate, version = 0): EmailTemplate {
   return {
@@ -136,16 +127,14 @@ describe('EmailSettings form', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('starts from the server’s sender when nothing is saved, and says so', () => {
+  it('starts empty when nothing is saved, and says the site sends no email until saved', () => {
     render(<EmailSettings initial={unsaved} onSave={vi.fn()} />);
     expect(
-      screen.getByText(
-        "Not saved yet: mail goes out as CanadaWide <hello@canadawide.example> from the server's configuration.",
-      ),
+      screen.getByText('Not saved yet: this site sends no email until you save these settings.'),
     ).toBeTruthy();
-    expect(field('Sender name')).toHaveProperty('value', 'CanadaWide');
-    expect(field('Sender address')).toHaveProperty('value', 'hello@canadawide.example');
-    expect(field('Site address')).toHaveProperty('value', 'https://canadawide.example');
+    expect(field('Sender name')).toHaveProperty('value', '');
+    expect(field('Sender address')).toHaveProperty('value', '');
+    expect(field('Site address')).toHaveProperty('value', '');
     expect(field('Brand colour')).toHaveProperty('value', '#d72638');
   });
 

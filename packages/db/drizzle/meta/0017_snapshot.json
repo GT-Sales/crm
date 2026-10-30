@@ -1,5 +1,5 @@
 {
-  "id": "962bc58f-d375-4ce8-b67a-d510896b911d",
+  "id": "2fec821d-55f4-417e-b824-a71303d1c5c9",
   "prevId": "deecca9a-741c-43a7-bd2e-2dd32a652d31",
   "version": "7",
   "dialect": "postgresql",
@@ -708,7 +708,7 @@
         },
         "change_requests_resolved_check": {
           "name": "change_requests_resolved_check",
-          "value": "(\"app\".\"change_requests\".\"status\" = 'pending') = (\"app\".\"change_requests\".\"resolved_at\" is null and \"app\".\"change_requests\".\"resolved_by\" is null)"
+          "value": "(\"app\".\"change_requests\".\"status\" = 'pending') = (\"app\".\"change_requests\".\"resolved_at\" is null) and (\"app\".\"change_requests\".\"resolved_at\" is null) = (\"app\".\"change_requests\".\"resolved_by\" is null)"
         }
       },
       "isRLSEnabled": true
@@ -3851,6 +3851,27 @@
               "expression": "assigned_actor_id",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "leads_workspace_email_idx": {
+          "name": "leads_workspace_email_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(btrim(\"email\"))",
+              "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],

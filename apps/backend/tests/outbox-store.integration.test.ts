@@ -433,4 +433,104 @@ databaseTest('database outbox store', () => {
     expect(listed.total).toBe(2);
     expect(listed.jobs.map((job) => job.id).sort()).toEqual([alreadyFailed, notDelivered].sort());
   });
+
+  test('a tracking code job keeps only its challenge id once it ends, however it ends', async () => {
+    const CODE_WORKSPACE = '10000000-0000-4000-8000-000000000786';
+    await admin`
+      insert into app.workspaces (id, slug, name)
+      values (${CODE_WORKSPACE}, 'ci-outbox-code', 'CI Outbox Code')
+      on conflict (id) do nothing
+    `;
+    await admin`delete from app.outbox_job_alerts where workspace_id = ${CODE_WORKSPACE}`;
+    await admin`delete from app.outbox_jobs where workspace_id = ${CODE_WORKSPACE}`;
+    const full = (challengeId: string) => ({
+      challengeId,
+      toAddress: 'nadia@example.com',
+      contactHash: 'hash-1',
+      sealedCode: 'sealed-value',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    });
+    const queue = async (attempts = 0) => {
+      const challengeId = crypto.randomUUID();
+      const payload = full(challengeId);
+      const [row] = await admin<{ id: string }[]>`
+        insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload, attempts)
+        values (${CODE_WORKSPACE}, 'tracking_code_email', ${challengeId},
+          ${admin.json(payload)}, ${attempts})
+        returning id
+      `;
+      return { jobId: String(row?.id), challengeId, payload };
+    };
+    const payloadOf = async (jobId: string) =>
+      (
+        await admin<{ payload: unknown }[]>`select payload from app.outbox_jobs where id = ${jobId}`
+      )[0]?.payload;
+    const claimOne = async () => {
+      const now = new Date();
+      const [claimed] = await store.claim({
+        workspaceId: CODE_WORKSPACE,
+        actorId: ACTOR,
+        leaseOwnerId: crypto.randomUUID(),
+        limit: 1,
+        now,
+        leaseExpiresAt: new Date(now.getTime() + 60_000),
+        maxAttempts: 8,
+      });
+      if (!claimed) throw new Error('nothing claimed');
+      return claimed;
+    };
+    const finish = async (
+      outcome: Parameters<DatabaseOutboxStore['recordOutcome']>[0]['outcome'],
+    ) => {
+      const job = await claimOne();
+      await store.recordOutcome({
+        workspaceId: CODE_WORKSPACE,
+        actorId: ACTOR,
+        jobId: job.id,
+        leaseOwnerId: job.leaseOwnerId,
+        outcome,
+        now: new Date(),
+      });
+      return job.id;
+    };
+
+    for (const outcome of [
+      { status: 'completed', providerId: 'fake-email:x' },
+      { status: 'failed', errorCode: 'tracking_not_configured' },
+      { status: 'uncertain', errorCode: 'resend_http_500' },
+    ] as const) {
+      const { challengeId } = await queue();
+      const jobId = await finish(outcome);
+      expect(await payloadOf(jobId)).toEqual({ challengeId });
+    }
+
+    // A retry keeps what the next attempt needs.
+    const retried = await queue();
+    const retriedId = await finish({
+      status: 'retry',
+      errorCode: 'provider_error',
+      availableAt: new Date(Date.now() + 3_600_000),
+    });
+    expect(await payloadOf(retriedId)).toEqual(retried.payload);
+
+    // Out of attempts: failed at the next claim, scrubbed too.
+    const exhausted = await queue(8);
+    await store.claim({
+      workspaceId: CODE_WORKSPACE,
+      actorId: ACTOR,
+      leaseOwnerId: crypto.randomUUID(),
+      limit: 1,
+      now: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      maxAttempts: 8,
+    });
+    expect(await payloadOf(exhausted.jobId)).toEqual({ challengeId: exhausted.challengeId });
+    // Another job type's payload is untouched by the scrub.
+    await admin`
+      insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload)
+      values (${CODE_WORKSPACE}, 'analytics_lead_saved', 'lead:1', ${admin.json({ leadId: retried.challengeId })})
+    `;
+    const other = await finish({ status: 'failed', errorCode: 'provider_not_configured' });
+    expect(await payloadOf(other)).toEqual({ leadId: retried.challengeId });
+  });
 });

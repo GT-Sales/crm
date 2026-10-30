@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createJobHandlerRegistry,
   outboxJobTypes,
+  sendRenderedCustomerEmail,
   type ClaimedJob,
   type EmailDeliveryRecorder,
   type EmailEligibilityChecker,
@@ -84,8 +85,21 @@ function setup(eligible: { eligible: boolean; reason?: string } = { eligible: tr
 describe('lead_customer_email', () => {
   it('is an outbox job type', () => {
     expect(outboxJobTypes).toContain('lead_customer_email');
-    // Jobs queued before the pre-rendered mail existed still run.
-    expect(outboxJobTypes).toContain('lead_sim_number_email');
+    // The SIM number mail is a site template now; its old job type is gone.
+    expect(outboxJobTypes).not.toContain('lead_sim_number_email');
+    expect(outboxJobTypes).toContain('tracking_code_email');
+  });
+
+  it('has no handler for the old SIM number job', () => {
+    const handlers = createJobHandlerRegistry({
+      email: { send: async () => ({ status: 'delivered', providerId: 'p' }) },
+      analytics: { capture: async () => ({ status: 'delivered', providerId: 'a' }) },
+      eligibility: {
+        checkTransactional: async () => ({ eligible: true }),
+        checkMarketing: async () => ({ eligible: false }),
+      },
+    });
+    expect(handlers.has('lead_sim_number_email')).toBe(false);
   });
 
   it('sends exactly the rendered message from the payload’s sender and records its version', async () => {
@@ -106,7 +120,6 @@ describe('lead_customer_email', () => {
         messageClass: 'transactional',
         contactHash: 'hash-1',
         leadId: LEAD,
-        siteSender: true,
       },
     ]);
     expect(sent).toEqual([
@@ -121,6 +134,48 @@ describe('lead_customer_email', () => {
       },
     ]);
     expect(recorded).toMatchObject([{ messageId: claimed.messageId }]);
+  });
+
+  it('sends through sendRenderedCustomerEmail, which another handler can call with its own payload', async () => {
+    const sent: EmailMessage[] = [];
+    const prepared: Parameters<EmailDeliveryRecorder['prepare']>[0][] = [];
+    const claimed = job({ jobType: 'tracking_code_email' });
+    const { leadId: _leadId, ...codeMail } = { ...payload, template: 'tracking_code' as const };
+    expect(
+      await sendRenderedCustomerEmail(
+        {
+          email: {
+            send: async (message) => {
+              sent.push(message);
+              return { status: 'delivered', providerId: 'provider-2' };
+            },
+          },
+          eligibility: {
+            checkTransactional: async () => ({ eligible: true }),
+            checkMarketing: async () => ({ eligible: false }),
+          },
+          delivery: {
+            prepare: async (input) => {
+              prepared.push(input);
+            },
+            recordResult: async () => {},
+          },
+        },
+        claimed,
+        codeMail,
+      ),
+    ).toEqual({ status: 'completed', providerId: 'provider-2' });
+    expect(prepared).toMatchObject([{ template: 'tracking_code', templateVersion: 4 }]);
+    expect(sent).toEqual([
+      {
+        workspaceId: WORKSPACE,
+        messageId: claimed.messageId,
+        template: 'tracking_code',
+        toAddress: 'customer@example.test',
+        sender: payload.sender,
+        rendered: payload.rendered,
+      },
+    ]);
   });
 
   it('sends a test mail without a lead', async () => {

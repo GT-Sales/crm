@@ -78,6 +78,8 @@ export interface CreateIntentInput {
   declaredContentType: DocumentMediaType;
   declaredSizeBytes: number;
   expiresAt: Date;
+  /** A customer's document for a change request: never current until staff approve it. */
+  held?: true;
 }
 
 export type ClaimResult =
@@ -317,6 +319,7 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
             revision,
             uploadedBy: input.actorId,
             expiresAt: input.expiresAt,
+            heldForChangeRequest: input.held === true,
           })
           .returning(fileColumns);
         if (!row) throw new Error('file intent insert did not return a row');
@@ -326,7 +329,12 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           requestId: input.requestId,
           action: 'file.intent_created',
           fileId: row.id,
-          after: { recordType: input.recordType, documentType: input.documentType, revision },
+          after: {
+            recordType: input.recordType,
+            documentType: input.documentType,
+            revision,
+            ...(input.held ? { held: true } : {}),
+          },
         });
         return toFileRow(row);
       },
@@ -481,9 +489,10 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
               eq(files.candidateKey, input.candidateKey),
             ),
           )
-          .returning(fileColumns);
+          .returning({ ...fileColumns, held: files.heldForChangeRequest });
         if (!attached) return { status: 'lost' };
-        const row = toFileRow(attached);
+        const { held, ...attachedRow } = attached;
+        const row = toFileRow(attachedRow);
 
         await tx.insert(fileRevisions).values({
           workspaceId: input.workspaceId,
@@ -496,7 +505,8 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
           createdBy: input.actorId,
         });
 
-        await supersedeEarlier(tx, row);
+        // A held file waits for staff: it replaces the current one only on approval.
+        if (!held) await supersedeEarlier(tx, row);
 
         await writeAudit(tx, {
           workspaceId: input.workspaceId,
@@ -786,6 +796,91 @@ export class DatabaseDocumentStore implements DocumentRecordStore {
   }
 }
 
+/** Who releases or tombstones a change request's held files, in the caller's transaction. */
+export interface HeldFilesInput {
+  workspaceId: string;
+  actorId: string;
+  requestId: string;
+  fileIds: readonly string[];
+}
+
+/**
+ * Makes a change request's held files current (on approval): the flag is
+ * cleared, the earlier current file of each type is superseded, and each is
+ * audited `file.released`. In the caller's transaction, so it commits with
+ * the decision. A file no longer held and available is skipped.
+ */
+export async function releaseHeldFiles(
+  tx: TenantTransaction,
+  input: HeldFilesInput,
+): Promise<FileRow[]> {
+  const released: FileRow[] = [];
+  for (const fileId of input.fileIds) {
+    const [row] = await tx
+      .update(files)
+      .set({ heldForChangeRequest: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(files.workspaceId, input.workspaceId),
+          eq(files.id, fileId),
+          eq(files.heldForChangeRequest, true),
+          eq(files.status, 'available'),
+        ),
+      )
+      .returning(fileColumns);
+    if (!row) continue;
+    const file = toFileRow(row);
+    await supersedeEarlier(tx, file);
+    await writeAudit(tx, {
+      workspaceId: input.workspaceId,
+      actorId: input.actorId,
+      requestId: input.requestId,
+      action: 'file.released',
+      fileId,
+      after: { documentType: file.documentType, revision: file.revision },
+    });
+    released.push(file);
+  }
+  return released;
+}
+
+/**
+ * Tombstones a change request's held files (on rejection), audited
+ * `file.deleted`, in the caller's transaction; returns their object keys for
+ * the caller to delete once the transaction has committed.
+ */
+export async function tombstoneHeldFiles(
+  tx: TenantTransaction,
+  input: HeldFilesInput,
+): Promise<string[]> {
+  const objectKeys: string[] = [];
+  for (const fileId of input.fileIds) {
+    const [row] = await tx
+      .update(files)
+      .set({ status: 'deleted', deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(files.workspaceId, input.workspaceId),
+          eq(files.id, fileId),
+          eq(files.heldForChangeRequest, true),
+          sql`${files.status} <> 'deleted'`,
+        ),
+      )
+      .returning({ objectKey: files.objectKey });
+    if (!row) continue;
+    if (row.objectKey) objectKeys.push(row.objectKey);
+    await writeAudit(tx, {
+      workspaceId: input.workspaceId,
+      actorId: input.actorId,
+      requestId: input.requestId,
+      action: 'file.deleted',
+      fileId,
+      after: { status: 'deleted', reason: 'change_request_rejected' },
+    });
+  }
+  return objectKeys;
+}
+
 async function selectFile(
   tx: TenantTransaction,
   workspaceId: string,
@@ -801,9 +896,10 @@ async function selectFile(
 
 /**
  * Marks any earlier available object for the same logical slot superseded by
- * `file`, so exactly one current object exists per (record, documentType).
+ * `file`, so exactly one current object exists per (record, documentType). A
+ * file held for a change request is not in the slot until it is released.
  */
-async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<void> {
+export async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<void> {
   await tx
     .update(files)
     .set({ supersededByFileId: file.id, updatedAt: new Date() })
@@ -814,6 +910,7 @@ async function supersedeEarlier(tx: TenantTransaction, file: FileRow): Promise<v
         eq(files.recordId, file.recordId),
         eq(files.documentType, file.documentType),
         eq(files.status, 'available'),
+        eq(files.heldForChangeRequest, false),
         sql`${files.id} <> ${file.id}`,
         sql`${files.supersededByFileId} is null`,
       ),
