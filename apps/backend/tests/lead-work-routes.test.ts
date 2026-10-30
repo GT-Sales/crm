@@ -983,6 +983,24 @@ describe('staff lead work routes', () => {
     }
   });
 
+  it('answers 500, never hangs, for an outcome the route does not know', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // What a future store outcome looks like to today's route.
+      const unknownOutcome: UpdateLeadWorkOutcome = JSON.parse('{"status":"a_future_outcome"}');
+      work.updateLead.mockResolvedValueOnce(unknownOutcome);
+      const response = await call(`${leadsUrl()}/${LEAD}`, {
+        method: 'PATCH',
+        body: { stage: 'activated' },
+      });
+      expect(response.status).toBe(500);
+      expect((await errorCode(response)).code).toBe('internal_error');
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it('words the refusals that need an explanation', async () => {
     const message = async (outcome: UpdateLeadWorkOutcome) => {
       work.updateLead.mockResolvedValueOnce(outcome);

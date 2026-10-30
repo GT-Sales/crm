@@ -745,6 +745,11 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         case 'assignee_not_found':
           sendDomainError(res, req.id, 'assignee_not_found', 422);
           return;
+        default: {
+          // A new outcome fails typecheck here; at runtime it answers 500, never hangs.
+          const _unhandled: never = outcome;
+          throw new Error('unhandled lead update outcome');
+        }
       }
     } catch (error) {
       reportFailure(req, error);
