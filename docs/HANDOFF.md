@@ -888,6 +888,12 @@ phase 1, and
 is the implementation plan for that phase. Until phase 7, when Canadian Plans
 moves, the Canadian Plans repository takes bug fixes only.
 
+The remaining phases, 5 to 8, each have a hand-off page in
+[docs/superpowers/phases/](superpowers/phases/README.md): what the phase is
+for, what exists to build on, the decisions already taken, the questions for
+the owner, a task outline, how to ship and the working method. A new session
+told to start a phase reads that folder's README and the phase's page first.
+
 ### 5.1 Owner, before anything else
 
 **Backups first (merge phase 1).** The code, the three workflows and the
