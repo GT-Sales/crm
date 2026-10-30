@@ -58,9 +58,9 @@ import {
 import { todayDay } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
-import { BarButton, MenuItem, MenuLabel, MenuPanel, MenuSeparator } from '../crm/menu';
+import { FilterChip } from '../crm/filter-chip';
+import { MenuItem, MenuLabel, MenuPanel, MenuSeparator } from '../crm/menu';
 import { SidePanel } from '../crm/side-panel';
-import { FilterChip, ViewBar } from '../crm/view-bar';
 import { dollarsToCents } from '../properties/property-value';
 import { usePropertyModel } from '../properties/use-property-model';
 import {
@@ -87,6 +87,10 @@ import {
 } from './view-state';
 
 const SEARCH_DELAY_MS = 300;
+
+/** The outline toolbar buttons beside the filters: Add filter, Sort, Columns, View options. */
+const TOOLBAR_BUTTON = 'h-9 gap-1.5';
+const TOOLBAR_ICON = 'size-4 text-muted-foreground';
 
 function TabButton({
   active,
@@ -259,10 +263,12 @@ function splitSort(sort: string | undefined): { field?: string; direction?: 'asc
 }
 
 /**
- * The leads inbox: a tab per lead type the site has, the archive, a search,
- * stage and assignee, "Follow-ups due", then the view bar (Filter, Sort and
- * Columns over the site's own properties, active filters as chips) and a
- * table or (for one type) a board. Every choice is in the URL.
+ * The leads inbox: a tab per lead type the site has and the archive, with the
+ * saved-view switcher at the end of that row; one filter row (search, stage,
+ * assignee, Add filter, "Follow-ups due", then Sort, Columns or View options
+ * over the site's own properties); the active filters as chips under it while
+ * there are any; and a table or (for one type) a board. Every choice is in
+ * the URL.
  */
 export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const router = useRouter();
@@ -713,11 +719,11 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     canUseProperties && availableProperties.length > 0 && selectedProperty ? (
       <Popover open={filterOpen} onOpenChange={setFilterOpen}>
         <PopoverTrigger asChild>
-          <BarButton>
-            <FilterIcon aria-hidden="true" /> Filter
-          </BarButton>
+          <Button type="button" variant="outline" size="sm" className={TOOLBAR_BUTTON}>
+            <FilterIcon aria-hidden="true" className={TOOLBAR_ICON} /> Add filter
+          </Button>
         </PopoverTrigger>
-        <MenuPanel align="end" className="w-72 p-3">
+        <MenuPanel className="w-72 p-3">
           <form aria-label="Add filter" onSubmit={onSubmitFilter} className="flex flex-col gap-3">
             <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
               Property
@@ -876,9 +882,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const sortMenu = canSort ? (
     <Popover>
       <PopoverTrigger asChild>
-        <BarButton className={cn(query.sort && 'text-foreground')}>
-          <ArrowUpDownIcon aria-hidden="true" /> Sort
-        </BarButton>
+        <Button type="button" variant="outline" size="sm" className={TOOLBAR_BUTTON}>
+          <ArrowUpDownIcon aria-hidden="true" className={TOOLBAR_ICON} /> Sort
+        </Button>
       </PopoverTrigger>
       <MenuPanel align="end" className="max-h-96 overflow-y-auto">
         <MenuLabel>Sort by</MenuLabel>
@@ -924,9 +930,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const columnsMenu = onBoard ? null : (
     <Popover>
       <PopoverTrigger asChild>
-        <BarButton>
-          <Columns3Icon aria-hidden="true" /> Columns
-        </BarButton>
+        <Button type="button" variant="outline" size="sm" className={TOOLBAR_BUTTON}>
+          <Columns3Icon aria-hidden="true" className={TOOLBAR_ICON} /> Columns
+        </Button>
       </PopoverTrigger>
       <MenuPanel align="end" className="max-h-96 w-64 overflow-y-auto">
         <MenuLabel>Table columns</MenuLabel>
@@ -970,9 +976,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const boardOptions = onBoard ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <BarButton>
-          <SlidersHorizontalIcon aria-hidden="true" /> View options
-        </BarButton>
+        <Button type="button" variant="outline" size="sm" className={TOOLBAR_BUTTON}>
+          <SlidersHorizontalIcon aria-hidden="true" className={TOOLBAR_ICON} /> View options
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>Card fields</DropdownMenuLabel>
@@ -1105,60 +1111,75 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       </div>
 
-      <div
-        role="tablist"
-        aria-label="Lead types"
-        className="flex overflow-x-auto overflow-y-hidden border-b"
-      >
-        <TabButton
-          active={!query.type && !query.archived}
-          onClick={() =>
-            update({
-              type: undefined,
-              archived: false,
-              stage: undefined,
-              layout: 'table',
-              ...propertiesFor(undefined),
-            })
-          }
+      <div className="flex items-center gap-3 border-b">
+        <div
+          role="tablist"
+          aria-label="Lead types"
+          className="flex min-w-0 overflow-x-auto overflow-y-hidden"
         >
-          All leads <Count value={summary.data ? totalActive : undefined} />
-        </TabButton>
-        {types.map((entry) => (
           <TabButton
-            key={entry.leadType}
-            active={query.type === entry.leadType}
+            active={!query.type && !query.archived}
             onClick={() =>
               update({
-                type: entry.leadType,
+                type: undefined,
                 archived: false,
                 stage: undefined,
-                ...propertiesFor(entry.leadType),
-              })
-            }
-          >
-            {leadTypeLabel(entry.leadType)} <Count value={entry.total} />
-          </TabButton>
-        ))}
-        {(summary.data?.archived ?? 0) > 0 || query.archived ? (
-          <TabButton
-            active={query.archived}
-            onClick={() =>
-              update({
-                archived: true,
-                type: undefined,
-                stage: undefined,
-                where: undefined,
-                sort: undefined,
-                columns: undefined,
                 layout: 'table',
+                ...propertiesFor(undefined),
               })
             }
           >
-            <ArchiveIcon className="size-3.5" aria-hidden="true" /> Archive{' '}
-            <Count value={summary.data?.archived} />
+            All leads <Count value={summary.data ? totalActive : undefined} />
           </TabButton>
-        ) : null}
+          {types.map((entry) => (
+            <TabButton
+              key={entry.leadType}
+              active={query.type === entry.leadType}
+              onClick={() =>
+                update({
+                  type: entry.leadType,
+                  archived: false,
+                  stage: undefined,
+                  ...propertiesFor(entry.leadType),
+                })
+              }
+            >
+              {leadTypeLabel(entry.leadType)} <Count value={entry.total} />
+            </TabButton>
+          ))}
+          {(summary.data?.archived ?? 0) > 0 || query.archived ? (
+            <TabButton
+              active={query.archived}
+              onClick={() =>
+                update({
+                  archived: true,
+                  type: undefined,
+                  stage: undefined,
+                  where: undefined,
+                  sort: undefined,
+                  columns: undefined,
+                  layout: 'table',
+                })
+              }
+            >
+              <ArchiveIcon className="size-3.5" aria-hidden="true" /> Archive{' '}
+              <Count value={summary.data?.archived} />
+            </TabButton>
+          ) : null}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center">
+          <SavedViewSwitcher
+            views={views}
+            activeViewId={activeView?.id}
+            dirty={dirty}
+            total={viewTotal}
+            onSelect={selectView}
+            onSave={saveView}
+            onSaveAs={saveViewAs}
+            onRename={renameView}
+            onDelete={removeView}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -1216,6 +1237,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
               ))}
           </NativeSelect>
         </label>
+        {filterMenu}
         {/* "Who do I call today": shown while there is something due, or while on. */}
         {!query.archived && (followUpsDue > 0 || query.due) ? (
           <button
@@ -1242,33 +1264,33 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
             ) : null}
           </button>
         ) : null}
-      </div>
-
-      <ViewBar
-        switcher={
-          <SavedViewSwitcher
-            views={views}
-            activeViewId={activeView?.id}
-            dirty={dirty}
-            total={viewTotal}
-            onSelect={selectView}
-            onSave={saveView}
-            onSaveAs={saveViewAs}
-            onRename={renameView}
-            onDelete={removeView}
-          />
-        }
-        actions={
-          <>
-            {filterMenu}
+        {sortMenu || columnsMenu || boardOptions ? (
+          <div className="ml-auto flex items-center gap-2">
             {sortMenu}
             {columnsMenu}
             {boardOptions}
-          </>
-        }
-        chips={chips}
-        details={chips ? <BarButton onClick={clearAllFilters}>Clear filters</BarButton> : undefined}
-      />
+          </div>
+        ) : null}
+      </div>
+
+      {chips ? (
+        <div
+          role="region"
+          aria-label="Active filters"
+          className="flex flex-wrap items-center gap-2"
+        >
+          {chips}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={clearAllFilters}
+            className="h-7 px-2 text-xs"
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
 
       {summary.error ? (
         <p role="alert" className="text-sm text-muted-foreground">

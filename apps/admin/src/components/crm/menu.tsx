@@ -4,7 +4,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { cn, PopoverContent } from '@gt-sales/ui';
 
 /**
- * Small building blocks for the CRM's dropdown panels (filter, sort, options,
+ * Small building blocks for the CRM's dropdown panels (filter, sort, columns,
  * view switcher): 32px menu rows and 13px text on the shared Popover. Popovers
  * are used instead of menus so text and date inputs can live inside them.
  */
@@ -43,7 +43,7 @@ export function MenuSeparator() {
   return <div role="separator" className="-mx-1 my-1 h-px bg-border" />;
 }
 
-/** A quiet text button for the view bar ("Filter", "Sort", "Options", "Reset"). */
+/** A quiet text button: the saved-view switcher and its Save / Save as new view. */
 export function BarButton({ className, ...props }: ComponentProps<'button'>) {
   return (
     <button

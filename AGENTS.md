@@ -108,7 +108,7 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   contracts in `packages/contracts/src/plans.ts`.
 - Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,settings}`
   (Settings → Properties at `settings/properties`); lead screens in
-  `src/components/leads/`; the CRM view bar, menus, side panel and page header
+  `src/components/leads/`; the CRM filter chip, menus, side panel and page header
   in `src/components/crm/` (tokens in `src/app/crm-theme.css`); property
   rendering, editing and the settings screens in `src/components/properties/`;
   Settings → Plans in `src/components/plans/` (`settings/plans`, with plan

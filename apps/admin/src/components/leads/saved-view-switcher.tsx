@@ -158,7 +158,7 @@ function DeleteDialog({
 }
 
 /**
- * The view bar's left side: the active saved view (or "All leads") as a menu
+ * At the right end of the type tabs: the active saved view (or "All leads") as a menu
  * of the viewer's own views, and, while the list differs from the saved view,
  * a dirty dot with "Save" (the view itself) and "Save as new view".
  */

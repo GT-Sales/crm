@@ -166,7 +166,7 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Marco Rossi' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('button', { name: 'Add filter' }).click();
   await page.getByLabel('Property').selectOption('permitType');
   await page.getByLabel('Operator').selectOption('eq');
   await page.getByLabel('Value').selectOption('student');
@@ -259,7 +259,7 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   await page.keyboard.press('Escape');
 
   // Filter on the custom property: one row.
-  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('button', { name: 'Add filter' }).click();
   await page.getByLabel('Property').selectOption({ label: 'Referral code' });
   await page.getByLabel('Operator').selectOption('contains');
   await page.getByLabel('Value').fill('R-1');
@@ -407,7 +407,7 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   await expect(panel).toHaveCount(0);
 
   // Filter on Payment status = Paid: the one order.
-  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('button', { name: 'Add filter' }).click();
   await page.getByLabel('Property').selectOption('paymentStatus');
   await page.getByLabel('Operator').selectOption('eq');
   await page.getByLabel('Value').selectOption({ label: 'Paid' });

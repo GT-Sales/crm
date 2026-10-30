@@ -270,6 +270,44 @@ describe('LeadsInbox', () => {
     });
   });
 
+  it('lays out the toolbar: the view switcher ends the tabs row, outline buttons follow the filters', async () => {
+    navigation.search = 'type=internet';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const tablist = await screen.findByRole('tablist', { name: 'Lead types' });
+    // The saved-view switcher sits at the right end of the type tabs' row, outside the tablist.
+    const switcher = await screen.findByRole('button', { name: /^All leads/ });
+    expect(tablist.contains(switcher)).toBe(false);
+    expect(tablist.parentElement?.contains(switcher)).toBe(true);
+    expect(switcher.closest('.ml-auto')).toBeTruthy();
+
+    // One filter row: search, stage, assignee, Add filter, then Sort and Columns on the right.
+    const addFilter = await screen.findByRole('button', { name: 'Add filter' });
+    const row = addFilter.parentElement;
+    expect(row?.contains(screen.getByRole('searchbox'))).toBe(true);
+    expect(row?.contains(screen.getByLabelText('Assignee'))).toBe(true);
+    const sort = screen.getByRole('button', { name: 'Sort' });
+    const columns = screen.getByRole('button', { name: 'Columns' });
+    expect(sort.closest('.ml-auto')?.parentElement).toBe(row);
+    expect(columns.closest('.ml-auto')).toBe(sort.closest('.ml-auto'));
+    expect(screen.queryByRole('button', { name: 'View options' })).toBeNull();
+    // No chips row while nothing is filtered.
+    expect(screen.queryByRole('region', { name: 'Active filters' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull();
+  });
+
+  it('offers View options and no Columns on the board', async () => {
+    mocks.getLeadBoard.mockResolvedValue({
+      leadType: 'internet',
+      columns: [],
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = 'type=internet&layout=board';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    expect(await screen.findByRole('button', { name: 'View options' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Columns' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sort' })).toBeNull();
+  });
+
   it('opens the archive from ?archived=1, with no board and no trash in its words', async () => {
     navigation.search = 'archived=1';
     render(<LeadsInbox workspaceSlug="canadawide" />);
@@ -334,7 +372,7 @@ describe('LeadsInbox', () => {
     );
     navigation.search = 'type=sim_order';
     render(<LeadsInbox workspaceSlug="canadawide" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add filter' }));
     const propertySelect = await screen.findByLabelText('Property');
     const labels = Array.from(propertySelect.querySelectorAll('option')).map(
       (opt) => opt.textContent,
@@ -377,7 +415,7 @@ describe('LeadsInbox', () => {
       propertyModel(buildPropertyCatalog([], 'lead', { plans }).all, plans),
     );
     render(<LeadsInbox workspaceSlug="canadawide" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add filter' }));
     const propertySelect = await screen.findByLabelText('Property');
     await waitFor(() =>
       expect(propertySelect.querySelector('option[value="plan"]')).not.toBeNull(),
@@ -538,7 +576,7 @@ describe('LeadsInbox', () => {
   it('offers operators and value controls by kind, renders removable filter chips, and clears filters', async () => {
     navigation.search = 'type=sim_order&page=3';
     const view = render(<LeadsInbox workspaceSlug="canadawide" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add filter' }));
     const propertySelect = await screen.findByLabelText('Property');
 
     // Choice property: permitType offers eq, in, empty, notEmpty and a select of options.
@@ -586,6 +624,11 @@ describe('LeadsInbox', () => {
       name: 'Remove filter Visa / permit type',
     });
     expect(remove.parentElement?.textContent).toBe('Visa / permit type:is Study permit');
+    // The chips row appears under the filter row only while a filter is on.
+    const chipsRow = screen.getByRole('region', { name: 'Active filters' });
+    expect(chipsRow.contains(remove)).toBe(true);
+    expect(within(chipsRow).getByRole('button', { name: 'Clear filters' })).toBeTruthy();
+    expect(chipsRow.previousElementSibling?.contains(screen.getByRole('searchbox'))).toBe(true);
 
     fireEvent.click(remove);
     expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=sim_order', {
@@ -644,7 +687,7 @@ describe('LeadsInbox', () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
 
     await screen.findByRole('tab', { name: /Internet/ });
-    expect(screen.queryByRole('button', { name: 'Filter' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add filter' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Sort' })).toBeNull();
     // The table's own columns can still be hidden; property columns need contact access.
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
@@ -661,7 +704,7 @@ describe('LeadsInbox', () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     expect(mocks.getPropertyModel).toHaveBeenCalledWith('staff-token', WORKSPACE);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Filter' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add filter' }));
     const propertySelect = await screen.findByLabelText('Property');
     await waitFor(() =>
       expect(
