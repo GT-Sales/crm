@@ -68,11 +68,13 @@ class FakeLeadStore implements LeadStore {
       return {
         lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'submitted', updatedAt: NOW },
         grant: null,
+        replayed: false,
       };
     }
     return {
       lead: { id: LEAD_A, workspaceId: input.workspaceId, status: 'incomplete', updatedAt: NOW },
       grant: { token: VALID_GRANT_A, expiresAt: new Date(Date.now() + 60_000).toISOString() },
+      replayed: false,
     };
   }
 
