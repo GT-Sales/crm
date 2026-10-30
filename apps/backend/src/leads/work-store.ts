@@ -321,14 +321,22 @@ interface InsertedActivity {
   createdAt: Date;
 }
 
-/** Newly written timeline rows as entries, in the lead page's order: newest first, ties by id descending. */
+/** A newly written timeline row as an entry. */
+function insertedActivity(row: InsertedActivity): LeadActivity {
+  return toLeadActivity({ ...row, createdAt: row.createdAt.toISOString() });
+}
+
+/** Entries in the lead page's order: newest first, ties (one transaction's entries) by id descending. */
+function newestFirst(activities: readonly LeadActivity[]): LeadActivity[] {
+  return [...activities].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+}
+
+/** Newly written timeline rows as entries, in the lead page's order. */
 function insertedActivities(rows: readonly InsertedActivity[]): LeadActivity[] {
-  return rows
-    .map((row) => toLeadActivity({ ...row, createdAt: row.createdAt.toISOString() }))
-    .sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
-      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
-    });
+  return newestFirst(rows.map(insertedActivity));
 }
 
 const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
@@ -744,7 +752,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       // The rules of the stage entered, from the lead as just written; each
       // move is its own occurrence, so moving back and forth mails again.
       const statusChange = inserted.find((row) => row.kind === 'status_change');
-      const emailSkipped =
+      const fired =
         statusChange && set.stage !== undefined
           ? await runAutomations(tx, {
               workspaceId: input.workspaceId,
@@ -756,12 +764,14 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
               environment: this.emailEnvironment,
               store: this.automations,
             })
-          : [];
+          : { skipped: [], activities: [] };
+      const emailSkipped = fired.skipped;
 
       return {
         status: 'updated',
         lead: await requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
-        activities: insertedActivities(inserted),
+        // Every entry the change wrote, the rules' mails among them.
+        activities: newestFirst([...inserted.map(insertedActivity), ...fired.activities]),
         ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
       };
     });

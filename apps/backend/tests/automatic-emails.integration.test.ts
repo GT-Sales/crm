@@ -396,6 +396,17 @@ databaseTest('automation rules send customer emails', () => {
         },
       },
     ]);
+    // The move answers with every entry it wrote, the rule's mail among them,
+    // so the lead page shows it without a reload.
+    expect(outcome.activities).toContainEqual(
+      expect.objectContaining({
+        kind: 'system',
+        event: 'customer_emailed',
+        template: 'dispatched',
+        templateVersion: 1,
+        automation: 'sim_order_dispatched',
+      }),
+    );
     expect(await runs(leadId)).toEqual([
       {
         automationKey: 'sim_order_dispatched',
@@ -540,8 +551,19 @@ databaseTest('automation rules send customer emails', () => {
           store: automations,
         }),
       );
-    expect(await fire()).toEqual([]);
-    expect(await fire()).toEqual([]);
+    const first = await fire();
+    expect(first).toEqual({
+      skipped: [],
+      activities: [
+        expect.objectContaining({
+          kind: 'system',
+          event: 'customer_emailed',
+          automation: 'sim_order_cancelled',
+        }),
+      ],
+    });
+    // A dedupe hit writes no entry.
+    expect(await fire()).toEqual({ skipped: [], activities: [] });
     expect(await jobs(leadId)).toHaveLength(1);
     expect(await runs(leadId)).toHaveLength(1);
   });
