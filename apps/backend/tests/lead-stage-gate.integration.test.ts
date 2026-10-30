@@ -64,6 +64,8 @@ databaseTest('stage moves, their gates and the documents override', () => {
   let documents: DatabaseDocumentStore;
   let gatedPlan: Plan;
   let licencePlan: Plan;
+  let freePlan: Plan;
+  let passportPlan: Plan;
 
   const orderOf = (plan: Plan | null): LeadOrder => ({
     ...DEFAULT_LEAD_ORDER,
@@ -173,9 +175,26 @@ databaseTest('stage moves, their gates and the documents override', () => {
       ctx,
       planInput({ name: 'Licence plan', requiredDocuments: ['drivers_licence'] }),
     );
-    if (created.kind !== 'created' || licence.kind !== 'created') throw new Error('plans');
+    const free = await planStore.create(
+      ctx,
+      planInput({ name: 'Free plan', requiredDocuments: [] }),
+    );
+    const passport = await planStore.create(
+      ctx,
+      planInput({ name: 'Passport plan', requiredDocuments: ['passport'] }),
+    );
+    if (
+      created.kind !== 'created' ||
+      licence.kind !== 'created' ||
+      free.kind !== 'created' ||
+      passport.kind !== 'created'
+    ) {
+      throw new Error('plans');
+    }
     gatedPlan = created.plan;
     licencePlan = licence.plan;
+    freePlan = free.plan;
+    passportPlan = passport.plan;
   });
 
   afterAll(async () => {
@@ -229,6 +248,26 @@ databaseTest('stage moves, their gates and the documents override', () => {
       missing: ['passport'],
     });
     expect(await stageOf(leadId)).toBe('delivered');
+  });
+
+  it('checks the documents of the plan a move’s own edit gives the order', async () => {
+    const leadId = await insertLead('verified', orderOf(freePlan));
+    const before = await storedOrder(leadId);
+    expect(
+      await move(leadId, 'delivered', {
+        order: { planId: passportPlan.id, courier: 'Canada Post' },
+      }),
+    ).toEqual({ status: 'documents_incomplete', missing: ['passport'] });
+    expect(await stageOf(leadId)).toBe('verified');
+    expect(await storedOrder(leadId)).toEqual(before);
+    expect(await timeline(leadId)).toEqual([]);
+
+    // The other way: leaving a plan that needs documents for one that needs none.
+    const gated = await insertLead('verified', orderOf(gatedPlan));
+    expect(
+      await move(gated, 'delivered', { order: { planId: freePlan.id, courier: 'Canada Post' } }),
+    ).toMatchObject({ status: 'updated', lead: { stage: 'delivered' } });
+    expect(await storedOrder(gated)).toMatchObject({ planId: freePlan.id, courier: 'Canada Post' });
   });
 
   it('counts only a document’s latest review', async () => {
