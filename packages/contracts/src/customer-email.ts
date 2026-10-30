@@ -241,18 +241,10 @@ export type UpdateEmailSettingsRequestInput = z.input<typeof updateEmailSettings
 
 /**
  * `GET`/`PUT …/email/settings`. `settings` is null until the owner saves
- * them; `fallback` is then the sender configured for the deployment
- * (`EMAIL_SENDERS_JSON`), which mails use meanwhile, or null when there is none.
+ * them; until then the site sends no email to its customers.
  */
 export const emailSettingsResponseSchema = z.object({
   settings: emailSettingsSchema.nullable(),
-  fallback: z
-    .object({
-      fromName: z.string(),
-      fromAddress: z.email(),
-      siteUrl: z.url().nullable(),
-    })
-    .nullable(),
   requestId: requestIdSchema,
 });
 export type EmailSettingsResponse = z.infer<typeof emailSettingsResponseSchema>;

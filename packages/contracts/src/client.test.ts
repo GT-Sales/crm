@@ -164,7 +164,6 @@ describe('createBackendClient transport', () => {
         updatedAt: '2026-10-30T12:00:00.000Z',
         updatedBy: UUID,
       },
-      fallback: null,
       requestId: UUID,
     });
     await saved.client.staff.getEmailSettings(UUID);

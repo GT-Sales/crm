@@ -71,7 +71,7 @@ function fieldKeyOf(value: PropertyKey | undefined): FieldKey | undefined {
 
 type Values = Record<FieldKey, string>;
 
-function initialValues({ settings, fallback }: EmailSettingsResponse): Values {
+function initialValues({ settings }: EmailSettingsResponse): Values {
   if (settings) {
     return {
       fromName: settings.fromName,
@@ -84,13 +84,13 @@ function initialValues({ settings, fallback }: EmailSettingsResponse): Values {
     };
   }
   return {
-    fromName: fallback?.fromName ?? '',
-    fromAddress: fallback?.fromAddress ?? '',
+    fromName: '',
+    fromAddress: '',
     replyTo: '',
     logoUrl: '',
     brandColor: DEFAULT_EMAIL_BRAND_COLOR,
     footerText: '',
-    siteUrl: fallback?.siteUrl ?? '',
+    siteUrl: '',
   };
 }
 
@@ -168,9 +168,7 @@ export function EmailSettings({
       </h2>
       {initial.settings === null ? (
         <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-          {initial.fallback
-            ? `Not saved yet: mail goes out as ${initial.fallback.fromName} <${initial.fallback.fromAddress}> from the server's configuration.`
-            : 'Not saved yet: there is no sender, so no email goes out until these are saved.'}
+          Not saved yet: this site sends no email until you save these settings.
         </p>
       ) : null}
       <fieldset disabled={readOnly || busy} className="grid gap-4 md:grid-cols-2">

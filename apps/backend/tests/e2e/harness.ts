@@ -68,11 +68,9 @@ try {
   process.exit(1);
 }
 
-// Customer email through the fake provider; the site's saved settings are its
-// sender, never an EMAIL_SENDERS_JSON fallback from the shell running this.
+// Customer email through the fake provider; the site's saved settings are its sender.
 process.env['EMAIL_PROVIDER'] ??= 'fake';
 process.env['EMAIL_CONTACT_HASH_SECRET'] ??= 'e2e-email-contact-hash-secret-0123';
-delete process.env['EMAIL_SENDERS_JSON'];
 
 const internetPayload = (planLabel: string, city: string) => ({
   planId: 'ab-1gbps',

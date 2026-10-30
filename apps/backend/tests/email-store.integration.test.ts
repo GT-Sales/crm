@@ -388,7 +388,7 @@ describe.skipIf(!migrationUrl)('email persistence with restricted runtime RLS', 
     expect(rows.find((row) => row.message_id === versioned)?.template_version).toBe(2);
     expect(rows.find((row) => row.message_id === plain)?.template_version).toBeNull();
   });
-  it('sends a queued customer mail from its own sender with no EMAIL_SENDERS_JSON entry and records its version', async () => {
+  it('sends a queued customer mail from its own sender and records its version', async () => {
     const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'customer-mail-id' }));
     vi.stubGlobal('fetch', send);
     try {

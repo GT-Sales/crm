@@ -54,7 +54,7 @@ export async function composeCustomerEmail(
   input: { workspaceId: string; template: CustomerEmailTemplate; recipient: ComposeRecipient },
 ): Promise<ComposeOutcome> {
   if (!environment.providerReady) return { kind: 'skipped', reason: 'no_sender' };
-  const site = await resolveSiteSender(tx, environment, input.workspaceId);
+  const site = await resolveSiteSender(tx, input.workspaceId);
   if (!site) return { kind: 'skipped', reason: 'no_sender' };
 
   const { recipient } = input;

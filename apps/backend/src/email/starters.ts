@@ -5,9 +5,8 @@ import type { CustomerEmailTemplate } from '@gt-sales/contracts';
  * (version 0 in Settings → Email). Plain and short, and each uses only the
  * fill-ins an order nearly always has, since a missing value blocks the send:
  * `dispatched` alone needs the dispatch details and the site's address.
- * `sim_number_ready` keeps the words of the mail the adapters sent before
- * phase 4 (`renderSimNumberReady`), with only `{first name}` and
- * `{SIM number}`.
+ * `sim_number_ready` keeps the words of the built-in mail the adapters sent
+ * before phase 4, with only `{first name}` and `{SIM number}`.
  */
 export const STARTER_TEMPLATES: Readonly<
   Record<CustomerEmailTemplate, { subject: string; body: string }>

@@ -8,7 +8,6 @@ import {
   type OutboxStore,
 } from '@gt-sales/jobs';
 
-import { loadEmailSenders } from '../src/email/senders.js';
 import {
   createOutboxJobHandlers,
   loadUmamiAnalyticsSink,
@@ -114,108 +113,32 @@ describe('outbox provider configuration', () => {
   });
 });
 
-describe('a lead’s SIM number mail', () => {
-  const simJob = (payload: unknown) =>
-    job({
-      jobType: 'lead_sim_number_email',
-      payload,
-    });
-  const payload = {
-    leadId: '33333333-3333-4333-8333-333333333333',
-    reference: 'MS-101',
-    toAddress: 'customer@example.com',
-    contactHash: 'hash-1',
-    variables: { simNumber: '+1 778-555-0142', firstName: 'Arjun' },
-  };
-
-  it('checks suppression for the lead, records the send and delivers it', async () => {
-    const checked: unknown[] = [];
-    const prepared: unknown[] = [];
+describe('the old SIM number job', () => {
+  it('is gone: no handler for lead_sim_number_email', () => {
     const handlers = createOutboxJobHandlers(
       { EMAIL_PROVIDER: 'fake', NODE_ENV: 'test' },
-      {
-        checkTransactional: async (input) => {
-          checked.push(input);
-          return { eligible: true };
-        },
-        checkMarketing: async () => ({ eligible: false }),
-      },
-      {
-        prepare: async (input) => {
-          prepared.push(input);
-        },
-        recordResult: async () => {},
-      },
+      alwaysEligible,
     );
-    expect(await handlers.get('lead_sim_number_email')?.(simJob(payload))).toMatchObject({
-      status: 'completed',
-    });
-    expect(checked).toEqual([
-      expect.objectContaining({ leadId: payload.leadId, contactHash: 'hash-1' }),
-    ]);
-    expect(prepared).toEqual([
-      expect.objectContaining({
-        template: 'sim_number_ready',
-        messageClass: 'transactional',
-        leadId: payload.leadId,
-      }),
-    ]);
+    expect(handlers.has('lead_sim_number_email')).toBe(false);
+  });
+});
+
+describe('the Resend account a site’s mail is recorded against', () => {
+  const env = { RESEND_ACCOUNT_ID: 'gt-sales-resend' };
+  const noWebhook = { resendForWorkspace: () => undefined };
+
+  it('is the registry’s account, else RESEND_ACCOUNT_ID', () => {
+    expect(resendAccountForWorkspace(env, noWebhook, WORKSPACE)).toBe('gt-sales-resend');
+    expect(resendAccountForWorkspace(env, undefined, WORKSPACE)).toBe('gt-sales-resend');
+    const sameAccount = { resendForWorkspace: () => ({ providerAccount: 'gt-sales-resend' }) };
+    expect(resendAccountForWorkspace(env, sameAccount, WORKSPACE)).toBe('gt-sales-resend');
   });
 
-  it('skips a suppressed address and refuses a malformed job', async () => {
-    const handlers = createOutboxJobHandlers(
-      { EMAIL_PROVIDER: 'fake', NODE_ENV: 'test' },
-      {
-        checkTransactional: async () => ({ eligible: false, reason: 'hard_bounce' }),
-        checkMarketing: async () => ({ eligible: false }),
-      },
-    );
-    expect(await handlers.get('lead_sim_number_email')?.(simJob(payload))).toEqual({
-      status: 'completed',
-      providerId: 'skipped:hard_bounce',
-    });
-    await expect(
-      handlers.get('lead_sim_number_email')?.(simJob({ ...payload, toAddress: 'nope' })),
-    ).rejects.toMatchObject({ code: 'invalid_job_payload', retryable: false });
-  });
-
-  it('records a site’s mail against the one Resend account, never another', () => {
-    const GCS = '10000000-0000-4000-8000-0000000c0001';
-    const senders = loadEmailSenders({
-      EMAIL_SENDERS_JSON: JSON.stringify([
-        { workspaceId: GCS, fromAddress: 'order@getcanadasim.example', fromName: 'Get Canada Sim' },
-      ]),
-    });
-    const env = { RESEND_ACCOUNT_ID: 'gt-sales-resend' };
-    const noWebhook = { resendForWorkspace: () => undefined };
-    expect(resendAccountForWorkspace(env, noWebhook, senders, GCS)).toBe('gt-sales-resend');
-    // No sender and no webhook: nothing to send from.
-    expect(resendAccountForWorkspace(env, noWebhook, senders, WORKSPACE)).toBeUndefined();
+  it('is never another account, and none without RESEND_ACCOUNT_ID', () => {
     // A webhook from another account is a misconfiguration, not a fallback.
     const otherAccount = { resendForWorkspace: () => ({ providerAccount: 'someone-else' }) };
-    expect(resendAccountForWorkspace(env, otherAccount, senders, GCS)).toBeUndefined();
-    const sameAccount = { resendForWorkspace: () => ({ providerAccount: 'gt-sales-resend' }) };
-    expect(resendAccountForWorkspace(env, sameAccount, senders, WORKSPACE)).toBe('gt-sales-resend');
-    expect(resendAccountForWorkspace({}, noWebhook, senders, GCS)).toBeUndefined();
-  });
-
-  it('lets a site mail from the payload’s sender with no entry in EMAIL_SENDERS_JSON', () => {
-    const senders = loadEmailSenders({});
-    const env = { RESEND_ACCOUNT_ID: 'gt-sales-resend' };
-    const noWebhook = { resendForWorkspace: () => undefined };
-    // The deployment's sender list is not consulted for a site sender.
-    expect(resendAccountForWorkspace(env, noWebhook, senders, WORKSPACE)).toBeUndefined();
-    expect(resendAccountForWorkspace(env, noWebhook, senders, WORKSPACE, true)).toBe(
-      'gt-sales-resend',
-    );
-    // The registry's account still wins, and must still be the configured one.
-    const sameAccount = { resendForWorkspace: () => ({ providerAccount: 'gt-sales-resend' }) };
-    expect(resendAccountForWorkspace(env, sameAccount, senders, WORKSPACE, true)).toBe(
-      'gt-sales-resend',
-    );
-    const otherAccount = { resendForWorkspace: () => ({ providerAccount: 'someone-else' }) };
-    expect(resendAccountForWorkspace(env, otherAccount, senders, WORKSPACE, true)).toBeUndefined();
-    expect(resendAccountForWorkspace({}, noWebhook, senders, WORKSPACE, true)).toBeUndefined();
+    expect(resendAccountForWorkspace(env, otherAccount, WORKSPACE)).toBeUndefined();
+    expect(resendAccountForWorkspace({}, noWebhook, WORKSPACE)).toBeUndefined();
   });
 });
 

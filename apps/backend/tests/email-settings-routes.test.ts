@@ -130,17 +130,10 @@ function memoryEmailStore() {
 const environment: CustomerEmailEnvironment = {
   providerReady: true,
   contactHash: () => 'hash',
-  fallbackSenders: { forWorkspace: () => undefined },
 };
 
-function customerEmailWith(
-  fallback: ReturnType<CustomerEmail['fallback']> = undefined,
-): CustomerEmail {
-  return {
-    environment,
-    available: async () => true,
-    fallback: () => fallback,
-  };
+function customerEmailWith(): CustomerEmail {
+  return { environment, available: async () => true };
 }
 
 // Compose and queue are mocked, so the transaction is only passed through.
@@ -275,25 +268,11 @@ describe('staff email settings routes', () => {
     expect(emails.putSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('GET settings is null with the deployment sender until the owner saves', async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await start(
-      customerEmailWith({
-        fromName: 'Env Sender',
-        fromAddress: 'env@example.test',
-        siteUrl: 'https://env.example',
-      }),
-    );
+  it('GET settings is null until the owner saves, with no fallback sender', async () => {
     emails.getSettings.mockResolvedValue(undefined);
-    const body = emailSettingsResponseSchema.parse(
-      await (await call(emailUrl('/settings'))).json(),
-    );
-    expect(body.settings).toBeNull();
-    expect(body.fallback).toEqual({
-      fromName: 'Env Sender',
-      fromAddress: 'env@example.test',
-      siteUrl: 'https://env.example',
-    });
+    const raw: unknown = await (await call(emailUrl('/settings'))).json();
+    expect(raw).not.toHaveProperty('fallback');
+    expect(emailSettingsResponseSchema.parse(raw).settings).toBeNull();
   });
 
   it('GET templates returns the seven as the store has them', async () => {
@@ -409,7 +388,7 @@ describe('staff email settings routes', () => {
     expect(emails.putTemplate).not.toHaveBeenCalled();
   });
 
-  it('preview brands from the deployment sender, else "Your site"', async () => {
+  it('preview brands an unsaved site as "Your site"', async () => {
     emails.getSettings.mockResolvedValue(undefined);
     const plain = await call(emailUrl('/templates/order_received/preview'), {
       method: 'POST',
@@ -417,17 +396,6 @@ describe('staff email settings routes', () => {
     });
     expect(previewEmailTemplateResponseSchema.parse(await plain.json()).text).toContain(
       'Welcome to Your site',
-    );
-
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await start(customerEmailWith({ fromName: 'Env Sender', fromAddress: 'env@example.test' }));
-    emails.getSettings.mockResolvedValue(undefined);
-    const env = await call(emailUrl('/templates/order_received/preview'), {
-      method: 'POST',
-      body: { subject: 'Hi', body: 'Welcome to {site name}' },
-    });
-    expect(previewEmailTemplateResponseSchema.parse(await env.json()).text).toContain(
-      'Welcome to Env Sender',
     );
   });
 

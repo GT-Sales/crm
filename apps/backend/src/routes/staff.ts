@@ -180,17 +180,15 @@ const unconfiguredEmailSettingsStore: EmailSettingsStore = {
   listTemplates: () => notConfigured('email settings store'),
   putTemplate: () => notConfigured('email settings store'),
 };
-/** A deployment with no customer mail: no provider, no fallback sender, so no site can send. */
+/** A deployment with no customer mail: no provider, so no site can send. */
 const unconfiguredCustomerEmail: CustomerEmail = {
   environment: {
     providerReady: false,
     contactHash: () => {
       throw new Error('customer email is not configured');
     },
-    fallbackSenders: { forWorkspace: () => undefined },
   },
   available: async () => false,
-  fallback: () => undefined,
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 

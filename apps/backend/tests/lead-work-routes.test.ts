@@ -339,14 +339,8 @@ beforeEach(async () => {
         environment: {
           providerReady: true,
           contactHash: (email) => `hash:${email}`,
-          fallbackSenders: { forWorkspace: () => undefined },
         },
         available: async ({ workspaceId }) => mailReady && workspaceId === WORKSPACE,
-        fallback: () => ({
-          fromAddress: 'order@site.example',
-          fromName: 'The Site',
-          siteUrl: 'https://site.example',
-        }),
       },
     },
   }).listen(0);

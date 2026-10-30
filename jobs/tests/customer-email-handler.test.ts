@@ -84,8 +84,20 @@ function setup(eligible: { eligible: boolean; reason?: string } = { eligible: tr
 describe('lead_customer_email', () => {
   it('is an outbox job type', () => {
     expect(outboxJobTypes).toContain('lead_customer_email');
-    // Jobs queued before the pre-rendered mail existed still run.
-    expect(outboxJobTypes).toContain('lead_sim_number_email');
+    // The SIM number mail is a site template now; its old job type is gone.
+    expect(outboxJobTypes).not.toContain('lead_sim_number_email');
+  });
+
+  it('has no handler for the old SIM number job', () => {
+    const handlers = createJobHandlerRegistry({
+      email: { send: async () => ({ status: 'delivered', providerId: 'p' }) },
+      analytics: { capture: async () => ({ status: 'delivered', providerId: 'a' }) },
+      eligibility: {
+        checkTransactional: async () => ({ eligible: true }),
+        checkMarketing: async () => ({ eligible: false }),
+      },
+    });
+    expect(handlers.has('lead_sim_number_email')).toBe(false);
   });
 
   it('sends exactly the rendered message from the payload’s sender and records its version', async () => {
@@ -106,7 +118,6 @@ describe('lead_customer_email', () => {
         messageClass: 'transactional',
         contactHash: 'hash-1',
         leadId: LEAD,
-        siteSender: true,
       },
     ]);
     expect(sent).toEqual([
