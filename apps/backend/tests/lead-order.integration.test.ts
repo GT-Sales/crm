@@ -740,6 +740,9 @@ databaseTest('order details on leads', () => {
         L3,
         L_LEGACY,
       ]);
+      // Across every type too: the contact message has no order, so no empty plan either.
+      expect(await ids({ where: [{ key: 'plan', op: 'empty' }] })).toEqual([L2, L3, L_LEGACY]);
+      expect(await ids({ where: [{ key: 'quantity', op: 'empty' }] })).toEqual([]);
       expect(await ids({ ...simOnly, where: [{ key: 'quantity', op: 'gte', value: 2 }] })).toEqual([
         L1,
         L3,
