@@ -43,6 +43,7 @@ import {
 import { orderLeadTypes } from '@gt-sales/types';
 import { z } from 'zod';
 
+import { LATEST_REVIEW, currentLeadDocuments } from './documents-check.js';
 import { toLeadOrder } from './order.js';
 import { deriveSource } from './source.js';
 
@@ -1180,18 +1181,15 @@ export async function selectLeadWithWork(
           'contentType', f.detected_mime,
           'sizeBytes', f.size_bytes,
           'revision', f.revision,
-          'createdAt', ${iso('f.created_at')}
+          'createdAt', ${iso('f.created_at')},
+          'review', case when review.decision is null then null else json_build_object(
+            'decision', review.decision,
+            'at', ${iso('review.created_at')}
+          ) end
         ) order by f.created_at, f.id), '[]'::json)
         from app.files f
-        where f.workspace_id = l.workspace_id
-          and f.record_type = 'lead'
-          and f.record_id = l.id
-          and f.status = 'available'
-          and f.superseded_by_file_id is null
-          and not exists (
-            select 1 from app.lead_identities i
-            where i.workspace_id = f.workspace_id and i.file_id = f.id
-          )
+        ${LATEST_REVIEW}
+        where ${currentLeadDocuments(sql`l.workspace_id`, sql`l.id`)}
       ) as documents
     from app.leads l
     ${OPEN_TASK_SUMMARY}

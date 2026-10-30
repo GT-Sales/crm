@@ -559,10 +559,11 @@ databaseTest('order details on leads', () => {
         await work.updateLead({ ...scope, order: { quantity: 4, paymentStatus: 'paid' } }),
       ).toMatchObject({ status: 'updated', activities: [] });
 
-      // An inactive plan, or one of another type, is refused as the plan field.
+      // An inactive plan, or one of another type, is refused as the plan field,
+      // and the allowed move sent with it is not made.
       for (const planId of [simInactive.id, internetPlan.id, foreignPlan.id]) {
         expect(
-          await work.updateLead({ ...scope, stage: 'verified', order: { planId, quantity: 9 } }),
+          await work.updateLead({ ...scope, stage: 'pending', order: { planId, quantity: 9 } }),
         ).toEqual({ status: 'invalid_field', field: 'plan' });
       }
       expect(await orderDetails(leadId)).toMatchObject({ planId: simFree.id, quantity: 4 });

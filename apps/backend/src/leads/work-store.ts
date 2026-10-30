@@ -40,7 +40,9 @@ import {
 
 import { draftCustomerEmail } from '../email/customer-emails.js';
 import { loadPlanForFreeze } from '../plans/store.js';
+import { findMissingDocuments } from './documents-check.js';
 import { isPlanAvailable, toLeadOrder } from './order.js';
+import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
 import {
   iso,
   selectLeadBoard,
@@ -77,7 +79,13 @@ export type UpdateLeadWorkOutcome =
   | { status: 'updated'; lead: LeadDetail; activities: LeadActivity[] }
   | { status: 'not_found' | 'trashed' | 'invalid_stage' | 'assignee_not_found' }
   /** A form correction the type does not allow; names the field, never the value. */
-  | { status: 'invalid_field'; field: string };
+  | { status: 'invalid_field'; field: string }
+  /** A move the type does not allow, or one whose dispatch or activation details are missing. */
+  | StageMoveRefusal
+  /** The required documents of the order's plan that have no approved current file. */
+  | { status: 'documents_incomplete'; missing: string[] }
+  /** An override reason was given but is blank. */
+  | { status: 'document_override_reason_required' };
 
 export type ArchiveLeadOutcome =
   | { status: 'changed' | 'unchanged'; lead: LeadDetail; activity: LeadActivity | null }
@@ -118,6 +126,12 @@ export interface UpdateLeadWorkInput extends WriteScope {
   catalog: PropertyCatalog;
   /** Order details of an order lead type: a new `planId` re-freezes the plan, null clears it. */
   order?: LeadOrderEdit;
+  /**
+   * Why the stage move goes ahead without the plan's documents approved. The
+   * route admits it only from an actor with `order.override`; the store
+   * trusts it. Ignored when nothing is missing.
+   */
+  documentsOverrideReason?: string;
 }
 
 export interface CreateTaskInput extends WriteScope {
@@ -338,11 +352,22 @@ function sameSnapshot(a: PlanSnapshot | null, b: PlanSnapshot | null): boolean {
   return canonicalJson({ ...a, frozenAt: '' }) === canonicalJson({ ...b, frozenAt: '' });
 }
 
+/** The dispatch and activation details: text or a date each, null clears one. */
+const ORDER_DETAIL_FIELDS = [
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
+] as const;
+
 /**
  * Staff's change to a lead's order: a new plan is frozen from the site's
  * current plan (it must be active and of the lead's type, else the `plan`
- * field is refused), null clears the link and the copy, and the quantity and
- * the two statuses are set as given. Names the changed catalogue keys.
+ * field is refused), null clears the link and the copy, and the quantity, the
+ * two statuses and the dispatch and activation details are set as given.
+ * Names the changed catalogue keys.
  * Only the changed fields are written over the stored object: a key the
  * parse does not know, or a stored value it cannot read, survives an
  * unrelated edit, and so does the frozen copy while the plan stays the same.
@@ -384,6 +409,13 @@ async function editOrder(
   ) {
     next.carrierCommission = edit.carrierCommission;
     changed.add('carrierCommission');
+  }
+  for (const field of ORDER_DETAIL_FIELDS) {
+    const value = edit[field];
+    if (value !== undefined && value !== current[field]) {
+      next[field] = value;
+      changed.add(field);
+    }
   }
   // Each changed field under its stored name (`ORDER_STORAGE_KEYS`: `plan` is
   // `planId`); a new plan writes its frozen copy with it. A re-freeze of the
@@ -469,8 +501,36 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       const before: Record<string, unknown> = {};
       const after: Record<string, unknown> = {};
 
+      // The order edit to write: the one given, with the dates a move defaults.
+      let orderEdit = input.order;
+      let override: { reason: string; missing: string[] } | undefined;
       if (input.stage !== undefined && input.stage !== lead.stage) {
         if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
+        const current = toLeadOrder(lead.orderDetails);
+        const move = planStageMove({
+          leadType: lead.leadType,
+          from: lead.stage,
+          to: input.stage,
+          current,
+          edit: input.order,
+          today: todayInToronto(new Date()),
+        });
+        if (!move.ok) return move.refusal;
+        const reason = input.documentsOverrideReason?.trim();
+        if (reason === '') return { status: 'document_override_reason_required' };
+        if (move.gates.includes('documents')) {
+          // What the frozen plan requires; no plan, or a plan from before the field, requires nothing.
+          const missing = await findMissingDocuments(tx, {
+            workspaceId: input.workspaceId,
+            leadId: input.leadId,
+            required: current.plan?.requiredDocuments ?? [],
+          });
+          if (missing.length > 0) {
+            if (reason === undefined) return { status: 'documents_incomplete', missing };
+            override = { reason, missing };
+          }
+        }
+        orderEdit = move.order;
         set.stage = input.stage;
         entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
         before['stage'] = lead.stage;
@@ -559,15 +619,26 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       }
 
       const changedOrder: string[] = [];
-      if (input.order) {
-        const edit = await editOrder(tx, input.workspaceId, lead, input.order);
+      let storedOrder: Record<string, unknown> | undefined;
+      if (orderEdit) {
+        const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
         if (!edit.ok) return { status: 'invalid_field', field: edit.field };
         if (edit.changedKeys.length > 0) {
-          set.orderDetails = edit.stored;
+          storedOrder = edit.stored;
           changedOrder.push(...edit.changedKeys);
-          before['order'] = lead.orderDetails;
-          after['order'] = edit.stored;
         }
+      }
+      if (override) {
+        // Only a move that actually went past missing documents records an override.
+        storedOrder = {
+          ...(storedOrder ?? storedObject(lead.orderDetails)),
+          documentsOverride: { ...override, at: new Date().toISOString() },
+        };
+      }
+      if (storedOrder) {
+        set.orderDetails = storedOrder;
+        before['order'] = lead.orderDetails;
+        after['order'] = storedOrder;
       }
 
       // One entry for the whole correction, naming the fields (built-in, custom and order) and never their values.
@@ -575,6 +646,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       if (changedFields.length > 0) {
         entries.push({ kind: 'edit', data: { fields: changedFields } });
         after['changedFields'] = changedFields;
+      }
+      if (override) {
+        entries.push({
+          kind: 'system',
+          data: { event: 'documents_override', missing: override.missing, reason: override.reason },
+        });
       }
 
       if (entries.length === 0) {
@@ -612,6 +689,23 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         before,
         after,
       });
+      if (override) {
+        await tx.insert(auditEvents).values({
+          workspaceId: input.workspaceId,
+          actorId: input.actorId,
+          actorLabel: 'staff actor',
+          action: 'lead.documents_overridden',
+          entity: 'lead',
+          entityId: input.leadId,
+          requestId: input.requestId,
+          after: {
+            from: lead.stage,
+            to: input.stage,
+            missing: override.missing,
+            reason: override.reason,
+          },
+        });
+      }
 
       return {
         status: 'updated',
