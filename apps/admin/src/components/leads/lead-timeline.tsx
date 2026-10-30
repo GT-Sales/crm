@@ -81,17 +81,6 @@ export function pendingChangeRequest(
   );
 }
 
-/**
- * What a system entry says in words, when it says anything: a data migration
- * (the phase 3 stage clean-up) records what it changed as `body`.
- */
-function systemBody(activity: LeadActivity): string | undefined {
-  if (activity.kind !== 'system' || !('body' in activity)) return undefined;
-  return typeof activity.body === 'string' && activity.body.trim() !== ''
-    ? activity.body
-    : undefined;
-}
-
 function personName(actorId: string | null, members: readonly AssignableMember[]): string {
   if (actorId === null) return 'nobody';
   const member = members.find((entry) => entry.actorId === actorId);
@@ -263,7 +252,8 @@ export function LeadTimeline({
           )
           .map((activity) => {
             const { icon, text } = describe(activity, lead.leadType, members, catalog);
-            const body = systemBody(activity);
+            // A data migration (the 0012 stage clean-up) says in words what it changed.
+            const body = activity.kind === 'system' ? activity.body : undefined;
             return (
               <li key={activity.id} className="relative flex gap-3 pb-5 last:pb-0">
                 <span

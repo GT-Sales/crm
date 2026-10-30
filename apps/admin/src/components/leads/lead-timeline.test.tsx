@@ -115,10 +115,12 @@ describe('LeadTimeline', () => {
 
   it('shows what a data migration changed, in its own words', () => {
     // The body a migration entry carries (the phase 3 stage clean-up).
-    const migrated = entry('3', {
-      actorId: MIGRATION,
-      body: 'Stage Paid became Pending; payment status set to Paid (phase 3 migration)',
-    });
+    const migrated = leadActivitySchema.parse(
+      entry('3', {
+        actorId: MIGRATION,
+        body: 'Stage Paid became Pending; payment status set to Paid (phase 3 migration)',
+      }),
+    );
     const region = timeline([migrated]);
     expect(
       within(region).getByText(
