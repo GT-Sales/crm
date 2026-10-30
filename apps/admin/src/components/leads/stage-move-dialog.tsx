@@ -72,11 +72,14 @@ export function emailSkippedText(skipped: EmailSkipped): string {
   }
 }
 
-/** The trimmed value, left out when blank: an empty field changes nothing. */
+/** The trimmed value, or `undefined` when blank. */
 function filled(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed === '' ? undefined : trimmed;
 }
+
+/** For staff who see no list of the documents the check found missing. */
+const APPROVE_REQUIRED_DOCUMENTS = 'Approve the required documents first.';
 
 /**
  * The move into a stage that asks for details first (`stageGates`): the
@@ -136,10 +139,12 @@ export function StageMoveDialog({
         ['activationAccount', activationAccount],
       );
     }
+    // A blank field the order had a value for clears it; one it had none for changes nothing.
     const edit: OrderEdit = {};
     for (const [key, value] of fields) {
       const kept = filled(value);
       if (kept !== undefined) edit[key] = kept;
+      else if (order?.[key]) edit[key] = null;
     }
     return Object.keys(edit).length > 0 ? edit : undefined;
   }
@@ -189,7 +194,8 @@ export function StageMoveDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onCancel();
+        // A move on its way may already have emailed the customer: it finishes first.
+        if (!open && !busy) onCancel();
       }}
     >
       <DialogContent>
@@ -262,7 +268,11 @@ export function StageMoveDialog({
               role="status"
               className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
             >
-              <p>Missing approved documents: {missing.map(documentTypeLabel).join(', ')}</p>
+              <p>
+                {missing.length > 0
+                  ? `Missing approved documents: ${missing.map(documentTypeLabel).join(', ')}`
+                  : APPROVE_REQUIRED_DOCUMENTS}
+              </p>
               {canOverride ? null : <p>{APPROVE_DOCUMENTS_FIRST}</p>}
             </div>
           ) : null}
@@ -283,7 +293,7 @@ export function StageMoveDialog({
             </p>
           ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onCancel}>
+            <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy}>
