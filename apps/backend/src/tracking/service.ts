@@ -1,11 +1,11 @@
 import { TRACKING_CODE_TTL_MS, type TrackingOrder } from '@gt-sales/contracts';
 
 import { sealTrackingCode } from '../crypto/cipher.js';
-import { normalizeContactEmail } from '../leads/store.js';
 import {
   codeBindingHash,
   emailBindingHash,
   generateTrackingCode,
+  normalizeTrackingEmail,
   signTrackingGrant,
   verifyTrackingGrant,
   type TrackingGrantIdentity,
@@ -54,7 +54,7 @@ export class TrackingService {
     if (secret === undefined) return;
 
     const scope = { workspaceId: input.workspaceId, actorId: input.actorId };
-    const normalizedEmail = normalizeContactEmail(input.email);
+    const normalizedEmail = normalizeTrackingEmail(input.email);
     if (!(await this.dependencies.store.hasTrackableLeads({ ...scope, normalizedEmail }))) return;
 
     const code = generateTrackingCode();
@@ -80,7 +80,7 @@ export class TrackingService {
     const secret = this.dependencies.secret;
     if (secret === undefined) return { status: 'not_found' };
 
-    const normalizedEmail = normalizeContactEmail(input.email);
+    const normalizedEmail = normalizeTrackingEmail(input.email);
     const outcome = await this.dependencies.store.consume({
       workspaceId: input.workspaceId,
       actorId: input.actorId,

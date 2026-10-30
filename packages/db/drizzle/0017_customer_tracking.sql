@@ -17,7 +17,7 @@ CREATE TABLE "app"."change_requests" (
 	CONSTRAINT "change_requests_request_no_check" CHECK ("app"."change_requests"."request_no" > 0),
 	CONSTRAINT "change_requests_status_check" CHECK ("app"."change_requests"."status" in ('pending', 'approved', 'rejected')),
 	CONSTRAINT "change_requests_version_check" CHECK ("app"."change_requests"."version" > 0),
-	CONSTRAINT "change_requests_resolved_check" CHECK (("app"."change_requests"."status" = 'pending') = ("app"."change_requests"."resolved_at" is null and "app"."change_requests"."resolved_by" is null))
+	CONSTRAINT "change_requests_resolved_check" CHECK (("app"."change_requests"."status" = 'pending') = ("app"."change_requests"."resolved_at" is null) and ("app"."change_requests"."resolved_at" is null) = ("app"."change_requests"."resolved_by" is null))
 );
 --> statement-breakpoint
 ALTER TABLE "app"."change_requests" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -49,6 +49,7 @@ ALTER TABLE "app"."tracking_challenges" ADD CONSTRAINT "tracking_challenges_work
 CREATE UNIQUE INDEX "change_requests_one_pending" ON "app"."change_requests" USING btree ("workspace_id","lead_id") WHERE "app"."change_requests"."status" = 'pending';--> statement-breakpoint
 CREATE INDEX "change_requests_workspace_lead_created_idx" ON "app"."change_requests" USING btree ("workspace_id","lead_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "tracking_challenges_workspace_email_idx" ON "app"."tracking_challenges" USING btree ("workspace_id","email_hash","status","created_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "leads_workspace_email_idx" ON "app"."leads" USING btree ("workspace_id",lower(btrim("email")));--> statement-breakpoint
 ALTER TABLE "app"."email_template_versions" ADD CONSTRAINT "email_template_versions_key_check" CHECK ("app"."email_template_versions"."key" in ('tracking_code', 'order_received', 'information_needed', 'dispatched', 'activated', 'cancelled', 'sim_number_ready', 'change_approved', 'change_rejected'));--> statement-breakpoint
 ALTER TABLE "app"."email_templates" ADD CONSTRAINT "email_templates_key_check" CHECK ("app"."email_templates"."key" in ('tracking_code', 'order_received', 'information_needed', 'dispatched', 'activated', 'cancelled', 'sim_number_ready', 'change_approved', 'change_rejected'));--> statement-breakpoint
 ALTER TABLE "app"."site_counters" ADD CONSTRAINT "site_counters_counter_check" CHECK ("app"."site_counters"."counter" in ('sim_order_ref', 'change_request_no'));--> statement-breakpoint
