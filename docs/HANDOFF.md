@@ -17,7 +17,7 @@ why) → [ENV.md](ENV.md) (every variable) → [RUNBOOKS/database.md](RUNBOOKS/d
 | **GitHub**   | `GT-Sales/crm`. `main` deploys both apps. Development branch for this work: `claude/phase-0-scaffold`, fast-forwarded into `main` (identical histories). CI (`.github/workflows/ci.yml`, job `verify`) runs on every push to `main` and on PRs: lint, format, typecheck, migrations on a disposable Postgres, the full test suite with integration suites forced on, OpenAPI drift check, affected builds, the shell browser checks and the lead journeys against the real backend.                                                                                                                                                                                                                                                    |
 | **Backend**  | Railway project `GT Sales CRM` (`ea4ffa36-d587-45b8-a64d-9f8f84fbd42f`), service `crm` (`01c9dcfa-644d-4c52-ade1-b08d65114443`), environment `production` (`112461fd-4e06-44bc-a5ae-13f40438f69e`). Region **Singapore `asia-southeast1`** (one replica). Follows `main`; build per `railway.json` at the repo root. Public URL `https://crm-production-cf2e.up.railway.app`, `PORT` pinned to 4000. Lives in the developer's personal Railway workspace for now.                                                                                                                                                                                                                                                                      |
 | **Admin**    | Vercel team `gt-sales` (`team_PDmnYZIjHmPgGmDSYFB0Ru3K`), project `gt-sales-crm-admin` (`prj_cjhH8QnFnO5RdOHHRZVhOrxsStnp`). Root `apps/admin`, framework Next.js, **Node 22.x** (the repo's `engines` field rejects Vercel's default of 24), production branch `main`, functions in `iad1` (`apps/admin/vercel.json`). Live at **`https://gt-sales-crm-admin.vercel.app`**. The `…-gt-sales.vercel.app` alias and per-deployment URLs sit behind Vercel's login wall.                                                                                                                                                                                                                                                                 |
-| **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (26 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued.                                                                                                                                                                                                                                                                |
+| **Database** | Supabase project `xykrphbgpwisqacpyeiv`, region `ap-south-1` (Mumbai), shared with the Get Canada Sim website's `public` schema. The CRM owns the **`app` schema** (30 tables) and the **`app_runtime`** role (NOBYPASSRLS). Backend connects through the transaction pooler `aws-1-ap-south-1.pooler.supabase.com:6543` as `app_runtime.xykrphbgpwisqacpyeiv` (the `aws-0` host does not know this tenant). Storage bucket `documents` exists; S3 keys not yet issued.                                                                                                                                                                                                                                                                |
 | **Auth**     | Supabase Auth on the same project: email + password, confirmation required, sign-ups allowed (the invitation flow needs them). Site URL and redirect URL are the admin domain above. No multi-factor step (owner decision, see §4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | **Email**    | The Resend account this session can reach has no domains; CanadaWide and Get Canada Sim send their own mail with their own Resend keys. The backend's email provider stays off until the owner adds the Resend key (§5.1 step 3; Get Canada Sim's sender is already configured), and Supabase custom SMTP is unset. Supabase's built-in mailer **delivers only to members of the Supabase organization's team**, at about two messages an hour: the owner's own sign-up worked because the owner is on the team, but any other admin's confirmation email is refused until custom SMTP is set (§5.1).                                                                                                                                  |
 | **Owner**    | Md Takibuddin, gamertakib@gmail.com — GitHub org owner, Railway workspace, Vercel team, Supabase org. First `owner` of both sites in the CRM (Auth user `b8fbfaea-a3a8-4cfd-b609-d9d422fa7b7e`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -49,7 +49,7 @@ should be rotated once the owner has a password manager for them (§6).
                  │ postgres (pooler, app_runtime)                │ Auth API (getUser)            │ S3 API (unset)
                  ▼                                               ▼                               ▼
       Supabase Postgres, schema `app`                     Supabase Auth                  Supabase Storage
-      29 tables, FORCE RLS, SECURITY DEFINER functions   email+password sessions         bucket `documents`
+      30 tables, FORCE RLS, SECURITY DEFINER functions   email+password sessions         bucket `documents`
                  ▲
                  │ NEXT_PUBLIC_SUPABASE_* (browser signs in directly with Supabase Auth, nothing else)
  ┌───────────────┴────────── admin: apps/admin (Next.js 16, Vercel iad1) ───────────────┐
@@ -100,7 +100,7 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | GET             | `/workspaces/:id/leads/stats`                                 | workspace.read               | The dashboard's counts for one type (`leadType`, `days` 7/30/90 or none for all time): by stage, per UTC day and the top 10 partner codes (named by their partner application's company), lost stages left out of the last two. Counts only.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | GET             | `/workspaces/:id/leads/summary` · `/leads/board`              | workspace.read               | Active leads per type (with how many nobody has opened) and the archive (`archived`; `trash` carries the same number, deprecated); one type's leads by stage (a column per catalogue stage, counts, newest 50 each; accepts `where` property filters with contact access).                                                                                                                                                                                                                                                                                                                                                                             |
 | GET             | `/workspaces/:id/leads/:leadId`                               | workspace.read               | Lead with form, timeline, tasks, identities and current documents; readers without contact access get stage and source only; `access.downloadDocuments` says whether the caller may open the documents. Returns `customValues` and, for an order type, `order` (the order details) with contact access.                                                                                                                                                                                                                                                                                                                                                |
-| PATCH           | `/workspaces/:id/leads/:leadId`                               | lead.manage                  | Stage (checked against the type), assignee (active member), contact and form corrections (`form`, checked against the type's field definitions) `customValues` (checked against the site's custom properties) and, for an order type, `order` (`planId` re-freezes the plan from the site's current one: it must be active and of the lead's type, `null` clears it; `quantity`, `paymentStatus`, `carrierCommission`); timeline + audit.                                                                                                                                                                                                              |
+| PATCH           | `/workspaces/:id/leads/:leadId`                               | lead.manage                  | Stage (checked against the type), assignee (active member), contact and form corrections (`form`, checked against the type's field definitions) `customValues` (checked against the site's custom properties) and, for an order type, `order` (`planId` re-freezes the plan from the site's current one: it must be active and of the lead's type, `null` clears it; `quantity`, `paymentStatus`, `carrierCommission`; a refused order is 400 `validation_error` with `details.field` `plan` or `order`); timeline + audit.                                                                                                                            |
 | POST            | `/workspaces/:id/leads/:leadId/opened`                        | lead.manage                  | The lead page's first open: clears the "New" badge for the team (an `opened` system entry). Idempotent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | POST            | `/workspaces/:id/leads/:leadId/customer-emails`               | lead.manage                  | Queues a mail to the customer (`sim_number_ready`) from the site's own sender; 409 `feature_not_ready` while the site cannot send, `conflict` with `details.missing` when the lead lacks the email or the number.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | POST            | `/workspaces/:id/leads/:leadId/{notes,tasks,archive,restore}` | lead.manage                  | Note, follow-up task, archive (soft delete; `/trash` is the deprecated alias of `/archive`) and back. An archived lead refuses changes (`lead_trashed`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -176,7 +176,7 @@ Schema `app`, all tables carry `workspace_id` except `contacts` and
 Tenancy: `withTenantTx` opens a transaction and sets `app.workspace_id` and
 `app.actor_id` with `set_config(…, true)`; every policy (`tenantPolicy`) requires
 both and matches the row's `workspace_id`. `contacts` use `actorPolicy` (actor
-present). FORCE RLS on all 28 tenant tables, so even the table owner cannot
+present). FORCE RLS on all 29 tenant tables, so even the table owner cannot
 bypass it, and `app_runtime` is NOBYPASSRLS. Work that must cross the tenant
 boundary goes through SECURITY DEFINER functions: `list_staff_workspaces`,
 `accept_staff_invitations`, `resolve_website_credential`, `rate_limit_hit`,
@@ -283,7 +283,6 @@ every request.
    is not configured. `delegated` trusts the calling website's own screening
    (CanadaWide's honeypot, origin check, per-IP and per-email limits); the
    site key and the limits above still apply. Production runs `delegated`.
-
 8. **Plans and orders** (phase 3). A site's plans are read with
    `GET /api/v1/website/plans?leadType=sim_order`: only active plans, each with
    its price in cents, billing period, `paymentRequired`, required documents and
@@ -603,9 +602,11 @@ applied to the hosted project yet** (§5.1), so this is not deployed.
 
 Built on this branch from
 [docs/superpowers/plans/2026-10-30-phase-3-plans-stages-archive.md](superpowers/plans/2026-10-30-phase-3-plans-stages-archive.md).
-The code is merged on the branch; the migrations are **not applied to the
-hosted project yet** (§5.1), so this is not deployed, and the branch's backend
-must not be deployed before them (it selects `leads.order_details`).
+The backend, the contracts and the Settings pages are merged on the branch;
+the admin's record and Archive wording lands with the last task. The
+migrations are **not applied to the hosted project yet** (§5.1), so this is
+not deployed, and the branch's backend must not be deployed before them (it
+selects `leads.order_details`).
 
 1. **Data.** Migration `0011_plans` (generated) adds `app.plans` (one order lead
    type each: name, price in cents, currency CAD, billing period `one_time`,
@@ -616,8 +617,8 @@ must not be deployed before them (it selects `leads.order_details`).
    `plans`, grants `app_runtime` `SELECT, INSERT, UPDATE`, seeds Get Canada
    Sim's six SIM plans (monthly, payment required) and migrates the `sim_order`
    leads: every one gets its order details; `paid` becomes `pending` with
-   payment status paid, `invoiced` becomes `completed` with carrier commission
-   invoiced, and each lead so moved gets a system timeline entry by the "Old
+   payment status paid, `invoiced` becomes `completed` with payment status
+   paid and carrier commission invoiced, and each lead so moved gets a system timeline entry by the "Old
    admin" actor. Details, hashes and the verification selects are in
    [RUNBOOKS/database.md](RUNBOOKS/database.md); the owner's paste file, with
    a before and after reconciliation, is
@@ -658,11 +659,10 @@ must not be deployed before them (it selects `leads.order_details`).
    `order.manage` writes) with **Plan properties** as a page under it
    (`settings/plans/properties`: custom plan properties and their _Show on
    website_ switch, through the same `PropertiesSettings` with `object="plan"`).
-   The lead record has an **Order** section (a plan select, a line giving the
-   frozen copy, quantity, payment status and carrier commission, saved as
-   `order` in the lead `PATCH`), the inbox has filters and columns on those,
-   and the admin says Archive wherever it said trash (`archived=1` in the URL;
-   the legacy `trash=1` is still read).
+   The lead record gets an **Order** section (plan select, frozen copy,
+   quantity, payment status, carrier commission); the inbox filters and
+   columns cover them; the admin says Archive instead of Trash. The URL
+   parameter is `archived=1`, with the legacy `trash=1` still read.
 
 ## 4. What is verified, and how
 
@@ -731,8 +731,8 @@ in the SQL Editor, as `postgres`, run the pre-check (A) and the reconciliation
 write down B's rows (the **before** counts); paste `BEGIN` … `COMMIT` once; run
 the seven verification selects one at a time; then run B again (the **after**
 counts). On 2026-10-30 production held 139 `sim_order` leads (44 archived); the
-file's comments say what to expect: 20 `paid` leads become `pending`, every
-other stage keeps its count, none is left in `paid` or `invoiced`, and the same
+file's comments say what to expect: 20 `paid` leads become `pending`, no
+other lead changes stage (`pending` gains those 20: 59 → 79), none is left in `paid` or `invoiced`, and the same
 139 and the same archived counts remain. The statement-by-statement record goes
 in [RUNBOOKS/database.md](RUNBOOKS/database.md#0011_plans) afterwards. The next
 Get Canada Sim import run needs them too (it writes `order_details`).
@@ -939,7 +939,7 @@ phases ([spec §12](superpowers/specs/2026-10-28-merge-canadian-plans-design.md#
     then the website sees it. Nothing refuses the pair yet.
   - The plan-versus-property-delete race, as the one known for leads: a plan
     saved at the moment its property is deleted can keep a value for it.
-  - Per-type `allowedTransitions` for stages are still unconstrained: any
+  - Per-type allowed stage moves are still unconstrained: any
     stage of the type can be set from any other (phase 4).
 - **Backups follow-ups** (from the merge phase 1 review, none blocking):
   - A CLI smoke step in CI: each of the four CLIs (backup, monitor,
