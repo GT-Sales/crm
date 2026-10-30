@@ -64,6 +64,11 @@ with `RESEND_API_KEY` for `resend`, and `EMAIL_CONTACT_HASH_SECRET` at least
 16 characters; otherwise the admin reports "no sender" for every site, which
 is a deployment problem, not something Settings → Email can fix.
 
+`EMAIL_SENDERS_JSON` is gone: this backend never reads it. The backend running
+before merge phase 5 step B is deployed still uses it as the fallback sender,
+so leave it on Railway until that deploy, check that every sending site has
+saved Settings → Email, then delete it.
+
 Resend delivery events arrive at `POST /api/v1/email/events/:selector`; the
 selector and its signing secret live in `MACHINE_REGISTRY_JSON.webhooks`. A
 site can send before its webhook exists: its mail is then recorded against
@@ -84,6 +89,19 @@ Storage → S3 access keys). Unset = document endpoints answer
 | `R2_REGION`                                 | `ap-south-1` (the project's region).                      |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Secret. The S3 access key pair.                           |
 | `R2_BUCKET`                                 | `documents` (private bucket, already exists).             |
+
+### Customer tracking (merge phase 5, step B)
+
+Customers follow and change their orders through the website (Get Canada
+Sim's `/track`), which calls `/api/v1/website/tracking/*` with a site key
+that has the `tracking` scope (docs/HANDOFF.md §2.6).
+
+| Variable                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRACKING_HASH_SECRET`                                   | Secret, at least 32 characters (trimmed). Keys the hashes of the tracking code, the customer's email and the per-email rate buckets, seals the code in its outbox job and the email in the grant, and signs the 30-minute grant. Generate with `openssl rand -base64 48`; it must not reuse another secret. Unset or shorter, tracking is off, not broken: the code route answers the same neutral 200 and sends nothing, every other tracking route answers `409 feature_not_ready`. Rotating it ends every grant and makes every pending code fail; customers ask for a new code. |
+| `RATE_LIMIT_TRACKING_MAX` / `RATE_LIMIT_TRACKING_WINDOW` | Optional. The tracking routes' endpoint budget per site and visitor: at most `_MAX` requests (default `30`) per `_WINDOW` seconds (default `60`). Invalid or absent values use the defaults. The per-email limits (5 code requests, 10 verifications and 30 customer writes per 10 minutes) and the per-visitor ones (20 code requests, 40 verifications per 10 minutes) are fixed in code. The same pattern tunes the other endpoint budgets: `RATE_LIMIT_LEADS_*` (30 per 60 s) and `RATE_LIMIT_IDENTITY_*` (10 per 60 s).                                                        |
+
+The neutral answer's floor (500 ms) is fixed in code, not a variable.
 
 ### Optional
 
