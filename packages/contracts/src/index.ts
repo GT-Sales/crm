@@ -624,6 +624,7 @@ export {
   createBackendClient,
   type BackendClient,
   type BackendClientOptions,
+  type IdempotencyOption,
 } from './client';
 
 export {

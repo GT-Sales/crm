@@ -159,11 +159,11 @@ export type CreateLeadRequestInput = z.input<typeof createLeadRequestSchema>;
  * already created, marked `replayed`.
  */
 export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
-/** 8 to 128 characters of letters, digits and `_ - . :`. */
+/** 8 to 200 characters of letters, digits and `_ - . :`. */
 export const idempotencyKeySchema = z
   .string()
   .min(8)
-  .max(128)
+  .max(200)
   .regex(/^[A-Za-z0-9_.:-]+$/, 'letters, digits and _ . : -');
 
 export const createLeadResponseSchema = z.object({

@@ -282,7 +282,10 @@ function assertApiPath(url: URL, origin: string): void {
   }
 }
 
-/** Sent as the `Idempotency-Key` header, so a retried submission returns the lead already created. */
+/**
+ * Sent as the `Idempotency-Key` header, so a retried submission returns the
+ * lead already created. A malformed key throws synchronously, before any request.
+ */
 export interface IdempotencyOption {
   readonly idempotencyKey?: string;
 }

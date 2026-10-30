@@ -470,6 +470,13 @@ describe('phase 4 stage moves and idempotent intake', () => {
         documentsOverrideReason: 'a'.repeat(2001),
       }).success,
     ).toBe(false);
+    // A blank reason parses; the store answers document_override_reason_required.
+    expect(
+      updateWorkspaceLeadRequestSchema.safeParse({
+        stage: 'activated',
+        documentsOverrideReason: '  ',
+      }).success,
+    ).toBe(true);
   });
 
   it('answers a stage move with the next moves and the mails it skipped', () => {
@@ -512,13 +519,13 @@ describe('phase 4 stage moves and idempotent intake', () => {
     expect(emailSkippedSchema.safeParse({ ...skipped, missing: ['nope'] }).success).toBe(false);
   });
 
-  it('accepts an idempotency key of 8 to 128 safe characters and nothing else', () => {
+  it('accepts an idempotency key of 8 to 200 safe characters and nothing else', () => {
     expect(IDEMPOTENCY_KEY_HEADER).toBe('Idempotency-Key');
     expect(idempotencyKeySchema.safeParse('cp_9f2c:retry.1').success).toBe(true);
     expect(idempotencyKeySchema.safeParse('short').success).toBe(false);
     expect(idempotencyKeySchema.safeParse('a b c d e f').success).toBe(false);
-    expect(idempotencyKeySchema.safeParse('a'.repeat(128)).success).toBe(true);
-    expect(idempotencyKeySchema.safeParse('a'.repeat(129)).success).toBe(false);
+    expect(idempotencyKeySchema.safeParse('a'.repeat(200)).success).toBe(true);
+    expect(idempotencyKeySchema.safeParse('a'.repeat(201)).success).toBe(false);
   });
 
   it('marks a replayed create or update, and only with true', () => {

@@ -243,8 +243,12 @@ export const updateWorkspaceLeadRequestSchema = z
       .optional(),
     /** Order details of an order lead type; a new `planId` re-freezes the plan. */
     order: leadOrderEditSchema.optional(),
-    /** With `stage`: why the order moves on without its required documents approved (`order.override`). */
-    documentsOverrideReason: documentsOverrideReasonSchema.optional(),
+    /**
+     * With `stage`: why the order moves on without its required documents
+     * approved (`order.override`). Not trimmed or required here: a blank reason
+     * reaches the store, which answers `document_override_reason_required`.
+     */
+    documentsOverrideReason: z.string().max(2000).optional(),
   })
   .strict()
   .refine((value) => value.documentsOverrideReason === undefined || value.stage !== undefined, {

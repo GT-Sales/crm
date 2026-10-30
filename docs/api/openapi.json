@@ -5434,7 +5434,7 @@
                     },
                     "additionalProperties": false
                   },
-                  "documentsOverrideReason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                  "documentsOverrideReason": { "type": "string", "maxLength": 2000 }
                 },
                 "additionalProperties": false
               }
