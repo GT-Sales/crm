@@ -191,6 +191,10 @@ function describeEntry(
       if (activity.event === 'trashed') return { icon: <ArchiveIcon />, text: 'archived this' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
+      if (activity.event === 'submitted' && members.some((m) => m.actorId === activity.actorId)) {
+        // A staff move rescued a checkout the customer never finished (merge phase 8, O9).
+        return { icon: <ArrowRightIcon />, text: 'submitted this checkout for the customer' };
+      }
       if (activity.event === 'submitted') {
         // The website's credential made the move, so no name is shown.
         return {

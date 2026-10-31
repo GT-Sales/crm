@@ -265,6 +265,14 @@ describe('LeadTimeline', () => {
     expect(second?.textContent).toContain('You emailed the customer their SIM number');
   });
 
+  it('says a staff move submitted a checkout the customer never finished', () => {
+    const rescued = leadActivitySchema.parse(entry('c', { event: 'submitted' }));
+    const region = timeline([rescued]);
+    const [first] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain('You submitted this checkout for the customer');
+    expect(first?.textContent).not.toContain('on the website');
+  });
+
   it('names a site-made template a flow sent by its name', () => {
     const queued = leadActivitySchema.parse(
       entry('a', {

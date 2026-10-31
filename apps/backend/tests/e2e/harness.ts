@@ -21,7 +21,13 @@
  * `POST /website/tracking/orders/:reference/changes` makes once it has checked
  * the site's key and the customer's grant. Get Canada
  * Sim has its email settings saved and its Dispatched email saved once
- * (version 1), and no automation rule switched on. All of it is written
+ * (version 1); Leila Ahmadi, a second submitted order of Rogers 60GB; Omar
+ * Haddad, an abandoned checkout (Incomplete, never submitted) with a name, an
+ * email and the Fido plan; and one custom flow, "Verified follow-up", made,
+ * drafted and activated through `DatabaseFlowStore` as the owner (when a SIM
+ * order moves to Verified: if its plan is Rogers 60GB, a task "Call {first
+ * name} about {order number}" due in a day for the lead's owner; else wait two
+ * days, then the Activated email). No flow is switched on. All of it is written
  * through the real stores: the plans through the plan store, the ordered SIM
  * order through `createLead` with `order` and `submit: true`, the call the
  * website route `POST /website/leads` makes once it has checked the site's
@@ -34,13 +40,14 @@
  */
 import postgres from 'postgres';
 import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
-import { codePropertyCatalog } from '@gt-sales/contracts';
+import { codePropertyCatalog, type FlowDraft } from '@gt-sales/contracts';
 import { createDatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 import { assertDisposableDatabaseUrl, setTestRuntimePassword } from '@gt-sales/db/test-helpers';
 
 import { createApp } from '../../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../../src/auth/session.js';
+import { DatabaseFlowStore } from '../../src/automations/flow-store.js';
 import { DatabaseDocumentContextResolver } from '../../src/documents/resolver.js';
 import { DocumentService } from '../../src/documents/service.js';
 import { DatabaseDocumentStore } from '../../src/documents/store.js';
@@ -292,6 +299,94 @@ async function seed(): Promise<void> {
     });
     nadiaLeadId = ordered.lead.id;
 
+    // A second order of the first plan, submitted and Pending, for the custom flow's journey.
+    const leila = await leads.createLead({
+      ...simWebsite,
+      leadType: 'sim_order',
+      contact: {
+        fullName: 'Leila Ahmadi',
+        email: 'leila@example.test',
+        phone: '647 555 0205',
+        countryCode: 'IR',
+      },
+      form: {
+        schemaVersion: 1,
+        payload: {
+          planId: rogersPlanId,
+          planLabel: 'Rogers 60GB',
+          permitType: 'worker',
+          arrivalDate: '2026-12-01',
+          delivery: 'esim',
+          flightBooked: true,
+          gotVisa: true,
+        },
+      },
+      order: { planId: rogersPlanId, quantity: 1 },
+      attribution: { utmSource: 'google', utmMedium: 'cpc' },
+      consentVersion: 'gcs-e2e-2026-10',
+      submit: true,
+    });
+    if (leila.lead.status !== 'submitted') throw new Error('seed Leila Ahmadi not submitted');
+
+    // An abandoned checkout: a name, an email and a plan, never submitted (Incomplete).
+    const [, fidoPlanId] = planIds;
+    if (!fidoPlanId) throw new Error('seed plan Fido 75GB was not created');
+    const omar = await leads.createLead({
+      ...simWebsite,
+      leadType: 'sim_order',
+      contact: { fullName: 'Omar Haddad', email: 'omar@example.test', countryCode: 'LB' },
+      order: { planId: fidoPlanId, quantity: 1 },
+      consentVersion: 'gcs-e2e-2026-10',
+    });
+    if (omar.lead.status !== 'incomplete') throw new Error('seed Omar Haddad was submitted');
+
+    // One custom flow, built through the flow store as the owner: when a SIM
+    // order moves to Verified, if its plan is the first plan, a task for the
+    // lead's owner; otherwise wait two days and send the Activated email.
+    // Activated, and left off: the journey switches it on.
+    const flows = new DatabaseFlowStore(database);
+    const flowScope = {
+      workspaceId: SIM_WORKSPACE_ID,
+      actorId: OWNER_ID,
+      requestId: '40000000-0000-4000-8000-0000000e2e03',
+    };
+    const created = await flows.create(flowScope, { name: 'Verified follow-up' });
+    if (created.status !== 'ok') throw new Error(`seed flow: ${created.status}`);
+    const definition: FlowDraft = {
+      schemaVersion: 1,
+      trigger: { kind: 'stage_entered', leadType: 'sim_order', stage: 'verified', when: null },
+      steps: [
+        {
+          id: 's_plan',
+          kind: 'if_else',
+          condition: { match: 'all', items: [{ kind: 'plan', op: 'in', planIds: [rogersPlanId] }] },
+          then: [
+            {
+              id: 's_task',
+              kind: 'create_task',
+              title: 'Call {first name} about {order number}',
+              dueInDays: 1,
+              assignee: { kind: 'lead_assignee' },
+            },
+          ],
+          else: [
+            { id: 's_wait', kind: 'wait', for: { amount: 2, unit: 'days' } },
+            { id: 's_mail', kind: 'send_email', template: 'activated' },
+          ],
+        },
+      ],
+    };
+    const drafted = await flows.saveDraft(flowScope, created.value.key, {
+      expectedRevision: created.value.revision,
+      definition,
+    });
+    if (drafted.status !== 'ok') throw new Error(`seed flow draft: ${drafted.status}`);
+    const activated = await flows.activate(flowScope, created.value.key, {
+      expectedRevision: drafted.value.flow.revision,
+      mayChangeLeads: true,
+    });
+    if (activated.status !== 'ok') throw new Error(`seed flow activation: ${activated.status}`);
+
     // The customer asks, through tracking, for a new phone and arrival date: request #1.
     const asked = await new DatabaseChangeRequestStore(database).requestChange({
       ...simWebsite,
@@ -302,7 +397,7 @@ async function seed(): Promise<void> {
     if (asked.status !== 'saved') throw new Error(`seed change request: ${asked.status}`);
 
     // Get Canada Sim's sender, and its Dispatched email saved once (version 1).
-    // No automation rule is switched on: the journey does that.
+    // No flow is switched on: the journeys do that.
     const email = new DatabaseEmailSettingsStore(database);
     await email.putSettings(simOwner, {
       fromName: 'Get Canada Sim',
