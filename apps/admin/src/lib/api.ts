@@ -11,8 +11,8 @@ import {
   type CreatePlanRequestInput,
   type CustomerEmailTemplate,
   type EmailSettingsResponse,
-  type EmailTemplateResponse,
-  type ListEmailTemplatesResponse,
+  type ListSiteEmailTemplatesResponse,
+  type SiteEmailTemplateResponse,
   type PreviewEmailTemplateRequest,
   type PreviewEmailTemplateResponse,
   type SendTestEmailResponse,
@@ -449,7 +449,7 @@ export async function updateEmailSettings(
 export async function listEmailTemplates(
   accessToken: string,
   workspaceId: string,
-): Promise<ListEmailTemplatesResponse> {
+): Promise<ListSiteEmailTemplatesResponse> {
   return client(accessToken).staff.listEmailTemplates(workspaceId);
 }
 
@@ -458,7 +458,7 @@ export async function updateEmailTemplate(
   workspaceId: string,
   key: CustomerEmailTemplate,
   body: UpdateEmailTemplateRequest,
-): Promise<EmailTemplateResponse> {
+): Promise<SiteEmailTemplateResponse> {
   return client(accessToken).staff.updateEmailTemplate(workspaceId, key, body);
 }
 

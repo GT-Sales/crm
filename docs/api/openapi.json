@@ -18596,11 +18596,23 @@
     "/api/v1/staff/workspaces/{workspaceId}/email/templates": {
       "get": {
         "operationId": "listEmailTemplates",
-        "summary": "List the site's nine email templates, starter text where none is saved.",
+        "summary": "List the site's nine email templates (starter text where none is saved) and its own, or a page of the archived ones.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
-          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["1"] }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^tpl_[a-z0-9]{16}$" }
+          }
         ],
         "responses": {
           "200": {
@@ -18611,24 +18623,28 @@
                   "type": "object",
                   "properties": {
                     "templates": {
-                      "minItems": 9,
-                      "maxItems": 9,
+                      "maxItems": 59,
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
                           "key": {
-                            "type": "string",
-                            "enum": [
-                              "tracking_code",
-                              "order_received",
-                              "information_needed",
-                              "dispatched",
-                              "activated",
-                              "cancelled",
-                              "sim_number_ready",
-                              "change_approved",
-                              "change_rejected"
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tracking_code",
+                                  "order_received",
+                                  "information_needed",
+                                  "dispatched",
+                                  "activated",
+                                  "cancelled",
+                                  "sim_number_ready",
+                                  "change_approved",
+                                  "change_rejected"
+                                ]
+                              },
+                              { "type": "string", "pattern": "^tpl_[a-z0-9]{16}$" }
                             ]
                           },
                           "subject": { "type": "string", "minLength": 1, "maxLength": 150 },
@@ -18657,11 +18673,57 @@
                               },
                               { "type": "null" }
                             ]
+                          },
+                          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                          "archived": { "type": "boolean" },
+                          "usedBy": {
+                            "maxItems": 50,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "order_received",
+                                        "sim_order_information_needed",
+                                        "sim_order_dispatched",
+                                        "sim_order_activated",
+                                        "sim_order_cancelled",
+                                        "mobility_activated"
+                                      ]
+                                    },
+                                    { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
+                                  ]
+                                },
+                                "name": { "type": "string" }
+                              },
+                              "required": ["key", "name"],
+                              "additionalProperties": false
+                            }
                           }
                         },
-                        "required": ["key", "subject", "body", "version", "updatedAt", "updatedBy"],
+                        "required": [
+                          "key",
+                          "subject",
+                          "body",
+                          "version",
+                          "updatedAt",
+                          "updatedBy",
+                          "name",
+                          "archived",
+                          "usedBy"
+                        ],
                         "additionalProperties": false
                       }
+                    },
+                    "nextBefore": {
+                      "anyOf": [
+                        { "type": "string", "pattern": "^tpl_[a-z0-9]{16}$" },
+                        { "type": "null" }
+                      ]
                     },
                     "requestId": {
                       "type": "string",
@@ -18669,7 +18731,7 @@
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
-                  "required": ["templates", "requestId"],
+                  "required": ["templates", "nextBefore", "requestId"],
                   "additionalProperties": false
                 }
               }
@@ -19142,17 +19204,22 @@
                       "type": "object",
                       "properties": {
                         "key": {
-                          "type": "string",
-                          "enum": [
-                            "tracking_code",
-                            "order_received",
-                            "information_needed",
-                            "dispatched",
-                            "activated",
-                            "cancelled",
-                            "sim_number_ready",
-                            "change_approved",
-                            "change_rejected"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "tracking_code",
+                                "order_received",
+                                "information_needed",
+                                "dispatched",
+                                "activated",
+                                "cancelled",
+                                "sim_number_ready",
+                                "change_approved",
+                                "change_rejected"
+                              ]
+                            },
+                            { "type": "string", "pattern": "^tpl_[a-z0-9]{16}$" }
                           ]
                         },
                         "subject": { "type": "string", "minLength": 1, "maxLength": 150 },
@@ -19177,9 +19244,49 @@
                             },
                             { "type": "null" }
                           ]
+                        },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "archived": { "type": "boolean" },
+                        "usedBy": {
+                          "maxItems": 50,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "order_received",
+                                      "sim_order_information_needed",
+                                      "sim_order_dispatched",
+                                      "sim_order_activated",
+                                      "sim_order_cancelled",
+                                      "mobility_activated"
+                                    ]
+                                  },
+                                  { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
+                                ]
+                              },
+                              "name": { "type": "string" }
+                            },
+                            "required": ["key", "name"],
+                            "additionalProperties": false
+                          }
                         }
                       },
-                      "required": ["key", "subject", "body", "version", "updatedAt", "updatedBy"],
+                      "required": [
+                        "key",
+                        "subject",
+                        "body",
+                        "version",
+                        "updatedAt",
+                        "updatedBy",
+                        "name",
+                        "archived",
+                        "usedBy"
+                      ],
                       "additionalProperties": false
                     },
                     "requestId": {

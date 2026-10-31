@@ -33,6 +33,7 @@ import {
   leadTypeCatalog,
   timerDueAt,
   triggerLeadTypes,
+  walkSteps,
   automationReasonSchema,
   automationRunStatusSchema,
   automationStepOutcomeSchema,
@@ -552,6 +553,70 @@ function byFlowOrder(left: StoredFlow, right: StoredFlow): number {
     left.createdAt.getTime() - right.createdAt.getTime() ||
     (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
   );
+}
+
+/** A flow named in another screen (the templates it sends, a warning). */
+export interface FlowNameRef {
+  key: AutomationKey;
+  name: string;
+}
+
+/**
+ * By template key, the flows not archived whose active version sends it, in
+ * flow order. A built-in the site has no row for yet counts with its default
+ * (version 1 as the seeding writes it). Read in the caller's transaction;
+ * writes nothing.
+ */
+export async function flowsSendingTemplates(
+  tx: TenantTransaction,
+  workspaceId: string,
+): Promise<ReadonlyMap<string, FlowNameRef[]>> {
+  const rows = await selectFlows(tx, workspaceId, isNull(automations.archivedAt));
+  const flows = rows.map(toStoredFlow);
+  const present = new Set(flows.map((flow) => flow.key));
+  const entries: { ref: FlowNameRef; definition: FlowDefinition | null; order: StoredFlow }[] =
+    flows.map((flow) => ({
+      ref: { key: flow.key, name: flow.name },
+      definition: parsedActiveDefinition(flow),
+      order: flow,
+    }));
+  for (const key of BUILT_IN_AUTOMATION_KEYS) {
+    if (present.has(key)) continue;
+    entries.push({
+      ref: { key, name: builtInFlowName(key) },
+      definition: builtInFlowDefinition(key),
+      order: {
+        id: '',
+        key,
+        origin: 'builtin',
+        name: builtInFlowName(key),
+        description: null,
+        enabled: false,
+        archived: false,
+        revision: 0,
+        activeVersion: null,
+        draft: null,
+        lastRunAt: null,
+        runCount: 0,
+        createdAt: new Date(0),
+      },
+    });
+  }
+  entries.sort((left, right) => byFlowOrder(left.order, right.order));
+  const byTemplate = new Map<string, FlowNameRef[]>();
+  for (const entry of entries) {
+    if (!entry.definition) continue;
+    const sent = new Set<string>();
+    walkSteps(entry.definition.steps, (step) => {
+      if (step.kind === 'send_email') sent.add(step.template);
+    });
+    for (const template of sent) {
+      const list = byTemplate.get(template) ?? [];
+      list.push(entry.ref);
+      byTemplate.set(template, list);
+    }
+  }
+  return byTemplate;
 }
 
 // ---------------------------------------------------------------------------

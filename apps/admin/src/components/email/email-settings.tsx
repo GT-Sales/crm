@@ -398,7 +398,8 @@ export function EmailSettingsScreen({
     );
   }
 
-  const template = templates.find((entry) => entry.key === editing);
+  const found = templates.find((entry) => entry.key === editing);
+  const template = found && editing ? { ...found, key: editing } : undefined;
 
   return (
     <div className="flex flex-col gap-10">

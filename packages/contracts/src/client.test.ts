@@ -186,7 +186,10 @@ describe('createBackendClient transport', () => {
       updatedAt: '2026-10-30T12:00:00.000Z',
       updatedBy: UUID,
     };
-    const templates = harness(200, { template, requestId: UUID });
+    const templates = harness(200, {
+      template: { ...template, name: 'Dispatched', archived: false, usedBy: [] },
+      requestId: UUID,
+    });
     await templates.client.staff.updateEmailTemplate(UUID, 'dispatched', {
       expectedVersion: 0,
       subject: 'On its way',

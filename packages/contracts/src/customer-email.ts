@@ -353,9 +353,32 @@ export const siteEmailTemplateSchema = emailTemplateSchema.extend({
 });
 export type SiteEmailTemplate = z.infer<typeof siteEmailTemplateSchema>;
 
-/** The nine built-ins and the site's own, archived ones included. */
+/** The archived site-made templates come a page at a time: archiving has no limit. */
+export const EMAIL_TEMPLATE_ARCHIVED_PAGE = 50;
+
+/**
+ * `?archived=1` lists the archived site-made templates instead, most recently
+ * archived first, `EMAIL_TEMPLATE_ARCHIVED_PAGE` at a time; `before` is the
+ * key the last page ended with (its `nextBefore`).
+ */
+export const listEmailTemplatesQuerySchema = z
+  .object({ archived: z.enum(['1']).optional(), before: siteTemplateKeySchema.optional() })
+  .strict();
+export type ListEmailTemplatesQuery = z.infer<typeof listEmailTemplatesQuerySchema>;
+
+/**
+ * `GET …/email/templates`: the nine built-ins, then the site's own that are
+ * not archived (at most `EMAIL_TEMPLATE_MAX_SITE_MADE`), by name; or a page
+ * of the archived ones. `nextBefore` pages the archived list; null otherwise.
+ */
 export const listSiteEmailTemplatesResponseSchema = z.object({
-  templates: z.array(siteEmailTemplateSchema).max(9 + 2 * EMAIL_TEMPLATE_MAX_SITE_MADE),
+  templates: z
+    .array(siteEmailTemplateSchema)
+    .max(
+      CUSTOMER_EMAIL_TEMPLATES.length +
+        Math.max(EMAIL_TEMPLATE_MAX_SITE_MADE, EMAIL_TEMPLATE_ARCHIVED_PAGE),
+    ),
+  nextBefore: siteTemplateKeySchema.nullable(),
   requestId: requestIdSchema,
 });
 export type ListSiteEmailTemplatesResponse = z.infer<typeof listSiteEmailTemplatesResponseSchema>;
@@ -376,12 +399,6 @@ export const siteEmailTemplateResponseSchema = z.object({
 });
 export type SiteEmailTemplateResponse = z.infer<typeof siteEmailTemplateResponseSchema>;
 
-export const listEmailTemplatesResponseSchema = z.object({
-  templates: z.array(emailTemplateSchema).length(CUSTOMER_EMAIL_TEMPLATES.length),
-  requestId: requestIdSchema,
-});
-export type ListEmailTemplatesResponse = z.infer<typeof listEmailTemplatesResponseSchema>;
-
 /** `PUT …/email/templates/:key`; `expectedVersion` is the version the editor loaded. */
 export const updateEmailTemplateRequestSchema = z
   .object({
@@ -391,12 +408,6 @@ export const updateEmailTemplateRequestSchema = z
   })
   .strict();
 export type UpdateEmailTemplateRequest = z.infer<typeof updateEmailTemplateRequestSchema>;
-
-export const emailTemplateResponseSchema = z.object({
-  template: emailTemplateSchema,
-  requestId: requestIdSchema,
-});
-export type EmailTemplateResponse = z.infer<typeof emailTemplateResponseSchema>;
 
 /** `POST …/email/templates/:key/preview`: the unsaved subject and body, rendered with sample values. */
 export const previewEmailTemplateRequestSchema = z

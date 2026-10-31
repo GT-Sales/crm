@@ -203,7 +203,10 @@ const unconfiguredEmailSettingsStore: EmailSettingsStore = {
   getSettings: () => notConfigured('email settings store'),
   putSettings: () => notConfigured('email settings store'),
   listTemplates: () => notConfigured('email settings store'),
+  listArchivedTemplates: () => notConfigured('email settings store'),
   putTemplate: () => notConfigured('email settings store'),
+  createTemplate: () => notConfigured('email settings store'),
+  setTemplateArchived: () => notConfigured('email settings store'),
 };
 /** A deployment with no customer mail: no provider, so no site can send. */
 const unconfiguredCustomerEmail: CustomerEmail = {
@@ -1580,6 +1583,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       withTenantTx: dependencies.withTenantTx ?? withTenantTx,
       decide,
       reportFailure,
+      ...(dependencies.loadPropertyCatalog
+        ? { loadCatalog: dependencies.loadPropertyCatalog }
+        : {}),
     }),
   );
 
