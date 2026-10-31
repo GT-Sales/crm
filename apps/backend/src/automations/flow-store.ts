@@ -4,10 +4,13 @@ import {
   auditEvents,
   automationRuns,
   automationStepRuns,
+  automationTimers,
   automationVersions,
   automationWaits,
   automations,
+  emailTemplates,
   leads,
+  memberships,
   withTenantTx,
   type DatabaseClient,
   type TenantTransaction,
@@ -16,8 +19,20 @@ import {
   AUTOMATION_MAX_FLOWS,
   AUTOMATION_RUN_PAGE,
   BUILT_IN_AUTOMATION_KEYS,
+  CUSTOMER_EMAIL_TEMPLATES,
   EMPTY_FLOW_DRAFT,
+  FLOW_TASK_VARIABLES,
+  PROPERTY_FILL_IN_PREFIX,
   automationKeySchema,
+  automationVersionStatusSchema,
+  emailTemplateLabel,
+  fillInsForTemplate,
+  flowHasLeadChangingStep,
+  flowDraftSchemaFor,
+  isSiteTemplateKey,
+  leadTypeCatalog,
+  timerDueAt,
+  triggerLeadTypes,
   automationReasonSchema,
   automationRunStatusSchema,
   automationStepOutcomeSchema,
@@ -31,8 +46,14 @@ import {
   isBuiltInAutomationKey,
   overlappingEmailFlows,
   type AutomationKey,
+  type ActivateFlowRequest,
   type CreateFlowRequest,
+  type FlowCatalogResponse,
   type FlowDefinition,
+  type FlowDraft,
+  type FlowTrigger,
+  type FlowVersionSummary,
+  type SaveFlowDraftRequest,
   type FlowIssue,
   type FlowOrigin,
   type FlowOverlapWarning,
@@ -42,6 +63,9 @@ import {
   type UpdateFlowDetailsRequest,
 } from '@gt-sales/contracts';
 
+import { templatePropertyKeys } from '../email/markup.js';
+import { loadPlanOptions } from '../plans/options.js';
+import { loadPropertyCatalog } from '../properties/catalog.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
 import { cancelFlowWork } from './records.js';
 import { loadFlowSite } from './site.js';
@@ -138,7 +162,66 @@ export interface FlowStore {
     runId: string,
     options: { includeLeadNames: boolean },
   ): Promise<FlowRun | undefined>;
+  /**
+   * Saves the whole draft against `expectedRevision`: a new `draft` version
+   * (numbered after every other) when there is none, else the draft rewritten.
+   * The structure is checked for the flow's own origin (a custom flow never
+   * holds the step `main`); site issues are returned as warnings. Not audited.
+   */
+  saveDraft(
+    ctx: WriteScope,
+    key: AutomationKey,
+    input: SaveFlowDraftRequest,
+  ): Promise<FlowStoreOutcome<{ flow: StoredFlow; issues: FlowIssue[] }>>;
+  discardDraft(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>>;
+  /**
+   * The draft becomes the active version in one transaction (the old one
+   * retired, pending timers recomputed or voided); the flow's switch is
+   * untouched. `mayChangeLeads`: the caller also has `lead.manage` (R5).
+   */
+  activate(
+    ctx: WriteScope,
+    key: AutomationKey,
+    input: ActivateFlowRequest & { mayChangeLeads: boolean },
+  ): Promise<FlowStoreOutcome<StoredFlow>>;
+  /** Built-ins only: the draft becomes the default definition and the name the label. */
+  reset(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>>;
+  getVersion(
+    ctx: Scope,
+    key: AutomationKey,
+    version: number,
+  ): Promise<StoredFlowVersion | undefined>;
+  /** Newest first, at most `FLOW_VERSION_LIST_MAX`. */
+  versions(ctx: Scope, key: AutomationKey): Promise<FlowVersionSummary[]>;
+  catalog(ctx: Scope): Promise<Omit<FlowCatalogResponse, 'requestId'>>;
+  /** Everything a flow's page shows (seeds first); undefined when the site has no such flow. */
+  detail(ctx: Scope, key: AutomationKey): Promise<FlowDetail | undefined>;
 }
+
+export interface StoredFlowVersion {
+  version: number;
+  status: FlowVersionSummary['status'];
+  definition: unknown;
+  activatedAt: Date | null;
+  activatedBy: string | null;
+  createdAt: Date;
+}
+
+/**
+ * A flow as its page reads it. A stored definition that no longer parses for
+ * the flow's origin is served as `definition: null` (with `definition_invalid`
+ * as the issue) rather than failing the page (review minor 8).
+ */
+export interface FlowDetail {
+  flow: StoredFlow;
+  needsAttention: FlowIssue | null;
+  draft: { version: number; definition: FlowDraft | null; issues: FlowIssue[] } | null;
+  active: { version: number; definition: FlowDefinition | null } | null;
+  versions: FlowVersionSummary[];
+}
+
+/** Versions a flow's page lists; older ones stay readable one at a time. */
+export const FLOW_VERSION_LIST_MAX = 500;
 
 type FlowDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 
@@ -652,6 +735,200 @@ async function flowExists(tx: TenantTransaction, workspaceId: string, key: Autom
 }
 
 // ---------------------------------------------------------------------------
+// Drafts, activation and timers
+
+/** Zod's messages, each once (a message is the issue code where one applies). */
+function problemsOf(issues: readonly { message: string }[]): string[] {
+  return [...new Set(issues.map((issue) => issue.message))];
+}
+
+async function readDraftRow(
+  tx: TenantTransaction,
+  workspaceId: string,
+  automationId: string,
+): Promise<{ id: string; version: number; definition: unknown } | undefined> {
+  const [row] = await tx
+    .select({
+      id: automationVersions.id,
+      version: automationVersions.version,
+      definition: automationVersions.definition,
+    })
+    .from(automationVersions)
+    .where(
+      and(
+        eq(automationVersions.workspaceId, workspaceId),
+        eq(automationVersions.automationId, automationId),
+        eq(automationVersions.status, 'draft'),
+      ),
+    )
+    .for('update');
+  return row;
+}
+
+/** Writes `definition` as the flow's draft: the draft rewritten, or a new one numbered after every version. */
+async function writeDraft(
+  tx: TenantTransaction,
+  ctx: WriteScope,
+  automationId: string,
+  definition: FlowDraft | FlowDefinition,
+): Promise<void> {
+  const draft = await readDraftRow(tx, ctx.workspaceId, automationId);
+  if (draft) {
+    await tx
+      .update(automationVersions)
+      .set({ definition })
+      .where(
+        and(
+          eq(automationVersions.workspaceId, ctx.workspaceId),
+          eq(automationVersions.id, draft.id),
+        ),
+      );
+    return;
+  }
+  await tx.insert(automationVersions).values({
+    workspaceId: ctx.workspaceId,
+    automationId,
+    version: await nextVersionNumber(tx, ctx.workspaceId, automationId),
+    status: 'draft',
+    definition,
+    createdBy: ctx.actorId,
+  });
+}
+
+async function bumpRevision(
+  tx: TenantTransaction,
+  ctx: WriteScope,
+  automationId: string,
+  extra: { name?: string; activeVersionId?: string } = {},
+): Promise<void> {
+  await tx
+    .update(automations)
+    .set({
+      ...extra,
+      revision: sql`${automations.revision} + 1`,
+      updatedBy: ctx.actorId,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(automations.workspaceId, ctx.workspaceId), eq(automations.id, automationId)));
+}
+
+const TASK_OCCURRENCE = /^task:[^:]+:(\d{4}-\d{2}-\d{2})$/;
+
+/** Whether a pending timer still belongs to `trigger` for a lead of `leadType`. */
+function timerStillMatches(
+  trigger: FlowTrigger,
+  timer: { triggerKind: string; stage: string | null },
+  leadType: string,
+): boolean {
+  if (trigger.kind !== timer.triggerKind) return false;
+  if (trigger.kind === 'time_in_stage') {
+    return trigger.leadType === leadType && trigger.stage === timer.stage;
+  }
+  return triggerLeadTypes(trigger).includes(leadType);
+}
+
+/**
+ * After an activation, the flow's pending timers follow the new trigger: each
+ * gets the due time the new delay gives from its `event_at`, or becomes
+ * `void` when the new trigger's kind, type or stage no longer covers it.
+ * Claimed `FOR UPDATE SKIP LOCKED` (P7): one a tick holds is left as it is,
+ * and the tick re-checks the version active when it fires.
+ */
+async function recomputeTimers(
+  tx: TenantTransaction,
+  workspaceId: string,
+  automationId: string,
+  trigger: FlowTrigger,
+): Promise<void> {
+  const rows = await tx.execute<{
+    id: string;
+    trigger_kind: string;
+    stage: string | null;
+    occurrence: string;
+    event_at: string;
+    lead_type: string;
+  }>(sql`
+    select t.id, t.trigger_kind, t.stage, t.occurrence, t.event_at, l.lead_type
+    from app.automation_timers t
+    join app.leads l on l.workspace_id = t.workspace_id and l.id = t.lead_id
+    where t.workspace_id = ${workspaceId} and t.automation_id = ${automationId}
+      and t.status = 'pending'
+    for update of t skip locked
+  `);
+  const moved: { id: string; due: string }[] = [];
+  const voided: string[] = [];
+  for (const row of rows) {
+    const due = timerStillMatches(
+      trigger,
+      { triggerKind: row.trigger_kind, stage: row.stage },
+      row.lead_type,
+    )
+      ? timerDueAt(trigger, {
+          eventAt: new Date(row.event_at),
+          ...(trigger.kind === 'task_overdue'
+            ? { dueDay: TASK_OCCURRENCE.exec(row.occurrence)?.[1] ?? '' }
+            : {}),
+        })
+      : null;
+    if (due) moved.push({ id: row.id, due: due.toISOString() });
+    else voided.push(row.id);
+  }
+  if (moved.length > 0) {
+    await tx.execute(sql`
+      update app.automation_timers t
+      set due_at = v.due, updated_at = now()
+      from jsonb_to_recordset(${JSON.stringify(moved)}::jsonb) as v(id uuid, due timestamptz)
+      where t.workspace_id = ${workspaceId} and t.id = v.id
+    `);
+  }
+  if (voided.length > 0) {
+    await tx
+      .update(automationTimers)
+      .set({ status: 'void', updatedAt: new Date() })
+      .where(
+        and(eq(automationTimers.workspaceId, workspaceId), inArray(automationTimers.id, voided)),
+      );
+  }
+}
+
+async function listVersions(
+  tx: TenantTransaction,
+  workspaceId: string,
+  automationId: string,
+): Promise<FlowVersionSummary[]> {
+  const rows = await tx
+    .select({
+      version: automationVersions.version,
+      status: automationVersions.status,
+      activatedAt: automationVersions.activatedAt,
+      activatedBy: automationVersions.activatedBy,
+    })
+    .from(automationVersions)
+    .where(
+      and(
+        eq(automationVersions.workspaceId, workspaceId),
+        eq(automationVersions.automationId, automationId),
+      ),
+    )
+    .orderBy(desc(automationVersions.version))
+    .limit(FLOW_VERSION_LIST_MAX);
+  return rows.map((row) => ({
+    version: row.version,
+    status: automationVersionStatusSchema.parse(row.status),
+    activatedAt: row.activatedAt?.toISOString() ?? null,
+    activatedBy: row.activatedBy,
+  }));
+}
+
+/** A property's per-type entries for the types it applies to. */
+function propertyUses(catalog: Awaited<ReturnType<typeof loadPropertyCatalog>>, key: string) {
+  return Object.keys(leadTypeCatalog).flatMap((leadType) => {
+    const entry = catalog.forType(leadType).find((property) => property.key === key);
+    return entry ? [{ leadType, entry }] : [];
+  });
+}
+
+// ---------------------------------------------------------------------------
 // The store
 
 export class DatabaseFlowStore implements FlowStore {
@@ -948,6 +1225,315 @@ export class DatabaseFlowStore implements FlowStore {
       );
       const [run] = await shapeRuns(tx, ctx.workspaceId, rows, options.includeLeadNames);
       return run;
+    });
+  }
+
+  saveDraft(
+    ctx: WriteScope,
+    key: AutomationKey,
+    input: SaveFlowDraftRequest,
+  ): Promise<FlowStoreOutcome<{ flow: StoredFlow; issues: FlowIssue[] }>> {
+    return this.database.withTenantTx(
+      ctx,
+      async (tx): Promise<FlowStoreOutcome<{ flow: StoredFlow; issues: FlowIssue[] }>> => {
+        await ensureBuiltInFlows(tx, ctx);
+        const locked = await lockFlow(tx, ctx.workspaceId, key);
+        if (!locked) return { status: 'not_found' };
+        if (locked.revision !== input.expectedRevision) return { status: 'revision_conflict' };
+        if (locked.archived) return { status: 'archived' };
+        // The request schema takes `main` (a built-in's draft travels with it);
+        // the flow's own origin decides whether it may hold it.
+        const parsed = flowDraftSchemaFor(locked.origin).safeParse(input.definition);
+        if (!parsed.success) return { status: 'invalid', issues: problemsOf(parsed.error.issues) };
+        await writeDraft(tx, ctx, locked.id, parsed.data);
+        await bumpRevision(tx, ctx, locked.id);
+        const issues = checkFlowAgainstSite(parsed.data, await loadFlowSite(tx, ctx.workspaceId));
+        const flow = await readFlow(tx, ctx.workspaceId, key);
+        if (!flow) throw new Error('the flow vanished inside its own transaction');
+        return { status: 'ok', value: { flow, issues } };
+      },
+    );
+  }
+
+  discardDraft(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>> {
+    return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
+      await ensureBuiltInFlows(tx, ctx);
+      const locked = await lockFlow(tx, ctx.workspaceId, key);
+      if (!locked) return { status: 'not_found' };
+      const draft = await readDraftRow(tx, ctx.workspaceId, locked.id);
+      if (!draft) return this.okFlow(tx, ctx.workspaceId, key);
+      await tx
+        .update(automationVersions)
+        .set({ status: 'discarded' })
+        .where(
+          and(
+            eq(automationVersions.workspaceId, ctx.workspaceId),
+            eq(automationVersions.id, draft.id),
+          ),
+        );
+      await bumpRevision(tx, ctx, locked.id);
+      await audit(tx, ctx, {
+        action: 'automation.draft_discarded',
+        entityId: locked.id,
+        after: { key, version: draft.version },
+      });
+      return this.okFlow(tx, ctx.workspaceId, key);
+    });
+  }
+
+  activate(
+    ctx: WriteScope,
+    key: AutomationKey,
+    input: ActivateFlowRequest & { mayChangeLeads: boolean },
+  ): Promise<FlowStoreOutcome<StoredFlow>> {
+    return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
+      await ensureBuiltInFlows(tx, ctx);
+      const locked = await lockFlow(tx, ctx.workspaceId, key);
+      if (!locked) return { status: 'not_found' };
+      if (locked.revision !== input.expectedRevision) return { status: 'revision_conflict' };
+      if (locked.archived) return { status: 'archived' };
+      const draft = await readDraftRow(tx, ctx.workspaceId, locked.id);
+      if (!draft) return { status: 'invalid', issues: ['no_draft'] };
+      const parsed = flowDefinitionSchemaFor(locked.origin).safeParse(draft.definition);
+      if (!parsed.success) return { status: 'invalid', issues: problemsOf(parsed.error.issues) };
+      const definition = parsed.data;
+      const issues = checkFlowAgainstSite(definition, await loadFlowSite(tx, ctx.workspaceId));
+      if (issues.length > 0) return { status: 'invalid', issues };
+      if (flowHasLeadChangingStep(definition.steps) && !input.mayChangeLeads) {
+        return { status: 'needs_lead_manage' };
+      }
+
+      const now = new Date();
+      if (locked.activeVersionId !== null) {
+        await tx
+          .update(automationVersions)
+          .set({ status: 'retired', retiredAt: now })
+          .where(
+            and(
+              eq(automationVersions.workspaceId, ctx.workspaceId),
+              eq(automationVersions.id, locked.activeVersionId),
+            ),
+          );
+      }
+      await tx
+        .update(automationVersions)
+        .set({ status: 'active', activatedBy: ctx.actorId, activatedAt: now })
+        .where(
+          and(
+            eq(automationVersions.workspaceId, ctx.workspaceId),
+            eq(automationVersions.id, draft.id),
+          ),
+        );
+      await bumpRevision(tx, ctx, locked.id, { activeVersionId: draft.id });
+      await recomputeTimers(tx, ctx.workspaceId, locked.id, definition.trigger);
+      await audit(tx, ctx, {
+        action: 'automation.activated',
+        entityId: locked.id,
+        after: { key, version: draft.version },
+      });
+      return this.okFlow(tx, ctx.workspaceId, key);
+    });
+  }
+
+  reset(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>> {
+    return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
+      await ensureBuiltInFlows(tx, ctx);
+      const locked = await lockFlow(tx, ctx.workspaceId, key);
+      if (!locked) return { status: 'not_found' };
+      if (locked.origin !== 'builtin' || !isBuiltInAutomationKey(key)) {
+        return { status: 'not_builtin' };
+      }
+      await writeDraft(tx, ctx, locked.id, builtInFlowDefinition(key));
+      await bumpRevision(tx, ctx, locked.id, { name: builtInFlowName(key) });
+      await audit(tx, ctx, { action: 'automation.reset', entityId: locked.id, after: { key } });
+      return this.okFlow(tx, ctx.workspaceId, key);
+    });
+  }
+
+  getVersion(
+    ctx: Scope,
+    key: AutomationKey,
+    version: number,
+  ): Promise<StoredFlowVersion | undefined> {
+    return this.database.withTenantTx(ctx, async (tx) => {
+      const [row] = await tx
+        .select({
+          version: automationVersions.version,
+          status: automationVersions.status,
+          definition: automationVersions.definition,
+          activatedAt: automationVersions.activatedAt,
+          activatedBy: automationVersions.activatedBy,
+          createdAt: automationVersions.createdAt,
+        })
+        .from(automationVersions)
+        .innerJoin(
+          automations,
+          and(
+            eq(automations.workspaceId, automationVersions.workspaceId),
+            eq(automations.id, automationVersions.automationId),
+          ),
+        )
+        .where(
+          and(
+            eq(automationVersions.workspaceId, ctx.workspaceId),
+            eq(automations.key, key),
+            eq(automationVersions.version, version),
+          ),
+        );
+      if (!row) return undefined;
+      return { ...row, status: automationVersionStatusSchema.parse(row.status) };
+    });
+  }
+
+  versions(ctx: Scope, key: AutomationKey): Promise<FlowVersionSummary[]> {
+    return this.database.withTenantTx(ctx, async (tx) => {
+      const flow = await readFlow(tx, ctx.workspaceId, key);
+      return flow ? listVersions(tx, ctx.workspaceId, flow.id) : [];
+    });
+  }
+
+  detail(ctx: Scope, key: AutomationKey): Promise<FlowDetail | undefined> {
+    return this.database.withTenantTx(ctx, async (tx) => {
+      await ensureBuiltInFlows(tx, ctx);
+      const flow = await readFlow(tx, ctx.workspaceId, key);
+      if (!flow) return undefined;
+      const site = await loadFlowSite(tx, ctx.workspaceId);
+      let draft: FlowDetail['draft'] = null;
+      if (flow.draft) {
+        const parsed = flowDraftSchemaFor(flow.origin).safeParse(flow.draft.definition);
+        draft = parsed.success
+          ? {
+              version: flow.draft.version,
+              definition: parsed.data,
+              issues: checkFlowAgainstSite(parsed.data, site),
+            }
+          : { version: flow.draft.version, definition: null, issues: [DEFINITION_INVALID] };
+      }
+      return {
+        flow,
+        needsAttention: flowAttention(flow, site),
+        draft,
+        active: flow.activeVersion
+          ? { version: flow.activeVersion.version, definition: parsedActiveDefinition(flow) }
+          : null,
+        versions: await listVersions(tx, ctx.workspaceId, flow.id),
+      };
+    });
+  }
+
+  catalog(ctx: Scope): Promise<Omit<FlowCatalogResponse, 'requestId'>> {
+    return this.database.withTenantTx(ctx, async (tx) => {
+      const plans = await loadPlanOptions(tx);
+      const catalog = await loadPropertyCatalog(tx, 'lead', { plans });
+
+      const siteMade = await tx
+        .select({
+          key: emailTemplates.key,
+          name: emailTemplates.name,
+          subject: emailTemplates.subject,
+          body: emailTemplates.body,
+        })
+        .from(emailTemplates)
+        .where(
+          and(
+            eq(emailTemplates.workspaceId, ctx.workspaceId),
+            sql`${emailTemplates.key} like 'tpl\\_%'`,
+            // Archived templates are not offered (and have no limit, so they are never listed here).
+            isNull(emailTemplates.archivedAt),
+          ),
+        )
+        .orderBy(sql`lower(${emailTemplates.name})`, asc(emailTemplates.key));
+      const templates: FlowCatalogResponse['templates'] = [
+        // A flow cannot send the tracking code (P11).
+        ...CUSTOMER_EMAIL_TEMPLATES.filter((template) => template !== 'tracking_code').map(
+          (template) => ({
+            key: template,
+            name: emailTemplateLabel(template),
+            builtIn: true,
+            archived: false,
+            fillIns: [...fillInsForTemplate(template)],
+          }),
+        ),
+        ...siteMade.flatMap((row) =>
+          isSiteTemplateKey(row.key)
+            ? [
+                {
+                  key: row.key,
+                  name: emailTemplateLabel(row.key, row.name),
+                  builtIn: false,
+                  archived: false,
+                  fillIns: [
+                    ...fillInsForTemplate(row.key),
+                    ...templatePropertyKeys(row.subject, row.body).map(
+                      (property) => `${PROPERTY_FILL_IN_PREFIX}${property}` as const,
+                    ),
+                  ],
+                },
+              ]
+            : [],
+        ),
+      ];
+
+      const members = await tx
+        .select({ actorId: memberships.userId, displayName: memberships.displayName })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.workspaceId, ctx.workspaceId),
+            eq(memberships.membershipType, 'staff'),
+            eq(memberships.status, 'active'),
+          ),
+        )
+        .orderBy(asc(memberships.createdAt));
+
+      const properties: FlowCatalogResponse['properties'] = catalog.all.flatMap((property) => {
+        if (property.sensitive || property.hidden) return [];
+        const uses = propertyUses(catalog, property.key);
+        if (uses.length === 0) return [];
+        const options = property.options
+          ?.filter((option) => !option.hidden)
+          .map((option) => ({ value: option.value, label: option.label }));
+        return [
+          {
+            key: property.key,
+            label: property.label,
+            kind: property.kind,
+            ...(options ? { options } : {}),
+            leadTypes: uses.map((use) => use.leadType),
+            condition: uses.some((use) =>
+              catalog.filterable(use.leadType).some((entry) => entry.key === property.key),
+            ),
+            update: uses.some(
+              (use) =>
+                use.entry.editable &&
+                !use.entry.sensitive &&
+                (use.entry.storage === 'custom' || use.entry.storage === 'form'),
+            ),
+            taskVariable: true,
+            emailVariable: uses.every((use) => !use.entry.staffOnly),
+          },
+        ];
+      });
+
+      return {
+        leadTypes: Object.entries(leadTypeCatalog).map(([leadType, entry]) => ({
+          key: leadType,
+          label: entry.label,
+          stages: entry.stages.map((stage) => ({ key: stage.key, label: stage.label })),
+        })),
+        templates,
+        members: members.flatMap((row) =>
+          row.actorId === null ? [] : [{ actorId: row.actorId, displayName: row.displayName }],
+        ),
+        plans: plans.map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          leadType: plan.leadType,
+          active: plan.active,
+        })),
+        properties,
+        taskVariables: [...FLOW_TASK_VARIABLES],
+      };
     });
   }
 

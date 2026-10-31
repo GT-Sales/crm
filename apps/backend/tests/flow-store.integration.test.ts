@@ -5,7 +5,9 @@ import {
   CUSTOM_FLOW_KEY_PATTERN,
   builtInFlowDefinition,
   builtInFlowName,
+  flowCatalogResponseSchema,
   type FlowDefinition,
+  type FlowDraft,
 } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
@@ -38,6 +40,14 @@ const RACE_SITE = site(3);
 const SWITCH_SITE = site(4);
 const ATTENTION_SITE = site(5);
 const OTHER_SITE = site(6);
+const DRAFT_SITE = site(7);
+const ACTIVATE_SITE = site(8);
+const TIMER_SITE = site(9);
+const CATALOG_SITE = site(10);
+const RESET_SITE = site(11);
+const DETAIL_SITE = site(12);
+const TIMER_LEAD = '38000000-0000-4000-8000-000000008709';
+const TIMER_LEADS = [1, 2, 3].map((n) => `38000000-0000-4000-8000-00000000879${n}`);
 const SITES = Array.from({ length: 12 }, (_, index) => site(index + 1));
 const ACTOR = '28000000-0000-4000-8000-000000008701';
 const MEMBER = '28000000-0000-4000-8000-000000008702';
@@ -685,5 +695,637 @@ databaseTest('the flow store', () => {
       includeLeadNames: false,
     });
     expect(builtInRuns?.runs).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Drafts, activation, reset, versions and the catalogue (Task 10)
+
+  const withSteps = (steps: unknown[], trigger?: unknown): FlowDraft =>
+    // Parsed by the store, as the route's request schema would hand it over.
+    JSON.parse(
+      JSON.stringify({
+        schemaVersion: 1,
+        trigger: trigger ?? {
+          kind: 'stage_entered',
+          leadType: 'sim_order',
+          stage: 'verified',
+          when: null,
+        },
+        steps,
+      }),
+    );
+
+  it('the first draft save copies from nothing and bumps the revision', async () => {
+    await resetSite(DRAFT_SITE);
+    // A built-in has no draft: the first save makes version 2 from what it is sent.
+    const seeded = await store.get(write(DRAFT_SITE), 'sim_order_dispatched');
+    expect(seeded).toMatchObject({ revision: 0, draft: null, activeVersion: { version: 1 } });
+    const edited = {
+      ...builtInFlowDefinition('sim_order_dispatched'),
+      steps: [
+        ...builtInFlowDefinition('sim_order_dispatched').steps,
+        { id: 's_note', kind: 'send_email', template: 'activated' },
+      ],
+    };
+    const saved = ok(
+      await store.saveDraft(write(DRAFT_SITE), 'sim_order_dispatched', {
+        expectedRevision: 0,
+        definition: withSteps(edited.steps, edited.trigger),
+      }),
+    );
+    expect(saved.issues).toEqual([]);
+    expect(saved.flow).toMatchObject({
+      revision: 1,
+      activeVersion: { version: 1 },
+      draft: { version: 2, definition: edited },
+    });
+    // A custom flow's empty draft (version 1) is rewritten in place.
+    const flow = await customFlow(DRAFT_SITE, 'Draft');
+    const rewritten = ok(
+      await store.saveDraft(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 0,
+        definition: withSteps([{ id: 's_mail', kind: 'send_email', template: null }]),
+      }),
+    );
+    expect(rewritten.flow).toMatchObject({ revision: 1, draft: { version: 1 } });
+    expect(await audits(DRAFT_SITE, 'automation.draft_saved')).toEqual([]);
+  });
+
+  it('a stale revision is refused and changes nothing', async () => {
+    await resetSite(DRAFT_SITE);
+    const flow = await customFlow(DRAFT_SITE, 'Stale');
+    expect(
+      await store.saveDraft(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 4,
+        definition: withSteps([{ id: 's_mail', kind: 'send_email', template: 'activated' }]),
+      }),
+    ).toEqual({ status: 'revision_conflict' });
+    expect(
+      await store.activate(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 4,
+        mayChangeLeads: true,
+      }),
+    ).toEqual({
+      status: 'revision_conflict',
+    });
+    const after = await store.get(write(DRAFT_SITE), flow.key);
+    expect(after).toMatchObject({
+      revision: 0,
+      draft: { version: 1, definition: { schemaVersion: 1, trigger: null, steps: [] } },
+    });
+  });
+
+  it('a draft keeps site issues as warnings', async () => {
+    await resetSite(DRAFT_SITE);
+    const flow = await customFlow(DRAFT_SITE, 'Warnings');
+    const saved = ok(
+      await store.saveDraft(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 0,
+        definition: withSteps([
+          { id: 's_mail', kind: 'send_email', template: 'tpl_nosuchtemplate01' },
+          {
+            id: 's_assign',
+            kind: 'assign_lead',
+            actorId: '28000000-0000-4000-8000-000000008799',
+            reassign: false,
+          },
+        ]),
+      }),
+    );
+    expect(saved.issues).toEqual([
+      { path: 'steps.0.template', code: 'template_unavailable', ref: 'tpl_nosuchtemplate01' },
+      {
+        path: 'steps.1.actorId',
+        code: 'member_unavailable',
+        ref: '28000000-0000-4000-8000-000000008799',
+      },
+    ]);
+    expect(saved.flow.draft?.definition).toMatchObject({
+      steps: [{ id: 's_mail' }, { id: 's_assign' }],
+    });
+  });
+
+  it('a structure error is refused with its message, and a custom flow never stores main', async () => {
+    await resetSite(DRAFT_SITE);
+    const flow = await customFlow(DRAFT_SITE, 'Structure');
+    const afterBranch = await store.saveDraft(write(DRAFT_SITE), flow.key, {
+      expectedRevision: 0,
+      definition: withSteps([
+        {
+          id: 's_if',
+          kind: 'if_else',
+          condition: { match: 'all', items: [{ kind: 'lead_type', in: ['sim_order'] }] },
+          then: [],
+          else: [],
+        },
+        { id: 's_mail', kind: 'send_email', template: 'activated' },
+      ]),
+    });
+    expect(afterBranch.status).toBe('invalid');
+    if (afterBranch.status !== 'invalid') throw new Error('not refused');
+    expect(afterBranch.issues.length).toBeGreaterThan(0);
+    expect(afterBranch.issues.every((issue) => typeof issue === 'string')).toBe(true);
+
+    // The request schema takes `main` (for a built-in's draft); a custom flow is refused it.
+    const main = await store.saveDraft(write(DRAFT_SITE), flow.key, {
+      expectedRevision: 0,
+      definition: withSteps([{ id: 'main', kind: 'send_email', template: 'activated' }]),
+    });
+    expect(main.status).toBe('invalid');
+    const [stored] = await admin<{ definition: unknown; revision: number }[]>`
+      select v.definition, a.revision from app.automation_versions v
+      join app.automations a on a.id = v.automation_id
+      where a.workspace_id = ${DRAFT_SITE} and a.key = ${flow.key} and v.status = 'draft'
+    `;
+    expect(stored).toEqual({
+      definition: { schemaVersion: 1, trigger: null, steps: [] },
+      revision: 0,
+    });
+    // A built-in may keep its own `main`.
+    const builtIn = ok(
+      await store.saveDraft(write(DRAFT_SITE), 'sim_order_activated', {
+        expectedRevision: 0,
+        definition: withSteps(
+          builtInFlowDefinition('sim_order_activated').steps,
+          builtInFlowDefinition('sim_order_activated').trigger,
+        ),
+      }),
+    );
+    expect(builtIn.flow.draft?.version).toBe(2);
+  });
+
+  it('activation refuses a draft with any site issue', async () => {
+    await resetSite(ACTIVATE_SITE);
+    await admin`delete from app.email_templates where workspace_id = ${ACTIVATE_SITE}`;
+    await admin`delete from app.properties where workspace_id = ${ACTIVATE_SITE}`;
+    await admin`
+      insert into app.email_templates (workspace_id, key, name, subject, body, version, updated_by, archived_at)
+      values (${ACTIVATE_SITE}, 'tpl_archivedtemplat1', 'Gone', 'Hello', 'Hello', 1, ${ACTOR}, now())
+    `;
+    await admin`
+      insert into app.properties (workspace_id, object, key, origin, label, kind, position, sensitive)
+      values (${ACTIVATE_SITE}, 'lead', 'custom_secret', 'custom', 'Secret', 'text', 1, true)
+    `;
+    const cases: [unknown[], unknown, string, string][] = [
+      [
+        [{ id: 's_mail', kind: 'send_email', template: 'tpl_archivedtemplat1' }],
+        undefined,
+        'template_unavailable',
+        'tpl_archivedtemplat1',
+      ],
+      [
+        [{ id: 's_mail', kind: 'send_email', template: 'activated' }],
+        { kind: 'stage_entered', leadType: 'sim_order', stage: 'paid', when: null },
+        'stage_unavailable',
+        'paid',
+      ],
+      [
+        [{ id: 's_mail', kind: 'send_email', template: 'activated' }],
+        {
+          kind: 'stage_entered',
+          leadType: 'sim_order',
+          stage: 'verified',
+          when: {
+            match: 'all',
+            items: [{ kind: 'property', filter: { key: 'custom_secret', op: 'eq', value: 'x' } }],
+          },
+        },
+        'property_unavailable',
+        'custom_secret',
+      ],
+    ];
+    for (const [steps, trigger, code, ref] of cases) {
+      const flow = await customFlow(ACTIVATE_SITE, code);
+      ok(
+        await store.saveDraft(write(ACTIVATE_SITE), flow.key, {
+          expectedRevision: 0,
+          definition: withSteps(steps, trigger),
+        }),
+      );
+      const refused = await store.activate(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 1,
+        mayChangeLeads: true,
+      });
+      expect(refused).toEqual({
+        status: 'invalid',
+        issues: [expect.objectContaining({ code, ref })],
+      });
+      const after = await store.get(write(ACTIVATE_SITE), flow.key);
+      expect(after?.activeVersion).toBeNull();
+    }
+    // A draft that is not finished is refused by its structure.
+    const unfinished = await customFlow(ACTIVATE_SITE, 'Unfinished');
+    const empty = await store.activate(write(ACTIVATE_SITE), unfinished.key, {
+      expectedRevision: 0,
+      mayChangeLeads: true,
+    });
+    expect(empty.status).toBe('invalid');
+  });
+
+  it('activation of a lead-changing draft needs lead.manage', async () => {
+    await resetSite(ACTIVATE_SITE);
+    const flow = await customFlow(ACTIVATE_SITE, 'Tasks');
+    ok(
+      await store.saveDraft(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 0,
+        definition: withSteps([
+          {
+            id: 's_task',
+            kind: 'create_task',
+            title: 'Call {first name}',
+            dueInDays: 1,
+            assignee: { kind: 'lead_assignee' },
+          },
+        ]),
+      }),
+    );
+    expect(
+      await store.activate(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 1,
+        mayChangeLeads: false,
+      }),
+    ).toEqual({
+      status: 'needs_lead_manage',
+    });
+    const activated = ok(
+      await store.activate(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 1,
+        mayChangeLeads: true,
+      }),
+    );
+    expect(activated).toMatchObject({
+      revision: 2,
+      draft: null,
+      activeVersion: { version: 1, activatedBy: ACTOR },
+    });
+    // An email-only flow needs no lead.manage.
+    const mail = await customFlow(ACTIVATE_SITE, 'Mail');
+    ok(
+      await store.saveDraft(write(ACTIVATE_SITE), mail.key, {
+        expectedRevision: 0,
+        definition: withSteps([{ id: 's_mail', kind: 'send_email', template: 'activated' }]),
+      }),
+    );
+    expect(
+      (
+        await store.activate(write(ACTIVATE_SITE), mail.key, {
+          expectedRevision: 1,
+          mayChangeLeads: false,
+        })
+      ).status,
+    ).toBe('ok');
+    expect(await audits(ACTIVATE_SITE, 'automation.activated')).toEqual([
+      { before: null, after: { key: flow.key, version: 1 } },
+      { before: null, after: { key: mail.key, version: 1 } },
+    ]);
+  });
+
+  it('activation retires the old version, keeps the flow switch, recomputes and voids pending timers', async () => {
+    await resetSite(TIMER_SITE);
+    await admin`delete from app.leads where workspace_id = ${TIMER_SITE}`;
+    for (const id of [TIMER_LEAD, ...TIMER_LEADS]) {
+      await admin`
+        insert into app.leads (id, workspace_id, lead_type, status, stage, consent_version)
+        values (${id}, ${TIMER_SITE}, 'sim_order', 'submitted', 'pending', 'ci')
+      `;
+    }
+    const inPending = (days: number) => ({
+      kind: 'time_in_stage',
+      leadType: 'sim_order',
+      stage: 'pending',
+      after: { amount: days, unit: 'days' },
+      when: null,
+    });
+    const mail = [{ id: 's_mail', kind: 'send_email', template: 'activated' }];
+    const flow = await customFlow(TIMER_SITE, 'Timers');
+    ok(
+      await store.saveDraft(write(TIMER_SITE), flow.key, {
+        expectedRevision: 0,
+        definition: withSteps(mail, inPending(3)),
+      }),
+    );
+    ok(
+      await store.activate(write(TIMER_SITE), flow.key, {
+        expectedRevision: 1,
+        mayChangeLeads: false,
+      }),
+    );
+    ok(await store.setEnabled(write(TIMER_SITE), flow.key, true));
+    const eventAt = '2026-11-02T15:00:00.000Z';
+    const timer = async (leadId: string, stage: string) => {
+      const [row] = await admin<{ id: string }[]>`
+        insert into app.automation_timers
+          (workspace_id, automation_id, lead_id, trigger_kind, occurrence, stage, event_at, due_at)
+        values (${TIMER_SITE}, ${flow.id}, ${leadId}, 'time_in_stage', ${`stay:${leadId}`}, ${stage},
+          ${eventAt}, '2026-11-05T15:00:00Z')
+        returning id
+      `;
+      if (!row) throw new Error('no timer');
+      return row.id;
+    };
+    const stays = await timer(TIMER_LEADS[0] ?? '', 'pending');
+    const elsewhere = await timer(TIMER_LEADS[1] ?? '', 'verified');
+    const held = await timer(TIMER_LEADS[2] ?? '', 'pending');
+
+    // Version 2 waits five days.
+    ok(
+      await store.saveDraft(write(TIMER_SITE), flow.key, {
+        expectedRevision: 2,
+        definition: withSteps(mail, inPending(5)),
+      }),
+    );
+    const holder = postgres(migrationUrl ?? '', {
+      max: 1,
+      prepare: false,
+      ssl: false,
+      onnotice: () => {},
+    });
+    let release: () => void = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => {};
+    const isLocked = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holding = holder.begin(async (tx) => {
+      await tx`select id from app.automation_timers where id = ${held} for update`;
+      locked();
+      await released;
+    });
+    await isLocked;
+    try {
+      const activated = ok(
+        await store.activate(write(TIMER_SITE), flow.key, {
+          expectedRevision: 3,
+          mayChangeLeads: false,
+        }),
+      );
+      expect(activated).toMatchObject({
+        enabled: true,
+        activeVersion: { version: 2 },
+        draft: null,
+        revision: 4,
+      });
+    } finally {
+      release();
+      await holding;
+      await holder.end();
+    }
+    const timers = await admin<{ id: string; status: string; due: Date }[]>`
+      select id, status, due_at as due from app.automation_timers where workspace_id = ${TIMER_SITE}
+    `;
+    const byId = new Map(timers.map((row) => [row.id, row]));
+    expect(byId.get(stays)?.status).toBe('pending');
+    expect(byId.get(stays)?.due.toISOString()).toBe('2026-11-07T15:00:00.000Z');
+    expect(byId.get(elsewhere)?.status).toBe('void');
+    expect(byId.get(held)).toMatchObject({ status: 'pending' });
+    expect(byId.get(held)?.due.toISOString()).toBe('2026-11-05T15:00:00.000Z');
+    const versions = await admin<{ version: number; status: string; retired: boolean }[]>`
+      select v.version, v.status, v.retired_at is not null as retired from app.automation_versions v
+      where v.automation_id = ${flow.id} order by v.version
+    `;
+    expect(versions).toEqual([
+      { version: 1, status: 'retired', retired: true },
+      { version: 2, status: 'active', retired: false },
+    ]);
+
+    // A trigger of another kind voids the rest.
+    ok(
+      await store.saveDraft(write(TIMER_SITE), flow.key, {
+        expectedRevision: 4,
+        definition: withSteps(mail, {
+          kind: 'after_submitted',
+          leadTypes: ['sim_order'],
+          after: { amount: 1, unit: 'days' },
+          when: null,
+        }),
+      }),
+    );
+    ok(
+      await store.activate(write(TIMER_SITE), flow.key, {
+        expectedRevision: 5,
+        mayChangeLeads: false,
+      }),
+    );
+    const [after] = await admin<
+      { status: string }[]
+    >`select status from app.automation_timers where id = ${stays}`;
+    expect(after?.status).toBe('void');
+  });
+
+  it("an activated version's definition never changes", async () => {
+    await resetSite(DRAFT_SITE);
+    const flow = await customFlow(DRAFT_SITE, 'Versions');
+    const first = withSteps([{ id: 's_mail', kind: 'send_email', template: 'activated' }]);
+    ok(
+      await store.saveDraft(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 0,
+        definition: first,
+      }),
+    );
+    ok(
+      await store.activate(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 1,
+        mayChangeLeads: false,
+      }),
+    );
+    const second = withSteps([{ id: 's_mail', kind: 'send_email', template: 'cancelled' }]);
+    const saved = ok(
+      await store.saveDraft(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 2,
+        definition: second,
+      }),
+    );
+    expect(saved.flow).toMatchObject({
+      activeVersion: { version: 1, definition: first },
+      draft: { version: 2, definition: second },
+    });
+  });
+
+  it('discard then save makes a new draft number', async () => {
+    await resetSite(DRAFT_SITE);
+    const flow = await customFlow(DRAFT_SITE, 'Discard');
+    const discarded = ok(await store.discardDraft(write(DRAFT_SITE), flow.key));
+    expect(discarded).toMatchObject({ draft: null, revision: 1 });
+    expect(await audits(DRAFT_SITE, 'automation.draft_discarded')).toEqual([
+      { before: null, after: { key: flow.key, version: 1 } },
+    ]);
+    // Nothing to discard: no change.
+    expect(ok(await store.discardDraft(write(DRAFT_SITE), flow.key)).revision).toBe(1);
+    const saved = ok(
+      await store.saveDraft(write(DRAFT_SITE), flow.key, {
+        expectedRevision: 1,
+        definition: withSteps([{ id: 's_mail', kind: 'send_email', template: 'activated' }]),
+      }),
+    );
+    expect(saved.flow.draft?.version).toBe(2);
+  });
+
+  it('reset puts the built-in default back as a draft, built-ins only', async () => {
+    await resetSite(RESET_SITE);
+    const flow = await customFlow(RESET_SITE, 'Custom');
+    expect(await store.reset(write(RESET_SITE), flow.key)).toEqual({ status: 'not_builtin' });
+    ok(
+      await store.updateDetails(write(RESET_SITE), 'order_received', {
+        expectedRevision: 0,
+        name: 'Renamed',
+      }),
+    );
+    ok(
+      await store.saveDraft(write(RESET_SITE), 'order_received', {
+        expectedRevision: 1,
+        definition: withSteps(
+          [{ id: 'main', kind: 'send_email', template: 'cancelled' }],
+          builtInFlowDefinition('order_received').trigger,
+        ),
+      }),
+    );
+    const reset = ok(await store.reset(write(RESET_SITE), 'order_received'));
+    expect(reset).toMatchObject({
+      name: builtInFlowName('order_received'),
+      revision: 3,
+      draft: { version: 2, definition: builtInFlowDefinition('order_received') },
+    });
+    expect(await audits(RESET_SITE, 'automation.reset')).toEqual([
+      { before: null, after: { key: 'order_received' } },
+    ]);
+    const activated = ok(
+      await store.activate(write(RESET_SITE), 'order_received', {
+        expectedRevision: 3,
+        mayChangeLeads: false,
+      }),
+    );
+    expect(activated.activeVersion).toMatchObject({
+      version: 2,
+      definition: builtInFlowDefinition('order_received'),
+    });
+  });
+
+  it('versions list and one version read', async () => {
+    await resetSite(RESET_SITE);
+    ok(
+      await store.saveDraft(write(RESET_SITE), 'sim_order_cancelled', {
+        expectedRevision: 0,
+        definition: withSteps(
+          builtInFlowDefinition('sim_order_cancelled').steps,
+          builtInFlowDefinition('sim_order_cancelled').trigger,
+        ),
+      }),
+    );
+    ok(
+      await store.activate(write(RESET_SITE), 'sim_order_cancelled', {
+        expectedRevision: 1,
+        mayChangeLeads: false,
+      }),
+    );
+    const versions = await store.versions(write(RESET_SITE), 'sim_order_cancelled');
+    expect(versions.map((entry) => [entry.version, entry.status, entry.activatedBy])).toEqual([
+      [2, 'active', ACTOR],
+      [1, 'retired', null],
+    ]);
+    const one = await store.getVersion(write(RESET_SITE), 'sim_order_cancelled', 1);
+    expect(one).toMatchObject({
+      version: 1,
+      status: 'retired',
+      definition: builtInFlowDefinition('sim_order_cancelled'),
+    });
+    expect(await store.getVersion(write(RESET_SITE), 'sim_order_cancelled', 9)).toBeUndefined();
+    expect(
+      await store.getVersion({ workspaceId: OTHER_SITE, actorId: ACTOR }, 'sim_order_cancelled', 2),
+    ).toBeUndefined();
+  });
+
+  it('the detail serves an active definition that no longer parses, as needing attention', async () => {
+    await resetSite(DETAIL_SITE);
+    const flow = await customFlow(DETAIL_SITE, 'Rotten', {
+      schemaVersion: 1,
+      trigger: { kind: 'gone' },
+      steps: [],
+    });
+    await admin`
+      update app.automation_versions set definition = '{"schemaVersion": 1, "nonsense": true}'::jsonb
+      where automation_id = ${flow.id} and status = 'draft'
+    `;
+    const detail = await store.detail(write(DETAIL_SITE), flow.key);
+    expect(detail).toMatchObject({
+      needsAttention: { code: 'definition_invalid' },
+      active: { version: 2, definition: null },
+      draft: { version: 1, definition: null, issues: [{ code: 'definition_invalid' }] },
+    });
+    expect(detail?.versions.map((entry) => entry.version)).toEqual([2, 1]);
+    expect(await store.detail(write(DETAIL_SITE), 'flow_aaaaaaaaaaaaaaaa')).toBeUndefined();
+    const builtIn = await store.detail(write(DETAIL_SITE), 'mobility_activated');
+    expect(builtIn).toMatchObject({
+      needsAttention: null,
+      draft: null,
+      active: { version: 1, definition: builtInFlowDefinition('mobility_activated') },
+    });
+  });
+
+  it('the catalogue leaves out sensitive and hidden properties and tracking_code, and names what each property may be used for', async () => {
+    await resetSite(CATALOG_SITE);
+    await admin`delete from app.email_templates where workspace_id = ${CATALOG_SITE}`;
+    await admin`delete from app.properties where workspace_id = ${CATALOG_SITE}`;
+    await admin`
+      insert into app.properties (workspace_id, object, key, origin, label, kind, position, sensitive, hidden, staff_only)
+      values
+        (${CATALOG_SITE}, 'lead', 'custom_size', 'custom', 'Size', 'text', 1, false, false, false),
+        (${CATALOG_SITE}, 'lead', 'custom_secret', 'custom', 'Secret', 'text', 2, true, false, false),
+        (${CATALOG_SITE}, 'lead', 'custom_hidden', 'custom', 'Hidden', 'text', 3, false, true, false),
+        (${CATALOG_SITE}, 'lead', 'custom_internal', 'custom', 'Internal', 'text', 4, false, false, true)
+    `;
+    await admin`
+      insert into app.email_templates (workspace_id, key, name, subject, body, version, updated_by)
+      values (${CATALOG_SITE}, 'tpl_catalogtemplate1', 'Size note', 'About {prop:custom_size}', 'Hi {first name}', 1, ${ACTOR})
+    `;
+    // More archived templates than any response carries: none is listed.
+    await admin`
+      insert into app.email_templates (workspace_id, key, name, subject, body, version, updated_by, archived_at)
+      select ${CATALOG_SITE}, 'tpl_archived' || lpad(n::text, 8, '0'), 'Old ' || n, 'Old', 'Old', 1, ${ACTOR}, now()
+      from generate_series(1, 210) n
+    `;
+    await admin`
+      insert into app.plans (workspace_id, lead_type, name, active, position)
+      values (${CATALOG_SITE}, 'sim_order', 'Student', true, 0), (${CATALOG_SITE}, 'sim_order', 'Old', false, 1)
+    `;
+    const catalog = await store.catalog(write(CATALOG_SITE));
+    expect(() => flowCatalogResponseSchema.parse({ ...catalog, requestId: REQUEST })).not.toThrow();
+    const keys = catalog.properties.map((property) => property.key);
+    expect(keys).toContain('custom_size');
+    expect(keys).toContain('custom_internal');
+    expect(keys).not.toContain('custom_secret');
+    expect(keys).not.toContain('custom_hidden');
+    expect(catalog.properties.find((property) => property.key === 'custom_size')).toMatchObject({
+      condition: true,
+      update: true,
+      taskVariable: true,
+      emailVariable: true,
+    });
+    expect(catalog.properties.find((property) => property.key === 'custom_internal')).toMatchObject(
+      {
+        emailVariable: false,
+      },
+    );
+    const templates = catalog.templates.map((template) => template.key);
+    expect(templates).not.toContain('tracking_code');
+    expect(templates).toHaveLength(9);
+    expect(catalog.templates.at(-1)).toMatchObject({
+      key: 'tpl_catalogtemplate1',
+      name: 'Size note',
+      builtIn: false,
+      archived: false,
+    });
+    expect(catalog.templates.at(-1)?.fillIns).toContain('prop:custom_size');
+    expect(catalog.templates.at(-1)?.fillIns).not.toContain('code');
+    expect(catalog.plans.map((plan) => [plan.name, plan.active])).toEqual([
+      ['Student', true],
+      ['Old', false],
+    ]);
+    expect(catalog.members.map((member) => member.actorId).sort()).toEqual([ACTOR, MEMBER].sort());
+    expect(
+      catalog.leadTypes.find((type) => type.key === 'sim_order')?.stages.map((stage) => stage.key),
+    ).toContain('verified');
+    expect(catalog.taskVariables).toContain('order number');
   });
 });
