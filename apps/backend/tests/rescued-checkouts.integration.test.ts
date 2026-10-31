@@ -250,7 +250,13 @@ databaseTest('rescued checkouts count as submitted', () => {
       definition: flow(
         {
           kind: 'lead_submitted',
-          leadTypes: ['sim_order', 'internet', 'mobility', 'partner_application'],
+          leadTypes: [
+            'sim_order',
+            'internet',
+            'mobility',
+            'partner_application',
+            'contact_message',
+          ],
           when: null,
         },
         [send('s_closed', 'order_received')],
@@ -263,6 +269,7 @@ databaseTest('rescued checkouts count as submitted', () => {
       ['internet', 'non_serviceable_address'],
       ['mobility', 'lost'],
       ['partner_application', 'declined'],
+      ['contact_message', 'closed'],
     ] as const) {
       const { leadId, grant } = await draft(TYPES_SITE, leadType, {
         email: `closing-${leadType}-${stage}@example.test`,
