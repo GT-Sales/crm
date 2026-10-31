@@ -42,6 +42,7 @@ import {
 
 import { fireFlows, type FlowSiteHolder } from '../automations/engine.js';
 import { automationLeadOf } from '../automations/run.js';
+import { taskDueDay, writeTimers } from '../automations/timers.js';
 import type { StaffNotificationEnvironment } from '../automations/staff-notification.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
@@ -493,7 +494,29 @@ export async function insertLeadTask(
     requestId: input.requestId,
     after: input.automation ? { ...after, automation: auditedAutomation(input.automation) } : after,
   });
+  if (input.dueAt) await writeTaskTimers(tx, input.workspaceId, input.leadId, row.id, input.dueAt);
   return { taskId: row.id };
+}
+
+/** A task's `task_overdue` timers, for its due day (the lead's type read here). */
+async function writeTaskTimers(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+  taskId: string,
+  dueAt: string | Date,
+): Promise<void> {
+  const [lead] = await tx.execute<{ leadType: string }>(sql`
+    select l.lead_type as "leadType" from app.leads l
+    where l.workspace_id = ${workspaceId} and l.id = ${leadId}
+  `);
+  if (!lead) return;
+  await writeTimers(tx, {
+    workspaceId,
+    leadId,
+    leadType: lead.leadType,
+    event: { kind: 'task_due', taskId, dueDay: taskDueDay(dueAt) },
+  });
 }
 
 /**
@@ -847,6 +870,29 @@ export async function applyLeadUpdate(
   // rescue is the submission too (its flows first, R4); a flow's move fires
   // the next flows one deeper in its chain (R8).
   const statusChange = inserted.find((row) => row.kind === 'status_change');
+  if (statusChange && set.stage !== undefined) {
+    // The clocks of the time triggers this entry (and a rescue's submission) start.
+    const timerInput = {
+      workspaceId: input.workspaceId,
+      leadId: input.leadId,
+      leadType: lead.leadType,
+    };
+    if (rescue) {
+      await writeTimers(tx, {
+        ...timerInput,
+        event: { kind: 'submitted', at: statusChange.createdAt },
+      });
+    }
+    await writeTimers(tx, {
+      ...timerInput,
+      event: {
+        kind: 'stage_entered',
+        stage: set.stage,
+        occurrence: statusChange.id,
+        at: statusChange.createdAt,
+      },
+    });
+  }
   const chained = {
     depth: automation ? automation.depth + 1 : 0,
     chain: automation ? [...automation.chain, automation.key] : [],
@@ -1163,8 +1209,10 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         dueAt: Date | string | null;
         assignedActorId: string | null;
         trashed: boolean;
+        leadId: string;
       }>(sql`
         select
+          k.lead_id as "leadId",
           k.status,
           k.title,
           k.due_at as "dueAt",
@@ -1231,6 +1279,17 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         before: { status: current.status },
         after: { changedFields, status: input.status ?? current.status },
       });
+      // An open task with a new due day, or one reopened with a due day, starts its overdue clock.
+      const status = input.status ?? current.status;
+      const dueAt = input.dueAt !== undefined ? input.dueAt : current.dueAt;
+      const dueMoved =
+        input.dueAt !== undefined &&
+        input.dueAt !== null &&
+        (current.dueAt === null || taskDueDay(input.dueAt) !== taskDueDay(current.dueAt));
+      const reopened = input.status === 'open' && current.status !== 'open';
+      if (status === 'open' && dueAt !== null && (dueMoved || reopened)) {
+        await writeTaskTimers(tx, input.workspaceId, current.leadId, input.taskId, dueAt);
+      }
       return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
     });
   }

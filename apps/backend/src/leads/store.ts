@@ -32,6 +32,7 @@ import {
 } from '@gt-sales/contracts';
 
 import { fireFlows } from '../automations/engine.js';
+import { writeTimers } from '../automations/timers.js';
 import {
   customerEmailEnvironmentFromEnv,
   type CustomerEmailEnvironment,
@@ -432,6 +433,14 @@ export class DatabaseLeadStore implements LeadStore {
   ): Promise<void> {
     const at = moved?.createdAt ?? new Date();
     const base = { leadId: lead.id, leadType: lead.leadType, stage: lead.stage, depth: 0 };
+    const occurrence = moved?.id ?? 'submitted:stage';
+    // The time triggers' clocks the submission starts: after it, and the stay in its stage.
+    const timers = { workspaceId: input.workspaceId, leadId: lead.id, leadType: lead.leadType };
+    await writeTimers(tx, { ...timers, event: { kind: 'submitted', at } });
+    await writeTimers(tx, {
+      ...timers,
+      event: { kind: 'stage_entered', stage: lead.stage, occurrence, at },
+    });
     await fireFlows(tx, { ...input, environment: this.emailEnvironment }, [
       {
         ...base,
@@ -444,7 +453,7 @@ export class DatabaseLeadStore implements LeadStore {
       {
         ...base,
         kind: 'stage_entered',
-        occurrence: moved?.id ?? 'submitted:stage',
+        occurrence,
         chain: [],
         parentRunId: null,
         at,

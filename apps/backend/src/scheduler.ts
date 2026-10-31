@@ -4,8 +4,10 @@ import { createOwnerAlertChannelFromEnv, type OwnerAlertChannel } from '@gt-sale
 import type { MachineScopeName } from '@gt-sales/types';
 import { z } from 'zod';
 
+import { AUTOMATION_TICK_INTERVAL_MS, runAutomationTick } from './automations/tick.js';
 import { loadDeploymentEnvironment } from './config/deployment.js';
 import { createDocumentServiceFromEnv } from './documents/factory.js';
+import { customerEmailEnvironmentFromEnv } from './email/senders.js';
 import type { DocumentService } from './documents/service.js';
 import {
   INITIAL_INTAKE_ALERT_STATE,
@@ -52,15 +54,20 @@ const OUTBOX_PREFIX = 'scheduler:outbox';
 const DOCUMENT_CLEANUP_PREFIX = 'scheduler:document_cleanup';
 const DATA_RETENTION_PREFIX = 'scheduler:data_retention';
 const INTAKE_CHECK_PREFIX = 'scheduler:intake_check';
+const AUTOMATIONS_PREFIX = 'scheduler:automations';
 const SCHEDULER_ROUTE = 'scheduler';
 const SCHEDULER_ERROR_PREFIXES: Record<SchedulerTaskName, string> = {
   outbox: OUTBOX_PREFIX,
   document_cleanup: DOCUMENT_CLEANUP_PREFIX,
   data_retention: DATA_RETENTION_PREFIX,
   intake_check: INTAKE_CHECK_PREFIX,
+  automations: AUTOMATIONS_PREFIX,
 };
 
-export type SchedulerTaskName = 'outbox' | 'document_cleanup' | 'data_retention' | 'intake_check';
+export type SchedulerTaskName =
+  'outbox' | 'document_cleanup' | 'data_retention' | 'intake_check' | 'automations';
+
+export { AUTOMATION_TICK_INTERVAL_MS };
 
 export interface SchedulerTask {
   name: SchedulerTaskName;
@@ -197,6 +204,8 @@ export interface BackendSchedulerDependencies {
   runDataRetention(input: SchedulerRunInput): Promise<unknown>;
   /** One intake check run on the test site, alerting the owner on failure and recovery. */
   runIntakeCheck(input: IntakeCheckRunInput): Promise<unknown>;
+  /** One pass over the due automation waits and timers of every authorised site. */
+  runAutomationTick(input: SchedulerRunInput): Promise<unknown>;
 }
 
 export interface BackendSchedulerConfig {
@@ -260,10 +269,16 @@ export function createBackendScheduler(
       intervalMs: DATA_RETENTION_INTERVAL_MS,
       run: () => dependencies.runDataRetention(outbox),
     },
+    {
+      // Automation waits and time triggers, with the outbox identity (spec §5).
+      name: 'automations',
+      intervalMs: AUTOMATION_TICK_INTERVAL_MS,
+      run: () => dependencies.runAutomationTick(outbox),
+    },
   ];
 
   // The intake check is optional (R5): set but misconfigured, it is left out
-  // and logged once by its code, and the three tasks above run regardless.
+  // and logged once by its code, and the tasks above run regardless.
   const intakeWorkspaceId = env['INTAKE_CHECK_WORKSPACE_ID'];
   if (intakeWorkspaceId) {
     try {
@@ -315,6 +330,7 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   let queueHealth = INITIAL_QUEUE_HEALTH_STATE;
   let intakeAlerts: IntakeAlertState = INITIAL_INTAKE_ALERT_STATE;
   const intakeCheck = { leads: new DatabaseLeadStore(), store: new DatabaseIntakeCheckStore() };
+  const automations = { environment: customerEmailEnvironmentFromEnv() };
   return {
     registry: jobs.registry,
     runOutbox: (input) =>
@@ -337,6 +353,7 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
           intakeAlerts = state;
         },
       ),
+    runAutomationTick: (input) => runAutomationTick(automations, input),
   };
 }
 
