@@ -1,19 +1,20 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  BUILT_IN_AUTOMATIONS,
-  automationSchema,
-  type Automation,
-  type AutomationRun,
-  type ListAutomationsResponse,
+  BUILT_IN_AUTOMATION_KEYS,
+  builtInFlowDefinition,
+  builtInFlowName,
+  type FlowListResponse,
+  type FlowSummary,
 } from '@gt-sales/contracts';
 
 import { SiteAutomations } from './automations-list';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
-const LEAD = '30000000-0000-4000-8000-000000000001';
-const ORDER_RECEIVED = 'When an order is submitted on the website → send the Order received email';
-const DISPATCHED = 'When a SIM order moves to Delivered → send the Dispatched email';
+const CUSTOM = 'flow_abcdefghij012345';
+const ARCHIVED = 'flow_archivedflow0001';
+const ORDER_RECEIVED = builtInFlowName('order_received');
+const DISPATCHED = builtInFlowName('sim_order_dispatched');
 
 const mocks = vi.hoisted(() => {
   class FakeBackendError extends Error {
@@ -25,16 +26,21 @@ const mocks = vi.hoisted(() => {
     FakeBackendError,
     listAutomations: vi.fn(),
     updateAutomation: vi.fn(),
-    listAutomationRuns: vi.fn(),
+    createAutomation: vi.fn(),
+    restoreAutomation: vi.fn(),
+    push: vi.fn(),
   };
 });
 
 vi.mock('../../lib/api', () => ({
   listAutomations: mocks.listAutomations,
   updateAutomation: mocks.updateAutomation,
-  listAutomationRuns: mocks.listAutomationRuns,
+  createAutomation: mocks.createAutomation,
+  restoreAutomation: mocks.restoreAutomation,
   BackendError: mocks.FakeBackendError,
 }));
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
 
 vi.mock('../staff-session-provider', () => ({
   useStaffSession: () => ({
@@ -43,66 +49,178 @@ vi.mock('../staff-session-provider', () => ({
   }),
 }));
 
-function rules(overrides: Partial<Record<string, Partial<Automation>>> = {}): Automation[] {
-  return BUILT_IN_AUTOMATIONS.map((definition) =>
-    automationSchema.parse({
-      ...definition,
-      enabled: false,
-      lastRunAt: null,
-      runCount: 0,
-      ...overrides[definition.key],
-    }),
-  );
+function builtIn(
+  key: (typeof BUILT_IN_AUTOMATION_KEYS)[number],
+  overrides: Partial<FlowSummary> = {},
+): FlowSummary {
+  return {
+    key,
+    origin: 'builtin',
+    name: builtInFlowName(key),
+    description: null,
+    enabled: false,
+    archived: false,
+    trigger: builtInFlowDefinition(key).trigger,
+    activeVersion: 1,
+    hasDraft: false,
+    lastRunAt: null,
+    runCount: 0,
+    needsAttention: null,
+    ...overrides,
+  };
 }
 
-function answer(overrides: Partial<ListAutomationsResponse> = {}): ListAutomationsResponse {
+const custom = (overrides: Partial<FlowSummary> = {}): FlowSummary => ({
+  key: CUSTOM,
+  origin: 'custom',
+  name: 'Verified follow-up',
+  description: null,
+  enabled: false,
+  archived: false,
+  trigger: null,
+  activeVersion: null,
+  hasDraft: true,
+  lastRunAt: null,
+  runCount: 0,
+  needsAttention: null,
+  ...overrides,
+});
+
+function answer(overrides: Partial<FlowListResponse> = {}): FlowListResponse {
   return {
-    automations: rules(),
+    automations: [
+      ...BUILT_IN_AUTOMATION_KEYS.map((key) =>
+        builtIn(key, {
+          ...(key === 'sim_order_dispatched'
+            ? { needsAttention: { path: 'trigger.stage', code: 'stage_unavailable', ref: 'paid' } }
+            : {}),
+          ...(key === 'sim_order_activated' ? { hasDraft: true } : {}),
+        }),
+      ),
+      custom(),
+    ],
+    nextBefore: null,
+    warnings: [
+      {
+        event: { kind: 'stage_entered', leadType: 'sim_order', stage: 'delivered' },
+        flows: [
+          { key: 'sim_order_dispatched', name: DISPATCHED },
+          { key: CUSTOM, name: 'Verified follow-up' },
+        ],
+        message: `Customers get 2 emails when a SIM order moves to Delivered: ${DISPATCHED}, Verified follow-up.`,
+      },
+    ],
     canManage: true,
     hasSender: true,
+    limit: 50,
     requestId: 'req_test',
     ...overrides,
   };
 }
 
-const row = (label: string) => {
-  const item = screen.getByRole('switch', { name: label }).closest('li');
-  if (!item) throw new Error(`no row for ${label}`);
+const table = () => screen.findByRole('table', { name: 'Automation flows' });
+const row = (name: string) => {
+  const item = screen.getByRole('link', { name }).closest('tr');
+  if (!item) throw new Error(`no row for ${name}`);
   return item;
 };
 
 beforeEach(() => {
-  for (const mock of [mocks.listAutomations, mocks.updateAutomation, mocks.listAutomationRuns]) {
-    mock.mockReset();
+  for (const mock of Object.values(mocks)) {
+    if (typeof mock === 'function' && 'mockReset' in mock) mock.mockReset();
   }
   mocks.listAutomations.mockResolvedValue(answer());
 });
 
 describe('SiteAutomations', () => {
-  it('lists one row per built-in rule, by its label', async () => {
+  it('lists every flow in a table, the six built in, with When in words, chips and warnings', async () => {
     render(<SiteAutomations workspaceSlug="canadawide" />);
-    const list = await screen.findByRole('list', { name: 'Automations' });
+    const flows = await table();
     expect(mocks.listAutomations).toHaveBeenCalledWith('staff-token', WORKSPACE);
-    const switches = within(list).getAllByRole('switch');
-    expect(switches.map((control) => control.getAttribute('aria-label'))).toEqual(
-      BUILT_IN_AUTOMATIONS.map(({ label }) => label),
+    const headers = within(flows)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent);
+    expect(headers).toEqual(['Name', 'When', 'On', 'Last run', 'Runs', 'Status']);
+    const rows = within(flows).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(7);
+    expect(within(flows).getAllByText('Built in')).toHaveLength(6);
+    expect(row(ORDER_RECEIVED).textContent).toContain(
+      'A SIM order, an internet lead or a mobility order is submitted',
     );
-    for (const control of switches) {
-      expect(control.getAttribute('aria-checked')).toBe('false');
-      expect(control.hasAttribute('disabled')).toBe(false);
-    }
+    expect(within(row(DISPATCHED)).getByText('A SIM order moves to Delivered')).toBeTruthy();
+    expect(within(row('Verified follow-up')).getByText('No trigger yet')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Verified follow-up' }).getAttribute('href')).toBe(
+      `/w/canadawide/automations/${CUSTOM}`,
+    );
+
+    expect(
+      within(row(DISPATCHED)).getByText(
+        'Needs attention: names a stage that no longer exists (paid)',
+      ),
+    ).toBeTruthy();
+    expect(within(row('Verified follow-up')).getByText('Not activated')).toBeTruthy();
+    expect(
+      within(row(builtInFlowName('sim_order_activated'))).getByText('Draft changes'),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        `Customers get 2 emails when a SIM order moves to Delivered: ${DISPATCHED}, Verified follow-up.`,
+      ),
+    ).toBeTruthy();
+    expect(within(row(ORDER_RECEIVED)).getByText('Never')).toBeTruthy();
   });
 
-  it('switches a rule on for the owner', async () => {
-    mocks.updateAutomation.mockResolvedValue({
-      automation: rules({ order_received: { enabled: true } })[0],
+  it('disables the switch of a flow with no active version, saying why', async () => {
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    await table();
+    const control = within(row('Verified follow-up')).getByRole('switch', {
+      name: 'Verified follow-up',
+    });
+    expect(control.hasAttribute('disabled')).toBe(true);
+    const note = within(row('Verified follow-up')).getByText('Activate the flow first.');
+    expect(control.getAttribute('aria-describedby')).toBe(note.id);
+    fireEvent.click(control);
+    expect(mocks.updateAutomation).not.toHaveBeenCalled();
+  });
+
+  it('is read-only for a member who cannot manage the flows', async () => {
+    mocks.listAutomations.mockResolvedValue(
+      answer({
+        canManage: false,
+        automations: [builtIn('order_received', { enabled: true }), custom()],
+      }),
+    );
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    const note = await screen.findByText(
+      'This needs the Integrations permission (the owner has it).',
+    );
+    for (const control of screen.getAllByRole('switch')) {
+      expect(control.hasAttribute('disabled')).toBe(true);
+      expect(control.getAttribute('aria-describedby')).toBe(note.id);
+    }
+    expect(screen.getByRole('switch', { name: ORDER_RECEIVED }).getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: 'New flow' })).toBeNull();
+  });
+
+  it('switches a flow on, and keeps the confirmed state when a later change fails', async () => {
+    mocks.updateAutomation.mockResolvedValueOnce({
+      automation: builtIn('order_received', { enabled: true, runCount: 4 }),
       requestId: 'req_test',
     });
+    mocks.updateAutomation.mockRejectedValueOnce(new mocks.FakeBackendError('internal_error'));
     render(<SiteAutomations workspaceSlug="canadawide" />);
-    const control = await screen.findByRole('switch', { name: ORDER_RECEIVED });
+    await table();
+    const control = screen.getByRole('switch', { name: ORDER_RECEIVED });
 
+    // The list is read again after a switch (the overlap warnings follow what is on).
+    mocks.listAutomations.mockResolvedValue(
+      answer({
+        automations: [builtIn('order_received', { enabled: true, runCount: 4 }), custom()],
+      }),
+    );
     fireEvent.click(control);
-
     await waitFor(() =>
       expect(mocks.updateAutomation).toHaveBeenCalledWith(
         'staff-token',
@@ -111,233 +229,105 @@ describe('SiteAutomations', () => {
         { enabled: true },
       ),
     );
-    await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('true'));
-    expect(screen.queryByRole('alert')).toBeNull();
-  });
-
-  it('puts the switch back and says why when the change fails', async () => {
-    mocks.updateAutomation.mockRejectedValue(new mocks.FakeBackendError('internal_error'));
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    const control = await screen.findByRole('switch', { name: ORDER_RECEIVED });
-
-    fireEvent.click(control);
-
-    expect((await within(row(ORDER_RECEIVED)).findByRole('alert')).textContent).toBe(
-      'The change was not saved. Reason: internal_error.',
-    );
-    expect(control.getAttribute('aria-checked')).toBe('false');
-    expect(control.hasAttribute('disabled')).toBe(false);
-  });
-
-  it('keeps the confirmed state when a later change fails', async () => {
-    mocks.updateAutomation.mockResolvedValueOnce({
-      automation: rules({ order_received: { enabled: true, runCount: 4 } })[0],
-      requestId: 'req_test',
-    });
-    mocks.updateAutomation.mockRejectedValueOnce(new mocks.FakeBackendError('internal_error'));
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    const control = await screen.findByRole('switch', { name: ORDER_RECEIVED });
-
-    fireEvent.click(control);
-    await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('true'));
-    // The saved rule as the backend answered it, counts included.
+    await waitFor(() => expect(mocks.listAutomations).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        within(row(ORDER_RECEIVED)).getByText('Emails queued').nextElementSibling?.textContent,
-      ).toBe('4'),
+        screen.getByRole('switch', { name: ORDER_RECEIVED }).getAttribute('aria-checked'),
+      ).toBe('true'),
     );
+    expect(within(row(ORDER_RECEIVED)).getByText('4')).toBeTruthy();
 
-    fireEvent.click(control);
-
+    fireEvent.click(screen.getByRole('switch', { name: ORDER_RECEIVED }));
     expect((await within(row(ORDER_RECEIVED)).findByRole('alert')).textContent).toBe(
       'The change was not saved. Reason: internal_error.',
     );
-    expect(mocks.updateAutomation).toHaveBeenLastCalledWith(
-      'staff-token',
-      WORKSPACE,
-      'order_received',
-      { enabled: false },
-    );
-    expect(control.getAttribute('aria-checked')).toBe('true');
-  });
-
-  it('ignores a second click while a change is being saved', async () => {
-    let settle: (value: unknown) => void = () => undefined;
-    mocks.updateAutomation.mockReturnValue(
-      new Promise((resolve) => {
-        settle = resolve;
-      }),
-    );
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    const control = await screen.findByRole('switch', { name: ORDER_RECEIVED });
-
-    fireEvent.click(control);
-    expect(control.getAttribute('aria-checked')).toBe('true');
-    expect(control.getAttribute('aria-disabled')).toBe('true');
-    fireEvent.click(control);
-    expect(mocks.updateAutomation).toHaveBeenCalledTimes(1);
-    expect(control.getAttribute('aria-checked')).toBe('true');
-
-    settle({
-      automation: rules({ order_received: { enabled: true } })[0],
-      requestId: 'req_test',
-    });
-    await waitFor(() => expect(control.hasAttribute('aria-disabled')).toBe(false));
-    expect(control.getAttribute('aria-checked')).toBe('true');
-    expect(mocks.updateAutomation).toHaveBeenCalledTimes(1);
-  });
-
-  it('announces the recent runs while they load', async () => {
-    mocks.listAutomationRuns.mockReturnValue(new Promise(() => undefined));
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    await screen.findByRole('list', { name: 'Automations' });
-    fireEvent.click(within(row(DISPATCHED)).getByRole('button', { name: 'Recent runs' }));
-
-    expect(within(row(DISPATCHED)).getByRole('status').textContent).toBe(
-      'Loading the recent runs…',
-    );
-  });
-
-  it('says a refused change needs the Integrations permission', async () => {
-    mocks.updateAutomation.mockRejectedValue(new mocks.FakeBackendError('permission_denied'));
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    fireEvent.click(await screen.findByRole('switch', { name: DISPATCHED }));
-
-    expect((await within(row(DISPATCHED)).findByRole('alert')).textContent).toBe(
-      'This needs the Integrations permission (the owner has it).',
-    );
-    expect(row(DISPATCHED).querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe(
-      'false',
-    );
-  });
-
-  it('is read-only for a member who cannot manage the rules', async () => {
-    mocks.listAutomations.mockResolvedValue(
-      answer({ canManage: false, automations: rules({ order_received: { enabled: true } }) }),
-    );
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    const note = await screen.findByText(
-      'This needs the Integrations permission (the owner has it).',
-    );
-
-    for (const control of screen.getAllByRole('switch')) {
-      expect(control.hasAttribute('disabled')).toBe(true);
-      expect(control.getAttribute('aria-describedby')).toBe(note.id);
-    }
     expect(screen.getByRole('switch', { name: ORDER_RECEIVED }).getAttribute('aria-checked')).toBe(
       'true',
     );
-    fireEvent.click(screen.getByRole('switch', { name: ORDER_RECEIVED }));
-    expect(mocks.updateAutomation).not.toHaveBeenCalled();
-    // Reading the runs is still open to them.
-    expect(
-      within(row(ORDER_RECEIVED))
-        .getByRole('button', { name: 'Recent runs' })
-        .hasAttribute('disabled'),
-    ).toBe(false);
   });
 
-  it('shows the last run and the emails queued, or Never', async () => {
-    const lastRunAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-    mocks.listAutomations.mockResolvedValue(
-      answer({ automations: rules({ sim_order_dispatched: { lastRunAt, runCount: 3 } }) }),
+  it('makes a new flow by keyboard and opens its page', async () => {
+    mocks.createAutomation.mockResolvedValue({
+      automation: custom({ key: 'flow_newflow000000001' }),
+    });
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    await table();
+    const open = screen.getByRole('button', { name: 'New flow' });
+    open.focus();
+    fireEvent.click(open);
+    const dialog = await screen.findByRole('dialog', { name: 'New flow' });
+    const name = within(dialog).getByLabelText('Name');
+    fireEvent.change(name, { target: { value: '  Verified follow-up ' } });
+    fireEvent.submit(name.closest('form') ?? name);
+    await waitFor(() =>
+      expect(mocks.createAutomation).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+        name: 'Verified follow-up',
+      }),
     );
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    await screen.findByRole('list', { name: 'Automations' });
-
-    const dispatched = within(row(DISPATCHED));
-    expect(dispatched.getByText('Emails queued').nextElementSibling?.textContent).toBe('3');
-    expect(dispatched.getByText('Last run').nextElementSibling?.textContent).toBe('3h ago');
-
-    const received = within(row(ORDER_RECEIVED));
-    expect(received.getByText('Emails queued').nextElementSibling?.textContent).toBe('0');
-    expect(received.getByText('Last run').nextElementSibling?.textContent).toBe('Never');
-  });
-
-  it("links each rule to its email's editor", async () => {
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    await screen.findByRole('list', { name: 'Automations' });
-
-    expect(
-      within(row(DISPATCHED)).getByRole('link', { name: 'Edit the email' }).getAttribute('href'),
-    ).toBe('/w/canadawide/settings/email?template=dispatched');
-    expect(
-      within(row(ORDER_RECEIVED))
-        .getByRole('link', { name: 'Edit the email' })
-        .getAttribute('href'),
-    ).toBe('/w/canadawide/settings/email?template=order_received');
-  });
-
-  it('loads the recent runs when they are opened', async () => {
-    const runs: AutomationRun[] = [
-      {
-        id: '40000000-0000-4000-8000-000000000001',
-        leadId: LEAD,
-        leadName: 'Ada Lovelace',
-        outcome: 'skipped',
-        reason: 'no_customer_email',
-        createdAt: new Date().toISOString(),
-      },
-    ];
-    mocks.listAutomationRuns.mockResolvedValue({ runs, requestId: 'req_test' });
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    await screen.findByRole('list', { name: 'Automations' });
-    const toggle = within(row(DISPATCHED)).getByRole('button', { name: 'Recent runs' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(mocks.listAutomationRuns).not.toHaveBeenCalled();
-
-    fireEvent.click(toggle);
-
-    expect(mocks.listAutomationRuns).toHaveBeenCalledWith(
-      'staff-token',
-      WORKSPACE,
-      'sim_order_dispatched',
-    );
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const lead = await within(row(DISPATCHED)).findByRole('link', { name: 'Ada Lovelace' });
-    expect(lead.getAttribute('href')).toBe(`/w/canadawide/leads/${LEAD}`);
-    expect(within(row(DISPATCHED)).getByText('Skipped: no customer email')).toBeTruthy();
-
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(within(row(DISPATCHED)).queryByRole('link', { name: 'Ada Lovelace' })).toBeNull();
-  });
-
-  it('says when the recent runs cannot be loaded', async () => {
-    mocks.listAutomationRuns.mockRejectedValue(new mocks.FakeBackendError('internal_error'));
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-    await screen.findByRole('list', { name: 'Automations' });
-    fireEvent.click(within(row(DISPATCHED)).getByRole('button', { name: 'Recent runs' }));
-
-    expect((await within(row(DISPATCHED)).findByRole('alert')).textContent).toBe(
-      'The recent runs could not be loaded. Reason: internal_error.',
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith('/w/canadawide/automations/flow_newflow000000001'),
     );
   });
 
-  it('warns that every run is skipped until the site has a sender', async () => {
-    mocks.listAutomations.mockResolvedValue(answer({ hasSender: false }));
+  it('says why a new flow was refused at the limit', async () => {
+    mocks.createAutomation.mockRejectedValue(
+      new mocks.FakeBackendError('automation_limit_reached'),
+    );
     render(<SiteAutomations workspaceSlug="canadawide" />);
+    await table();
+    fireEvent.click(screen.getByRole('button', { name: 'New flow' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New flow' });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'One more' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    expect((await within(dialog).findByRole('alert')).textContent).toBe(
+      'This site already has 50 flows. Archive one first.',
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
 
+  it('opens the archived flows and restores one', async () => {
+    mocks.listAutomations.mockImplementation(
+      async (_token: string, _workspace: string, query?: { archived?: string }) =>
+        query?.archived === '1'
+          ? answer({
+              automations: [custom({ key: ARCHIVED, name: 'Old flow', archived: true })],
+              warnings: [],
+            })
+          : answer(),
+    );
+    mocks.restoreAutomation.mockResolvedValue({});
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    await table();
+    const disclosure = screen.getByRole('button', { name: 'Archived flows' });
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+    const archived = await screen.findByRole('list', { name: 'Archived flows' });
+    expect(within(archived).getByText('Old flow')).toBeTruthy();
+    expect(mocks.listAutomations).toHaveBeenCalledWith('staff-token', WORKSPACE, { archived: '1' });
+
+    fireEvent.click(within(archived).getByRole('button', { name: 'Restore Old flow' }));
+    await waitFor(() =>
+      expect(mocks.restoreAutomation).toHaveBeenCalledWith('staff-token', WORKSPACE, ARCHIVED),
+    );
+  });
+
+  it('shows the no-sender notice and a load error with Try again', async () => {
+    mocks.listAutomations.mockResolvedValueOnce(answer({ hasSender: false, warnings: [] }));
+    const { unmount } = render(<SiteAutomations workspaceSlug="canadawide" />);
     expect(
       await screen.findByText(
         'Switch an email on once Settings → Email is saved; until then every run is skipped.',
       ),
     ).toBeTruthy();
-  });
+    unmount();
 
-  it('has no sender notice once the site can send', async () => {
+    mocks.listAutomations.mockRejectedValueOnce(new mocks.FakeBackendError('internal_error'));
     render(<SiteAutomations workspaceSlug="canadawide" />);
-    await screen.findByRole('list', { name: 'Automations' });
-
-    expect(screen.queryByText(/until then every run is skipped/)).toBeNull();
-  });
-
-  it('says why the rules could not be loaded', async () => {
-    mocks.listAutomations.mockRejectedValue(new mocks.FakeBackendError('permission_denied'));
-    render(<SiteAutomations workspaceSlug="canadawide" />);
-
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'The automations could not be loaded. Reason: permission_denied.',
+      'The automations could not be loaded. Reason: internal_error.',
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await table()).toBeTruthy();
   });
 });

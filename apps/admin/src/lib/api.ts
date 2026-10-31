@@ -2,14 +2,19 @@ import {
   BackendError,
   createBackendClient,
   type AutomationKey,
-  type AutomationResponse,
-  type ListAutomationRunsResponse,
-  type ListAutomationsResponse,
-  type UpdateAutomationRequest,
+  type CreateFlowRequest,
+  type FlowCatalogResponse,
+  type FlowDetailResponse,
+  type FlowListQuery,
+  type FlowListResponse,
+  type FlowToggleResponse,
+  type ListFlowRunsQuery,
+  type ListFlowRunsResponse,
+  type ToggleFlowRequest,
   type CreateDownloadLinkResponse,
   type CreateSavedViewRequestInput,
   type CreatePlanRequestInput,
-  type CustomerEmailTemplate,
+  type EmailTemplateKey,
   type EmailSettingsResponse,
   type ListSiteEmailTemplatesResponse,
   type SiteEmailTemplateResponse,
@@ -400,23 +405,26 @@ export async function updatePlan(
   return client(accessToken).staff.updatePlan(workspaceId, planId, body);
 }
 
-// ---- Automation rules. Reading them and their runs needs workspace access
-// (lead names only with contact access); switching one needs
+// ---- Automation flows. Reading them and their runs needs workspace access
+// (lead names only with contact access); every change needs
 // integration.manage, checked server-side. ----
 
 export async function listAutomations(
   accessToken: string,
   workspaceId: string,
-): Promise<ListAutomationsResponse> {
-  return client(accessToken).staff.listAutomations(workspaceId);
+  query?: FlowListQuery,
+): Promise<FlowListResponse> {
+  return query
+    ? client(accessToken).staff.listAutomations(workspaceId, query)
+    : client(accessToken).staff.listAutomations(workspaceId);
 }
 
 export async function updateAutomation(
   accessToken: string,
   workspaceId: string,
   key: AutomationKey,
-  body: UpdateAutomationRequest,
-): Promise<AutomationResponse> {
+  body: ToggleFlowRequest,
+): Promise<FlowToggleResponse> {
   return client(accessToken).staff.updateAutomation(workspaceId, key, body);
 }
 
@@ -424,8 +432,50 @@ export async function listAutomationRuns(
   accessToken: string,
   workspaceId: string,
   key: AutomationKey,
-): Promise<ListAutomationRunsResponse> {
-  return client(accessToken).staff.listAutomationRuns(workspaceId, key);
+  query?: ListFlowRunsQuery,
+): Promise<ListFlowRunsResponse> {
+  return query
+    ? client(accessToken).staff.listAutomationRuns(workspaceId, key, query)
+    : client(accessToken).staff.listAutomationRuns(workspaceId, key);
+}
+
+export async function createAutomation(
+  accessToken: string,
+  workspaceId: string,
+  body: CreateFlowRequest,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.createAutomation(workspaceId, body);
+}
+
+export async function getAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.getAutomation(workspaceId, key);
+}
+
+export async function getAutomationCatalog(
+  accessToken: string,
+  workspaceId: string,
+): Promise<FlowCatalogResponse> {
+  return client(accessToken).staff.getAutomationCatalog(workspaceId);
+}
+
+export async function archiveAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.archiveAutomation(workspaceId, key);
+}
+
+export async function restoreAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.restoreAutomation(workspaceId, key);
 }
 
 // ---- Settings → Email: the site's sender and its nine templates. Every
@@ -456,7 +506,7 @@ export async function listEmailTemplates(
 export async function updateEmailTemplate(
   accessToken: string,
   workspaceId: string,
-  key: CustomerEmailTemplate,
+  key: EmailTemplateKey,
   body: UpdateEmailTemplateRequest,
 ): Promise<SiteEmailTemplateResponse> {
   return client(accessToken).staff.updateEmailTemplate(workspaceId, key, body);
@@ -466,7 +516,7 @@ export async function updateEmailTemplate(
 export async function previewEmailTemplate(
   accessToken: string,
   workspaceId: string,
-  key: CustomerEmailTemplate,
+  key: EmailTemplateKey,
   body: PreviewEmailTemplateRequest,
 ): Promise<PreviewEmailTemplateResponse> {
   return client(accessToken).staff.previewEmailTemplate(workspaceId, key, body);
@@ -476,7 +526,7 @@ export async function previewEmailTemplate(
 export async function sendTestEmail(
   accessToken: string,
   workspaceId: string,
-  key: CustomerEmailTemplate,
+  key: EmailTemplateKey,
 ): Promise<SendTestEmailResponse> {
   return client(accessToken).staff.sendTestEmail(workspaceId, key);
 }
