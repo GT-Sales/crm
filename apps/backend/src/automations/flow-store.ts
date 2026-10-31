@@ -367,7 +367,9 @@ async function lockFlow(
     })
     .from(automations)
     .where(and(eq(automations.workspaceId, workspaceId), eq(automations.key, key)))
-    .for('update');
+    // Not FOR UPDATE: the engine's run inserts take a key-share lock on the
+    // flow row through their FK, which FOR NO KEY UPDATE does not wait on.
+    .for('no key update');
   if (!row) return undefined;
   return {
     id: row.id,
@@ -467,7 +469,9 @@ export async function ensureBuiltInFlows(tx: TenantTransaction, scope: Scope): P
         isNull(automations.activeVersionId),
       ),
     )
-    .for('update');
+    // In id order, as every lock on several flow rows is taken.
+    .orderBy(asc(automations.id))
+    .for('no key update');
   for (const row of unversioned) {
     if (!isBuiltInAutomationKey(row.key)) continue;
     const version = await nextVersionNumber(tx, workspaceId, row.id);
@@ -826,7 +830,7 @@ async function readDraftRow(
         eq(automationVersions.status, 'draft'),
       ),
     )
-    .for('update');
+    .for('no key update');
   return row;
 }
 

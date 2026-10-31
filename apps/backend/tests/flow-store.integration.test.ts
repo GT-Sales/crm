@@ -922,6 +922,83 @@ databaseTest('the flow store', () => {
     expect(empty.status).toBe('invalid');
   });
 
+  it('activation does not wait on a run being recorded for the flow (no key lock)', async () => {
+    await resetSite(ACTIVATE_SITE);
+    const lead = '38000000-0000-4000-8000-000000008781';
+    await admin`delete from app.leads where id = ${lead}`;
+    await admin`
+      insert into app.leads (id, workspace_id, lead_type, status, stage, consent_version)
+      values (${lead}, ${ACTIVATE_SITE}, 'sim_order', 'submitted', 'pending', 'ci')
+    `;
+    const flow = await customFlow(ACTIVATE_SITE, 'Racing');
+    const mail = (template: string) => withSteps([{ id: 's_mail', kind: 'send_email', template }]);
+    ok(
+      await store.saveDraft(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 0,
+        definition: mail('activated'),
+      }),
+    );
+    const first = ok(
+      await store.activate(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 1,
+        mayChangeLeads: false,
+      }),
+    );
+    ok(
+      await store.saveDraft(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 2,
+        definition: mail('cancelled'),
+      }),
+    );
+
+    // A firing in flight: its run insert holds key-share locks on the flow and
+    // its version (the FKs) until it commits.
+    const holder = postgres(migrationUrl ?? '', {
+      max: 1,
+      prepare: false,
+      ssl: false,
+      onnotice: () => {},
+    });
+    let release: () => void = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let inserted: () => void = () => {};
+    const isInserted = new Promise<void>((resolve) => {
+      inserted = resolve;
+    });
+    const firing = holder
+      .begin(async (tx) => {
+        await tx`
+          insert into app.automation_runs
+            (workspace_id, automation_key, automation_id, version_id, lead_id, status, occurrence)
+          values (${ACTIVATE_SITE}, ${flow.key}, ${flow.id}, ${first.activeVersion?.id ?? null},
+            ${lead}, 'completed', 'in-flight')
+        `;
+        inserted();
+        await released;
+        throw new Error('roll back');
+      })
+      .catch(() => undefined);
+    await isInserted;
+    try {
+      const activation = store.activate(write(ACTIVATE_SITE), flow.key, {
+        expectedRevision: 3,
+        mayChangeLeads: false,
+      });
+      const waited = await Promise.race([
+        activation.then(() => 'activated'),
+        new Promise((resolve) => setTimeout(() => resolve('blocked'), 5000)),
+      ]);
+      expect(waited).toBe('activated');
+      expect(ok(await activation)).toMatchObject({ activeVersion: { version: 2 }, revision: 4 });
+    } finally {
+      release();
+      await firing;
+      await holder.end();
+    }
+  });
+
   it('activation of a lead-changing draft needs lead.manage', async () => {
     await resetSite(ACTIVATE_SITE);
     const flow = await customFlow(ACTIVATE_SITE, 'Tasks');
