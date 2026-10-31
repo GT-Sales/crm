@@ -231,12 +231,12 @@ databaseTest('automation flows tables and migrations 0019 and 0020', () => {
     expect(backupPolicies?.count).toBe(42);
   });
 
-  it('app_runtime may select, insert and update versions, waits, timers and runs, insert step runs, and never delete; backup_reader reads all four', async () => {
+  it('app_runtime may select, insert and update versions, waits and timers, update five columns of runs, insert step runs, and never delete; backup_reader reads all four', async () => {
     const expected: Record<string, { update: boolean }> = {
       automation_versions: { update: true },
       automation_waits: { update: true },
       automation_timers: { update: true },
-      automation_runs: { update: true },
+      automation_runs: { update: false },
       automation_step_runs: { update: false },
     };
     for (const [table, { update }] of Object.entries(expected)) {
@@ -258,6 +258,50 @@ databaseTest('automation flows tables and migrations 0019 and 0020', () => {
         backup: true,
       });
     }
+
+    // A run moves from waiting to its end; nothing else of it changes.
+    const columns = await admin<{ column: string; update: boolean }[]>`
+      select column_name::text as column,
+        has_column_privilege('app_runtime', 'app.automation_runs', column_name, 'UPDATE') as update
+      from information_schema.columns
+      where table_schema = 'app' and table_name = 'automation_runs'
+      order by column_name
+    `;
+    expect(columns.filter((row) => row.update).map((row) => row.column)).toEqual([
+      'detail',
+      'finished_at',
+      'reason',
+      'status',
+      'updated_at',
+    ]);
+    expect(columns.map((row) => row.column)).toEqual(
+      expect.arrayContaining(['automation_key', 'lead_id', 'job_id', 'outcome', 'occurrence']),
+    );
+    const run = await insertRun(SITE_1, lead1, { status: 'waiting', occurrence: 'grant-check' });
+    const ended = await asRuntime(SITE_1, (tx) => {
+      return tx`
+        update app.automation_runs
+        set status = 'completed', reason = null, detail = 'x', finished_at = now(), updated_at = now()
+        where id = ${run}
+      `;
+    });
+    expect(ended.count).toBe(1);
+    for (const assignment of [
+      "automation_key = 'order_received'",
+      "outcome = 'queued'",
+      "occurrence = 'other'",
+      `job_id = '${crypto.randomUUID()}'`,
+      'depth = 1',
+    ]) {
+      await expect(
+        asRuntime(SITE_1, (tx) =>
+          tx.unsafe(`update app.automation_runs set ${assignment} where id = '${run}'`),
+        ),
+        assignment,
+      ).rejects.toMatchObject({ code: INSUFFICIENT_PRIVILEGE });
+    }
+    await admin`delete from app.automation_runs where id = ${run}`;
+
     for (const table of [...NEW_TABLES, 'automation_runs']) {
       await expect(
         asRuntime(SITE_1, (tx) => tx.unsafe(`delete from app.${table}`)),
@@ -357,6 +401,65 @@ databaseTest('automation flows tables and migrations 0019 and 0020', () => {
     await expect(
       admin`update app.automation_versions set definition = ${admin.json(DEFINITION)} where id = ${version}`,
     ).rejects.toMatchObject({ code: CHECK_VIOLATION });
+    await admin`delete from app.automations where id = ${flow}`;
+  });
+
+  it('an activated version cannot be moved back to draft to rewrite it, nor change once retired or discarded', async () => {
+    const flow = await insertFlow(SITE_2, { key: 'flow_versionlock00001' });
+    const active = await insertVersion(SITE_2, flow, { version: 1, status: 'active' });
+    const retired = await insertVersion(SITE_2, flow, { version: 2, status: 'retired' });
+    const discarded = await insertVersion(SITE_2, flow, { version: 3, status: 'discarded' });
+    const draft = await insertVersion(SITE_2, flow, { version: 4, status: 'draft' });
+    const refused = (id: string, assignment: string) =>
+      expect(
+        asRuntime(SITE_2, (tx) =>
+          tx.unsafe(`update app.automation_versions set ${assignment} where id = '${id}'`),
+        ),
+        assignment,
+      ).rejects.toMatchObject({ code: CHECK_VIOLATION, message: 'automation_version_immutable' });
+
+    // The bypass: status back to draft, then rewrite the definition.
+    await refused(active, "status = 'draft', activated_at = null, activated_by = null");
+    await refused(retired, "status = 'draft', activated_at = null, retired_at = null");
+    await refused(discarded, "status = 'draft'");
+    await refused(retired, "status = 'active', retired_at = null");
+    await refused(discarded, "status = 'active', activated_at = now()");
+    await refused(active, "status = 'discarded', activated_at = null");
+    await refused(draft, "status = 'retired', activated_at = now(), retired_at = now()");
+    await refused(active, "activated_at = now() - interval '1 day'");
+    await refused(active, `activated_by = '${OTHER_ACTOR}'`);
+    await refused(retired, "retired_at = now() - interval '1 day'");
+    await refused(draft, 'version = 9');
+    await refused(draft, `automation_id = '${crypto.randomUUID()}'`);
+    await refused(active, `created_by = '${OTHER_ACTOR}'`);
+
+    // What the store does stays allowed.
+    await asRuntime(SITE_2, async (tx) => {
+      await tx`update app.automation_versions set status = 'retired', retired_at = now() where id = ${active}`;
+      await tx`update app.automation_versions set definition = ${tx.json(DEFINITION)} where id = ${draft}`;
+      await tx`
+        update app.automation_versions set status = 'active', activated_at = now(), activated_by = ${ACTOR}
+        where id = ${draft}
+      `;
+    });
+    const [nextDraft] = await admin<{ id: string }[]>`
+      insert into app.automation_versions (workspace_id, automation_id, version, definition, created_by)
+      values (${SITE_2}, ${flow}, 5, ${admin.json(DEFINITION)}, ${ACTOR})
+      returning id
+    `;
+    await asRuntime(SITE_2, (tx) => {
+      return tx`update app.automation_versions set status = 'discarded' where id = ${nextDraft?.id ?? ''}`;
+    });
+    const statuses = await admin<{ version: number; status: string }[]>`
+      select version, status from app.automation_versions where automation_id = ${flow} order by version
+    `;
+    expect(statuses).toEqual([
+      { version: 1, status: 'retired' },
+      { version: 2, status: 'retired' },
+      { version: 3, status: 'discarded' },
+      { version: 4, status: 'active' },
+      { version: 5, status: 'discarded' },
+    ]);
     await admin`delete from app.automations where id = ${flow}`;
   });
 

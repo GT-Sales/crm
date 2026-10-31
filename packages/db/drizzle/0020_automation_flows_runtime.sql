@@ -1,8 +1,8 @@
 -- Hand-written companion to 0019_automation_flows (AGENTS.md rule 3): FORCE
--- RLS and the runtime grants on the four new automation tables, UPDATE on
--- app.automation_runs (a run moves from waiting to its end), the circular FK
--- from a flow to its live version, the guard that keeps an activated
--- version's definition fixed, the six built-in default definitions, the
+-- RLS and the runtime grants on the four new automation tables, UPDATE of
+-- five columns of app.automation_runs (a run moves from waiting to its end),
+-- the circular FK from a flow to its live version, the guard that keeps an
+-- activated version fixed, the six built-in default definitions and names, the
 -- notification address function, the conversion of the phase 4 rows into
 -- flows (merge phase 8, spec §6) and, last, the retention of runs and timers.
 -- backup_reader needs no grant here: 0007's default privileges make every new
@@ -29,9 +29,13 @@ GRANT SELECT, INSERT, UPDATE ON TABLE "app"."automation_waits" TO app_runtime;
 --> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON TABLE "app"."automation_timers" TO app_runtime;
 --> statement-breakpoint
--- Loosens phase 4's append-only run log: the store updates only status,
--- reason, detail, updated_at and finished_at.
-GRANT UPDATE ON TABLE "app"."automation_runs" TO app_runtime;
+-- Loosens phase 4's append-only run log, column by column: a run moves from
+-- waiting to its end (status, reason, detail, updated_at, finished_at); its
+-- key, lead, job, outcome, occurrence, version and chain never change. The
+-- REVOKE first drops any table-wide UPDATE so only these columns remain.
+REVOKE UPDATE ON TABLE "app"."automation_runs" FROM app_runtime;
+--> statement-breakpoint
+GRANT UPDATE (status, reason, detail, updated_at, finished_at) ON TABLE "app"."automation_runs" TO app_runtime;
 --> statement-breakpoint
 
 -- A flow's live version. The two tables reference each other, so the FK is
@@ -52,15 +56,39 @@ END
 $do$;
 --> statement-breakpoint
 
--- An activated version never changes under a run waiting on it: only a
--- draft's definition may be rewritten; status and dates still move.
+-- An activated version never changes under a run waiting on it. A version's
+-- identity (site, flow, number, schema version, author) never changes. A
+-- draft may be rewritten and becomes active or discarded; an active version
+-- may only be retired; a retired or discarded one is final. Once activated,
+-- who activated it and when stay as they were. Anything else raises
+-- automation_version_immutable (SQLSTATE 23514), whatever the code asks.
 CREATE OR REPLACE FUNCTION app.guard_automation_version_definition()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = ''
 AS $function$
 BEGIN
-	IF NEW.definition IS DISTINCT FROM OLD.definition AND OLD.status <> 'draft' THEN
+	IF NEW.workspace_id IS DISTINCT FROM OLD.workspace_id
+		OR NEW.automation_id IS DISTINCT FROM OLD.automation_id
+		OR NEW.version IS DISTINCT FROM OLD.version
+		OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
+		OR NEW.created_by IS DISTINCT FROM OLD.created_by
+		OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+		RAISE EXCEPTION 'automation_version_immutable' USING ERRCODE = '23514';
+	END IF;
+	IF OLD.status = 'draft' THEN
+		IF NEW.status NOT IN ('draft', 'active', 'discarded') THEN
+			RAISE EXCEPTION 'automation_version_immutable' USING ERRCODE = '23514';
+		END IF;
+		RETURN NEW;
+	END IF;
+	IF NEW.definition IS DISTINCT FROM OLD.definition
+		OR NEW.activated_at IS DISTINCT FROM OLD.activated_at
+		OR NEW.activated_by IS DISTINCT FROM OLD.activated_by
+		OR (NEW.status IS DISTINCT FROM OLD.status
+			AND NOT (OLD.status = 'active' AND NEW.status = 'retired'))
+		OR (OLD.status IN ('retired', 'discarded')
+			AND NEW.retired_at IS DISTINCT FROM OLD.retired_at) THEN
 		RAISE EXCEPTION 'automation_version_immutable' USING ERRCODE = '23514';
 	END IF;
 	RETURN NEW;
@@ -95,6 +123,30 @@ $function$;
 REVOKE ALL ON FUNCTION app.builtin_flow_definition(text) FROM PUBLIC;
 --> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app.builtin_flow_definition(text) TO app_runtime;
+--> statement-breakpoint
+
+-- The six built-ins' default names, a literal copy of contracts'
+-- builtInFlowName(key) (their labels; tied to it by the same test); null for
+-- any other key.
+CREATE OR REPLACE FUNCTION app.builtin_flow_name(p_key text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $function$
+  SELECT CASE p_key
+    WHEN 'order_received' THEN 'When an order is submitted on the website → send the Order received email'
+    WHEN 'sim_order_information_needed' THEN 'When a SIM order moves to On hold → send the Information needed email'
+    WHEN 'sim_order_dispatched' THEN 'When a SIM order moves to Delivered → send the Dispatched email'
+    WHEN 'sim_order_activated' THEN 'When a SIM order moves to Activated → send the Activated email'
+    WHEN 'sim_order_cancelled' THEN 'When a SIM order moves to Cancelled → send the Cancelled email'
+    WHEN 'mobility_activated' THEN 'When a mobility order moves to Activated → send the Activated email'
+  END;
+$function$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app.builtin_flow_name(text) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app.builtin_flow_name(text) TO app_runtime;
 --> statement-breakpoint
 
 -- Where a flow's staff notification goes (spec ruling R9): the verified
@@ -141,15 +193,8 @@ GRANT EXECUTE ON FUNCTION app.record_staff_notification_email(text) TO app_runti
 -- with its label as its name and version 1 active, and each phase 4 run is
 -- tied to it. Each statement touches only rows it has not converted yet.
 UPDATE app.automations
-SET name = CASE key
-    WHEN 'order_received' THEN 'When an order is submitted on the website → send the Order received email'
-    WHEN 'sim_order_information_needed' THEN 'When a SIM order moves to On hold → send the Information needed email'
-    WHEN 'sim_order_dispatched' THEN 'When a SIM order moves to Delivered → send the Dispatched email'
-    WHEN 'sim_order_activated' THEN 'When a SIM order moves to Activated → send the Activated email'
-    WHEN 'sim_order_cancelled' THEN 'When a SIM order moves to Cancelled → send the Cancelled email'
-    WHEN 'mobility_activated' THEN 'When a mobility order moves to Activated → send the Activated email'
-  END
-WHERE origin = 'builtin' AND name IS NULL;
+SET name = app.builtin_flow_name(key)
+WHERE origin = 'builtin' AND name IS NULL AND app.builtin_flow_name(key) IS NOT NULL;
 --> statement-breakpoint
 INSERT INTO app.automation_versions
 	(workspace_id, automation_id, version, status, schema_version, definition, created_by,

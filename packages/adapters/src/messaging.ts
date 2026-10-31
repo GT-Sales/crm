@@ -305,14 +305,14 @@ function contentFor(
   return renderTemplate({ ...message, template }, senderName);
 }
 
+/** A message of one of the built-in templates the adapter renders itself. */
+type BuiltInMessage = EmailMessage & { template: EmailTemplate };
+
 /**
  * Sender identification on every email (CASL s.6(2) requires it in each
  * commercial message; transactional mail carries it too): the name of the
  * site that sends it, as its From header shows.
  */
-/** A message of one of the built-in templates the adapter renders itself. */
-type BuiltInMessage = EmailMessage & { template: EmailTemplate };
-
 function renderTemplate(
   message: BuiltInMessage,
   senderName: string,

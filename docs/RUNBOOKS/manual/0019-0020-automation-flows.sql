@@ -43,10 +43,12 @@
 -- automation_runs, email_templates and email_template_versions dropped and
 -- re-added as shapes (each re-added check scans its table once); the
 -- (workspace_id, id) unique constraints on automations and automation_runs;
--- FORCE RLS and grants on the four tables (no DELETE), UPDATE added on
--- automation_runs; the FK from a flow to its live version; the trigger that
--- keeps an activated version's definition fixed; the functions
--- app.builtin_flow_definition and app.record_staff_notification_email; the
+-- FORCE RLS and grants on the four tables (no DELETE), UPDATE of five
+-- columns of automation_runs; the FK from a flow to its live version; the
+-- trigger that keeps an activated version fixed (its definition, its
+-- activation and every status move but active -> retired); the functions
+-- app.builtin_flow_definition, app.builtin_flow_name and
+-- app.record_staff_notification_email; the
 -- conversion of existing rule rows and runs; and prune_operational_rows()
 -- replaced with 0018's body except that runs go 90 days after they finish
 -- (never while waiting) and fired or void timers 90 days after they ended.
@@ -54,7 +56,7 @@
 -- `--> statement-breakpoint` markers and the OWNER PASTE note. Drizzle hashes
 -- (sha256 of each file) and journal `when` values:
 --   0019_automation_flows          c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b  1793450665432
---   0020_automation_flows_runtime  a0f39bb675b6ffd591f1ca376724a0f551fbc398d4081f0ec695bdf53730742b  1793450690795
+--   0020_automation_flows_runtime  d0358cece7c5ae47cd3b4072ff12426999752400fb64597e0d216dd45c753cd8  1793450690795
 
 -- A. Pre-check. Expect one row: automation_versions, automation_step_runs,
 -- automation_waits and automation_timers null, origin_column false,
@@ -296,10 +298,10 @@ CREATE POLICY "automation_waits_backup_reader_read" ON "app"."automation_waits" 
 -- 0020_automation_flows_runtime
 -- ---------------------------------------------------------------------------
 -- Hand-written companion to 0019_automation_flows (AGENTS.md rule 3): FORCE
--- RLS and the runtime grants on the four new automation tables, UPDATE on
--- app.automation_runs (a run moves from waiting to its end), the circular FK
--- from a flow to its live version, the guard that keeps an activated
--- version's definition fixed, the six built-in default definitions, the
+-- RLS and the runtime grants on the four new automation tables, UPDATE of
+-- five columns of app.automation_runs (a run moves from waiting to its end),
+-- the circular FK from a flow to its live version, the guard that keeps an
+-- activated version fixed, the six built-in default definitions and names, the
 -- notification address function, the conversion of the phase 4 rows into
 -- flows (merge phase 8, spec §6) and, last, the retention of runs and timers.
 -- backup_reader needs no grant here: 0007's default privileges make every new
@@ -325,9 +327,13 @@ GRANT SELECT, INSERT, UPDATE ON TABLE "app"."automation_waits" TO app_runtime;
 
 GRANT SELECT, INSERT, UPDATE ON TABLE "app"."automation_timers" TO app_runtime;
 
--- Loosens phase 4's append-only run log: the store updates only status,
--- reason, detail, updated_at and finished_at.
-GRANT UPDATE ON TABLE "app"."automation_runs" TO app_runtime;
+-- Loosens phase 4's append-only run log, column by column: a run moves from
+-- waiting to its end (status, reason, detail, updated_at, finished_at); its
+-- key, lead, job, outcome, occurrence, version and chain never change. The
+-- REVOKE first drops any table-wide UPDATE so only these columns remain.
+REVOKE UPDATE ON TABLE "app"."automation_runs" FROM app_runtime;
+
+GRANT UPDATE (status, reason, detail, updated_at, finished_at) ON TABLE "app"."automation_runs" TO app_runtime;
 
 -- A flow's live version. The two tables reference each other, so the FK is
 -- added here rather than generated from schema.ts.
@@ -346,15 +352,39 @@ BEGIN
 END
 $do$;
 
--- An activated version never changes under a run waiting on it: only a
--- draft's definition may be rewritten; status and dates still move.
+-- An activated version never changes under a run waiting on it. A version's
+-- identity (site, flow, number, schema version, author) never changes. A
+-- draft may be rewritten and becomes active or discarded; an active version
+-- may only be retired; a retired or discarded one is final. Once activated,
+-- who activated it and when stay as they were. Anything else raises
+-- automation_version_immutable (SQLSTATE 23514), whatever the code asks.
 CREATE OR REPLACE FUNCTION app.guard_automation_version_definition()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = ''
 AS $function$
 BEGIN
-	IF NEW.definition IS DISTINCT FROM OLD.definition AND OLD.status <> 'draft' THEN
+	IF NEW.workspace_id IS DISTINCT FROM OLD.workspace_id
+		OR NEW.automation_id IS DISTINCT FROM OLD.automation_id
+		OR NEW.version IS DISTINCT FROM OLD.version
+		OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
+		OR NEW.created_by IS DISTINCT FROM OLD.created_by
+		OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+		RAISE EXCEPTION 'automation_version_immutable' USING ERRCODE = '23514';
+	END IF;
+	IF OLD.status = 'draft' THEN
+		IF NEW.status NOT IN ('draft', 'active', 'discarded') THEN
+			RAISE EXCEPTION 'automation_version_immutable' USING ERRCODE = '23514';
+		END IF;
+		RETURN NEW;
+	END IF;
+	IF NEW.definition IS DISTINCT FROM OLD.definition
+		OR NEW.activated_at IS DISTINCT FROM OLD.activated_at
+		OR NEW.activated_by IS DISTINCT FROM OLD.activated_by
+		OR (NEW.status IS DISTINCT FROM OLD.status
+			AND NOT (OLD.status = 'active' AND NEW.status = 'retired'))
+		OR (OLD.status IN ('retired', 'discarded')
+			AND NEW.retired_at IS DISTINCT FROM OLD.retired_at) THEN
 		RAISE EXCEPTION 'automation_version_immutable' USING ERRCODE = '23514';
 	END IF;
 	RETURN NEW;
@@ -388,6 +418,29 @@ $function$;
 REVOKE ALL ON FUNCTION app.builtin_flow_definition(text) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION app.builtin_flow_definition(text) TO app_runtime;
+
+-- The six built-ins' default names, a literal copy of contracts'
+-- builtInFlowName(key) (their labels; tied to it by the same test); null for
+-- any other key.
+CREATE OR REPLACE FUNCTION app.builtin_flow_name(p_key text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $function$
+  SELECT CASE p_key
+    WHEN 'order_received' THEN 'When an order is submitted on the website → send the Order received email'
+    WHEN 'sim_order_information_needed' THEN 'When a SIM order moves to On hold → send the Information needed email'
+    WHEN 'sim_order_dispatched' THEN 'When a SIM order moves to Delivered → send the Dispatched email'
+    WHEN 'sim_order_activated' THEN 'When a SIM order moves to Activated → send the Activated email'
+    WHEN 'sim_order_cancelled' THEN 'When a SIM order moves to Cancelled → send the Cancelled email'
+    WHEN 'mobility_activated' THEN 'When a mobility order moves to Activated → send the Activated email'
+  END;
+$function$;
+
+REVOKE ALL ON FUNCTION app.builtin_flow_name(text) FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION app.builtin_flow_name(text) TO app_runtime;
 
 -- Where a flow's staff notification goes (spec ruling R9): the verified
 -- sign-in address, written on every active staff membership of the signed-in
@@ -432,15 +485,8 @@ GRANT EXECUTE ON FUNCTION app.record_staff_notification_email(text) TO app_runti
 -- with its label as its name and version 1 active, and each phase 4 run is
 -- tied to it. Each statement touches only rows it has not converted yet.
 UPDATE app.automations
-SET name = CASE key
-    WHEN 'order_received' THEN 'When an order is submitted on the website → send the Order received email'
-    WHEN 'sim_order_information_needed' THEN 'When a SIM order moves to On hold → send the Information needed email'
-    WHEN 'sim_order_dispatched' THEN 'When a SIM order moves to Delivered → send the Dispatched email'
-    WHEN 'sim_order_activated' THEN 'When a SIM order moves to Activated → send the Activated email'
-    WHEN 'sim_order_cancelled' THEN 'When a SIM order moves to Cancelled → send the Cancelled email'
-    WHEN 'mobility_activated' THEN 'When a mobility order moves to Activated → send the Activated email'
-  END
-WHERE origin = 'builtin' AND name IS NULL;
+SET name = app.builtin_flow_name(key)
+WHERE origin = 'builtin' AND name IS NULL AND app.builtin_flow_name(key) IS NOT NULL;
 
 INSERT INTO app.automation_versions
 	(workspace_id, automation_id, version, status, schema_version, definition, created_by,
@@ -603,7 +649,7 @@ INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
 SELECT 'c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b', 1793450665432
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793450665432);
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT 'a0f39bb675b6ffd591f1ca376724a0f551fbc398d4081f0ec695bdf53730742b', 1793450690795
+SELECT 'd0358cece7c5ae47cd3b4072ff12426999752400fb64597e0d216dd45c753cd8', 1793450690795
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793450690795);
 -- now() is fixed for the whole transaction, so the second version is one
 -- second later: the two rows need distinct versions.
@@ -646,9 +692,9 @@ SELECT count(*) FROM pg_policies
 WHERE schemaname = 'app' AND policyname LIKE '%\_backup\_reader\_read' AND 'backup_reader' = ANY (roles);
 
 -- 4. Expect five rows. runtime_select, runtime_insert and backup_select true
--- and runtime_delete false on every one; runtime_update true on
--- automation_runs, automation_timers, automation_versions and
--- automation_waits, false on automation_step_runs.
+-- and runtime_delete false on every one; runtime_update (table-wide) true on
+-- automation_timers, automation_versions and automation_waits, false on
+-- automation_runs (column grants, select 4b) and automation_step_runs.
 SELECT t.table_name,
        has_table_privilege('app_runtime', 'app.' || t.table_name, 'SELECT') AS runtime_select,
        has_table_privilege('app_runtime', 'app.' || t.table_name, 'INSERT') AS runtime_insert,
@@ -658,6 +704,13 @@ SELECT t.table_name,
 FROM (VALUES ('automation_runs'), ('automation_step_runs'), ('automation_timers'),
              ('automation_versions'), ('automation_waits')) AS t(table_name)
 ORDER BY t.table_name;
+
+-- 4b. Expect five rows, the columns of automation_runs app_runtime may
+-- update: detail, finished_at, reason, status, updated_at.
+SELECT column_name FROM information_schema.columns
+WHERE table_schema = 'app' AND table_name = 'automation_runs'
+  AND has_column_privilege('app_runtime', 'app.automation_runs', column_name, 'UPDATE')
+ORDER BY column_name;
 
 -- 5. Expect seven rows: automation_runs_automation_key_check (the shape
 -- '^[a-z][a-z0-9_]{2,63}$'), automation_runs_outcome_check (null or queued
@@ -685,13 +738,13 @@ WHERE connamespace = 'app'::regnamespace AND conname = 'automations_active_versi
 SELECT tgname, tgenabled FROM pg_trigger
 WHERE tgrelid = 'app.automation_versions'::regclass AND NOT tgisinternal;
 
--- 8. Expect three rows: builtin_flow_definition false,
--- guard_automation_version_definition false,
+-- 8. Expect four rows: builtin_flow_definition false, builtin_flow_name
+-- false, guard_automation_version_definition false,
 -- record_staff_notification_email true (SECURITY DEFINER).
 SELECT p.proname, p.prosecdef FROM pg_proc p
 WHERE p.pronamespace = 'app'::regnamespace
-  AND p.proname IN ('builtin_flow_definition', 'guard_automation_version_definition',
-                    'record_staff_notification_email')
+  AND p.proname IN ('builtin_flow_definition', 'builtin_flow_name',
+                    'guard_automation_version_definition', 'record_staff_notification_email')
 ORDER BY p.proname;
 
 -- 9. Expect one row: true, true, true, true (the prune function names

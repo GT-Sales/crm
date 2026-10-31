@@ -46,10 +46,10 @@ const NEW_TABLES = [
 ] as const;
 /**
  * Updated in place by the backend; template versions are append-only. Runs
- * became updatable in 0020 (a flow's run moves from waiting to its end).
+ * have five updatable columns since 0020 (a flow's run moves from waiting to
+ * its end), not a table-wide UPDATE.
  */
 const UPDATABLE_TABLES = [
-  'automation_runs',
   'automations',
   'email_templates',
   'idempotency_keys',

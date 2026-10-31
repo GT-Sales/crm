@@ -18,6 +18,7 @@ import {
   SITE_TEMPLATE_KEY_PATTERN,
   STEP_ID_PATTERN,
   builtInFlowDefinition,
+  builtInFlowName,
   flowDefinitionBytes,
   flowDefinitionSchemaFor,
 } from '@gt-sales/contracts';
@@ -141,5 +142,18 @@ databaseTest('automation and template SQL tied to the contracts', () => {
       select app.builtin_flow_definition('flow_abcdefghij012345') as definition
     `;
     expect(unknown?.definition).toBeNull();
+  });
+
+  it('0020’s default names, which the conversion writes, are builtInFlowName for all six', async () => {
+    for (const key of BUILT_IN_AUTOMATION_KEYS) {
+      const [row] = await admin<{ name: string | null }[]>`
+        select app.builtin_flow_name(${key}) as name
+      `;
+      expect(row?.name, key).toBe(builtInFlowName(key));
+    }
+    const [unknown] = await admin<{ name: string | null }[]>`
+      select app.builtin_flow_name('flow_abcdefghij012345') as name
+    `;
+    expect(unknown?.name).toBeNull();
   });
 });

@@ -285,16 +285,16 @@ function transactionalEmailHandler(
   };
 }
 
-/**
- * Sends one rendered customer mail exactly as `payload` carries it: the
- * suppression check, the delivery record (with the template version and the
- * mail's own sender), the send and its result.
- */
 /** A job's template key as the adapter types it: a site-made `tpl_` key, else one of the nine. */
 function payloadTemplate(template: string): EmailTemplate | SiteTemplateKey {
   return isSiteTemplateKey(template) ? template : customerEmailTemplateSchema.parse(template);
 }
 
+/**
+ * Sends one rendered customer mail exactly as `payload` carries it: the
+ * suppression check, the delivery record (with the template version and the
+ * mail's own sender), the send and its result.
+ */
 export async function sendRenderedCustomerEmail(
   dependencies: {
     email: EmailAdapter;

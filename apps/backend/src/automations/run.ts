@@ -9,6 +9,7 @@ import {
   type EmailSkipped,
   type LeadActivity,
 } from '@gt-sales/contracts';
+import { z } from 'zod';
 
 import { composeCustomerEmail, type ComposeOutcome } from '../email/compose.js';
 import type { FillInLead } from '../email/fill-in-values.js';
@@ -16,11 +17,10 @@ import { queueComposedEmail } from '../email/queue.js';
 import type { CustomerEmailEnvironment } from '../email/senders.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { toLeadOrder } from '../leads/order.js';
-import { z } from 'zod';
+import { enabledAutomationKeys, type AutomationStore } from './store.js';
 
 /** A lead's stored custom values: an object of values by property key. */
 const storedValuesSchema = z.record(z.string(), z.unknown());
-import { enabledAutomationKeys, type AutomationStore } from './store.js';
 
 /**
  * Fires the built-in automation rules a stage move or a website submit
