@@ -5,12 +5,17 @@ import {
   INTAKE_CHECK_CONSENT_VERSION,
   INTAKE_CHECK_CONTACT,
   INTAKE_CHECK_LEFTOVER_AGE_MS,
+  INTAKE_CHECK_TIMEOUT_MS,
   intakeCheckCode,
   intakeCheckForm,
   runIntakeCheck,
   type IntakeCheckDependencies,
 } from '../src/intake-check/check.js';
-import type { IntakeCheckLead, IntakeCheckStore } from '../src/intake-check/store.js';
+import {
+  IntakeCheckSiteNotTestError,
+  type IntakeCheckLead,
+  type IntakeCheckStore,
+} from '../src/intake-check/store.js';
 import type { CreateLeadInput, CreateLeadResult } from '../src/leads/store.js';
 import { checkLeadIntake } from '../src/leads/types.js';
 
@@ -74,6 +79,7 @@ function silenceLogs() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -160,6 +166,48 @@ describe('runIntakeCheck', () => {
       step: 'delete',
       code: 'persistence_unavailable',
     });
+  });
+
+  test('a site that is not the test site fails at leftovers and nothing is created', async () => {
+    silenceLogs();
+    const { createLead, store, dependencies } = fakes();
+    store.deleteLeftovers.mockRejectedValueOnce(new IntakeCheckSiteNotTestError());
+    expect(await runIntakeCheck(dependencies, input)).toMatchObject({
+      status: 'failed',
+      step: 'leftovers',
+      code: 'intake_check_site_not_test',
+    });
+    expect(createLead).not.toHaveBeenCalled();
+    expect(store.deleteLead).not.toHaveBeenCalled();
+  });
+
+  test('gives up after the run deadline with the step in progress', async () => {
+    expect(INTAKE_CHECK_TIMEOUT_MS).toBe(60_000);
+    vi.useFakeTimers();
+    const logs = silenceLogs();
+    const { createLead, dependencies } = fakes();
+    let release: (value: CreateLeadResult) => void = () => undefined;
+    createLead.mockImplementationOnce(
+      () =>
+        new Promise<CreateLeadResult>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const running = runIntakeCheck(dependencies, input);
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_TIMEOUT_MS - 1);
+    let settled = false;
+    void running.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await running).toMatchObject({ status: 'failed', step: 'create', code: 'timeout' });
+
+    // The hung call finishing later neither logs a second line nor throws.
+    release(created());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(logs.info.mock.calls.length + logs.warn.mock.calls.length).toBe(1);
   });
 
   test('a failed verify still deletes the lead', async () => {

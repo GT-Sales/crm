@@ -180,9 +180,15 @@ Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 `intake_check` 15 min (one test lead through intake on the test site, an owner
 alert on failure and one all-clear; it needs `synthetic:check` on the
 scheduler entry, and when that or the id is wrong it is left out and its code
-logged once at boot while the other three run). Overlap-guarded; failures are
-logged as `scheduler_task_failed` and nothing else, so a quiet log is a
-healthy log; each intake check run writes one `intake_check` line.
+logged once at boot while the other three run). Overlap-guarded; a task's
+run failure is logged as `scheduler_task_failed`, a task left out at start by
+its own configuration code (`scheduler_scope_missing`,
+`intake_check_workspace_invalid`, …), and each intake check run writes one
+`intake_check` line (`status` `ok`, or `failed` with its step and code) and,
+when an alert cannot be sent, `intake_check_alert_failed`. A run gives up
+after 60 s (`timeout`). It refuses a site with any member, role or site key
+(`intake_check_site_not_test`) before it writes anything, and its leftovers
+step deletes only its own synthetic leads.
 
 ### 2.4 Data model and tenancy
 
@@ -1147,11 +1153,14 @@ steps in §5.1.
    Attribution is customer-influenced text: it is rendered as text only. The
    dashboard's period list moved to `src/lib/stats-windows.ts`.
 4. **Intake check** (`apps/backend/src/intake-check/`): `check.ts` runs the
-   four steps (leftovers older than 10 minutes, create through the website
+   four steps (refuse a site with any member, role or site key as
+   `intake_check_site_not_test` before writing anything, then delete its own
+   synthetic leads older than 10 minutes; create through the website
    route's own `createLeadRequestSchema` and `checkLeadIntake` then
    `DatabaseLeadStore.createLead`, verify, delete) and never throws: any
    failure is `{ status: 'failed', step, code }` with a bounded snake-case
-   code; `store.ts` deletes and reads only on the transaction's own site;
+   code, and a whole run gives up after 60 s as `timeout`; `store.ts` deletes
+   and reads only on the transaction's own site;
    `alert-rule.ts` decides the owner alerts (`synthetic_check_failed` with
    `<step>:<code>` on the first failure and at most hourly after, one
    `synthetic_check_recovered` with `failed_runs:<n>` on the first pass). The
@@ -1543,7 +1552,10 @@ it stays off until these steps. The owner's steps, in order
    scheduler entry `JOB_RUNNER_SELECTOR` names in Railway's
    `MACHINE_REGISTRY_JSON`. Status: to do.
 3. **`INTAKE_CHECK_WORKSPACE_ID`** on Railway (service `crm`) = the id from
-   step 1, then redeploy. Status: to do.
+   step 1, confirmed first with section A (the one row with slug
+   `intake-check`), then redeploy. An id of a real site is refused with the
+   alert `leftovers:intake_check_site_not_test`; unset it at once if that
+   arrives. Status: to do.
 4. **Watch two or three runs** in the deploy logs:
    `{"event":"intake_check","status":"ok",…}` every 15 minutes. A missing
    scope shows as `scheduler_scope_missing` at boot and no run. Status: to do.

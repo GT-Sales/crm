@@ -354,8 +354,9 @@ restricted, the window); at most `SOURCE_REPORT_MAX_SOURCES` (50) sources and
 one "Other" row. Attribution is customer-influenced text, shown as text only.
 
 The **intake check** proves every 15 minutes that a website could still save a
-lead: the scheduler's task `intake_check` deletes leftovers older than 10
-minutes, pushes one fictional submitted `internet` lead ("Intake Check",
+lead: the scheduler's task `intake_check` first refuses a site with any
+member, role or site key (`intake_check_site_not_test`, nothing written),
+deletes its own synthetic `internet` leads older than 10 minutes, pushes one fictional submitted `internet` lead ("Intake Check",
 `intake-check@example.invalid`) through the website route's own checks and
 `createLead`, reads it back and deletes it, as the scheduler's machine identity
 (scope `synthetic:check`). It runs on the **test site**: the site with slug
@@ -365,7 +366,8 @@ failure is a step (`leftovers`, `create`, `verify`, `delete`) and a bounded
 code; the owner is alerted (`synthetic_check_failed`, detail `<step>:<code>`)
 on the first failure and at most hourly while it lasts, and gets one
 all-clear (`synthetic_check_recovered`, `failed_runs:<n>`) when it passes
-again. `POST /api/internal/jobs/intake-check` runs one by hand and never
+again. A whole run gives up after 60 s (`INTAKE_CHECK_TIMEOUT_MS`, code
+`timeout`). `POST /api/internal/jobs/intake-check` runs one by hand and never
 alerts.
 
 ## Git

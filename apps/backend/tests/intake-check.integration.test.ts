@@ -35,6 +35,10 @@ const databaseTest = migrationUrl ? describe : describe.skip;
 // The intake check suites' id range (…f7NN), distinct from every other file.
 const SITE = '16000000-0000-4000-8000-00000000f701';
 const OTHER_SITE = '16000000-0000-4000-8000-00000000f702';
+/** Real-looking sites: one with a role, one with a membership, one with a site key. */
+const ROLE_SITE = '16000000-0000-4000-8000-00000000f703';
+const MEMBER_SITE = '16000000-0000-4000-8000-00000000f704';
+const KEY_SITE = '16000000-0000-4000-8000-00000000f705';
 const MISSING_SITE = '16000000-0000-4000-8000-00000000f7ff';
 const ACTOR = '26000000-0000-4000-8000-00000000f701';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
@@ -51,13 +55,20 @@ databaseTest('the intake check on the database', () => {
     requestId: string = randomUUID(),
   ) => runIntakeCheck({ leads, store, ...overrides }, { workspaceId, actorId: ACTOR, requestId });
 
-  /** A lead inserted straight into the site, `minutesAgo` old. */
-  const insertLead = async (workspaceId: string, minutesAgo: number): Promise<string> => {
+  /**
+   * A lead inserted straight into the site, `minutesAgo` old: by default one
+   * the check itself would have made (its synthetic email), else a real one.
+   */
+  const insertLead = async (
+    workspaceId: string,
+    minutesAgo: number,
+    email: string = INTAKE_CHECK_CONTACT.email,
+  ): Promise<string> => {
     const [row] = await admin<{ id: string }[]>`
       insert into app.leads (
-        workspace_id, lead_type, status, stage, consent_version, created_at, updated_at
+        workspace_id, lead_type, status, stage, consent_version, email, created_at, updated_at
       ) values (
-        ${workspaceId}, 'internet', 'submitted', 'new', 'ci',
+        ${workspaceId}, 'internet', 'submitted', 'new', 'ci', ${email},
         now() - make_interval(mins => ${minutesAgo}), now() - make_interval(mins => ${minutesAgo})
       )
       returning id
@@ -92,13 +103,32 @@ databaseTest('the intake check on the database', () => {
     for (const [id, slug] of [
       [SITE, 'intake-check-f701'],
       [OTHER_SITE, 'intake-check-f702'],
+      [ROLE_SITE, 'intake-check-f703'],
+      [MEMBER_SITE, 'intake-check-f704'],
+      [KEY_SITE, 'intake-check-f705'],
     ] as const) {
       await admin`
         insert into app.workspaces (id, slug, name, status) values (${id}, ${slug}, ${slug}, 'active')
         on conflict (id) do nothing
       `;
     }
-    await admin`delete from app.leads where workspace_id in (${SITE}, ${OTHER_SITE})`;
+    const sites = [SITE, OTHER_SITE, ROLE_SITE, MEMBER_SITE, KEY_SITE];
+    await admin`delete from app.leads where workspace_id in ${admin(sites)}`;
+    await admin`delete from app.outbox_jobs where workspace_id in ${admin(sites)}`;
+    await admin`
+      insert into app.roles (workspace_id, name) values (${ROLE_SITE}, 'owner')
+      on conflict (workspace_id, name) do nothing
+    `;
+    await admin`delete from app.memberships where workspace_id = ${MEMBER_SITE}`;
+    await admin`
+      insert into app.memberships (workspace_id, membership_type, status, invited_email)
+      values (${MEMBER_SITE}, 'staff', 'pending', 'staff@example.test')
+    `;
+    await admin`delete from app.service_credentials where workspace_id = ${KEY_SITE}`;
+    await admin`
+      insert into app.service_credentials (workspace_id, secret_hash)
+      values (${KEY_SITE}, ${`intake-check-f705-${randomUUID()}`})
+    `;
 
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
@@ -145,6 +175,46 @@ databaseTest('the intake check on the database', () => {
     expect(await run(SITE)).toMatchObject({ status: 'ok' });
     expect(await admin`select id from app.leads where id = ${leftover}`).toHaveLength(0);
     expect(await count('leads', SITE)).toBe(0);
+  });
+
+  test("leftovers are only the check's own leads", async () => {
+    const real = await insertLead(SITE, 60, 'customer@example.test');
+    const own = await insertLead(SITE, 11);
+    try {
+      expect(await run(SITE)).toMatchObject({ status: 'ok' });
+      expect(await admin`select id from app.leads where id = ${own}`).toHaveLength(0);
+      expect(await admin`select id from app.leads where id = ${real}`).toHaveLength(1);
+      const [mobility] = await admin<{ id: string }[]>`
+        insert into app.leads (workspace_id, lead_type, status, stage, consent_version, email, created_at)
+        values (${SITE}, 'mobility', 'submitted', 'new', 'ci', ${INTAKE_CHECK_CONTACT.email},
+          now() - interval '1 hour')
+        returning id
+      `;
+      expect(await run(SITE)).toMatchObject({ status: 'ok' });
+      expect(await admin`select id from app.leads where id = ${mobility?.id ?? ''}`).toHaveLength(
+        1,
+      );
+    } finally {
+      await admin`delete from app.leads where workspace_id = ${SITE}`;
+    }
+  });
+
+  test('refuses a site that has a role, a member or a site key, and writes nothing', async () => {
+    for (const site of [ROLE_SITE, MEMBER_SITE, KEY_SITE]) {
+      const real = await insertLead(site, 3 * 24 * 60, 'customer@example.test');
+      const own = await insertLead(site, 11);
+      expect(await run(site), site).toMatchObject({
+        status: 'failed',
+        step: 'leftovers',
+        code: 'intake_check_site_not_test',
+      });
+      const left = await admin<{ id: string }[]>`
+        select id from app.leads where workspace_id = ${site} order by id
+      `;
+      expect(left.map((row) => row.id).sort(), site).toEqual([real, own].sort());
+      expect(await count('outbox_jobs', site), site).toBe(0);
+      expect(await count('automation_runs', site), site).toBe(0);
+    }
   });
 
   test("a concurrent run's fresh lead is not a leftover", async () => {

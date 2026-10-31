@@ -14,9 +14,14 @@ scheduler, on the one replica with `ENABLE_SCHEDULER=1`, pushes one test lead
 through the same intake code a website's `POST /api/v1/website/leads` runs, on
 a hidden test site, and removes it again. One run is four steps, in order:
 
-1. **leftovers**: delete any lead on the test site older than 10 minutes
+1. **leftovers**: first make sure the site really is the test site: a site
+   with any member, role or site key is refused (`intake_check_site_not_test`)
+   and nothing at all is written. Then delete the check's own leads on it
+   (lead type `internet` with the synthetic email
+   `intake-check@example.invalid`) older than 10 minutes
    (`INTAKE_CHECK_LEFTOVER_AGE_MS`), so a run that died half-way is cleaned
-   up by the next one. A younger lead may be a concurrent run's, so it stays.
+   up by the next one. A younger one may be a concurrent run's, so it stays;
+   any other lead is never touched.
 2. **create**: build the website's request (lead type `internet`, submitted,
    the fictional contact "Intake Check", `intake-check@example.invalid`,
    `403 555 0199`, a fixed fictional internet form, consent version
@@ -30,13 +35,22 @@ a hidden test site, and removes it again. One run is four steps, in order:
 4. **delete**: delete the lead (its timeline, tasks, draft grants and the
    rest go by cascade in the same transaction) and confirm no row is left.
 
+A whole run gives up after 60 seconds (`INTAKE_CHECK_TIMEOUT_MS`) and fails
+with code `timeout` at the step it was in, so a hung database call cannot
+stop the check (and its alert) for good.
+
 Each run writes one log line, `{"event":"intake_check","status":"ok",…}` or
 `{"event":"intake_check","status":"failed","step":"…","code":"…",…}`, with the
 duration and, when there were any, the leftovers count. Never a value: no
 name, email, phone or address.
 
-The check only ever writes to the test site, queues no email (the site has no
-sender and no automation rows), and never counts in a real site's numbers.
+The check writes only to the site `INTAKE_CHECK_WORKSPACE_ID` names, and only
+once it has confirmed that site has no members, roles or site keys, which
+every real site has. On the test site it queues no email (the site has no
+sender and no automation rows) and never counts in a real site's numbers. A
+wrong id is not harmless by design, it is refused: an id that names a real
+site raises the alert `leftovers:intake_check_site_not_test` on the first run
+and nothing is written there; check the id anyway before saving it (step 3).
 
 ## Switching it on
 
@@ -49,8 +63,10 @@ sender and no automation rows), and never counts in a real site's numbers.
    `JOB_RUNNER_SELECTOR` names in `MACHINE_REGISTRY_JSON`, for example
    `"scopes":["outbox:run","synthetic:check"]`. The test site need not be in
    that entry's `workspaceIds`.
-3. **Set `INTAKE_CHECK_WORKSPACE_ID`** to the id from step 1 (Railway, service
-   `crm`; backend only).
+3. **Confirm the id, then set `INTAKE_CHECK_WORKSPACE_ID`**: run section A
+   of the paste file again and check that the id you copied is the one row
+   it shows, with slug `intake-check` (and no other site's id), then save it
+   in Railway (service `crm`; backend only).
 4. **Redeploy** (Railway applies variables with a redeploy).
 5. **Watch two or three runs** in the deploy logs: the first comes about
    10 seconds after start, then one every 15 minutes, each
@@ -66,15 +82,17 @@ the same way.
 
 The failure alert's detail is `<step>:<code>`:
 
-| Detail                          | Meaning and what to do                                                                                                                                                                    |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create:sqlstate_23503`         | The test site row is gone or `INTAKE_CHECK_WORKSPACE_ID` names another id. Section A of the paste file; put the row back with section D, or correct the variable.                         |
-| `create:intake_refused_<part>`  | The intake rules changed so the fixed test form no longer passes (`<part>` is `form`, `contact`, `submit`, `order` or `lead_type`). Check `apps/backend/src/leads/types.ts` and the form. |
-| `create:intake_request_invalid` | The website request schema changed so the test request no longer parses (`createLeadRequestSchema`).                                                                                      |
-| `*:persistence_unavailable`     | The database or the pooler is down or refusing connections. Websites cannot save leads either: check Supabase and the backend's health first.                                             |
-| `verify:*`                      | The store wrote something unexpected (`lead_missing`, `wrong_type`, `not_submitted`, `wrong_stage`). Intake is broken in a way a website would not see; read the recent changes.          |
-| `delete:delete_incomplete`      | The lead could not be removed. Nothing to do at once: the next run's leftovers step retries once it is 10 minutes old.                                                                    |
-| `*:sqlstate_<code>`             | Another database error, by its SQLSTATE.                                                                                                                                                  |
+| Detail                                 | Meaning and what to do                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `leftovers:intake_check_site_not_test` | `INTAKE_CHECK_WORKSPACE_ID` names a real site (it has members, roles or site keys). Nothing was written there, but unset the variable at once and redeploy, then set the test site's id from section A. |
+| `create:sqlstate_23503`                | The id names no site at all: the test site row is gone, or the variable holds an id of no site. Section A of the paste file; put the row back with section D, or correct the variable.                  |
+| `*:timeout`                            | The run did not finish in 60 seconds: the database or the pooler is hanging. The next run tries again; whatever the stuck run left is its leftover.                                                     |
+| `create:intake_refused_<part>`         | The intake rules changed so the fixed test form no longer passes (`<part>` is `form`, `contact`, `submit`, `order` or `lead_type`). Check `apps/backend/src/leads/types.ts` and the form.               |
+| `create:intake_request_invalid`        | The website request schema changed so the test request no longer parses (`createLeadRequestSchema`).                                                                                                    |
+| `*:persistence_unavailable`            | The database or the pooler is down or refusing connections. Websites cannot save leads either: check Supabase and the backend's health first.                                                           |
+| `verify:*`                             | The store wrote something unexpected (`lead_missing`, `wrong_type`, `not_submitted`, `wrong_stage`). Intake is broken in a way a website would not see; read the recent changes.                        |
+| `delete:delete_incomplete`             | The lead could not be removed. Nothing to do at once: the next run's leftovers step retries once it is 10 minutes old.                                                                                  |
+| `*:sqlstate_<code>`                    | Another database error, by its SQLSTATE.                                                                                                                                                                |
 
 While it keeps failing, the alert repeats at most once an hour
 (`INTAKE_ALERT_REPEAT_MS`). On the first run that passes after one or more

@@ -13,7 +13,7 @@ import {
 } from '../src/scheduler.js';
 import { INITIAL_QUEUE_HEALTH_STATE, type QueueHealthState } from '../src/jobs/queueMonitor.js';
 import { operationalRetentionEnabled } from '../src/retention/operational.js';
-import type { IntakeCheckRunInput } from '../src/intake-check/check.js';
+import { runIntakeCheck, type IntakeCheckRunInput } from '../src/intake-check/check.js';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000901';
 const ACTOR = '20000000-0000-4000-8000-000000000901';
@@ -397,6 +397,42 @@ describe('createBackendScheduler', () => {
     expect(deps.runIntakeCheck).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(20 * 60_000);
     await scheduler?.stop();
+  });
+
+  it('a hung intake run gives up at its deadline, so the next tick still runs', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const deps = dependencies(registryWith([checker]));
+    const store = {
+      // Never settles: a database call that hangs.
+      deleteLeftovers: vi.fn(() => new Promise<number>(() => undefined)),
+      readLead: vi.fn(async () => undefined),
+      deleteLead: vi.fn(async () => ({ deleted: 1, remaining: 0 })),
+    };
+    const results: unknown[] = [];
+    deps.runIntakeCheck.mockImplementation(async (input) => {
+      const result = await runIntakeCheck({ leads: { createLead: vi.fn() }, store }, input);
+      results.push(result);
+      return result;
+    });
+    const scheduler = createBackendScheduler(deps, {
+      env: intakeEnv,
+      startupDelayMs: 0,
+      jitterMs: 0,
+      random: () => 0,
+    });
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.deleteLeftovers).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(results).toEqual([
+      expect.objectContaining({ status: 'failed', step: 'leftovers', code: 'timeout' }),
+    ]);
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_INTERVAL_MS - 60_000);
+    expect(store.deleteLeftovers).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await scheduler?.stop();
+    vi.restoreAllMocks();
   });
 
   function configurationCode(error: unknown): string | undefined {

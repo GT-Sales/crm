@@ -16,6 +16,8 @@ import type { IntakeCheckLead, IntakeCheckStore } from './store.js';
 /** A lead on the test site older than this is a leftover of a run that died; a younger one may be a concurrent run's. */
 export const INTAKE_CHECK_LEFTOVER_AGE_MS = 10 * 60_000;
 export const INTAKE_CHECK_LEAD_TYPE = 'internet';
+/** One whole run gives up after this long (code `timeout`), well inside the 15-minute cadence. */
+export const INTAKE_CHECK_TIMEOUT_MS = 60_000;
 export const INTAKE_CHECK_CONSENT_VERSION = 'intake-check-v1';
 export const INTAKE_CHECK_CONTACT = {
   fullName: 'Intake Check',
@@ -50,6 +52,8 @@ export interface IntakeCheckDependencies {
   leads: Pick<LeadStore, 'createLead'>;
   store: IntakeCheckStore;
   now?: () => Date;
+  /** Defaults to `INTAKE_CHECK_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }
 
 export interface IntakeCheckRunInput {
@@ -120,74 +124,98 @@ class StepFailure extends Error {
   }
 }
 
-/** Never throws: any failure is a `failed` result at the step in progress. */
+/**
+ * Never throws: any failure is a `failed` result at the step in progress. A
+ * run that has not finished after `INTAKE_CHECK_TIMEOUT_MS` gives up with code
+ * `timeout` at that step, so a hung database call cannot hold the scheduler's
+ * overlap guard (and silence the check) for ever; the abandoned work takes no
+ * further step, and whatever it leaves is the next run's leftover.
+ */
 export async function runIntakeCheck(
   dependencies: IntakeCheckDependencies,
   input: IntakeCheckRunInput,
 ): Promise<IntakeCheckResult> {
   const now = dependencies.now ?? (() => new Date());
+  const timeoutMs = dependencies.timeoutMs ?? INTAKE_CHECK_TIMEOUT_MS;
   const startedAt = now();
   const scope = { workspaceId: input.workspaceId, actorId: input.actorId };
   let step: IntakeCheckStep = 'leftovers';
   let leftovers = 0;
   let leadId: string | undefined;
+  let timedOut = false;
 
-  const finish = (outcome: { code: string } | undefined): IntakeCheckResult => {
-    const durationMs = Math.max(0, now().getTime() - startedAt.getTime());
-    const result: IntakeCheckResult =
-      outcome === undefined
-        ? { status: 'ok', durationMs }
-        : { status: 'failed', step, code: outcome.code, durationMs };
-    try {
-      logIntakeCheck(result, leftovers);
-    } catch {
-      // A log line that cannot be written never turns a result into a throw.
-    }
-    return result;
+  /** Moves to the next step, unless the run has already given up. */
+  const enter = (next: IntakeCheckStep): void => {
+    if (timedOut) throw new StepFailure('timeout');
+    step = next;
   };
 
+  const work = async (): Promise<{ code: string } | undefined> => {
+    try {
+      leftovers = await dependencies.store.deleteLeftovers(
+        scope,
+        new Date(startedAt.getTime() - INTAKE_CHECK_LEFTOVER_AGE_MS),
+      );
+
+      enter('create');
+      // The website route's own checks, in its order (R4).
+      const body = createLeadRequestSchema.safeParse({
+        leadType: INTAKE_CHECK_LEAD_TYPE,
+        contact: INTAKE_CHECK_CONTACT,
+        form: intakeCheckForm(startedAt),
+        consentVersion: INTAKE_CHECK_CONSENT_VERSION,
+        submit: true,
+      });
+      if (!body.success) throw new StepFailure('intake_request_invalid');
+      const intake = checkLeadIntake(body.data);
+      if (!intake.ok) throw new StepFailure(`intake_refused_${snakeCase(intake.problem)}`);
+      const created = await dependencies.leads.createLead({
+        ...body.data,
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        requestId: input.requestId,
+      });
+      leadId = created.lead.id;
+
+      enter('verify');
+      const problem = verifyProblem(await dependencies.store.readLead(scope, leadId));
+      if (problem !== undefined) throw new StepFailure(problem);
+
+      enter('delete');
+      const removed = await dependencies.store.deleteLead(scope, leadId);
+      if (removed.deleted !== 1 || removed.remaining !== 0) {
+        throw new StepFailure('delete_incomplete');
+      }
+      return undefined;
+    } catch (error) {
+      if (step === 'verify' && leadId !== undefined && !timedOut) {
+        // A lead that reads back wrong is still removed; if that fails too, the
+        // next run's leftovers step takes it.
+        await dependencies.store.deleteLead(scope, leadId).catch(() => undefined);
+      }
+      return { code: error instanceof StepFailure ? error.code : intakeCheckCode(error) };
+    }
+  };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<{ code: string }>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve({ code: 'timeout' });
+    }, timeoutMs);
+  });
+  const outcome = await Promise.race([work(), deadline]);
+  clearTimeout(timer);
+
+  const durationMs = Math.max(0, now().getTime() - startedAt.getTime());
+  const result: IntakeCheckResult =
+    outcome === undefined
+      ? { status: 'ok', durationMs }
+      : { status: 'failed', step, code: outcome.code, durationMs };
   try {
-    leftovers = await dependencies.store.deleteLeftovers(
-      scope,
-      new Date(startedAt.getTime() - INTAKE_CHECK_LEFTOVER_AGE_MS),
-    );
-
-    step = 'create';
-    // The website route's own checks, in its order (R4).
-    const body = createLeadRequestSchema.safeParse({
-      leadType: INTAKE_CHECK_LEAD_TYPE,
-      contact: INTAKE_CHECK_CONTACT,
-      form: intakeCheckForm(startedAt),
-      consentVersion: INTAKE_CHECK_CONSENT_VERSION,
-      submit: true,
-    });
-    if (!body.success) throw new StepFailure('intake_request_invalid');
-    const intake = checkLeadIntake(body.data);
-    if (!intake.ok) throw new StepFailure(`intake_refused_${snakeCase(intake.problem)}`);
-    const created = await dependencies.leads.createLead({
-      ...body.data,
-      workspaceId: input.workspaceId,
-      actorId: input.actorId,
-      requestId: input.requestId,
-    });
-    leadId = created.lead.id;
-
-    step = 'verify';
-    const problem = verifyProblem(await dependencies.store.readLead(scope, leadId));
-    if (problem !== undefined) throw new StepFailure(problem);
-
-    step = 'delete';
-    const removed = await dependencies.store.deleteLead(scope, leadId);
-    if (removed.deleted !== 1 || removed.remaining !== 0) {
-      throw new StepFailure('delete_incomplete');
-    }
-    return finish(undefined);
-  } catch (error) {
-    if (step === 'verify' && leadId !== undefined) {
-      // A lead that reads back wrong is still removed; if that fails too, the
-      // next run's leftovers step takes it.
-      await dependencies.store.deleteLead(scope, leadId).catch(() => undefined);
-    }
-    return finish({ code: error instanceof StepFailure ? error.code : intakeCheckCode(error) });
+    logIntakeCheck(result, leftovers);
+  } catch {
+    // A log line that cannot be written never turns a result into a throw.
   }
+  return result;
 }
