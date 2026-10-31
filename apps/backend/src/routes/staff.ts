@@ -59,6 +59,7 @@ import {
 } from '../leads/work-store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
 import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
+import { DatabaseReportStore, type ReportStore } from '../reports/store.js';
 import type { PropertyStore } from '../properties/store.js';
 import {
   createAuthorize,
@@ -81,6 +82,7 @@ import { createAutomationRoutes } from './automations.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
+import { createReportRoutes } from './reports.js';
 
 export interface StaffRouteDependencies {
   sessionVerifier: StaffSessionVerifier;
@@ -111,6 +113,8 @@ export interface StaffRouteDependencies {
   propertyStore?: PropertyStore;
   /** The site's plans; `createApp` supplies the database store when this is omitted. */
   planStore?: PlanStore;
+  /** The site's reports (counts only); omitted in route tests that do not reach them. */
+  reportStore?: ReportStore;
   /** The built-in automation rules' state and runs; omitted in route tests that do not reach them. */
   automationStore?: AutomationStore;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
@@ -135,6 +139,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     customerEmail: customerEmailFromEnv(),
     savedViewStore: new DatabaseSavedViewStore(),
     planStore: new DatabasePlanStore(),
+    reportStore: new DatabaseReportStore(),
     automationStore: new DatabaseAutomationStore(),
     emailSettingsStore: new DatabaseEmailSettingsStore(),
     errorTracker: createErrorTrackerFromEnv(),
@@ -171,6 +176,9 @@ const unconfiguredPlanStore: PlanStore = {
   update: () => notConfigured('plan store'),
   listForWebsite: () => notConfigured('plan store'),
   options: () => notConfigured('plan store'),
+};
+const unconfiguredReportStore: ReportStore = {
+  sourceReport: () => notConfigured('report store'),
 };
 const unconfiguredAutomationStore: AutomationStore = {
   list: () => notConfigured('automation store'),
@@ -1565,6 +1573,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.use(
     createPlanRoutes({
       store: dependencies.planStore ?? unconfiguredPlanStore,
+      decide,
+      reportFailure,
+    }),
+  );
+
+  router.use(
+    createReportRoutes({
+      store: dependencies.reportStore ?? unconfiguredReportStore,
       decide,
       reportFailure,
     }),
