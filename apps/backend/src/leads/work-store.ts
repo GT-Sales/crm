@@ -968,7 +968,8 @@ export async function applyLeadUpdate(
           ],
         )
       : { skipped: [], activities: [] };
-  const emailSkipped = fired.skipped;
+  // The response contract caps the list at 200; the move itself is saved either way.
+  const emailSkipped = fired.skipped.slice(0, 200);
 
   return {
     status: 'updated',
