@@ -1,6 +1,6 @@
 # Merge phase 6: source report, Umami dashboard and synthetic check
 
-Status on 2026-10-30: to do. Shared rules, the gate, the shipping procedure
+Status on 2026-10-31: built, not deployed, from the plan [2026-10-31-phase-6-source-report-intake-check.md](../plans/2026-10-31-phase-6-source-report-intake-check.md) (source report and intake check; the Umami dashboard is left for later, spec O3). Shared rules, the gate, the shipping procedure
 and the working method are in [README.md](README.md#shared-conventions); this
 page adds what is particular to phase 6.
 

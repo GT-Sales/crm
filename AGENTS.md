@@ -96,7 +96,7 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Documents: `src/documents/` (signed upload intent → finalize with
   signature verification → attach; staff review and download links).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
-  `data_retention`), identities in `src/machines/registry.ts`.
+  `data_retention`, `intake_check`), identities in `src/machines/registry.ts`.
 - Site properties and record layouts: `apps/backend/src/properties/`
   (`store.ts` for definitions, tombstones and layouts, `catalog.ts` for the
   per-request catalogue) with routes in `src/routes/properties.ts`; staff
@@ -133,7 +133,7 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   state and runs, `run.ts` fires the rules a stage move or a website submit
   triggers) with the staff routes in `src/routes/automations.ts`; the built-in
   rules in `packages/contracts/src/automations.ts`.
-- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,automations,settings}`
+- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,reports/sources,automations,settings}`
   (Settings → Properties at `settings/properties`, Settings → Email at
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
   dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus, side panel and
@@ -143,6 +143,19 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   (`settings/plans`, with plan properties at `settings/plans/properties`);
   Settings → Email in `src/components/email/`; the Automations page in
   `src/components/automations/`; API client `apps/admin/src/lib/api.ts`.
+- Source report: `apps/backend/src/reports/store.ts` (the one SQL statement,
+  `sourceLabelSql` and `shapeSourceReport`) with the route in
+  `src/routes/reports.ts`; contracts in `packages/contracts/src/reports.ts`;
+  the admin page at `apps/admin/src/app/w/[workspace]/reports/sources` with
+  its screen in `src/components/reports/` (the dashboard's periods in
+  `src/lib/stats-windows.ts`).
+- Intake check: `apps/backend/src/intake-check/` (`check.ts` the run and its
+  steps, `store.ts` the test site's reads and deletes, `alert-rule.ts` when
+  the owner hears about it), the manual run in `src/routes/intake-check.ts`;
+  the scheduler's four tasks (`outbox`, `document_cleanup`, `data_retention`,
+  `intake_check`) in `src/scheduler.ts`; the runbook
+  `docs/RUNBOOKS/intake-check.md` and its paste file
+  `docs/RUNBOOKS/manual/intake-check-site.sql`.
 - Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
   (docs/RUNBOOKS/legacy-import.md).
 - Hand-off pages for the remaining merge phases (5 to 8), with the rules,
@@ -325,6 +338,35 @@ rule for one lead, `queued` (with the outbox job) or `skipped` (with a reason:
 `app.automation_runs` (pruned after 90 days). A rule that is off queues nothing
 and records no run. The tables are built so the phase 8 automation builder adds
 custom rules to them.
+
+The **source report** (Reports → Sources) counts one lead type's leads per
+**source** over 7, 30 or 90 days or all time: the source is the label
+`deriveSource` gives a lead's attribution (`partner:<code>`, with
+` (unmatched)` when no partner application matched the code; else
+`utm:<source>` with `/<medium>` when there is one; else `referrer:<host>`;
+else `direct`), computed in SQL. Per source it shows **received** (every
+counted lead), **submitted** (`status = 'submitted'`) and **made it** (the
+stage is one of `SOURCE_REPORT_SUCCESS_STAGES`: `activated`, `installed`,
+`completed`, `won`), and a `utm` source's campaigns. It counts exactly the
+leads `GET /leads/stats` counts (the site and type, not archived, not
+restricted, the window); at most `SOURCE_REPORT_MAX_SOURCES` (50) sources and
+`SOURCE_REPORT_MAX_CAMPAIGNS` (20) campaigns per source, the rest summed into
+one "Other" row. Attribution is customer-influenced text, shown as text only.
+
+The **intake check** proves every 15 minutes that a website could still save a
+lead: the scheduler's task `intake_check` deletes leftovers older than 10
+minutes, pushes one fictional submitted `internet` lead ("Intake Check",
+`intake-check@example.invalid`) through the website route's own checks and
+`createLead`, reads it back and deletes it, as the scheduler's machine identity
+(scope `synthetic:check`). It runs on the **test site**: the site with slug
+`intake-check`, no members, no site keys, no email settings and no automation
+rows, whose id is `INTAKE_CHECK_WORKSPACE_ID` (unset, the check is off). A
+failure is a step (`leftovers`, `create`, `verify`, `delete`) and a bounded
+code; the owner is alerted (`synthetic_check_failed`, detail `<step>:<code>`)
+on the first failure and at most hourly while it lasts, and gets one
+all-clear (`synthetic_check_recovered`, `failed_runs:<n>`) when it passes
+again. `POST /api/internal/jobs/intake-check` runs one by hand and never
+alerts.
 
 ## Git
 
