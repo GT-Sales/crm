@@ -33,18 +33,18 @@ import {
   type ResolveUncertainJobResponse,
   type RetryWorkspaceJobResponse,
 } from './jobs';
+import type { AutomationKey } from './automation-keys';
 import {
-  automationResponseSchema,
-  listAutomationRunsResponseSchema,
-  listAutomationsResponseSchema,
-  updateAutomationRequestSchema,
-  type AutomationKey,
-  type AutomationResponse,
-  type ListAutomationRunsResponse,
-  type ListAutomationsResponse,
-  type UpdateAutomationRequest,
-} from './automations';
-import {
+  flowListResponseSchema,
+  flowToggleResponseSchema,
+  listFlowRunsResponseSchema,
+  toggleFlowRequestSchema,
+  type FlowListQuery,
+  type FlowListResponse,
+  type FlowToggleResponse,
+  type ListFlowRunsQuery,
+  type ListFlowRunsResponse,
+  type ToggleFlowRequest,
   activateFlowRequestSchema,
   createFlowRequestSchema,
   flowCatalogResponseSchema,
@@ -538,16 +538,17 @@ export interface BackendClient {
       body: PreviewEmailTemplateRequest,
     ): Promise<PreviewEmailTemplateResponse>;
     sendTestEmail(workspaceId: string, key: CustomerEmailTemplate): Promise<SendTestEmailResponse>;
-    listAutomations(workspaceId: string): Promise<ListAutomationsResponse>;
+    listAutomations(workspaceId: string, query?: FlowListQuery): Promise<FlowListResponse>;
     updateAutomation(
       workspaceId: string,
       key: AutomationKey,
-      body: UpdateAutomationRequest,
-    ): Promise<AutomationResponse>;
+      body: ToggleFlowRequest,
+    ): Promise<FlowToggleResponse>;
     listAutomationRuns(
       workspaceId: string,
       key: AutomationKey,
-    ): Promise<ListAutomationRunsResponse>;
+      query?: ListFlowRunsQuery,
+    ): Promise<ListFlowRunsResponse>;
     createAutomation(workspaceId: string, body: CreateFlowRequest): Promise<FlowDetailResponse>;
     getAutomationCatalog(workspaceId: string): Promise<FlowCatalogResponse>;
     getAutomation(workspaceId: string, key: AutomationKey): Promise<FlowDetailResponse>;
@@ -1192,24 +1193,26 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}/test`,
           responseSchema: sendTestEmailResponseSchema,
         }),
-      listAutomations: (workspaceId) =>
+      listAutomations: (workspaceId, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations`,
-          responseSchema: listAutomationsResponseSchema,
+          query: { archived: query?.archived, before: query?.before },
+          responseSchema: flowListResponseSchema,
         }),
       updateAutomation: (workspaceId, key, body) =>
         call({
           method: 'PUT',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}`,
-          body: updateAutomationRequestSchema.parse(body),
-          responseSchema: automationResponseSchema,
+          body: toggleFlowRequestSchema.parse(body),
+          responseSchema: flowToggleResponseSchema,
         }),
-      listAutomationRuns: (workspaceId, key) =>
+      listAutomationRuns: (workspaceId, key, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/runs`,
-          responseSchema: listAutomationRunsResponseSchema,
+          query: { before: query?.before },
+          responseSchema: listFlowRunsResponseSchema,
         }),
       createAutomation: (workspaceId, body) =>
         call({

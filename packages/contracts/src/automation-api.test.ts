@@ -96,6 +96,7 @@ describe('flow API shapes', () => {
             'Customers get 2 emails when a SIM order moves to Delivered: Dispatched email, My flow.',
         },
       ],
+      nextBefore: null,
       canManage: true,
       hasSender: false,
       limit: 50,
@@ -208,6 +209,7 @@ describe('flow API shapes', () => {
     expect(
       flowListResponseSchema.safeParse({
         automations: flows,
+        nextBefore: null,
         warnings: [],
         canManage: true,
         hasSender: true,
@@ -217,6 +219,35 @@ describe('flow API shapes', () => {
     ).toBe(true);
     expect(flowListQuerySchema.parse({ archived: '1' })).toEqual({ archived: '1' });
     expect(flowListQuerySchema.safeParse({ archived: 'yes' }).success).toBe(false);
+    // The archived list is paged by the key its last page ended with.
+    expect(flowListQuerySchema.parse({ archived: '1', before: FLOW })).toEqual({
+      archived: '1',
+      before: FLOW,
+    });
+    expect(flowListQuerySchema.safeParse({ archived: '1', before: 'order_received' }).success).toBe(
+      false,
+    );
+  });
+
+  it('a detail serves a stored definition that no longer parses as null', () => {
+    roundTrips(flowDetailResponseSchema, {
+      automation: {
+        ...summary(FLOW),
+        trigger: null,
+        activeVersion: 2,
+        needsAttention: { path: 'definition', code: 'definition_invalid', ref: 'definition' },
+      },
+      revision: 4,
+      draft: {
+        version: 3,
+        definition: null,
+        issues: [{ path: 'definition', code: 'definition_invalid', ref: 'definition' }],
+      },
+      active: { version: 2, definition: null },
+      versions: [],
+      canManage: true,
+      requestId: UUID,
+    });
   });
 
   it('create trims and refuses an 81-character name and an extra key', () => {

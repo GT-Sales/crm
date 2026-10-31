@@ -7,19 +7,19 @@ import {
   reviewFileResponseSchema,
 } from './files';
 import {
-  automationResponseSchema,
-  listAutomationRunsResponseSchema,
-  listAutomationsResponseSchema,
-  updateAutomationRequestSchema,
-} from './automations';
-import {
   activateFlowRequestSchema,
   createFlowRequestSchema,
   flowCatalogResponseSchema,
   flowDetailResponseSchema,
+  flowListQuerySchema,
+  flowListResponseSchema,
   flowRunResponseSchema,
+  flowToggleResponseSchema,
   flowVersionResponseSchema,
+  listFlowRunsQuerySchema,
+  listFlowRunsResponseSchema,
   saveFlowDraftRequestSchema,
+  toggleFlowRequestSchema,
   updateFlowDetailsRequestSchema,
 } from './automation-api';
 import {
@@ -712,29 +712,33 @@ export const endpoints: readonly EndpointDef[] = [
     operationId: 'listAutomations',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/automations',
-    summary: "List the site's six automation rules and whether each is on.",
+    summary:
+      "List the site's flows (the six built-ins seeded first) with their overlap warnings, or a page of the archived ones.",
     auth: 'staff',
     successStatus: 200,
-    response: listAutomationsResponseSchema,
+    query: flowListQuerySchema,
+    response: flowListResponseSchema,
   },
   {
     operationId: 'updateAutomation',
     method: 'PUT',
     path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}',
-    summary: 'Switch an automation rule on or off (integration management).',
+    summary:
+      'Switch a flow on or off (integration management); on needs an active version, off cancels its waiting runs.',
     auth: 'staff',
     successStatus: 200,
-    request: updateAutomationRequestSchema,
-    response: automationResponseSchema,
+    request: toggleFlowRequestSchema,
+    response: flowToggleResponseSchema,
   },
   {
     operationId: 'listAutomationRuns',
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}/runs',
-    summary: "List an automation rule's latest runs, newest first.",
+    summary: "List a flow's runs, newest first, with each step's outcome.",
     auth: 'staff',
     successStatus: 200,
-    response: listAutomationRunsResponseSchema,
+    query: listFlowRunsQuerySchema,
+    response: listFlowRunsResponseSchema,
   },
   {
     operationId: 'createAutomation',
