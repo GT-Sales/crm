@@ -114,7 +114,7 @@ databaseTest('flow conditions mean what the inbox filters mean', () => {
       form: { permitType: 'student', reference: 'Batch 7', arrivalDate: '2026-11-10' },
       custom: { custom_size: 'Large', custom_count: 5 },
       // A frozen plan wins over a link left behind.
-      order: { planId: PLAN_B, plan: { id: PLAN_A }, quantity: 2 },
+      order: { planId: PLAN_B, plan: { planId: PLAN_A }, quantity: 2 },
     });
     await insertLead({
       id: L2,

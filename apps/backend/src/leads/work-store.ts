@@ -35,6 +35,7 @@ import {
   type LeadTaskStatus,
   type PropertyCatalog,
   type TaskAssigneeFilter,
+  type AutomationKey,
   type LeadTypeCount,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
@@ -49,7 +50,7 @@ import {
 } from '../email/senders.js';
 import { loadPlanForFreeze } from '../plans/store.js';
 import { findMissingDocuments } from './documents-check.js';
-import { isPlanAvailable, toLeadOrder } from './order.js';
+import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
 import {
   iso,
@@ -403,23 +404,95 @@ function auditedOrder(stored: unknown): Record<string, unknown> {
   );
 }
 
-/** One staff audit event on a lead. */
+/**
+ * The flow a write is made for (spec §5, R5): its key and name for the
+ * timeline, its version and run for the audit, and where it sits in a chain
+ * of flow moves (R8), so a move it makes fires the next flows one deeper.
+ */
+export interface AutomationAttribution {
+  key: AutomationKey;
+  name: string;
+  version: number;
+  runId: string;
+  depth: number;
+  chain: readonly string[];
+}
+
+/** What an automation's audit event says of it: `after.automation`. */
+function auditedAutomation(automation: AutomationAttribution) {
+  return { key: automation.key, version: automation.version, runId: automation.runId };
+}
+
+/** What an automation's timeline entry says of it: `automation` and `automationName`. */
+function entryAutomation(automation: AutomationAttribution | undefined): Record<string, string> {
+  return automation ? { automation: automation.key, automationName: automation.name } : {};
+}
+
+/** One audit event on a lead: by staff, or by an automation (`actorLabel` and `after.automation`). */
 async function auditLead(
   tx: TenantTransaction,
-  scope: WriteScope & { leadId: string },
+  scope: WriteScope & { leadId: string; automation?: AutomationAttribution },
   action: string,
   values: { before?: Record<string, unknown>; after: Record<string, unknown> },
 ): Promise<void> {
+  const { automation } = scope;
   await tx.insert(auditEvents).values({
     workspaceId: scope.workspaceId,
     actorId: scope.actorId,
-    actorLabel: 'staff actor',
+    actorLabel: automation ? 'automation' : 'staff actor',
     action,
     entity: 'lead',
     entityId: scope.leadId,
     requestId: scope.requestId,
-    ...values,
+    before: values.before,
+    after: automation
+      ? { ...values.after, automation: auditedAutomation(automation) }
+      : values.after,
   });
+}
+
+/**
+ * The one insert of a task, its audit and its timers; the staff route and
+ * the flow step both call it. The lead is the caller's, already locked.
+ */
+export async function insertLeadTask(
+  tx: TenantTransaction,
+  input: WriteScope & {
+    leadId: string;
+    title: string;
+    dueAt: string | null;
+    assignedActorId: string | null;
+    automation?: AutomationAttribution;
+  },
+): Promise<{ taskId: string }> {
+  const [row] = await tx
+    .insert(leadTasks)
+    .values({
+      workspaceId: input.workspaceId,
+      leadId: input.leadId,
+      title: input.title,
+      dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      assignedActorId: input.assignedActorId,
+      createdBy: input.actorId,
+    })
+    .returning({ id: leadTasks.id });
+  if (!row) throw new Error('task insert did not return a row');
+  const after = {
+    leadId: input.leadId,
+    dueAt: input.dueAt,
+    assignedActorId: input.assignedActorId,
+  };
+  await tx.insert(auditEvents).values({
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    actorLabel: input.automation ? 'automation' : 'staff actor',
+    action: 'lead.task_created',
+    entity: 'lead_task',
+    entityId: row.id,
+    requestId: input.requestId,
+    after: input.automation ? { ...after, automation: auditedAutomation(input.automation) } : after,
+  });
+  return { taskId: row.id };
 }
 
 /**
@@ -496,6 +569,31 @@ async function editOrder(
   };
 }
 
+/**
+ * A rescued checkout's order, frozen as the website's submission would have
+ * frozen it (`submittedOrder`) when its `planId` names a plan still
+ * available for the type; else as stored (unfrozen). Other stored keys stay.
+ */
+async function rescuedOrder(
+  tx: TenantTransaction,
+  workspaceId: string,
+  lead: LockedLead,
+): Promise<unknown> {
+  if (!isOrderLeadType(lead.leadType)) return lead.orderDetails;
+  const draft = toLeadOrder(lead.orderDetails);
+  if (draft.planId === null) return lead.orderDetails;
+  const found = await loadPlanForFreeze(tx, workspaceId, draft.planId);
+  if (!isPlanAvailable(found, lead.leadType)) return lead.orderDetails;
+  const frozen = submittedOrder(found, draft.quantity, new Date());
+  return {
+    ...frozen,
+    ...storedObject(lead.orderDetails),
+    planId: frozen.planId,
+    plan: frozen.plan,
+    quantity: frozen.quantity,
+  };
+}
+
 /** What a lead update needs beyond its transaction: customer mail (the flows it sets off send it). */
 export interface LeadUpdateContext {
   emailEnvironment: CustomerEmailEnvironment;
@@ -518,11 +616,12 @@ export interface LeadUpdateContext {
 export async function applyLeadUpdate(
   tx: TenantTransaction,
   context: LeadUpdateContext,
-  input: UpdateLeadWorkInput,
+  input: UpdateLeadWorkInput & { automation?: AutomationAttribution },
 ): Promise<UpdateLeadWorkOutcome> {
   const lead = await lockLead(tx, input.workspaceId, input.leadId);
   if (!lead) return { status: 'not_found' };
   if (lead.trashed) return { status: 'trashed' };
+  const { automation } = input;
 
   const set: Partial<typeof leads.$inferInsert> = {};
   const entries: Array<{ kind: string; data: Record<string, unknown> }> = [];
@@ -532,8 +631,12 @@ export async function applyLeadUpdate(
   // The order edit to write: the one given, with the dates a move defaults.
   let orderEdit = input.order;
   let checkDocuments = false;
-  const reason = input.documentsOverrideReason?.trim();
+  // A flow passes the documents gate as staff do, and never by the override.
+  const reason = automation ? undefined : input.documentsOverrideReason?.trim();
   let override: { reason: string; missing: string[] } | undefined;
+  // A staff move of a checkout the customer never submitted submits it (O9, O12).
+  let rescue = false;
+  let base: LockedLead = lead;
   if (input.stage !== undefined && input.stage !== lead.stage) {
     if (!isLeadStage(lead.leadType, input.stage)) return { status: 'invalid_stage' };
     const current = toLeadOrder(lead.orderDetails);
@@ -553,6 +656,14 @@ export async function applyLeadUpdate(
     entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
     before['stage'] = lead.stage;
     after['stage'] = input.stage;
+    if (!automation && lead.status === 'incomplete') {
+      rescue = true;
+      set.status = 'submitted';
+      before['status'] = lead.status;
+      after['status'] = 'submitted';
+      entries.push({ kind: 'system', data: { event: 'submitted' } });
+      base = { ...lead, orderDetails: await rescuedOrder(tx, input.workspaceId, lead) };
+    }
   }
 
   // The order as this change leaves it, worked out before anything is
@@ -560,16 +671,20 @@ export async function applyLeadUpdate(
   const changedOrder: string[] = [];
   let storedOrder: Record<string, unknown> | undefined;
   if (orderEdit) {
-    const edit = await editOrder(tx, input.workspaceId, lead, orderEdit);
+    const edit = await editOrder(tx, input.workspaceId, base, orderEdit);
     if (!edit.ok) return { status: 'invalid_field', field: edit.field };
     if (edit.changedKeys.length > 0) {
       storedOrder = edit.stored;
       changedOrder.push(...edit.changedKeys);
     }
   }
+  // The rescue's freeze is the submission's, not an edit: no field is named for it.
+  if (storedOrder === undefined && base.orderDetails !== lead.orderDetails) {
+    storedOrder = storedObject(base.orderDetails);
+  }
   if (checkDocuments) {
     // What that frozen plan requires; no plan, or a plan from before the field, requires nothing.
-    const plan = toLeadOrder(storedOrder ?? lead.orderDetails).plan;
+    const plan = toLeadOrder(storedOrder ?? base.orderDetails).plan;
     const missing = await findMissingDocuments(tx, {
       workspaceId: input.workspaceId,
       leadId: input.leadId,
@@ -708,7 +823,7 @@ export async function applyLeadUpdate(
         leadId: input.leadId,
         actorId: input.actorId,
         kind: entry.kind,
-        data: entry.data,
+        data: { ...entry.data, ...entryAutomation(automation) },
       })),
     )
     .returning(ACTIVITY_RETURNING);
@@ -725,8 +840,15 @@ export async function applyLeadUpdate(
   }
 
   // The flows of the stage entered, from the lead as just written; each
-  // move is its own occurrence, so moving back and forth mails again.
+  // move is its own occurrence, so moving back and forth mails again. A
+  // rescue is the submission too (its flows first, R4); a flow's move fires
+  // the next flows one deeper in its chain (R8).
   const statusChange = inserted.find((row) => row.kind === 'status_change');
+  const chained = {
+    depth: automation ? automation.depth + 1 : 0,
+    chain: automation ? [...automation.chain, automation.key] : [],
+    parentRunId: automation?.runId ?? null,
+  };
   const fired =
     statusChange && set.stage !== undefined
       ? await fireFlows(
@@ -741,15 +863,26 @@ export async function applyLeadUpdate(
             ...(context.afterFlowsRead ? { afterFlowsRead: context.afterFlowsRead } : {}),
           },
           [
+            ...(rescue
+              ? [
+                  {
+                    kind: 'lead_submitted' as const,
+                    leadId: input.leadId,
+                    leadType: lead.leadType,
+                    stage: set.stage,
+                    occurrence: 'submitted',
+                    ...chained,
+                    at: statusChange.createdAt,
+                  },
+                ]
+              : []),
             {
               kind: 'stage_entered',
               leadId: input.leadId,
               leadType: lead.leadType,
               stage: set.stage,
               occurrence: statusChange.id,
-              depth: 0,
-              chain: [],
-              parentRunId: null,
+              ...chained,
               at: statusChange.createdAt,
             },
           ],
@@ -1002,29 +1135,16 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         return { status: 'assignee_not_found' };
       }
 
-      const [row] = await tx
-        .insert(leadTasks)
-        .values({
-          workspaceId: input.workspaceId,
-          leadId: input.leadId,
-          title: input.title,
-          dueAt: input.dueAt ? new Date(input.dueAt) : null,
-          assignedActorId: assignee,
-          createdBy: input.actorId,
-        })
-        .returning({ id: leadTasks.id });
-      if (!row) throw new Error('task insert did not return a row');
-      await tx.insert(auditEvents).values({
+      const { taskId } = await insertLeadTask(tx, {
         workspaceId: input.workspaceId,
         actorId: input.actorId,
-        actorLabel: 'staff actor',
-        action: 'lead.task_created',
-        entity: 'lead_task',
-        entityId: row.id,
         requestId: input.requestId,
-        after: { leadId: input.leadId, dueAt: input.dueAt ?? null, assignedActorId: assignee },
+        leadId: input.leadId,
+        title: input.title,
+        dueAt: input.dueAt ?? null,
+        assignedActorId: assignee,
       });
-      return { status: 'saved', task: await requireTask(tx, input.workspaceId, row.id) };
+      return { status: 'saved', task: await requireTask(tx, input.workspaceId, taskId) };
     });
   }
 

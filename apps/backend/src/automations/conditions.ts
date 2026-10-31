@@ -27,8 +27,11 @@ const listOf = (values: readonly string[]): SQL =>
     sql`, `,
   );
 
-/** The plan an order lead stands on: the frozen copy's id, else the link. */
-const PLAN_ID = sql`coalesce(l.order_details -> 'plan' ->> 'id', l.order_details ->> 'planId')`;
+/**
+ * The plan an order lead stands on: the frozen copy's id (a `PlanSnapshot`
+ * names it `planId`; the spec's `plan.id` is that field), else the link.
+ */
+const PLAN_ID = sql`coalesce(l.order_details -> 'plan' ->> 'planId', l.order_details ->> 'planId')`;
 
 function conditionSql(condition: Condition, leadType: string, catalog: PropertyCatalog): SQL {
   switch (condition.kind) {
