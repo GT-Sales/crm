@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
-  BUILT_IN_AUTOMATIONS,
   CUSTOMER_EMAIL_JOB_TYPE,
+  builtInFlowName,
   codePropertyCatalog,
   customerEmailJobPayloadSchema,
   type AutomationKey,
+  type BuiltInAutomationKey,
   type CreatePlanRequest,
   type CustomerEmailJobPayload,
   type CustomerEmailTemplate,
@@ -16,32 +17,16 @@ import {
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
-import { runAutomations } from '../src/automations/run.js';
-import { DatabaseAutomationStore } from '../src/automations/store.js';
+import { fireFlows } from '../src/automations/engine.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseEmailSettingsStore } from '../src/email/settings-store.js';
 import { idempotencyKeyHash, requestFingerprint } from '../src/leads/idempotency.js';
 import { DatabaseLeadStore, type CreateLeadInput } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
+import { disposableTestDatabaseUrl, seedBuiltInFlow } from './support/flows.js';
 
-function getDisposableTestDatabaseUrl(): string | undefined {
-  const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
-  const destructiveTestsEnabled = process.env.DB_TEST_ALLOW_DESTRUCTIVE === '1';
-  if (!migrationUrl && !destructiveTestsEnabled && !process.env.CI) return undefined;
-  if (!migrationUrl || !destructiveTestsEnabled) {
-    throw new Error(
-      'Database integration tests require TEST_MIGRATION_DATABASE_URL and DB_TEST_ALLOW_DESTRUCTIVE=1 together.',
-    );
-  }
-  const databaseName = decodeURIComponent(new URL(migrationUrl).pathname.slice(1));
-  if (!databaseName.endsWith('_test')) {
-    throw new Error('TEST_MIGRATION_DATABASE_URL must name a disposable database ending in _test.');
-  }
-  return migrationUrl;
-}
-
-const migrationUrl = getDisposableTestDatabaseUrl();
+const migrationUrl = disposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 // Distinct id range for the automatic email tests.
@@ -57,7 +42,7 @@ const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 const SECRET = 'ci-email-contact-hash-secret-0123456789';
 
 const SITES = [SITE, QUIET_SITE, NO_SENDER_SITE, BROKEN_SITE, LONG_SITE];
-const RULES_ON: readonly AutomationKey[] = [
+const RULES_ON: readonly BuiltInAutomationKey[] = [
   'order_received',
   'sim_order_information_needed',
   'sim_order_dispatched',
@@ -82,10 +67,9 @@ const planInput: CreatePlanRequest = {
   customValues: {},
 };
 
-databaseTest('automation rules send customer emails', () => {
+databaseTest('the built-in flows send customer emails as the phase 4 rules did', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
-  let automations: DatabaseAutomationStore;
   let leadStore: DatabaseLeadStore;
   let work: DatabaseLeadWorkStore;
   /** Each site's own SIM plan, by site. */
@@ -170,14 +154,25 @@ databaseTest('automation rules send customer emails', () => {
       order by created_at, id
     `;
 
+  /** Each run of the lead with its one step (`main`): the built-ins send one mail each. */
   const runs = (leadId: string) =>
     admin<
-      { automationKey: string; outcome: string; reason: string | null; jobId: string | null }[]
+      {
+        automationKey: string;
+        status: string;
+        stepId: string | null;
+        outcome: string | null;
+        reason: string | null;
+        detail: string | null;
+        jobId: string | null;
+      }[]
     >`
-      select automation_key as "automationKey", outcome, reason, job_id as "jobId"
-      from app.automation_runs
-      where lead_id = ${leadId}
-      order by created_at, id
+      select r.automation_key as "automationKey", r.status, s.step_id as "stepId",
+        s.outcome, s.reason, s.detail, s.job_id as "jobId"
+      from app.automation_runs r
+      left join app.automation_step_runs s on s.workspace_id = r.workspace_id and s.run_id = r.id
+      where r.lead_id = ${leadId}
+      order by r.created_at, r.id, s.created_at, s.id
     `;
 
   const emailed = (leadId: string) =>
@@ -188,8 +183,11 @@ databaseTest('automation rules send customer emails', () => {
     `;
 
   const runCount = async (key: AutomationKey, workspaceId = SITE) => {
-    const rules = await automations.list({ workspaceId, actorId: STAFF });
-    return rules.find((rule) => rule.key === key)?.runCount;
+    const [row] = await admin<{ runCount: number }[]>`
+      select run_count as "runCount" from app.automations
+      where workspace_id = ${workspaceId} and key = ${key}
+    `;
+    return row?.runCount ?? 0;
   };
 
   const saveTemplate = async (
@@ -251,14 +249,18 @@ databaseTest('automation rules send customer emails', () => {
       ssl: false,
       maxConnections: 4,
     });
-    automations = new DatabaseAutomationStore(database);
-    leadStore = new DatabaseLeadStore(database, environment, automations);
-    work = new DatabaseLeadWorkStore(database, environment, automations);
+    leadStore = new DatabaseLeadStore(database, environment);
+    work = new DatabaseLeadWorkStore(database, environment);
 
-    for (const key of RULES_ON) await automations.setEnabled(staff(), key, true);
-    await automations.setEnabled(staff(NO_SENDER_SITE), 'sim_order_cancelled', true);
-    await automations.setEnabled(staff(BROKEN_SITE), 'sim_order_cancelled', true);
-    await automations.setEnabled(staff(LONG_SITE), 'sim_order_cancelled', true);
+    // Seeded as `ensureBuiltInFlows` seeds them: every built-in has its row and version 1.
+    const seed = (workspaceId: string, key: BuiltInAutomationKey, enabled: boolean) =>
+      seedBuiltInFlow(admin, { workspaceId, key, enabled, actorId: STAFF });
+    for (const key of RULES_ON) await seed(SITE, key, true);
+    await seed(SITE, 'mobility_activated', false);
+    await seed(QUIET_SITE, 'order_received', false);
+    for (const workspaceId of [NO_SENDER_SITE, BROKEN_SITE, LONG_SITE]) {
+      await seed(workspaceId, 'sim_order_cancelled', true);
+    }
 
     await saveTemplate(
       SITE,
@@ -312,10 +314,18 @@ databaseTest('automation rules send customer emails', () => {
     });
     expect(payload.rendered.text).toContain('Your Rogers 60GB Visitor order ($40.00/month) is in.');
     expect(await runs(leadId)).toEqual([
-      { automationKey: 'order_received', outcome: 'queued', reason: null, jobId: job?.id },
+      {
+        automationKey: 'order_received',
+        status: 'completed',
+        stepId: 'main',
+        outcome: 'done',
+        reason: null,
+        detail: null,
+        jobId: job?.id,
+      },
     ]);
     expect(await runCount('order_received')).toBe(1);
-    // Queued by the website's credential, as the rule's mail.
+    // Queued by the website's credential, as the flow's mail.
     expect(await emailed(leadId)).toEqual([
       {
         actorId: CREDENTIAL,
@@ -324,6 +334,7 @@ databaseTest('automation rules send customer emails', () => {
           template: 'order_received',
           templateVersion: 1,
           automation: 'order_received',
+          automationName: builtInFlowName('order_received'),
         },
       },
     ]);
@@ -362,16 +373,16 @@ databaseTest('automation rules send customer emails', () => {
     expect(queued[0]?.payload).toMatchObject({ template: 'order_received', templateVersion: 1 });
     expect(queued[0]?.payload.rendered.text).toContain('Draft');
     expect(await runs(leadId)).toMatchObject([
-      { automationKey: 'order_received', outcome: 'queued' },
+      { automationKey: 'order_received', status: 'completed', outcome: 'done' },
     ]);
 
     expect(await submit()).toMatchObject({ status: 'updated', replayed: true });
     expect(await jobs(leadId)).toHaveLength(1);
     expect(await runs(leadId)).toHaveLength(1);
-    expect(await runCount('order_received')).toBe((before ?? 0) + 1);
+    expect(await runCount('order_received')).toBe(before + 1);
   });
 
-  it('queues nothing and records no run while the rule is off', async () => {
+  it('queues nothing and records no run while the flow is off', async () => {
     const created = await leadStore.createLead(submitted('rule-off', QUIET_SITE));
     expect(await jobs(created.lead.id)).toEqual([]);
     expect(await runs(created.lead.id)).toEqual([]);
@@ -380,7 +391,7 @@ databaseTest('automation rules send customer emails', () => {
 
   it('sends the dispatched mail when an order moves to Delivered, and again on a later move back', async () => {
     const leadId = await insertLead({ stage: 'verified' });
-    const before = (await runCount('sim_order_dispatched')) ?? 0;
+    const before = await runCount('sim_order_dispatched');
 
     const outcome = await move(leadId, 'delivered', {
       order: { courier: 'Canada Post', trackingNumber: 'LX123456789CA' },
@@ -401,6 +412,7 @@ databaseTest('automation rules send customer emails', () => {
           template: 'dispatched',
           templateVersion: 1,
           automation: 'sim_order_dispatched',
+          automationName: builtInFlowName('sim_order_dispatched'),
         },
       },
     ]);
@@ -418,8 +430,11 @@ databaseTest('automation rules send customer emails', () => {
     expect(await runs(leadId)).toEqual([
       {
         automationKey: 'sim_order_dispatched',
-        outcome: 'queued',
+        status: 'completed',
+        stepId: 'main',
+        outcome: 'done',
         reason: null,
+        detail: null,
         jobId: first[0]?.id,
       },
     ]);
@@ -446,7 +461,7 @@ databaseTest('automation rules send customer emails', () => {
     expect(outcome.emailSkipped).toEqual([
       {
         automation: 'sim_order_dispatched',
-        flowName: 'When a SIM order moves to Delivered → send the Dispatched email',
+        flowName: builtInFlowName('sim_order_dispatched'),
         template: 'dispatched',
         templateName: 'Dispatched',
         reason: 'missing_fill_in',
@@ -454,11 +469,15 @@ databaseTest('automation rules send customer emails', () => {
       },
     ]);
     expect(await jobs(leadId)).toEqual([]);
+    // The run went on and ended; its one step was skipped, naming the fill-ins.
     expect(await runs(leadId)).toEqual([
       {
         automationKey: 'sim_order_dispatched',
+        status: 'completed',
+        stepId: 'main',
         outcome: 'skipped',
         reason: 'missing_fill_in',
+        detail: 'tracking number',
         jobId: null,
       },
     ]);
@@ -474,7 +493,9 @@ databaseTest('automation rules send customer emails', () => {
       ],
     });
     expect(await jobs(leadId)).toEqual([]);
-    expect(await runs(leadId)).toMatchObject([{ outcome: 'skipped', reason: 'no_customer_email' }]);
+    expect(await runs(leadId)).toMatchObject([
+      { status: 'completed', outcome: 'skipped', reason: 'no_customer_email' },
+    ]);
   });
 
   it('records a skip for a site with no sender', async () => {
@@ -483,35 +504,56 @@ databaseTest('automation rules send customer emails', () => {
     expect(outcome).toMatchObject({
       status: 'updated',
       emailSkipped: [
-        { automation: 'sim_order_cancelled', template: 'cancelled', reason: 'no_sender' },
+        {
+          automation: 'sim_order_cancelled',
+          flowName: builtInFlowName('sim_order_cancelled'),
+          template: 'cancelled',
+          templateName: 'Cancelled',
+          reason: 'no_sender',
+        },
       ],
     });
     expect(await jobs(leadId)).toEqual([]);
     expect(await runs(leadId)).toEqual([
       {
         automationKey: 'sim_order_cancelled',
+        status: 'completed',
+        stepId: 'main',
         outcome: 'skipped',
         reason: 'no_sender',
+        detail: null,
         jobId: null,
       },
     ]);
   });
 
-  it('mails nothing when a checkout the customer never submitted is cancelled', async () => {
-    const before = (await runCount('sim_order_cancelled')) ?? 0;
+  it('cancelling a checkout the customer never submitted is no rescue: it mails nothing and stays unsubmitted', async () => {
+    const before = await runCount('sim_order_cancelled');
     const abandoned = await insertLead({ status: 'incomplete', stage: 'incomplete' });
     const outcome = await move(abandoned, 'cancelled');
     expect(outcome).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
     expect(outcome).not.toHaveProperty('emailSkipped');
     expect(await jobs(abandoned)).toEqual([]);
     expect(await runs(abandoned)).toEqual([]);
-    // Not even the skip a missing address would otherwise record.
-    const noAddress = await insertLead({ status: 'incomplete', stage: 'incomplete', email: null });
-    const quiet = await move(noAddress, 'cancelled');
-    expect(quiet).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
-    expect(quiet).not.toHaveProperty('emailSkipped');
-    expect(await runs(noAddress)).toEqual([]);
+    const [row] = await admin<{ status: string }[]>`
+      select status from app.leads where id = ${abandoned}
+    `;
+    expect(row?.status).toBe('incomplete');
     expect(await runCount('sim_order_cancelled')).toBe(before);
+
+    // A checkout staff move on (to Pending) is a rescue: its submitted and stage flows fire once (O9).
+    const rescued = await insertLead({ status: 'incomplete', stage: 'incomplete' });
+    const moved = await move(rescued, 'pending');
+    // The order has no plan, so the order received mail lacks its fill-ins.
+    expect(moved).toMatchObject({
+      status: 'updated',
+      emailSkipped: [
+        { automation: 'order_received', reason: 'missing_fill_in', missing: ['plan', 'price'] },
+      ],
+    });
+    expect(await runs(rescued)).toMatchObject([
+      { automationKey: 'order_received', status: 'completed', outcome: 'skipped' },
+    ]);
 
     // The same move of an order that was placed mails the customer.
     const placed = await insertLead({ stage: 'pending' });
@@ -522,15 +564,18 @@ databaseTest('automation rules send customer emails', () => {
     expect(await runs(placed)).toEqual([
       {
         automationKey: 'sim_order_cancelled',
-        outcome: 'queued',
+        status: 'completed',
+        stepId: 'main',
+        outcome: 'done',
         reason: null,
+        detail: null,
         jobId: queued[0]?.id,
       },
     ]);
     expect(await runCount('sim_order_cancelled')).toBe(before + 1);
   });
 
-  it('fires nothing for a rule that is off or a type with no rules', async () => {
+  it('fires nothing for a flow that is off or a type with no flows', async () => {
     const mobility = await insertLead({ leadType: 'mobility', stage: 'qualified' });
     const activated = await move(mobility, 'activated');
     expect(activated).toMatchObject({ status: 'updated', lead: { stage: 'activated' } });
@@ -555,10 +600,26 @@ databaseTest('automation rules send customer emails', () => {
         email: 'broken.customer@example.test',
       });
       const outcome = await move(leadId, 'cancelled', { workspaceId: BROKEN_SITE });
-      expect(outcome).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
-      expect(outcome).not.toHaveProperty('emailSkipped');
+      expect(outcome).toMatchObject({
+        status: 'updated',
+        lead: { stage: 'cancelled' },
+        emailSkipped: [
+          { automation: 'sim_order_cancelled', template: 'cancelled', reason: 'compose_failed' },
+        ],
+      });
       expect(await jobs(leadId)).toEqual([]);
-      expect(await runs(leadId)).toEqual([]);
+      // The failure is no longer invisible: the step and its run say so.
+      expect(await runs(leadId)).toEqual([
+        {
+          automationKey: 'sim_order_cancelled',
+          status: 'failed',
+          stepId: 'main',
+          outcome: 'failed',
+          reason: 'compose_failed',
+          detail: null,
+          jobId: null,
+        },
+      ]);
       expect(warn).toHaveBeenCalledTimes(1);
       const logged = String(warn.mock.calls[0]?.[0]);
       expect(JSON.parse(logged)).toMatchObject({
@@ -574,7 +635,7 @@ databaseTest('automation rules send customer emails', () => {
     }
   });
 
-  it('queues nothing for a mail that would not fit its job, and logs only the rule', async () => {
+  it('queues nothing for a mail that would not fit its job, and logs only the flow', async () => {
     // A subject at its 150-character limit, filled with a long name, passes the job's 300.
     const subject = 'Cancelled: {first name} {last name}, yes {first name} {last name} '.padEnd(
       150,
@@ -591,10 +652,15 @@ databaseTest('automation rules send customer emails', () => {
         email: 'long.customer@example.test',
       });
       const outcome = await move(leadId, 'cancelled', { workspaceId: LONG_SITE });
-      expect(outcome).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
-      expect(outcome).not.toHaveProperty('emailSkipped');
+      expect(outcome).toMatchObject({
+        status: 'updated',
+        lead: { stage: 'cancelled' },
+        emailSkipped: [{ automation: 'sim_order_cancelled', reason: 'compose_failed' }],
+      });
       expect(await jobs(leadId)).toEqual([]);
-      expect(await runs(leadId)).toEqual([]);
+      expect(await runs(leadId)).toMatchObject([
+        { status: 'failed', outcome: 'failed', reason: 'compose_failed' },
+      ]);
       expect(await emailed(leadId)).toEqual([]);
       expect(warn).toHaveBeenCalledTimes(1);
       const logged = String(warn.mock.calls[0]?.[0]);
@@ -621,27 +687,21 @@ databaseTest('automation rules send customer emails', () => {
 
   it('queues one mail per occurrence: the same occurrence again records nothing', async () => {
     const leadId = await insertLead({ stage: 'cancelled' });
-    const cancelled = BUILT_IN_AUTOMATIONS.filter((rule) => rule.key === 'sim_order_cancelled');
     const fire = () =>
       database.withTenantTx({ workspaceId: SITE, actorId: STAFF }, (tx) =>
-        runAutomations(tx, {
-          ...staff(),
-          lead: {
-            id: leadId,
+        fireFlows(tx, { ...staff(), environment }, [
+          {
+            kind: 'stage_entered',
+            leadId,
             leadType: 'sim_order',
-            fullName: 'Nadia Khan',
-            email: 'once@example.test',
-            externalRef: null,
-            submitted: true,
-            form: {},
-            customValues: {},
-            order: null,
+            stage: 'cancelled',
+            occurrence: 'occurrence-1',
+            depth: 0,
+            chain: [],
+            parentRunId: null,
+            at: new Date(),
           },
-          automations: cancelled,
-          occurrence: 'occurrence-1',
-          environment,
-          store: automations,
-        }),
+        ]),
       );
     const first = await fire();
     expect(first).toEqual({
@@ -654,10 +714,32 @@ databaseTest('automation rules send customer emails', () => {
         }),
       ],
     });
-    // A dedupe hit writes no entry.
+    // The run is unique per occurrence: the second firing writes nothing.
     expect(await fire()).toEqual({ skipped: [], activities: [] });
     expect(await jobs(leadId)).toHaveLength(1);
     expect(await runs(leadId)).toHaveLength(1);
+    expect((await jobs(leadId))[0]?.dedupeKey).toBe(`${leadId}:sim_order_cancelled:occurrence-1`);
+  });
+
+  it('fireFlows on a lead that is still incomplete records nothing', async () => {
+    const leadId = await insertLead({ status: 'incomplete', stage: 'incomplete' });
+    const event = {
+      leadId,
+      leadType: 'sim_order',
+      depth: 0,
+      chain: [],
+      parentRunId: null,
+      at: new Date(),
+    };
+    const fired = await database.withTenantTx({ workspaceId: SITE, actorId: STAFF }, (tx) =>
+      fireFlows(tx, { ...staff(), environment }, [
+        { ...event, kind: 'lead_submitted', stage: 'incomplete', occurrence: 'submitted' },
+        { ...event, kind: 'stage_entered', stage: 'cancelled', occurrence: 'occurrence-2' },
+      ]),
+    );
+    expect(fired).toEqual({ skipped: [], activities: [] });
+    expect(await jobs(leadId)).toEqual([]);
+    expect(await runs(leadId)).toEqual([]);
   });
 
   describe('the SIM number mail staff send by hand', () => {

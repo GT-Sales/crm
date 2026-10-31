@@ -208,7 +208,7 @@ databaseTest('a customer change request, from the tracking code to approval on t
     const environment = customerEmailEnvironmentFromEnv(ENV);
     const secret = loadTrackingSecret(ENV);
     const automations = new DatabaseAutomationStore(database);
-    const leadStore = new DatabaseLeadStore(database, environment, automations);
+    const leadStore = new DatabaseLeadStore(database, environment);
     const planStore = new DatabasePlanStore(database);
     const emailSettings = new DatabaseEmailSettingsStore(database);
     const documentService = new DocumentService(
@@ -218,7 +218,7 @@ databaseTest('a customer change request, from the tracking code to approval on t
     );
     const changeRequests = new ChangeRequestService({
       store: new DatabaseChangeRequestStore(database),
-      context: { emailEnvironment: environment, automations },
+      context: { emailEnvironment: environment },
       objects,
       database,
     });
@@ -288,7 +288,7 @@ databaseTest('a customer change request, from the tracking code to approval on t
         store: new DatabaseStaffStore(database),
         credentialStore: new DatabaseWebsiteCredentialStore(database),
         leadStore,
-        leadWorkStore: new DatabaseLeadWorkStore(database, environment, automations),
+        leadWorkStore: new DatabaseLeadWorkStore(database, environment),
         documentService,
         planStore,
         propertyStore: new DatabasePropertyStore(database),

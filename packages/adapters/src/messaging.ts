@@ -19,6 +19,13 @@ const siteContentEmailTemplates = [
 ] as const;
 
 /**
+ * Mail to a site's staff the backend renders itself and sends from the
+ * deployment's sender (an automation's "notify staff" step), so no copy for
+ * it lives here either.
+ */
+const renderedStaffEmailTemplates = ['staff_notification'] as const;
+
+/**
  * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
  * plus the site-content templates a site's staff edit. `abandoned_form_marketing` is the one marketing template; every
  * other template is transactional and is never gated on marketing opt-out.
@@ -31,6 +38,7 @@ export const emailTemplates = [
   'order_activation',
   'abandoned_form_marketing',
   ...siteContentEmailTemplates,
+  ...renderedStaffEmailTemplates,
 ] as const;
 export type EmailTemplate = (typeof emailTemplates)[number];
 
@@ -302,6 +310,7 @@ function contentFor(
   const { template } = message;
   if (isSiteTemplateKey(template)) return undefined;
   if (siteContentEmailTemplates.some((entry) => entry === template)) return undefined;
+  if (renderedStaffEmailTemplates.some((entry) => entry === template)) return undefined;
   return renderTemplate({ ...message, template }, senderName);
 }
 
@@ -369,6 +378,7 @@ function renderTemplateBody(message: BuiltInMessage): {
     case 'sim_number_ready':
     case 'change_approved':
     case 'change_rejected':
+    case 'staff_notification':
       // Never reached: `contentFor` refuses these without a rendered message.
       throw new Error('rendered_message_missing');
     case 'abandoned_form_marketing':

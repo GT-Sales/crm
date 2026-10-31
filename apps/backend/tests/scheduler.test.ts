@@ -6,6 +6,7 @@ import {
   createScheduler,
   INTAKE_CHECK_INTERVAL_MS,
   SchedulerConfigurationError,
+  type SchedulerRunInput,
   type SchedulerTask,
   runDataRetention,
   runDocumentCleanup,
@@ -14,6 +15,7 @@ import {
 import { INITIAL_QUEUE_HEALTH_STATE, type QueueHealthState } from '../src/jobs/queueMonitor.js';
 import { operationalRetentionEnabled } from '../src/retention/operational.js';
 import { runIntakeCheck, type IntakeCheckRunInput } from '../src/intake-check/check.js';
+import { AUTOMATION_TICK_INTERVAL_MS } from '../src/automations/tick.js';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000901';
 const ACTOR = '20000000-0000-4000-8000-000000000901';
@@ -268,6 +270,7 @@ describe('createBackendScheduler', () => {
       runDocumentCleanup: vi.fn(async () => undefined),
       runDataRetention: vi.fn(async () => undefined),
       runIntakeCheck: vi.fn(async (_input: IntakeCheckRunInput): Promise<unknown> => undefined),
+      runAutomationTick: vi.fn(async (_input: SchedulerRunInput): Promise<unknown> => undefined),
     };
   }
 
@@ -323,7 +326,57 @@ describe('createBackendScheduler', () => {
     // The upload sweep and daily retention run with the outbox identity.
     expect(deps.runDocumentCleanup).toHaveBeenCalledWith(expected);
     expect(deps.runDataRetention).toHaveBeenCalledWith(expected);
+    expect(deps.runAutomationTick).toHaveBeenCalledWith(expected);
     expect(deps.runIntakeCheck).not.toHaveBeenCalled();
+    await scheduler?.stop();
+  });
+
+  it('registers automations every 5 minutes with the outbox identity', async () => {
+    expect(AUTOMATION_TICK_INTERVAL_MS).toBe(5 * 60_000);
+    vi.useFakeTimers();
+    const deps = dependencies(registryWith([runner]));
+    const scheduler = createBackendScheduler(deps, {
+      env: baseEnv,
+      startupDelayMs: 10_000,
+      jitterMs: 0,
+      random: () => 0,
+    });
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(deps.runAutomationTick).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deps.runAutomationTick).toHaveBeenCalledTimes(1);
+    expect(deps.runAutomationTick).toHaveBeenLastCalledWith({
+      actorId: ACTOR,
+      authorizedWorkspaceIds: [WORKSPACE],
+    });
+    await vi.advanceTimersByTimeAsync(AUTOMATION_TICK_INTERVAL_MS);
+    expect(deps.runAutomationTick).toHaveBeenCalledTimes(2);
+    await scheduler?.stop();
+  });
+
+  it('skips an automations tick while the previous run is still in flight', async () => {
+    vi.useFakeTimers();
+    const deps = dependencies(registryWith([runner]));
+    deps.runAutomationTick.mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 7 * 60_000)),
+    );
+    const scheduler = createBackendScheduler(deps, {
+      env: baseEnv,
+      startupDelayMs: 0,
+      jitterMs: 0,
+      random: () => 0,
+    });
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deps.runAutomationTick).toHaveBeenCalledTimes(1);
+    // 5 minutes: still running, so that tick is skipped; 10 minutes: the next one runs.
+    await vi.advanceTimersByTimeAsync(AUTOMATION_TICK_INTERVAL_MS);
+    expect(deps.runAutomationTick).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(AUTOMATION_TICK_INTERVAL_MS);
+    expect(deps.runAutomationTick).toHaveBeenCalledTimes(2);
+    // The second run (from 10 minutes) ends at 17, before the 20-minute tick.
+    await vi.advanceTimersByTimeAsync(7 * 60_000);
     await scheduler?.stop();
   });
 

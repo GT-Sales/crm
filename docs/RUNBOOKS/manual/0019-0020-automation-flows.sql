@@ -47,8 +47,10 @@
 -- columns of automation_runs; the FK from a flow to its live version; the
 -- trigger that keeps an activated version fixed (its definition, its
 -- activation and every status move but active -> retired); the functions
--- app.builtin_flow_definition, app.builtin_flow_name and
--- app.record_staff_notification_email; the
+-- app.builtin_flow_definition, app.builtin_flow_name,
+-- app.record_staff_notification_email and app.current_workspace_identity (the
+-- open tenant transaction's own site, for a staff notification; still no grant
+-- on app.workspaces); the
 -- conversion of existing rule rows and runs; and prune_operational_rows()
 -- replaced with 0018's body except that runs go 90 days after they finish
 -- (never while waiting) and fired or void timers 90 days after they ended.
@@ -56,7 +58,7 @@
 -- `--> statement-breakpoint` markers and the OWNER PASTE note. Drizzle hashes
 -- (sha256 of each file) and journal `when` values:
 --   0019_automation_flows          c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b  1793450665432
---   0020_automation_flows_runtime  d0358cece7c5ae47cd3b4072ff12426999752400fb64597e0d216dd45c753cd8  1793450690795
+--   0020_automation_flows_runtime  49d165bbb384a89f564456e349c83547826a5c6f67b4e8369b275ca8076b220c  1793450690795
 
 -- A. Pre-check. Expect one row: automation_versions, automation_step_runs,
 -- automation_waits and automation_timers null, origin_column false,
@@ -302,8 +304,9 @@ CREATE POLICY "automation_waits_backup_reader_read" ON "app"."automation_waits" 
 -- five columns of app.automation_runs (a run moves from waiting to its end),
 -- the circular FK from a flow to its live version, the guard that keeps an
 -- activated version fixed, the six built-in default definitions and names, the
--- notification address function, the conversion of the phase 4 rows into
--- flows (merge phase 8, spec §6) and, last, the retention of runs and timers.
+-- notification address function, the current site's identity, the conversion
+-- of the phase 4 rows into flows (merge phase 8, spec §6) and, last, the
+-- retention of runs and timers.
 -- backup_reader needs no grant here: 0007's default privileges make every new
 -- app table readable, and each table's read policy comes from schema.ts in
 -- 0019. Every statement is safe to run twice.
@@ -481,6 +484,28 @@ REVOKE ALL ON FUNCTION app.record_staff_notification_email(text) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION app.record_staff_notification_email(text) TO app_runtime;
 
+-- The open tenant transaction's own site, for a staff notification's subject
+-- and link. It takes no argument and reads only app.workspace_id, under the
+-- same guard as every tenant policy (a site context and a verified actor), so
+-- it names only the site the transaction is already scoped to. The runtime
+-- still has no grant on app.workspaces and cannot enumerate sites.
+CREATE OR REPLACE FUNCTION app.current_workspace_identity()
+RETURNS TABLE (workspace_slug text, workspace_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT workspace.slug, workspace.name
+  FROM app.workspaces AS workspace
+  WHERE workspace.id = nullif(pg_catalog.current_setting('app.workspace_id', true), '')::uuid
+    AND nullif(pg_catalog.current_setting('app.actor_id', true), '') IS NOT NULL;
+$function$;
+
+REVOKE ALL ON FUNCTION app.current_workspace_identity() FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION app.current_workspace_identity() TO app_runtime;
+
 -- The conversion (spec §6): each existing rule row becomes a built-in flow
 -- with its label as its name and version 1 active, and each phase 4 run is
 -- tied to it. Each statement touches only rows it has not converted yet.
@@ -649,7 +674,7 @@ INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
 SELECT 'c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b', 1793450665432
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793450665432);
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT 'd0358cece7c5ae47cd3b4072ff12426999752400fb64597e0d216dd45c753cd8', 1793450690795
+SELECT '49d165bbb384a89f564456e349c83547826a5c6f67b4e8369b275ca8076b220c', 1793450690795
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793450690795);
 -- now() is fixed for the whole transaction, so the second version is one
 -- second later: the two rows need distinct versions.
@@ -738,14 +763,21 @@ WHERE connamespace = 'app'::regnamespace AND conname = 'automations_active_versi
 SELECT tgname, tgenabled FROM pg_trigger
 WHERE tgrelid = 'app.automation_versions'::regclass AND NOT tgisinternal;
 
--- 8. Expect four rows: builtin_flow_definition false, builtin_flow_name
--- false, guard_automation_version_definition false,
--- record_staff_notification_email true (SECURITY DEFINER).
+-- 8. Expect five rows: builtin_flow_definition false, builtin_flow_name
+-- false, current_workspace_identity true (SECURITY DEFINER),
+-- guard_automation_version_definition false, record_staff_notification_email
+-- true (SECURITY DEFINER).
 SELECT p.proname, p.prosecdef FROM pg_proc p
 WHERE p.pronamespace = 'app'::regnamespace
-  AND p.proname IN ('builtin_flow_definition', 'builtin_flow_name',
+  AND p.proname IN ('builtin_flow_definition', 'builtin_flow_name', 'current_workspace_identity',
                     'guard_automation_version_definition', 'record_staff_notification_email')
 ORDER BY p.proname;
+
+-- 8b. Expect one row: false, true, false (app_runtime still cannot read
+-- app.workspaces, may run current_workspace_identity, and PUBLIC may not).
+SELECT has_table_privilege('app_runtime', 'app.workspaces', 'SELECT') AS runtime_reads_workspaces,
+       has_function_privilege('app_runtime', 'app.current_workspace_identity()', 'EXECUTE') AS runtime_execute,
+       has_function_privilege('public', 'app.current_workspace_identity()', 'EXECUTE') AS public_execute;
 
 -- 9. Expect one row: true, true, true, true (the prune function names
 -- automation_timers, keeps waiting runs, still names tracking_challenges and

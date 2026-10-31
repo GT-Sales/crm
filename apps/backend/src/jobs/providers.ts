@@ -13,9 +13,13 @@ import {
   type EmailDeliveryRecorder,
   type JobHandlerRegistry,
 } from '@gt-sales/jobs';
-import { TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
+import { STAFF_NOTIFICATION_JOB_TYPE, TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
 import { z } from 'zod';
 
+import {
+  createStaffNotificationHandler,
+  staffNotificationEnvironmentFromEnv,
+} from '../automations/staff-notification.js';
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
 import { createLegacyDocumentImportHandler } from '../documents/import-job.js';
 import type { DocumentService } from '../documents/service.js';
@@ -206,6 +210,15 @@ export function createOutboxJobHandlers(
       delivery,
       environment: customerEmailEnvironmentFromEnv(env),
       secret: loadTrackingSecret(env),
+    }),
+  );
+  handlers.set(
+    STAFF_NOTIFICATION_JOB_TYPE,
+    createStaffNotificationHandler({
+      email,
+      eligibility,
+      delivery,
+      environment: staffNotificationEnvironmentFromEnv(env),
     }),
   );
   return handlers;

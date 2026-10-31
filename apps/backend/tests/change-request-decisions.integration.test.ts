@@ -5,7 +5,6 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 import { z } from 'zod';
 
-import { DatabaseAutomationStore } from '../src/automations/store.js';
 import { DatabaseDocumentStore } from '../src/documents/store.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadWorkStore, type LeadUpdateContext } from '../src/leads/work-store.js';
@@ -232,9 +231,8 @@ databaseTest('approving and rejecting change requests', () => {
         NODE_ENV: 'test',
         EMAIL_CONTACT_HASH_SECRET: 'change-decisions-contact-secret-0123',
       }),
-      automations: new DatabaseAutomationStore(database),
     };
-    work = new DatabaseLeadWorkStore(database, context.emailEnvironment, context.automations);
+    work = new DatabaseLeadWorkStore(database, context.emailEnvironment);
   });
 
   beforeEach(async () => {
