@@ -131,6 +131,7 @@ export const domainErrorCodeSchema = z.enum([
   'invalid_fill_in',
   'invalid_email_markup',
   'automation_not_found',
+  'intake_check_off',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

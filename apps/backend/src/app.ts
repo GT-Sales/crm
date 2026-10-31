@@ -28,6 +28,11 @@ import {
   type JobsRouteDependencies,
 } from './routes/jobs.js';
 import {
+  createDefaultIntakeCheckRouteDependencies,
+  createIntakeCheckRouter,
+  type IntakeCheckRouteDependencies,
+} from './routes/intake-check.js';
+import {
   createDefaultEmailRouteDependencies,
   createEmailRouter,
   createResendWebhookRouter,
@@ -40,6 +45,8 @@ export interface CreateAppOptions {
   /** Customer order tracking; by default the database stores with `TRACKING_HASH_SECRET`. */
   tracking?: TrackingRouteDependencies;
   jobs?: JobsRouteDependencies;
+  /** The manual intake check run; by default the database stores and `INTAKE_CHECK_WORKSPACE_ID`. */
+  intakeCheck?: IntakeCheckRouteDependencies;
   email?: EmailRouteDependencies;
   errorTracker?: ErrorTracker;
 }
@@ -120,6 +127,10 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(
     '/api/internal/jobs',
     createJobsRouter(options.jobs ?? createDefaultJobsRouteDependencies()),
+  );
+  app.use(
+    '/api/internal/jobs',
+    createIntakeCheckRouter(options.intakeCheck ?? createDefaultIntakeCheckRouteDependencies()),
   );
   const staffDependencies = options.staff ?? createDefaultStaffRouteDependencies();
   const propertyStore = staffDependencies.propertyStore ?? new DatabasePropertyStore();

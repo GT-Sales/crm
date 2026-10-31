@@ -41,6 +41,8 @@ import {
   type LeadsSummaryQuery,
   type LeadsSummaryResponse,
   type LeadStatsQuery,
+  type SourceReportQuery,
+  type SourceReportResponse,
   type LeadStatsResponse,
   type LeadTaskResponse,
   type LeadTrashResponse,
@@ -182,6 +184,15 @@ export async function getLeadStats(
   query: LeadStatsQuery,
 ): Promise<LeadStatsResponse> {
   return client(accessToken).staff.leadStats(workspaceId, query);
+}
+
+/** Reports → Sources: one lead type's leads per source over a window. */
+export async function getSourceReport(
+  accessToken: string,
+  workspaceId: string,
+  query: SourceReportQuery,
+): Promise<SourceReportResponse> {
+  return client(accessToken).staff.sourceReport(workspaceId, query);
 }
 
 export async function getLeadBoard(

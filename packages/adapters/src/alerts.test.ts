@@ -6,6 +6,7 @@ import {
   FakeOwnerAlertChannel,
   MultiOwnerAlertChannel,
   NoopOwnerAlertChannel,
+  ownerAlertKinds,
   WebhookOwnerAlertChannel,
 } from './alerts.js';
 
@@ -57,7 +58,27 @@ describe('EmailOwnerAlertChannel', () => {
     const [, init] = fetchImpl.mock.calls[0]!;
     const body = asRecord(requestBody(init));
     expect(body.to).toEqual(['owner@example.test']);
-    expect(body.subject).toContain('synthetic order check failed');
+    expect(body.subject).toContain('intake check failed');
+  });
+
+  test('names the intake check all-clear', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'email-2' }),
+    });
+    const channel = new EmailOwnerAlertChannel({
+      apiKey: 'key',
+      ownerEmail: 'owner@example.test',
+      fromAddress: 'alerts@example.test',
+      fromName: 'GT Sales CRM Alerts',
+      fetchImpl,
+    });
+    expect(ownerAlertKinds).toContain('synthetic_check_recovered');
+    await channel.send({ ...alert, kind: 'synthetic_check_recovered', detail: 'failed_runs:3' });
+    const [, init] = fetchImpl.mock.calls[0]!;
+    const body = asRecord(requestBody(init));
+    expect(body.subject).toBe('GT Sales CRM: intake check passing again');
+    expect(body.text).toContain('Detail: failed_runs:3');
   });
 
   test('throws when the provider responds with an error', async () => {

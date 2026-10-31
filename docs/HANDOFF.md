@@ -43,7 +43,7 @@ should be rotated once the owner has a password manager for them (§6).
  │  /api/v1/staff/*           Supabase bearer → verified by Auth API → per-IP rate limit → per-action authorize │
  │  /api/v1/website/*         service credential (hash lookup) → scope → per-endpoint rate limit → bot check    │
  │  /api/v1/email/*           unsubscribe links, delivery view;  /api/v1/webhooks/resend signed events          │
- │  scheduler (in-process):   outbox every 60 s · document_cleanup hourly · data_retention daily               │
+ │  scheduler (in-process):   outbox 60 s · document_cleanup 1 h · data_retention 1 d · intake_check 15 min    │
  │  every data access: withTenantTx → set_config(app.workspace_id, app.actor_id) → RLS decides                  │
  └───────────────┬───────────────────────────────────────────────┬───────────────────────────────┬──────────────┘
                  │ postgres (pooler, app_runtime)                │ Auth API (getUser)            │ S3 API (unset)
@@ -54,7 +54,7 @@ should be rotated once the owner has a password manager for them (§6).
                  │ NEXT_PUBLIC_SUPABASE_* (browser signs in directly with Supabase Auth, nothing else)
  ┌───────────────┴────────── admin: apps/admin (Next.js 16, Vercel iad1) ───────────────┐
  │ /login (+ invitation sign-up) · /recovery · /denied · /w/[site]/{leads, leads/[id],    │
- │ tasks, documents, settings, settings/jobs}; every API call = fetch(API base, bearer)   │
+ │ tasks, documents, reports, settings, settings/jobs}; every call = fetch(API, bearer)   │
  └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,6 +98,7 @@ Staff routes (`/api/v1/staff`, Supabase bearer token; `action` is what
 | PATCH           | `/profile`                                                               | —                            | The caller's own display name, on every site they belong to.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | GET             | `/workspaces/:id/leads`                                                  | workspace.read               | Paged; filters type, stage, assignee (`me`/`none`/id), `q`, `view=archived` (`trash` is the deprecated alias), `dueBy` (a follow-up due by that day, most overdue first), `where` (up to 10 typed property filters), `sort` (`createdAt`, `updatedAt`, `fullName`, `externalRef`, or `prop.<key>`), and `columns` (up to 6 property keys returned in `properties`); all three are checked against the site's property catalogue, custom properties included. Contact fields, `properties` and the countdown date hidden unless lead.manage, order.manage or financial.read; `q`, `where`, a `fullName` or property `sort` and `columns` need that too.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | GET             | `/workspaces/:id/leads/stats`                                            | workspace.read               | The dashboard's counts for one type (`leadType`, `days` 7/30/90 or none for all time): by stage, per UTC day and the top 10 partner codes (named by their partner application's company), lost stages left out of the last two. Counts only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| GET             | `/workspaces/:id/reports/sources`                                        | workspace.read               | Reports → Sources: one type's leads per source (`leadType`, `days` 7/30/90 or none for all time), each source as `deriveSource` labels it (`partner:<code>`, with ` (unmatched)` when no partner application matched; `utm:<source>[/<medium>]`; `referrer:<host>`; `direct`), with `received`, `submitted` and `madeIt` (the stage is one of `SOURCE_REPORT_SUCCESS_STAGES`: `activated`, `installed`, `completed`, `won`), a `utm` source's campaigns, the totals and `withSourceData` (counted leads with any attribution). At most 50 sources and 20 campaigns per source; the rest summed into one `other` row. The same leads `/leads/stats` counts. Counts only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | GET             | `/workspaces/:id/leads/summary` · `/leads/board`                         | workspace.read               | Active leads per type (with how many nobody has opened) and the archive (`archived`; `trash` carries the same number, deprecated); one type's leads by stage (a column per catalogue stage, counts, newest 50 each; accepts `where` property filters with contact access).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | GET             | `/workspaces/:id/leads/:leadId`                                          | workspace.read               | Lead with form, timeline, tasks, identities and current documents; readers without contact access get stage and source only; `access.downloadDocuments` says whether the caller may open the documents. Returns `customValues` and, for an order type, `order` (the order details) with contact access. `allowedMoves` lists the stages the lead may move to from where it is; `access` also says whether the caller may `emailCustomer`, `reviewDocuments` (`order.manage`) and `overrideDocuments` (`order.override`). With contact access it also carries `changeRequest`, the customer's pending change request (number, version, fields asked for, documents sent with it) or null, and `access.decideChanges` (`lead.manage`) says whether the caller may decide it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH           | `/workspaces/:id/leads/:leadId`                                          | lead.manage                  | Stage (checked against the type), assignee (active member), contact and form corrections (`form`, checked against the type's field definitions) `customValues` (checked against the site's custom properties) and, for an order type, `order` (`planId` re-freezes the plan from the site's current one: it must be active and of the lead's type, `null` clears it; `quantity`, `paymentStatus`, `carrierCommission`; a refused order is 400 `validation_error` with `details.field` `plan` or `order`); timeline + audit. A stage is also checked against the type's allowed moves, and `order` takes the dispatch and activation fields `courier`, `trackingNumber`, `dispatchedAt`, `activatedAt`, `activationNumber` and `activationAccount`. `documentsOverrideReason` (1–2000 characters, only with `stage`) moves an order on without its required documents approved and needs `order.override` (owner, Orders role). The response carries `allowedMoves` and `emailSkipped`: one item per automation rule that was on but queued nothing (`automation`, `template`, `reason`, and the `missing` fill-ins). Refusals: 409 `illegal_stage_move` (`details { from, to, allowed }`); 400 `dispatch_details_required` (`details.field` `courier`, needed for Delivered); 400 `activation_details_required` (`details.field` `activatedAt`, when it is set to null for Activated); 409 `documents_incomplete` (`details.missing` lists the document types, for Delivered and Activated); 400 `document_override_reason_required` (a blank reason); 409 `documents_override_not_allowed` (a reason from a caller without `order.override`). |
@@ -166,14 +167,28 @@ Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 | POST   | `/tracking/orders/:reference/uploads/:uploadId/finalize` | tracking         | With the grant: only the order's own held upload; verifies the bytes as `/uploads/:uploadId/finalize` does, then joins the file to the pending request (made if none, `version + 1` otherwise). 200 `{ changeRequest }`; 404 `upload_not_found` for any other file.                                                                                                                                                                                                   |
 
 Other: `GET /api/v1/health`; `/api/internal/jobs/run` (GET/POST, machine
-secret) for manual scheduler runs; `/api/v1/email/unsubscribe`,
+secret) for manual scheduler runs; `POST /api/internal/jobs/intake-check`
+(machine secret, scope `synthetic:check`) for one intake check run by hand,
+returning its result and never alerting (404 `intake_check_off` without
+`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md); `/api/v1/email/unsubscribe`,
 `/api/v1/email/staff/workspaces/:id/delivery`; `/api/v1/webhooks/resend`
 (raw body, signature-verified, `POST /:selector`).
 
 Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 `document_cleanup` 1 h, `data_retention` 24 h (calls
-`app.prune_operational_rows`). Overlap-guarded; failures are logged as
-`scheduler_task_failed` and nothing else, so a quiet log is a healthy log.
+`app.prune_operational_rows`) and, when `INTAKE_CHECK_WORKSPACE_ID` is set,
+`intake_check` 15 min (one test lead through intake on the test site, an owner
+alert on failure and one all-clear; it needs `synthetic:check` on the
+scheduler entry, and when that or the id is wrong it is left out and its code
+logged once at boot while the other three run). Overlap-guarded; a task's
+run failure is logged as `scheduler_task_failed`, a task left out at start by
+its own configuration code (`scheduler_scope_missing`,
+`intake_check_workspace_invalid`, …), and each intake check run writes one
+`intake_check` line (`status` `ok`, or `failed` with its step and code) and,
+when an alert cannot be sent, `intake_check_alert_failed`. A run gives up
+after 60 s (`timeout`). It refuses a site with any member, role or site key
+(`intake_check_site_not_test`) before it writes anything, and its leftovers
+step deletes only its own synthetic leads.
 
 ### 2.4 Data model and tenancy
 
@@ -1002,8 +1017,8 @@ B, CRM tasks B1 to B12 and B14) on the branch `phase-5-customer-tracking`
 (the last two on `p5/b-finish`).
 The website side (Get Canada Sim's `/track` through the CRM behind
 `CRM_TRACKING`, task B13) is built in that repository and not merged. Nothing
-of step B is deployed, and migrations 0017 and 0018 are **not applied** to
-the hosted project yet (§5.1).
+of step B was deployed then, and migrations 0017 and 0018 were not applied
+(both done on 2026-10-31, see "Deployed 2026-10-31" below).
 
 1. **Contracts** (`packages/contracts/src/tracking.ts`). The limits
    (`TRACKING_CODE_TTL_MS`, `TRACKING_MAX_ATTEMPTS`, the per-email budgets,
@@ -1088,6 +1103,114 @@ the hosted project yet (§5.1).
     than orphaned; the timeline reads "the phone and arrival in Canada"; the
     OpenAPI document marks `X-Turnstile-Token` as needed only in `turnstile`
     mode.
+
+**Deployed 2026-10-31.** PR #9 (steps A and B) merged at 01:49 UTC as
+`c9aa16c`; Railway deployment `93036a9a` succeeded at 01:51 UTC, health 200
+throughout and the deploy logs clean; the admin was redeployed from `main`.
+Migrations 0017 and 0018 were applied to production the same day through the
+Supabase tool's `execute_sql`, verified against the schema: FORCE RLS, the
+policies and grants, the `files.held_for_change_request` column and the
+widened counter check. Get Canada Sim's website PR #28 merged the same day,
+dark (`CRM_ORDERS` and `CRM_TRACKING` unset). PR #10 (the database test
+suites run serially, after the other projects) merged the same day, after a
+deadlock on `main`'s CI. Still open (§5.1): the owner's paste of the new
+`app.prune_operational_rows` body (until then pruning skips tracking
+challenges), then the 0017 and 0018 tracker rows, saving Settings → Email for
+Get Canada Sim, the Railway tracking variables, then the switch day.
+
+### 3.9 2026-10-31: merge phase 6, source report and intake check
+
+Built on 2026-10-31 from
+[docs/superpowers/plans/2026-10-31-phase-6-source-report-intake-check.md](superpowers/plans/2026-10-31-phase-6-source-report-intake-check.md)
+(spec
+[2026-10-31-phase-6-source-report-intake-check-design.md](superpowers/specs/2026-10-31-phase-6-source-report-intake-check-design.md),
+owner-approved), in two batches merged into `phase-6-reports-checks`. No
+migration. Umami (reading it or sending to it) is left for later (spec O3).
+Nothing is deployed yet, and the intake check stays off until the owner's
+steps in §5.1.
+
+1. **Source report contracts** (`packages/contracts/src/reports.ts`):
+   `SOURCE_REPORT_SUCCESS_STAGES` (`activated`, `installed`, `completed`,
+   `won`), `SOURCE_REPORT_MAX_SOURCES` (50), `SOURCE_REPORT_MAX_CAMPAIGNS`
+   (20), `SOURCE_KINDS`, the query (`leadType`, `days` 7/30/90 or none) and
+   response schemas, the endpoint `getWorkspaceSourceReport` and the client's
+   `staff.sourceReport`.
+2. **Source report backend** (`apps/backend/src/reports/store.ts`,
+   `src/routes/reports.ts`): one SQL statement in a tenant transaction over the
+   leads `GET /leads/stats` counts (the site, the type, not archived, not
+   restricted, the window), grouped by the source label computed in SQL with
+   `deriveSource`'s precedence (`sourceLabelSql`) and by UTM campaign; a pure
+   `shapeSourceReport` ranks the groups (most received first, then the label
+   by code point) and sums whatever passes the caps into one `other` row (a
+   campaign "Other" row carries `other: true`). Route
+   `GET /api/v1/staff/workspaces/:id/reports/sources`, `workspace.read`.
+3. **Reports → Sources** in the admin (`apps/admin/src/app/w/[workspace]/reports/sources`,
+   `src/components/reports/source-report.tsx`, a Reports item in the sidebar):
+   the period buttons (opening on the last 30 days), the lead type, a table of
+   received, submitted, made it and the made-it rate per source with a
+   source's campaigns behind a keyboard-usable toggle, a total row, and the
+   notice "No source data yet…" while no counted lead carries attribution.
+   Attribution is customer-influenced text: it is rendered as text only. The
+   dashboard's period list moved to `src/lib/stats-windows.ts`.
+4. **Intake check** (`apps/backend/src/intake-check/`): `check.ts` runs the
+   four steps (refuse a site with any member, role or site key as
+   `intake_check_site_not_test` before writing anything, then delete its own
+   synthetic leads older than 10 minutes; create through the website
+   route's own `createLeadRequestSchema` and `checkLeadIntake` then
+   `DatabaseLeadStore.createLead`, verify, delete) and never throws: any
+   failure is `{ status: 'failed', step, code }` with a bounded snake-case
+   code, and a whole run gives up after 60 s as `timeout`; `store.ts` deletes
+   and reads only on the transaction's own site;
+   `alert-rule.ts` decides the owner alerts (`synthetic_check_failed` with
+   `<step>:<code>` on the first failure and at most hourly after, one
+   `synthetic_check_recovered` with `failed_runs:<n>` on the first pass). The
+   scheduler's fourth task `intake_check` (every 15 minutes) and the manual
+   `POST /api/internal/jobs/intake-check` (`src/routes/intake-check.ts`). The
+   error code `intake_check_off`. Paste file
+   [`RUNBOOKS/manual/intake-check-site.sql`](RUNBOOKS/manual/intake-check-site.sql),
+   rehearsed on a local database; runbook
+   [RUNBOOKS/intake-check.md](RUNBOOKS/intake-check.md).
+5. **Rulings made while planning** (plan header):
+   - R1, no migration: deleting the test lead needs only `DELETE` on
+     `app.leads`, which `app_runtime` has; every table a submitted `internet`
+     lead can have rows in cascades, and a cascade runs as the referencing
+     table's owner, so no delete grant on the append-only timeline is needed
+     (proved as `app_runtime` by "the cascade needs no delete grant on the
+     timeline").
+   - R2, no index: the report reads exactly the rows the stats query reads;
+     revisit past about 100 000 leads on one site.
+   - R3, the test lead's form is a fixed fictional internet form, since an
+     empty one is refused.
+   - R4, the check goes through the route's own checks too; a refusal is a
+     `create` failure `intake_refused_<part>`.
+   - R5, identity: the scheduler entry `JOB_RUNNER_SELECTOR` names, verified
+     with `CRON_SECRET`, holding `synthetic:check`; the site id comes from
+     `INTAKE_CHECK_WORKSPACE_ID`, never from a request. A missing scope or a
+     bad id leaves the check out and logs its code once; the other tasks run.
+   - R6, only scheduled runs alert; the manual route returns the result.
+   - R7, the production controlled failure removes and re-creates the test
+     site row with the same id (paste sections C and D), not a variable
+     change, which would restart the service and lose the alert state.
+   - R8, a campaign row carries `other`, because a real campaign may be
+     called "other" and `null` already means "no campaign".
+   - R9, the alert subject is "GT Sales CRM: intake check failed".
+   - R10, the manual route stays out of the endpoint registry, as
+     `/api/internal/jobs/run` does.
+   - R11, the report opens on the last 30 days; the dashboard keeps 7.
+6. **Verified.** Backend: `source-report.test.ts`,
+   `source-report.integration.test.ts` (counts per window and stage, totals
+   equal to the stats for every window, other sites, types, archived and
+   restricted leads never counted, odd characters and the maximum lengths,
+   the SQL label equal to `deriveSource`, the 50-source cap),
+   `report-routes.test.ts`; `intake-check.test.ts`,
+   `intake-check.integration.test.ts` (a run leaves no lead, timeline, grant,
+   job, run or mail behind; leftovers removed, a concurrent run's fresh lead
+   kept, another site's lead never touched, the cascade as `app_runtime`, a
+   missing site fails at create with `sqlstate_23503`, a failed delete
+   cleaned up by the next run), `intake-alert-rule.test.ts`, the scheduler
+   cases in `scheduler.test.ts` and `intake-check-route.test.ts`. Admin:
+   `source-report.test.tsx` and the lead journey "the source report counts
+   CanadaWide's internet leads per source and opens a source's campaigns".
 
 ## 4. What is verified, and how
 
@@ -1218,8 +1341,10 @@ customer until they are done):
 5. Optional, for each website's developer: send `Idempotency-Key` on a
    submission so a retry never makes a second order (§2.6 item 9).
 
-**Get Canada Sim orders in the CRM (merge phase 5, step A).** Built
-(§3.8), not yet applied or deployed. The owner's steps, in order:
+**Get Canada Sim orders in the CRM (merge phase 5, step A).** Deployed
+2026-10-31 with step B (PR #9, `c9aa16c`, §3.8); the website's checkout
+through the CRM merged dark (Get Canada Sim PR #28, `CRM_ORDERS` unset). The
+owner's steps, in order:
 
 1. **Apply 0015 and 0016** before deploying the backend that numbers SIM
    orders: the pre-check, the paste and the six verification selects of
@@ -1252,9 +1377,15 @@ customer until they are done):
    [RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md#the-final-run-switch-day).
    Record the day, the two seed values and the reconciliation here and in §3.8.
 
-**Customer tracking (merge phase 5, step B).** Built (§3.8, step B), not yet
-applied or deployed. The owner's steps, in order (plan Task B15, then the
-switch day):
+**Customer tracking (merge phase 5, step B).** Deployed 2026-10-31: PR #9
+merged at 01:49 UTC (`c9aa16c`), Railway deployment `93036a9a` succeeded at
+01:51 UTC with health 200 throughout and clean deploy logs, the admin
+redeployed from `main`; the website's `/track` through the CRM merged dark
+(Get Canada Sim PR #28, `CRM_TRACKING` unset). Left: the
+`app.prune_operational_rows` paste and the tracker rows (step 2), saving
+Settings → Email for Get Canada Sim (step 3), the Railway tracking variables
+(step 1 and check 3 below), then the switch day. The owner's steps, in order
+(plan Task B15, then the switch day):
 
 1. **`TRACKING_HASH_SECRET` on Railway** (service `crm`), before the deploy:
    a new secret of at least 32 characters (`openssl rand -base64 48`) that
@@ -1265,7 +1396,12 @@ switch day):
    [`RUNBOOKS/manual/0017-0018-customer-tracking.sql`](RUNBOOKS/manual/0017-0018-customer-tracking.sql)
    ([RUNBOOKS/database.md](RUNBOOKS/database.md#0017_customer_tracking)); the
    `prune_operational_rows` replacement is the statement the owner pastes.
-   Status: **not applied yet**.
+   Status: **applied 2026-10-31** through the Supabase tool's `execute_sql`,
+   verified against the schema (FORCE RLS, the policies, the grants, the
+   `files.held_for_change_request` column, the widened counter check). Left:
+   the owner's paste of the new `app.prune_operational_rows` body (until then
+   the daily pruning skips tracking challenges), then the 0017 and 0018
+   tracker rows, inserted after that paste.
 3. **Before the deploy, every sending site has saved Settings → Email.** This
    backend no longer reads `EMAIL_SENDERS_JSON`, so a site that still relies
    on it stops sending customer mail **at the deploy**, not when the variable
@@ -1275,6 +1411,8 @@ switch day):
    mail in 30 days, so the settings are saved first (Settings → Email, the
    phase 4 steps above) and check 1 below is run. Then **deploy** the backend
    and then the admin, with `CRM_TRACKING` still unset on Get Canada Sim.
+   Status: deployed 2026-10-31; Get Canada Sim's Settings → Email is not saved
+   yet, so it sends no customer mail until it is.
 4. **Remove `EMAIL_SENDERS_JSON` from Railway** after that deploy: nothing
    reads it any more. Status: to do.
 5. **The Get Canada Sim site key gets the `tracking` scope**: create a new key
@@ -1401,6 +1539,30 @@ If a switch-day step has to be undone, the rollback is in
 [RUNBOOKS/legacy-import.md](RUNBOOKS/legacy-import.md#rollback): turning only
 `CRM_TRACKING` off is safe; turning `CRM_ORDERS` off once CRM orders exist
 needs the old checkout's order number moved past the CRM's first.
+
+**Intake check (merge phase 6).** Built (§3.9), not deployed; once deployed
+it stays off until these steps. The owner's steps, in order
+([RUNBOOKS/intake-check.md](RUNBOOKS/intake-check.md)):
+
+1. **Create the test site**: sections A and B of
+   [`RUNBOOKS/manual/intake-check-site.sql`](RUNBOOKS/manual/intake-check-site.sql)
+   in the SQL Editor, then the four verification selects (each 0); copy the
+   id. Status: to do.
+2. **The registry scope**: add `synthetic:check` to the `scopes` of the
+   scheduler entry `JOB_RUNNER_SELECTOR` names in Railway's
+   `MACHINE_REGISTRY_JSON`. Status: to do.
+3. **`INTAKE_CHECK_WORKSPACE_ID`** on Railway (service `crm`) = the id from
+   step 1, confirmed first with section A (the one row with slug
+   `intake-check`), then redeploy. An id of a real site is refused with the
+   alert `leftovers:intake_check_site_not_test`; unset it at once if that
+   arrives. Status: to do.
+4. **Watch two or three runs** in the deploy logs:
+   `{"event":"intake_check","status":"ok",…}` every 15 minutes. A missing
+   scope shows as `scheduler_scope_missing` at boot and no run. Status: to do.
+5. **The controlled failure**, with the owner's agreement: section C of the
+   paste file, the failure alert `create:sqlstate_23503` within 15 minutes,
+   section D, the all-clear `failed_runs:<n>`. Record what was seen here and
+   in the phases README status row ("Deployed"). Status: to do.
 
 Then the CRM's own owner items:
 
@@ -1688,6 +1850,22 @@ phases ([spec §12](superpowers/specs/2026-10-28-merge-canadian-plans-design.md#
     the alert response.
   - Validate `BACKUP_RUN_ID` against the `run-<id>` shape the restore
     expects.
+- **Phase 6 follow-ups** (spec §7 and the plan; none blocking):
+  - **Umami**: the dashboard's visitors beside leads per source (reading the
+    site's own Umami, read-only), left out of phase 6 (spec O3).
+  - **Websites sending attribution**: neither website sends UTM tags or a
+    referrer to the CRM yet, so every lead counts as `direct` and Reports →
+    Sources shows "No source data yet". The CRM side already stores and
+    counts it (`attribution` on `POST /website/leads`).
+  - **A public-route check**: the intake check calls the store directly; a
+    check through `POST /api/v1/website/leads` with a real site key (auth,
+    rate limits, bot check) would also catch a broken route or credential.
+  - **The test site's audit rows**: each intake check run leaves one
+    `lead.created` audit row on the test site, about 96 a day, never pruned.
+    Prune them, or record the check elsewhere.
+  - **A stored check history**: runs are only in the logs and the alert
+    state only in memory; a small table would show the last runs in the
+    admin and keep the alert state across restarts.
 
 ### 5.4 Closing the anonymous write paths
 

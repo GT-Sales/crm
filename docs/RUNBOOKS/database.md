@@ -599,7 +599,10 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
 - Each new table has its tenant policy and `<table>_backup_reader_read`, so
   `app` now has 38 `_backup_reader_read` policies.
 - Drizzle hash `7b4e5292e29ac1fdc8ab891e604d82dbbe9e3997e5756d73f6d2f120c817ad94`,
-  `created_at` `1793385700370`. **Not yet applied** to the hosted project.
+  `created_at` `1793385700370`. **Applied** to the hosted project on
+  2026-10-31 through the Supabase tool's `execute_sql`, verified against the
+  schema (the column, the widened counter check); the tracker rows go in
+  after the owner's `prune_operational_rows` paste (0018 below).
 
 ## 0018_customer_tracking_runtime
 
@@ -618,7 +621,13 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
   it is marked `OWNER PASTE` in the paste file.
 - Every statement is safe to run twice. No data migration.
 - Drizzle hash `900a964eac69947a733e022e05e1664a2c03f312cced36c510383e9faa99ffc2`,
-  `created_at` `1793385701352`. **Not yet applied** to the hosted project.
+  `created_at` `1793385701352`. **Applied** to the hosted project on
+  2026-10-31 through `execute_sql` (FORCE RLS, the policies and grants
+  verified against the schema), **except the owner-pasted
+  `app.prune_operational_rows` replacement**: until it is pasted the daily
+  pruning skips tracking challenges. After that paste, insert the 0017 and
+  0018 tracker rows (both trackers) and run the paste file's verification
+  selects for the prune function and the tracker rows.
 - Before applying, check that every sending site has saved Settings →
   Email (docs/HANDOFF.md §5.1, check 1): the backend deployed after these
   migrations no longer reads `EMAIL_SENDERS_JSON`, so a site without saved

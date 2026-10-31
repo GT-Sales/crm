@@ -4,7 +4,9 @@ import { expect, test, type Page } from '@playwright/test';
  * Staff working leads in a real browser against the real backend (see
  * playwright.leads.config.ts). The harness seeds CanadaWide with four internet
  * leads (two new, one contacted with an overdue task, one won) and one
- * mobility lead, plus Get Canada Sim with three SIM orders, two plans
+ * mobility lead, all through `utm:google/cpc` (the contacted one under the
+ * campaign `fall_promo`) except one new internet lead with no source data,
+ * which the source report journey counts before any journey moves a lead, plus Get Canada Sim with three SIM orders, two plans
  * ("Rogers 60GB" $40 a month with payment required, "Fido 75GB" $35 a month
  * without) and a fourth SIM order, Nadia Khan's, submitted with Rogers 60GB
  * frozen on it, signed in as the owner "Takib" with a colleague "Sam". The journeys share those seeded sites
@@ -77,6 +79,50 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
   await toggle.click();
   await expect(page.getByRole('link', { name: 'Avery Example' })).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
+
+test("the source report counts CanadaWide's internet leads per source and opens a source's campaigns", async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/dashboard');
+  await page.getByRole('link', { name: 'Reports' }).click();
+  await expect(page).toHaveURL(/\/w\/canadawide\/reports\/sources$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible();
+
+  const period = page.getByRole('group', { name: 'Period' });
+  await period.getByRole('button', { name: 'All time' }).click();
+  await expect(period.getByRole('button', { name: 'All time' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  const leadType = page.getByLabel('Lead type');
+  await expect(leadType.locator('option:checked')).toHaveText('Internet');
+
+  const table = page.getByRole('table', { name: 'Leads per source, all time' });
+  const row = (name: string) =>
+    table.getByRole('row').filter({ has: page.getByRole('rowheader', { name, exact: true }) });
+  const cellsOf = (name: string) => row(name).getByRole('cell');
+  await expect(cellsOf('utm:google/cpc')).toHaveText(['3', '3', '1', '33%']);
+  await expect(cellsOf('Direct')).toHaveText(['1', '1', '0', '0%']);
+  await expect(cellsOf('Total')).toHaveText(['4', '4', '1', '25%']);
+  await expect(page.getByText('No source data yet')).toHaveCount(0);
+
+  const source = table.getByRole('button', { name: 'utm:google/cpc' });
+  await expect(source).toHaveAttribute('aria-expanded', 'false');
+  await source.focus();
+  await page.keyboard.press('Enter');
+  await expect(source).toHaveAttribute('aria-expanded', 'true');
+  await expect(cellsOf('fall_promo')).toHaveText(['1', '1', '0', '0%']);
+  await expect(cellsOf('(no campaign)')).toHaveText(['2', '2', '1', '50%']);
+  await page.keyboard.press('Enter');
+  await expect(source).toHaveAttribute('aria-expanded', 'false');
+  await expect(row('fall_promo')).toHaveCount(0);
+
+  await leadType.selectOption({ label: 'Mobility' });
+  await expect(cellsOf('utm:google/cpc')).toHaveText(['1', '1', '0', '0%']);
+  await expect(cellsOf('Total')).toHaveText(['1', '1', '0', '0%']);
   expect(errors).toEqual([]);
 });
 

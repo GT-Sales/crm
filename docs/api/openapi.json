@@ -169,7 +169,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -375,7 +376,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -546,7 +548,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -780,7 +783,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -957,7 +961,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1171,7 +1176,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1384,7 +1390,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1592,7 +1599,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1796,7 +1804,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2000,7 +2009,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2459,7 +2469,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2684,7 +2695,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2940,7 +2952,295 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/reports/sources": {
+      "get": {
+        "operationId": "getWorkspaceSourceReport",
+        "summary": "Leads per source for one lead type: received, submitted and made it, over 7, 30 or 90 days or all time.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "leadType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_]+$"
+            }
+          },
+          { "name": "days", "in": "query", "required": false, "schema": { "type": "number" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "leadType": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9_]+$"
+                    },
+                    "days": {
+                      "anyOf": [{ "type": "number", "enum": [7, 30, 90] }, { "type": "null" }]
+                    },
+                    "totals": {
+                      "type": "object",
+                      "properties": {
+                        "received": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "submitted": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "madeIt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["received", "submitted", "madeIt"],
+                      "additionalProperties": false
+                    },
+                    "rows": {
+                      "maxItems": 51,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": { "type": "string", "minLength": 1, "maxLength": 300 },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["partner", "utm", "referrer", "direct", "other"]
+                          },
+                          "received": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "submitted": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "madeIt": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "campaigns": {
+                            "maxItems": 21,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "campaign": {
+                                  "anyOf": [
+                                    { "type": "string", "minLength": 1, "maxLength": 120 },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "other": { "type": "boolean" },
+                                "received": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "submitted": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "madeIt": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": ["campaign", "other", "received", "submitted", "madeIt"],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "kind",
+                          "received",
+                          "submitted",
+                          "madeIt",
+                          "campaigns"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "withSourceData": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["leadType", "days", "totals", "rows", "withSourceData", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3363,7 +3663,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4576,7 +4877,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5457,7 +5759,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6439,7 +6742,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7322,7 +7626,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8159,7 +8464,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8977,7 +9283,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9151,7 +9458,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9618,7 +9926,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10436,7 +10745,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10892,7 +11202,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11361,7 +11672,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11621,7 +11933,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11903,7 +12216,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12308,7 +12622,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12671,7 +12986,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12937,7 +13253,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13265,7 +13582,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13491,7 +13809,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13721,7 +14040,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14087,7 +14407,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14393,7 +14714,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14809,7 +15131,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15095,7 +15418,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15364,7 +15688,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15611,7 +15936,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15907,7 +16233,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16185,7 +16512,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16418,7 +16746,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16692,7 +17021,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16908,7 +17238,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17104,7 +17435,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17293,7 +17625,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17582,7 +17915,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17861,7 +18195,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18083,7 +18418,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18317,7 +18653,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18495,7 +18832,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18673,7 +19011,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18886,7 +19225,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19200,7 +19540,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19393,7 +19734,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19646,7 +19988,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19944,7 +20287,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20260,7 +20604,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20502,7 +20847,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20704,7 +21050,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20926,7 +21273,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21171,7 +21519,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21460,7 +21809,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21672,7 +22022,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21857,7 +22208,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22073,7 +22425,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22500,7 +22853,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22750,7 +23104,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23005,7 +23360,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23276,7 +23632,8 @@
                             "idempotency_in_progress",
                             "invalid_fill_in",
                             "invalid_email_markup",
-                            "automation_not_found"
+                            "automation_not_found",
+                            "intake_check_off"
                           ]
                         },
                         "message": { "type": "string" },

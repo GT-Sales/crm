@@ -1,17 +1,17 @@
 # Merge phase 5: customer tracking
 
-Status on 2026-10-30: planned
-([plan](../plans/2026-10-30-phase-5-gcs-orders-and-tracking.md)) and built,
-not deployed. Step A (Get Canada Sim's orders into the CRM) is built on the
-CRM side, with migrations 0015 and 0016 (order numbers) applied to the hosted
-project on 2026-10-30. Step B (customer tracking) is built on the CRM side
-(docs/HANDOFF.md §3.8, step B; the done-when test
-`apps/backend/tests/tracking-flow.integration.test.ts` and the tenth lead
-journey pass) and on the website side (Get Canada Sim's `/track` behind
-`CRM_TRACKING`, not merged); its migrations 0017 and 0018 are **not applied**
-yet. Left: the gate, the pull requests, 0017 and 0018, the deploys (plan Task
-B15), then the switch day (Task A11), where `CRM_TRACKING` goes on and a real
-customer's change request is approved. The migrations of this phase are 0015
+Status on 2026-10-31: deployed
+([plan](../plans/2026-10-30-phase-5-gcs-orders-and-tracking.md)). PR #9
+(steps A and B) merged on 2026-10-31 as `c9aa16c`; Railway deployment
+`93036a9a` succeeded with health 200 throughout and the admin was redeployed
+from `main`. Migrations 0015 and 0016 were applied on 2026-10-30, 0017 and
+0018 on 2026-10-31 (verified against the schema), except the owner-pasted
+`app.prune_operational_rows` replacement, after which the 0017 and 0018
+tracker rows go in. The website side (Get Canada Sim PR #28) merged dark,
+with `CRM_ORDERS` and `CRM_TRACKING` unset. Left: Get Canada Sim's Settings →
+Email, the Railway tracking variables, then the switch day (Task A11), where
+`CRM_ORDERS` and then `CRM_TRACKING` go on and a real customer's change
+request is approved (docs/HANDOFF.md §5.1). The migrations of this phase are 0015
 to 0018: 0015 and 0016 are step A's order numbers, 0017 and 0018 step B's
 tracking tables. Shared rules, the gate, the shipping procedure and the
 working method are in [README.md](README.md#shared-conventions); this page
