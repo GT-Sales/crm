@@ -96,7 +96,8 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Documents: `src/documents/` (signed upload intent → finalize with
   signature verification → attach; staff review and download links).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
-  `data_retention`, `intake_check`), identities in `src/machines/registry.ts`.
+  `data_retention`, `automations`, `intake_check`), identities in
+  `src/machines/registry.ts`.
 - Site properties and record layouts: `apps/backend/src/properties/`
   (`store.ts` for definitions, tombstones and layouts, `catalog.ts` for the
   per-request catalogue) with routes in `src/routes/properties.ts`; staff
@@ -129,11 +130,19 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/routes/tracking.ts` and the two staff decision routes in
   `src/routes/staff.ts`; contracts in `packages/contracts/src/tracking.ts`;
   the lead page's card in `apps/admin/src/components/leads/change-request-card.tsx`.
-- Automations: `apps/backend/src/automations/` (`store.ts` for each site's
-  state and runs, `run.ts` fires the rules a stage move or a website submit
-  triggers) with the staff routes in `src/routes/automations.ts`; the built-in
-  rules in `packages/contracts/src/automations.ts`.
-- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,reports/sources,automations,settings}`
+- Automation flows: `apps/backend/src/automations/` (`engine.ts` fires the
+  flows a write sets off inside its transaction, `conditions.ts` and
+  `actions.ts` the conditions and step executors, `timers.ts` and `tick.ts`
+  the time triggers, waits and the scheduler's `automations` task,
+  `staff-notification.ts` the notify step's mail, `flow-store.ts` the flows,
+  drafts, activation, runs and the editor catalogue, `site.ts` the site
+  snapshot a flow is checked against, `records.ts` the run and step records,
+  `run.ts` the lead reader) with the staff routes in
+  `src/routes/automations.ts`; site-made templates in
+  `src/email/settings-store.ts` and `src/routes/email-settings.ts`; contracts
+  in `packages/contracts/src/{automation-keys,automation-flows,automation-api}.ts`
+  (the built-ins' labels and phase 4 triggers stay in `automations.ts`).
+- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,reports/sources,automations,automations/[key],settings}`
   (Settings → Properties at `settings/properties`, Settings → Email at
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
   dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus, side panel and
@@ -141,8 +150,10 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   property rendering, editing and the settings screens in
   `src/components/properties/`; Settings → Plans in `src/components/plans/`
   (`settings/plans`, with plan properties at `settings/plans/properties`);
-  Settings → Email in `src/components/email/`; the Automations page in
-  `src/components/automations/`; API client `apps/admin/src/lib/api.ts`.
+  Settings → Email in `src/components/email/`; the Automations list and a
+  flow's read-only page in `src/components/automations/` (`flow-words.ts`
+  puts a flow in words, `flow-list-view.tsx` reads it as a list); API client
+  `apps/admin/src/lib/api.ts`.
 - Source report: `apps/backend/src/reports/store.ts` (the one SQL statement,
   `sourceLabelSql` and `shapeSourceReport`) with the route in
   `src/routes/reports.ts`; contracts in `packages/contracts/src/reports.ts`;
@@ -273,8 +284,15 @@ address), else `400 validation_error` with `details.field` `contact`,
 or the save that submits the draft), a SIM order still at `incomplete`
 moves to `pending` in the same transaction (`submittedLeadStage`), with
 `stage` in the audit and a `system` `submitted` timeline entry by the
-website's credential; no stage-move automation runs (the submit rules
-already fired). Other lead types stay at their first stage.
+website's credential. Other lead types stay at their first stage. A
+submission fires the `lead_submitted` flows first and then counts as
+entering the stage the lead stands in (Pending for a SIM order, the first
+stage for the others), so the `stage_entered` flows of that stage fire after
+them (spec ruling R4). A **rescued checkout** counts as submitted for every
+lead type (owner decisions O9 and O12): the first staff stage move of an
+incomplete lead marks it submitted, freezes its plan and fires the submitted
+and stage flows; the customer can then no longer finish that checkout
+(O13).
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
 Settings → Email): from name and address, reply-to, logo, brand colour, footer
@@ -327,17 +345,45 @@ per site from the counter `change_request_no`, after the imported ones. A
 until the request is approved, deleted if it is rejected. The timeline and
 audit carry request numbers, field keys and document types, never values.
 
-An **automation rule** is a trigger and an action, for example "when a SIM
-order moves to Delivered, send the Dispatched email". Phase 4 has six built-in
-rules (`BUILT_IN_AUTOMATIONS` in `packages/contracts/src/automations.ts`: a
-trigger `lead_submitted` or `stage_entered`, an action `send_email`), switched
-on or off per site in `app.automations` (every rule is off until someone with
-`integration.manage` switches it on; a site without a row has it off). A **run** is one firing of a
-rule for one lead, `queued` (with the outbox job) or `skipped` (with a reason:
-`no_sender`, `no_customer_email` or `missing_fill_in`), in the append-only
-`app.automation_runs` (pruned after 90 days). A rule that is off queues nothing
-and records no run. The tables are built so the phase 8 automation builder adds
-custom rules to them.
+A **flow** (an automation) is a trigger and ordered steps, for example
+"when a SIM order moves to Delivered, send the Dispatched email". Triggers:
+`lead_submitted`, `stage_entered`, and the time triggers `time_in_stage`
+(once per stay), `task_overdue` and `after_submitted`; steps: `send_email`,
+`create_task`, `assign_lead`, `update_lead` (a property, or the stage through
+the same gates a person passes), `notify_staff`, `if_else` (two branches, last
+in its sequence) and `wait`. A flow lives in `app.automations` (one row per
+flow, at most `AUTOMATION_MAX_FLOWS` = 50 not archived per site, built-ins
+included) with **versions** in `app.automation_versions`: one `draft` and one
+`active` at most, `retired` once replaced, `discarded` when thrown away; an
+activated version never changes, so a run waiting on it finds its steps.
+The six **built-in flows** (`BUILT_IN_AUTOMATION_KEYS`: `order_received`,
+`sim_order_information_needed`, `sim_order_dispatched`,
+`sim_order_activated`, `sim_order_cancelled`, `mobility_activated`) are seeded
+per site the first time the Automations page (or a flow page, a switch or an
+editor route) is read, off, with version 1 active and their phase 4 dedupe
+key; a custom flow's key is `flow_` and 16 characters. Every flow is off until
+someone with `integration.manage` switches it on; a site that never opened
+the page fires nothing; off queues nothing, records no run and cancels
+waiting runs. Activating a flow that changes leads (assign, update, task)
+also needs `lead.manage`, and its changes are made as the member who
+activated it. A **run** is one firing of a flow for one lead and occurrence
+(`app.automation_runs`: `waiting`, `completed`, `skipped`, `failed` or
+`cancelled`, with a reason and a `detail` of keys only); a **step run** is one
+step's outcome (`app.automation_step_runs`); a **wait** is a run paused at a
+wait step (`app.automation_waits`) and a **timer** a time trigger waiting for
+its moment (`app.automation_timers`, written only while the flow is on, never
+back-filled). The scheduler's `automations` task resumes due waits and fires
+due timers every 5 minutes. A flow's stage move may set off other flows, at
+most 3 deep (`chain_too_deep`) and never the same flow twice in one chain
+(`loop_prevented`); every move still fires its stage's flows. A flow naming a
+stage, template, property, plan or member that is no longer usable is
+skipped whole, and the list marks it "Needs attention". A **site-made
+template** is a `tpl_…` email template a site writes itself (at most 50 not
+archived), with `{prop:<key>}` fill-ins for properties a customer may see. A
+member's **notification address** (`memberships.notification_email`) is
+their verified sign-in address, recorded when they sign in and never shown;
+a `notify_staff` step mails it. Phase 4's rows keep their `outcome` and read
+as legacy runs. Runs are pruned 90 days after they finish.
 
 The **source report** (Reports → Sources) counts one lead type's leads per
 **source** over 7, 30 or 90 days or all time: the source is the label

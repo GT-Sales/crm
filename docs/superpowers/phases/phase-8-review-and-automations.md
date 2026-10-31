@@ -1,8 +1,19 @@
 # Merge phase 8: review, then automations
 
-Status on 2026-10-30: to do. Shared rules, the gate, the shipping procedure
-and the working method are in [README.md](README.md#shared-conventions); this
-page adds what is particular to phase 8.
+Status on 2026-10-31: the review is done (the owner chose the automation
+builder) and **step A is built** (engine, storage, API, the list page and a
+read-only flow page; not deployed; migrations 0019 and 0020 to apply). Step B
+(the canvas, the Runs tab and Settings → Email "New template") is to plan.
+Spec: [2026-10-31-phase-8-automation-flows-design.md](../specs/2026-10-31-phase-8-automation-flows-design.md);
+step A plan: [2026-10-31-phase-8-automation-flows-step-a.md](../plans/2026-10-31-phase-8-automation-flows-step-a.md).
+Shared rules, the gate, the shipping procedure and the working method are in
+[README.md](README.md#shared-conventions); this page adds what is particular
+to phase 8.
+
+Canadian Plans is out of scope (owner, 2026-10-31: GT Sales only; phase 7 is
+dropped). There is one deployment and one database (`xykrphbgpwisqacpyeiv`):
+wherever this page says "every deployment", "per deployment" or "two
+deployments", read GT Sales only.
 
 ## 1. Purpose and done when
 
