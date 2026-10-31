@@ -81,6 +81,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   plan_limit: 'This site already has the most plans it may have.',
   automation_not_found: 'No automation rule with this key on this site.',
   plan_not_available: 'The chosen plan is not available on this site for this kind of order.',
+  intake_check_off: 'The intake check is off on this deployment.',
 };
 
 export function sendDomainError(

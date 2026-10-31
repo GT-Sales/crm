@@ -4,6 +4,7 @@ import { MachineRegistry, type MachineRegistryConfig } from '../src/machines/reg
 import {
   createBackendScheduler,
   createScheduler,
+  INTAKE_CHECK_INTERVAL_MS,
   SchedulerConfigurationError,
   type SchedulerTask,
   runDataRetention,
@@ -12,10 +13,13 @@ import {
 } from '../src/scheduler.js';
 import { INITIAL_QUEUE_HEALTH_STATE, type QueueHealthState } from '../src/jobs/queueMonitor.js';
 import { operationalRetentionEnabled } from '../src/retention/operational.js';
+import { runIntakeCheck, type IntakeCheckRunInput } from '../src/intake-check/check.js';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000901';
 const ACTOR = '20000000-0000-4000-8000-000000000901';
 const SECRET = 'scheduler-secret-value-000000000901';
+const TEST_SITE = '16000000-0000-4000-8000-00000000f710';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 it('alerts for a persisted failed queue even when later runs process nothing', async () => {
   vi.useFakeTimers();
@@ -263,6 +267,7 @@ describe('createBackendScheduler', () => {
       runOutbox: vi.fn(async () => undefined),
       runDocumentCleanup: vi.fn(async () => undefined),
       runDataRetention: vi.fn(async () => undefined),
+      runIntakeCheck: vi.fn(async (_input: IntakeCheckRunInput): Promise<unknown> => undefined),
     };
   }
 
@@ -318,7 +323,188 @@ describe('createBackendScheduler', () => {
     // The upload sweep and daily retention run with the outbox identity.
     expect(deps.runDocumentCleanup).toHaveBeenCalledWith(expected);
     expect(deps.runDataRetention).toHaveBeenCalledWith(expected);
+    expect(deps.runIntakeCheck).not.toHaveBeenCalled();
     await scheduler?.stop();
+  });
+
+  const checker = { ...runner, scopes: ['outbox:run', 'synthetic:check'] } satisfies typeof runner;
+  const intakeEnv = { ...baseEnv, INTAKE_CHECK_WORKSPACE_ID: TEST_SITE };
+
+  it('registers intake_check every 15 minutes only when INTAKE_CHECK_WORKSPACE_ID is set', async () => {
+    expect(INTAKE_CHECK_INTERVAL_MS).toBe(15 * 60_000);
+    vi.useFakeTimers();
+    const deps = dependencies(registryWith([checker]));
+    const scheduler = createBackendScheduler(deps, {
+      env: intakeEnv,
+      startupDelayMs: 10_000,
+      jitterMs: 0,
+      random: () => 0,
+    });
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(deps.runIntakeCheck).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deps.runIntakeCheck).toHaveBeenCalledTimes(1);
+    expect(deps.runIntakeCheck).toHaveBeenLastCalledWith({
+      workspaceId: TEST_SITE,
+      actorId: ACTOR,
+      requestId: expect.stringMatching(UUID),
+    });
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_INTERVAL_MS);
+    expect(deps.runIntakeCheck).toHaveBeenCalledTimes(2);
+    const [first, second] = deps.runIntakeCheck.mock.calls.map((call) => call[0].requestId);
+    expect(first).not.toBe(second);
+    await scheduler?.stop();
+
+    for (const env of [baseEnv, { ...baseEnv, INTAKE_CHECK_WORKSPACE_ID: '' }]) {
+      const unset = dependencies(registryWith([checker]));
+      const off = createBackendScheduler(unset, {
+        env,
+        startupDelayMs: 0,
+        jitterMs: 0,
+        random: () => 0,
+      });
+      off?.start();
+      await vi.advanceTimersByTimeAsync(2 * INTAKE_CHECK_INTERVAL_MS);
+      expect(unset.runOutbox).toHaveBeenCalled();
+      expect(unset.runIntakeCheck).not.toHaveBeenCalled();
+      await off?.stop();
+    }
+  });
+
+  it('skips an intake tick while the previous run is still in flight', async () => {
+    vi.useFakeTimers();
+    const deps = dependencies(registryWith([checker]));
+    deps.runIntakeCheck.mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 20 * 60_000)),
+    );
+    const scheduler = createBackendScheduler(deps, {
+      env: intakeEnv,
+      startupDelayMs: 0,
+      jitterMs: 0,
+      random: () => 0,
+    });
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deps.runIntakeCheck).toHaveBeenCalledTimes(1);
+    // 15 minutes: the first run is still going, so the tick is skipped.
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_INTERVAL_MS);
+    expect(deps.runIntakeCheck).toHaveBeenCalledTimes(1);
+    // 20 minutes: it resolves; 30 minutes: the next tick runs.
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(deps.runIntakeCheck).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(deps.runIntakeCheck).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    await scheduler?.stop();
+  });
+
+  it('a hung intake run gives up at its deadline, so the next tick still runs', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const deps = dependencies(registryWith([checker]));
+    const store = {
+      // Never settles: a database call that hangs.
+      deleteLeftovers: vi.fn(() => new Promise<number>(() => undefined)),
+      readLead: vi.fn(async () => undefined),
+      deleteLead: vi.fn(async () => ({ deleted: 1, remaining: 0 })),
+    };
+    const results: unknown[] = [];
+    deps.runIntakeCheck.mockImplementation(async (input) => {
+      const result = await runIntakeCheck({ leads: { createLead: vi.fn() }, store }, input);
+      results.push(result);
+      return result;
+    });
+    const scheduler = createBackendScheduler(deps, {
+      env: intakeEnv,
+      startupDelayMs: 0,
+      jitterMs: 0,
+      random: () => 0,
+    });
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.deleteLeftovers).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(results).toEqual([
+      expect.objectContaining({ status: 'failed', step: 'leftovers', code: 'timeout' }),
+    ]);
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_INTERVAL_MS - 60_000);
+    expect(store.deleteLeftovers).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await scheduler?.stop();
+    vi.restoreAllMocks();
+  });
+
+  function configurationCode(error: unknown): string | undefined {
+    return error instanceof SchedulerConfigurationError ? error.code : undefined;
+  }
+
+  it('leaves out the intake check, keeping the other tasks, when the scope is missing', async () => {
+    vi.useFakeTimers();
+    const deps = dependencies(registryWith([runner]));
+    const onError = vi.fn();
+    const scheduler = createBackendScheduler(deps, {
+      env: intakeEnv,
+      startupDelayMs: 0,
+      jitterMs: 0,
+      random: () => 0,
+      onError,
+    });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ name: 'intake_check' });
+    expect(configurationCode(onError.mock.calls[0]?.[0]?.error)).toBe('scheduler_scope_missing');
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_INTERVAL_MS);
+    expect(deps.runOutbox).toHaveBeenCalled();
+    expect(deps.runDocumentCleanup).toHaveBeenCalled();
+    expect(deps.runDataRetention).toHaveBeenCalled();
+    expect(deps.runIntakeCheck).not.toHaveBeenCalled();
+    await scheduler?.stop();
+  });
+
+  it('an invalid INTAKE_CHECK_WORKSPACE_ID is logged by its code', async () => {
+    vi.useFakeTimers();
+    const deps = dependencies(registryWith([checker]));
+    const onError = vi.fn();
+    const scheduler = createBackendScheduler(deps, {
+      env: { ...baseEnv, INTAKE_CHECK_WORKSPACE_ID: 'not-a-uuid' },
+      startupDelayMs: 0,
+      jitterMs: 0,
+      random: () => 0,
+      onError,
+    });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ name: 'intake_check' });
+    expect(configurationCode(onError.mock.calls[0]?.[0]?.error)).toBe(
+      'intake_check_workspace_invalid',
+    );
+    scheduler?.start();
+    await vi.advanceTimersByTimeAsync(INTAKE_CHECK_INTERVAL_MS);
+    expect(deps.runOutbox).toHaveBeenCalled();
+    expect(deps.runIntakeCheck).not.toHaveBeenCalled();
+    await scheduler?.stop();
+  });
+
+  it('logs a configuration error by its code', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const scheduler = createBackendScheduler(dependencies(registryWith([checker])), {
+        env: { ...baseEnv, INTAKE_CHECK_WORKSPACE_ID: 'not-a-uuid' },
+      });
+      expect(scheduler).toBeDefined();
+      expect(spy).toHaveBeenCalledTimes(1);
+      const record: unknown = JSON.parse(String(spy.mock.calls[0]?.[0]));
+      expect(record).toMatchObject({
+        event: 'request_error',
+        requestId: 'scheduler:intake_check',
+        code: 'intake_check_workspace_invalid',
+      });
+      expect(String(spy.mock.calls[0]?.[0])).not.toContain('scheduler_task_failed');
+      expect(String(spy.mock.calls[0]?.[0])).not.toContain('not-a-uuid');
+      await scheduler?.stop();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
