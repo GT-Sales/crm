@@ -20,6 +20,7 @@ export const ownerAlertKinds = [
   'error_rate_spike',
   'catalogue_sync_failed',
   'scheduler_not_started',
+  'synthetic_check_recovered',
 ] as const;
 export type OwnerAlertKind = (typeof ownerAlertKinds)[number];
 
@@ -58,7 +59,9 @@ export class NoopOwnerAlertChannel implements OwnerAlertChannel {
 function alertSubject(kind: OwnerAlertKind): string {
   switch (kind) {
     case 'synthetic_check_failed':
-      return 'GT Sales CRM: synthetic order check failed';
+      return 'GT Sales CRM: intake check failed';
+    case 'synthetic_check_recovered':
+      return 'GT Sales CRM: intake check passing again';
     case 'backup_stale':
       return 'GT Sales CRM: backup snapshot is stale';
     case 'job_queue_stuck':

@@ -1,9 +1,20 @@
+import { randomUUID } from 'node:crypto';
+
 import { createOwnerAlertChannelFromEnv, type OwnerAlertChannel } from '@gt-sales/adapters';
 import type { MachineScopeName } from '@gt-sales/types';
+import { z } from 'zod';
 
 import { loadDeploymentEnvironment } from './config/deployment.js';
 import { createDocumentServiceFromEnv } from './documents/factory.js';
 import type { DocumentService } from './documents/service.js';
+import {
+  INITIAL_INTAKE_ALERT_STATE,
+  runIntakeCheckWithAlert,
+  type IntakeAlertState,
+} from './intake-check/alert-rule.js';
+import { runIntakeCheck, type IntakeCheckRunInput } from './intake-check/check.js';
+import { DatabaseIntakeCheckStore } from './intake-check/store.js';
+import { DatabaseLeadStore } from './leads/store.js';
 import { DatabaseAbandonedLeadPruner } from './retention/abandoned-leads.js';
 import { DatabaseOperationalPruner, operationalRetentionEnabled } from './retention/operational.js';
 import { isConnectionLevelError, logRequestError } from './http/logger.js';
@@ -32,20 +43,24 @@ export const OUTBOX_INTERVAL_MS = 60_000;
 export const DOCUMENT_CLEANUP_INTERVAL_MS = 60 * 60_000;
 /** Retention windows are measured in days, so once a day. */
 export const DATA_RETENTION_INTERVAL_MS = 24 * 60 * 60_000;
+/** The intake check (spec §4): a broken intake is heard about within 15 minutes. */
+export const INTAKE_CHECK_INTERVAL_MS = 15 * 60_000;
 
 const DEFAULT_STARTUP_DELAY_MS = 10_000;
 const DEFAULT_JITTER_MS = 5_000;
 const OUTBOX_PREFIX = 'scheduler:outbox';
 const DOCUMENT_CLEANUP_PREFIX = 'scheduler:document_cleanup';
 const DATA_RETENTION_PREFIX = 'scheduler:data_retention';
+const INTAKE_CHECK_PREFIX = 'scheduler:intake_check';
 const SCHEDULER_ROUTE = 'scheduler';
 const SCHEDULER_ERROR_PREFIXES: Record<SchedulerTaskName, string> = {
   outbox: OUTBOX_PREFIX,
   document_cleanup: DOCUMENT_CLEANUP_PREFIX,
   data_retention: DATA_RETENTION_PREFIX,
+  intake_check: INTAKE_CHECK_PREFIX,
 };
 
-export type SchedulerTaskName = 'outbox' | 'document_cleanup' | 'data_retention';
+export type SchedulerTaskName = 'outbox' | 'document_cleanup' | 'data_retention' | 'intake_check';
 
 export interface SchedulerTask {
   name: SchedulerTaskName;
@@ -89,12 +104,16 @@ export class SchedulerConfigurationError extends Error {
 /**
  * PII-safe default: a raw error is never serialized. A connection-level
  * failure is retryable and everything else is not, matching the HTTP routes.
+ * A configuration error (a task left out at start) is logged by its own code.
  */
 function logSchedulerError(input: SchedulerErrorInput): void {
   logRequestError({
     requestId: SCHEDULER_ERROR_PREFIXES[input.name],
     route: SCHEDULER_ROUTE,
-    code: 'scheduler_task_failed',
+    code:
+      input.error instanceof SchedulerConfigurationError
+        ? input.error.code
+        : 'scheduler_task_failed',
     flag: isConnectionLevelError(input.error) ? 'retryable' : 'not_retryable',
   });
 }
@@ -176,6 +195,8 @@ export interface BackendSchedulerDependencies {
   runDocumentCleanup(input: SchedulerRunInput): Promise<unknown>;
   /** Daily retention: abandoned lead drafts and operational rows. */
   runDataRetention(input: SchedulerRunInput): Promise<unknown>;
+  /** One intake check run on the test site, alerting the owner on failure and recovery. */
+  runIntakeCheck(input: IntakeCheckRunInput): Promise<unknown>;
 }
 
 export interface BackendSchedulerConfig {
@@ -241,6 +262,37 @@ export function createBackendScheduler(
     },
   ];
 
+  // The intake check is optional (R5): set but misconfigured, it is left out
+  // and logged once by its code, and the three tasks above run regardless.
+  const intakeWorkspaceId = env['INTAKE_CHECK_WORKSPACE_ID'];
+  if (intakeWorkspaceId) {
+    try {
+      if (!z.uuid().safeParse(intakeWorkspaceId).success) {
+        throw new SchedulerConfigurationError('intake_check_workspace_invalid');
+      }
+      // The site comes from deployment config, so it need not be in the
+      // entry's `workspaceIds`; the identity must hold `synthetic:check`.
+      const identity = resolveIdentity(
+        dependencies.registry,
+        env['JOB_RUNNER_SELECTOR'],
+        secret,
+        'synthetic:check',
+      );
+      tasks.push({
+        name: 'intake_check',
+        intervalMs: INTAKE_CHECK_INTERVAL_MS,
+        run: () =>
+          dependencies.runIntakeCheck({
+            workspaceId: intakeWorkspaceId,
+            actorId: identity.actorId,
+            requestId: randomUUID(),
+          }),
+      });
+    } catch (error) {
+      (config.onError ?? logSchedulerError)({ name: 'intake_check', error });
+    }
+  }
+
   return createScheduler({
     tasks,
     startupDelayMs: config.startupDelayMs,
@@ -261,6 +313,8 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   const abandonedLeads = new DatabaseAbandonedLeadPruner();
   const operational = operationalRetentionEnabled() ? new DatabaseOperationalPruner() : undefined;
   let queueHealth = INITIAL_QUEUE_HEALTH_STATE;
+  let intakeAlerts: IntakeAlertState = INITIAL_INTAKE_ALERT_STATE;
+  const intakeCheck = { leads: new DatabaseLeadStore(), store: new DatabaseIntakeCheckStore() };
   return {
     registry: jobs.registry,
     runOutbox: (input) =>
@@ -274,6 +328,15 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
     runDocumentCleanup: (input) => runDocumentCleanup(documents, input),
     runDataRetention: (input) =>
       runDataRetention({ abandonedLeads, operational }, input, new Date()),
+    runIntakeCheck: (input) =>
+      runIntakeCheckWithAlert(
+        () => runIntakeCheck(intakeCheck, input),
+        alerts,
+        () => intakeAlerts,
+        (state) => {
+          intakeAlerts = state;
+        },
+      ),
   };
 }
 
