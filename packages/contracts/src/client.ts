@@ -204,6 +204,11 @@ import {
   type RevokeServiceCredentialResponse,
 } from './website-auth';
 import {
+  sourceReportResponseSchema,
+  type SourceReportQuery,
+  type SourceReportResponse,
+} from './reports';
+import {
   leadBoardResponseSchema,
   leadsSummaryResponseSchema,
   leadStatsResponseSchema,
@@ -408,6 +413,7 @@ export interface BackendClient {
     ): Promise<ListWorkspaceLeadsResponse>;
     leadsSummary(workspaceId: string, query?: LeadsSummaryQuery): Promise<LeadsSummaryResponse>;
     leadStats(workspaceId: string, query: LeadStatsQuery): Promise<LeadStatsResponse>;
+    sourceReport(workspaceId: string, query: SourceReportQuery): Promise<SourceReportResponse>;
     leadBoard(
       workspaceId: string,
       query: LeadBoardQuery | LeadBoardQueryInput,
@@ -895,6 +901,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/stats`,
           query: { leadType: query.leadType, days: query.days },
           responseSchema: leadStatsResponseSchema,
+        }),
+      sourceReport: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/reports/sources`,
+          query: { leadType: query.leadType, days: query.days },
+          responseSchema: sourceReportResponseSchema,
         }),
       leadBoard: (workspaceId, query) =>
         call({

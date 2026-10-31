@@ -123,6 +123,7 @@ import {
   finalizeUploadRequestSchema,
   finalizeUploadResponseSchema,
 } from './uploads';
+import { sourceReportQuerySchema, sourceReportResponseSchema } from './reports';
 import {
   leadBoardQuerySchema,
   leadBoardResponseSchema,
@@ -316,6 +317,17 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: leadStatsQuerySchema,
     response: leadStatsResponseSchema,
+  },
+  {
+    operationId: 'getWorkspaceSourceReport',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/reports/sources',
+    summary:
+      'Leads per source for one lead type: received, submitted and made it, over 7, 30 or 90 days or all time.',
+    auth: 'staff',
+    successStatus: 200,
+    query: sourceReportQuerySchema,
+    response: sourceReportResponseSchema,
   },
   {
     operationId: 'getWorkspaceLeadBoard',

@@ -8,7 +8,9 @@
  *
  * Each start resets the e2e sites and seeds them: CanadaWide with two staff
  * (the signed-in owner and a colleague), internet and mobility leads in a few
- * stages, and one open task; plus Get Canada Sim with SIM orders for property
+ * stages, and one open task (every lead came through `utm:google/cpc`, Casey
+ * Demo's under the campaign `fall_promo`, except Blake Sample's, which carries
+ * no attribution and counts as direct in the source report); plus Get Canada Sim with SIM orders for property
  * filter, sort and column checks, two plans ("Rogers 60GB", payment required,
  * and "Fido 75GB", none) and one more SIM order that ordered Rogers 60GB, so
  * its order details carry the frozen plan. Rogers 60GB requires a passport,
@@ -179,7 +181,12 @@ async function seed(): Promise<void> {
               ? internetPayload('1Gbps', 'Calgary')
               : mobilityPayload(first, last),
         },
-        attribution: { utmSource: 'google', utmMedium: 'cpc' },
+        attribution:
+          fullName === 'Blake Sample'
+            ? {}
+            : fullName === 'Casey Demo'
+              ? { utmSource: 'google', utmMedium: 'cpc', utmCampaign: 'fall_promo' }
+              : { utmSource: 'google', utmMedium: 'cpc' },
         consentVersion: 'cw-e2e-2026-10',
         submit: true,
       });

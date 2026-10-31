@@ -246,6 +246,24 @@ export {
 } from './workspace-leads';
 
 export {
+  SOURCE_KINDS,
+  SOURCE_REPORT_MAX_CAMPAIGNS,
+  SOURCE_REPORT_MAX_SOURCES,
+  SOURCE_REPORT_OTHER_SOURCE,
+  SOURCE_REPORT_SUCCESS_STAGES,
+  sourceKindSchema,
+  sourceReportCampaignSchema,
+  sourceReportQuerySchema,
+  sourceReportResponseSchema,
+  sourceReportRowSchema,
+  type SourceKind,
+  type SourceReportCampaign,
+  type SourceReportQuery,
+  type SourceReportResponse,
+  type SourceReportRow,
+} from './reports';
+
+export {
   LEGACY_IMPORT_ACTOR_ID,
   RELATED_LEADS_LIMIT,
   createLeadNoteRequestSchema,
