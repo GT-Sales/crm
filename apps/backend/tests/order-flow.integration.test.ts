@@ -19,7 +19,6 @@ import { OutboxRunner } from '@gt-sales/jobs';
 
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
-import { DatabaseAutomationStore } from '../src/automations/store.js';
 import { DatabaseFlowStore } from '../src/automations/flow-store.js';
 import { DatabaseDocumentContextResolver } from '../src/documents/resolver.js';
 import { DocumentService } from '../src/documents/service.js';
@@ -102,7 +101,6 @@ class StubStaffVerifier implements StaffSessionVerifier {
 databaseTest('a SIM order from the website to activated, by the automations', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
-  let automations: DatabaseAutomationStore;
   let server: Server;
   let baseUrl: string;
   let planId: string;
@@ -213,7 +211,6 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
       maxConnections: 4,
     });
     const environment = customerEmailEnvironmentFromEnv(ENV);
-    automations = new DatabaseAutomationStore(database);
     const leadStore = new DatabaseLeadStore(database, environment);
     const emailSettings = new DatabaseEmailSettingsStore(database);
     const planStore = new DatabasePlanStore(database);

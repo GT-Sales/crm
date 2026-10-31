@@ -27,7 +27,6 @@ import { z } from 'zod';
 
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
-import { DatabaseAutomationStore } from '../src/automations/store.js';
 import { DatabaseFlowStore } from '../src/automations/flow-store.js';
 import { DatabaseDocumentContextResolver } from '../src/documents/resolver.js';
 import { DocumentService } from '../src/documents/service.js';
@@ -207,7 +206,6 @@ databaseTest('a customer change request, from the tracking code to approval on t
     });
     const environment = customerEmailEnvironmentFromEnv(ENV);
     const secret = loadTrackingSecret(ENV);
-    const automations = new DatabaseAutomationStore(database);
     const leadStore = new DatabaseLeadStore(database, environment);
     const planStore = new DatabasePlanStore(database);
     const emailSettings = new DatabaseEmailSettingsStore(database);
