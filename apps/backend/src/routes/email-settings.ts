@@ -42,9 +42,14 @@ const toSettings = (stored: StoredEmailSettings): EmailSettings => ({
   updatedAt: stored.updatedAt.toISOString(),
 });
 
+/** Phase 4's template shape: the nine built-ins only (site-made templates have their own routes). */
 const toTemplate = (stored: StoredEmailTemplate): EmailTemplate => ({
-  ...stored,
+  key: customerEmailTemplateSchema.parse(stored.key),
+  subject: stored.subject,
+  body: stored.body,
+  version: stored.version,
   updatedAt: stored.updatedAt?.toISOString() ?? null,
+  updatedBy: stored.updatedBy,
 });
 
 /** `YYYYMMDDHHmm` in UTC: one test mail per template, staff member and minute. */

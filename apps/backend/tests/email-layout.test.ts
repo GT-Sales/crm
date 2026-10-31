@@ -244,6 +244,9 @@ describe('fillInValuesForLead', () => {
     expect(
       fillInValuesForLead(
         {
+          leadType: 'sim_order',
+          externalRef: null,
+          customValues: {},
           fullName: 'Nadia Khan',
           form: {
             firstName: ' Nadia ',
@@ -272,6 +275,9 @@ describe('fillInValuesForLead', () => {
     expect(
       fillInValuesForLead(
         {
+          leadType: 'sim_order',
+          externalRef: null,
+          customValues: {},
           fullName: '  Mary  Ann Lee ',
           form: { planLabel: 'Freedom 20GB', code: '123' },
           order: null,
@@ -289,6 +295,9 @@ describe('fillInValuesForLead', () => {
   it('leaves out what the lead does not have, and never a code', () => {
     const values = fillInValuesForLead(
       {
+        leadType: 'sim_order',
+        externalRef: null,
+        customValues: {},
         fullName: 'Cher',
         form: { firstName: '', simNumber: 42, code: '123456' },
         order: DEFAULT_LEAD_ORDER,
@@ -312,6 +321,7 @@ describe('sampleFillInValues', () => {
       courier: 'Canada Post',
       'tracking number': 'LX123456789CA',
       'tracking link': 'https://getcanadasim.example/track',
+      'order number': 'MS-1042',
       code: '483920',
     });
   });

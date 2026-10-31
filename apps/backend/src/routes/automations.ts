@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   BUILT_IN_AUTOMATIONS,
-  automationKeySchema,
+  builtInAutomationKeySchema,
   updateAutomationRequestSchema,
   type Automation,
   type AutomationKey,
@@ -71,7 +71,8 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
 
   /** The rule the path names, or the 404 already sent. */
   function keyOf(req: Request, res: Response): AutomationKey | undefined {
-    const key = automationKeySchema.safeParse(req.params['key']);
+    // Phase 4's routes know the built-ins only; custom flows get their own routes.
+    const key = builtInAutomationKeySchema.safeParse(req.params['key']);
     if (!key.success) {
       sendDomainError(res, req.id, 'automation_not_found', 404);
       return undefined;

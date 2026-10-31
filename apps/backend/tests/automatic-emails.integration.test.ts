@@ -446,7 +446,9 @@ databaseTest('automation rules send customer emails', () => {
     expect(outcome.emailSkipped).toEqual([
       {
         automation: 'sim_order_dispatched',
+        flowName: 'When a SIM order moves to Delivered → send the Dispatched email',
         template: 'dispatched',
+        templateName: 'Dispatched',
         reason: 'missing_fill_in',
         missing: ['tracking number'],
       },
@@ -626,10 +628,13 @@ databaseTest('automation rules send customer emails', () => {
           ...staff(),
           lead: {
             id: leadId,
+            leadType: 'sim_order',
             fullName: 'Nadia Khan',
             email: 'once@example.test',
+            externalRef: null,
             submitted: true,
             form: {},
+            customValues: {},
             order: null,
           },
           automations: cancelled,

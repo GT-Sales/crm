@@ -4,7 +4,7 @@ import {
   CUSTOMER_EMAIL_TEMPLATES,
   emailBodySchema,
   emailSubjectSchema,
-  type EmailFillInKey,
+  type EmailFillInName,
 } from '@gt-sales/contracts';
 
 import { sampleFillInValues } from '../src/email/fill-in-values.js';
@@ -20,8 +20,8 @@ const branding: EmailBranding = {
 };
 const site = { siteName: 'Get Canada Sim', siteUrl: 'https://getcanadasim.example' };
 
-function inlineKeys(inlines: readonly EmailInline[]): EmailFillInKey[] {
-  return inlines.flatMap((inline): EmailFillInKey[] => {
+function inlineKeys(inlines: readonly EmailInline[]): EmailFillInName[] {
+  return inlines.flatMap((inline): EmailFillInName[] => {
     switch (inline.kind) {
       case 'fillIn':
         return [inline.key];

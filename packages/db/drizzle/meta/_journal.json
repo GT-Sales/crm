@@ -134,6 +134,20 @@
       "when": 1793385701352,
       "tag": "0018_customer_tracking_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793450665432,
+      "tag": "0019_automation_flows",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793450690795,
+      "tag": "0020_automation_flows_runtime",
+      "breakpoints": true
     }
   ]
 }

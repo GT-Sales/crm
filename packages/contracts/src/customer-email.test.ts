@@ -29,6 +29,17 @@ import {
   TRACKING_CODE_JOB_TYPE,
   trackingCodeJobPayloadSchema,
   trackingCodeScrubbedPayloadSchema,
+  EMAIL_TEMPLATE_MAX_SITE_MADE,
+  SITE_TEMPLATE_KEY_PATTERN,
+  STAFF_NOTIFICATION_JOB_TYPE,
+  createEmailTemplateRequestSchema,
+  emailFillInNameSchema,
+  emailTemplateKeySchema,
+  emailTemplateLabel,
+  generateTemplateKey,
+  listSiteEmailTemplatesResponseSchema,
+  siteEmailTemplateResponseSchema,
+  staffNotificationJobPayloadSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -74,7 +85,7 @@ describe('customer email templates', () => {
 });
 
 describe('fill-ins', () => {
-  it('are the ten, each naming the templates that may use it', () => {
+  it('are the eleven, each naming the templates that may use it', () => {
     expect(emailFillIns.map((fillIn) => fillIn.key)).toEqual([...EMAIL_FILL_IN_KEYS]);
     for (const fillIn of emailFillIns) expect(fillIn.hint.length).toBeGreaterThan(0);
   });
@@ -95,6 +106,7 @@ describe('fill-ins', () => {
       'courier',
       'tracking number',
       'tracking link',
+      'order number',
     ]);
     expect(fillInsForTemplate('sim_number_ready')).toContain('SIM number');
     expect(fillInsForTemplate('order_received')).not.toContain('SIM number');
@@ -105,11 +117,13 @@ describe('fill-ins', () => {
       'first name',
       'site name',
       'tracking link',
+      'order number',
     ]);
     expect(fillInsForTemplate('change_rejected')).toEqual([
       'first name',
       'site name',
       'tracking link',
+      'order number',
     ]);
   });
 
@@ -331,5 +345,142 @@ describe('email templates', () => {
       true,
     );
     expect(sendTestEmailResponseSchema.safeParse({ requestId: UUID_A }).success).toBe(false);
+  });
+});
+
+describe('site-made templates', () => {
+  const SITE_KEY = 'tpl_abcdefghij012345';
+
+  it('may use every fill-in but the code', () => {
+    expect(fillInsForTemplate(SITE_KEY)).toEqual(
+      EMAIL_FILL_IN_KEYS.filter((key) => key !== 'code'),
+    );
+  });
+
+  it('order number is in every order template and not in the tracking code', () => {
+    for (const template of CUSTOMER_EMAIL_TEMPLATES) {
+      expect(fillInsForTemplate(template).includes('order number')).toBe(
+        template !== 'tracking_code',
+      );
+    }
+    expect(emailFillIns.find((fillIn) => fillIn.key === 'order number')?.hint).toBe(
+      'The order number, such as MS-1042',
+    );
+  });
+
+  it('generateTemplateKey matches its pattern', () => {
+    for (let index = 0; index < 100; index += 1) {
+      const key = generateTemplateKey();
+      expect(key).toMatch(SITE_TEMPLATE_KEY_PATTERN);
+      expect(emailTemplateKeySchema.safeParse(key).success).toBe(true);
+    }
+    expect(emailTemplateKeySchema.safeParse('tpl_ABCDEFGHIJ012345').success).toBe(false);
+    expect(emailTemplateKeySchema.safeParse('enabled').success).toBe(false);
+    expect(EMAIL_TEMPLATE_MAX_SITE_MADE).toBe(50);
+  });
+
+  it('labels a built-in by its label and a site-made one by its name', () => {
+    expect(emailTemplateLabel('dispatched')).toBe('Dispatched');
+    expect(emailTemplateLabel(SITE_KEY, 'My note')).toBe('My note');
+    expect(emailTemplateLabel(SITE_KEY)).toBe('Site email');
+    expect(emailTemplateLabel(SITE_KEY, null)).toBe('Site email');
+  });
+
+  it('names a property fill-in by its key', () => {
+    expect(emailFillInNameSchema.safeParse('prop:custom_size').success).toBe(true);
+    expect(emailFillInNameSchema.safeParse('order number').success).toBe(true);
+    expect(emailFillInNameSchema.safeParse('prop:').success).toBe(false);
+    expect(emailFillInNameSchema.safeParse('prop:Bad key').success).toBe(false);
+    expect(emailFillInNameSchema.safeParse('nickname').success).toBe(false);
+  });
+
+  it('creates one with a trimmed name, subject and body', () => {
+    expect(
+      createEmailTemplateRequestSchema.parse({ name: '  My note ', subject: ' Hi ', body: ' B ' }),
+    ).toEqual({ name: 'My note', subject: 'Hi', body: 'B' });
+    expect(
+      createEmailTemplateRequestSchema.safeParse({ name: 'x'.repeat(81), subject: 'S', body: 'B' })
+        .success,
+    ).toBe(false);
+    expect(
+      createEmailTemplateRequestSchema.safeParse({
+        name: 'N',
+        subject: 'S',
+        body: 'B',
+        key: SITE_KEY,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('lists built-in and site-made templates with their names, state and users', () => {
+    const builtIn = {
+      key: 'dispatched',
+      name: 'Dispatched',
+      subject: 'On its way',
+      body: 'Hi',
+      version: 0,
+      updatedAt: null,
+      updatedBy: null,
+      archived: false,
+      usedBy: [{ key: 'sim_order_dispatched', name: 'Dispatched email' }],
+    };
+    const own = {
+      ...builtIn,
+      key: SITE_KEY,
+      name: 'My note',
+      archived: true,
+      usedBy: [{ key: 'flow_aaaaaaaaaaaaaaaa', name: 'My flow' }],
+    };
+    const list = { templates: [builtIn, own], requestId: UUID_A };
+    expect(listSiteEmailTemplatesResponseSchema.parse(list)).toEqual(list);
+    expect(siteEmailTemplateResponseSchema.parse({ template: own, requestId: UUID_A })).toEqual({
+      template: own,
+      requestId: UUID_A,
+    });
+    expect(
+      listSiteEmailTemplatesResponseSchema.safeParse({
+        templates: [{ ...builtIn, key: 'tpl_short' }],
+        requestId: UUID_A,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('a customer email job may carry a site-made template', () => {
+    expect(
+      customerEmailJobPayloadSchema.safeParse({ ...JOB_PAYLOAD, template: SITE_KEY }).success,
+    ).toBe(true);
+  });
+});
+
+describe('the staff notification job', () => {
+  const payload = {
+    actorId: UUID_A,
+    flowKey: 'flow_aaaaaaaaaaaaaaaa',
+    flowName: 'Follow up',
+    siteName: 'Get Canada Sim',
+    leadId: UUID_A,
+    leadPath: `/w/get-canada-sim/leads/${UUID_A}`,
+    note: 'Call them',
+  };
+
+  it('carries ids, names and the lead path, never an address', () => {
+    expect(STAFF_NOTIFICATION_JOB_TYPE).toBe('staff_notification_email');
+    expect(staffNotificationJobPayloadSchema.parse(payload)).toEqual(payload);
+    expect(
+      staffNotificationJobPayloadSchema.safeParse({ ...payload, toAddress: 'a@b.co' }).success,
+    ).toBe(false);
+  });
+
+  it('refuses a lead path with ..', () => {
+    expect(
+      staffNotificationJobPayloadSchema.safeParse({
+        ...payload,
+        leadPath: `/w/../leads/${UUID_A}`,
+      }).success,
+    ).toBe(false);
+    expect(
+      staffNotificationJobPayloadSchema.safeParse({ ...payload, leadPath: '/w/site/leads/x' })
+        .success,
+    ).toBe(false);
   });
 });

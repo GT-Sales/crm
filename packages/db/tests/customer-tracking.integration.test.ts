@@ -161,7 +161,7 @@ databaseTest('customer tracking tables, held files and migration 0018', () => {
     }
   });
 
-  it('both tables have RLS enabled and forced, their two policies each, and 38 read policies in all', async () => {
+  it('both tables have RLS enabled and forced, their two policies each, and 42 read policies in all', async () => {
     const tables = await admin<{ name: string; rowSecurity: boolean; forced: boolean }[]>`
       select c.relname::text as name,
              c.relrowsecurity as "rowSecurity",
@@ -189,7 +189,7 @@ databaseTest('customer tracking tables, held files and migration 0018', () => {
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(38);
+    expect(backupPolicies?.count).toBe(42);
   });
 
   it('app_runtime may select, insert and update both but never delete; backup_reader reads both', async () => {

@@ -19,7 +19,7 @@ import {
   isOrderLeadType,
   leadFormSchema,
   leadTypeEntry,
-  type EmailFillInKey,
+  type EmailFillInName,
   type EmailSkipped,
   type QueueCustomerEmailRequest,
   type LeadActivity,
@@ -116,7 +116,7 @@ export type CustomerEmailOutcome =
   /** The site has no sender, or the deployment cannot send. */
   | { status: 'no_sender' }
   /** What the lead lacks for the mail: its fill-ins, or an address to send it to. */
-  | { status: 'missing'; missing: Array<EmailFillInKey | 'customer email'> };
+  | { status: 'missing'; missing: Array<EmailFillInName | 'customer email'> };
 
 export interface QueueCustomerEmailInput extends WriteScope {
   leadId: string;

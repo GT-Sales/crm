@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { leads, type TenantTransaction } from '@gt-sales/db';
 import {
+  emailTemplateLabel,
   isOrderLeadType,
   leadFormSchema,
   type BuiltInAutomation,
@@ -8,6 +9,7 @@ import {
   type EmailSkipped,
   type LeadActivity,
 } from '@gt-sales/contracts';
+import { z } from 'zod';
 
 import { composeCustomerEmail, type ComposeOutcome } from '../email/compose.js';
 import type { FillInLead } from '../email/fill-in-values.js';
@@ -16,6 +18,9 @@ import type { CustomerEmailEnvironment } from '../email/senders.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { toLeadOrder } from '../leads/order.js';
 import { enabledAutomationKeys, type AutomationStore } from './store.js';
+
+/** A lead's stored custom values: an object of values by property key. */
+const storedValuesSchema = z.record(z.string(), z.unknown());
 
 /**
  * Fires the built-in automation rules a stage move or a website submit
@@ -89,6 +94,8 @@ export async function runAutomations(
     }
 
     if (composed.kind === 'skipped') {
+      // A built-in rule sends a built-in template, which always exists.
+      if (composed.reason === 'template_unavailable') continue;
       await input.store.recordRun(tx, {
         workspaceId,
         key: rule.key,
@@ -98,7 +105,9 @@ export async function runAutomations(
       });
       skipped.push({
         automation: rule.key,
+        flowName: rule.label,
         template,
+        templateName: emailTemplateLabel(template),
         reason: composed.reason,
         ...(composed.missing ? { missing: composed.missing } : {}),
       });
@@ -135,13 +144,19 @@ export function automationLeadOf(row: {
   status: string;
   fullName: string | null;
   email: string | null;
+  externalRef: string | null;
   payload: unknown;
+  customValues: unknown;
   orderDetails: unknown;
 }): AutomationLead {
   const form = leadFormSchema.safeParse(row.payload);
+  const customValues = storedValuesSchema.safeParse(row.customValues);
   return {
     id: row.id,
+    leadType: row.leadType,
     fullName: row.fullName,
+    externalRef: row.externalRef,
+    customValues: customValues.success ? customValues.data : {},
     email: row.email,
     submitted: row.status !== 'incomplete',
     form: form.success ? form.data.payload : {},
@@ -162,7 +177,9 @@ export async function readAutomationLead(
       status: leads.status,
       fullName: leads.fullName,
       email: leads.email,
+      externalRef: leads.externalRef,
       payload: leads.payload,
+      customValues: leads.customValues,
       orderDetails: leads.orderDetails,
     })
     .from(leads)

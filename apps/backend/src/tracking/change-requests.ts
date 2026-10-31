@@ -13,6 +13,7 @@ import {
   CHANGEABLE_FIELD_KEYS,
   CHANGE_REQUEST_DOCUMENTS,
   CHANGE_REQUEST_STAGES,
+  isEmailFillInKey,
   type ChangeDecisionEmailSkipped,
   type ChangeRequestFields,
   type LeadActivity,
@@ -678,10 +679,15 @@ export class ChangeRequestService {
             });
             if (queued.activity) activities.push(queued.activity);
           } else {
+            // Both decision mails are built-in templates, which always exist.
+            if (composed.reason === 'template_unavailable') {
+              throw new Error(`built-in ${template} template unavailable`);
+            }
+            const missing = composed.missing?.filter(isEmailFillInKey);
             emailSkipped = {
               template,
               reason: composed.reason,
-              ...(composed.missing ? { missing: composed.missing } : {}),
+              ...(missing ? { missing } : {}),
             };
           }
 

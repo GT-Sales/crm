@@ -6,6 +6,17 @@ import { isoDateTimeSchema, requestIdSchema } from './common';
 import { customerEmailTemplateSchema, type CustomerEmailTemplate } from './customer-email';
 import { leadTypeSchema } from './leads';
 import { leadStageSchema } from './workspace-leads';
+import {
+  BUILT_IN_AUTOMATION_KEYS,
+  builtInAutomationKeySchema,
+  type BuiltInAutomationKey,
+} from './automation-keys';
+
+export {
+  BUILT_IN_AUTOMATION_KEYS,
+  automationKeySchema,
+  type AutomationKey,
+} from './automation-keys';
 
 /**
  * Automation rules (spec §15): a trigger and an action. Phase 4 ships the
@@ -39,19 +50,8 @@ export const automationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('send_email'), template: customerEmailTemplateSchema }).strict(),
 ]);
 
-export const BUILT_IN_AUTOMATION_KEYS = [
-  'order_received',
-  'sim_order_information_needed',
-  'sim_order_dispatched',
-  'sim_order_activated',
-  'sim_order_cancelled',
-  'mobility_activated',
-] as const;
-export const automationKeySchema = z.enum(BUILT_IN_AUTOMATION_KEYS);
-export type AutomationKey = z.infer<typeof automationKeySchema>;
-
 export interface BuiltInAutomation {
-  readonly key: AutomationKey;
+  readonly key: BuiltInAutomationKey;
   /** The rule in the owner's words, as the Automations page lists it. */
   readonly label: string;
   readonly trigger: AutomationTrigger;
@@ -127,7 +127,7 @@ export function automationsUsingTemplate(
 
 /** One rule as a site has it: the built-in definition, whether it is on and how often it has run. */
 export const automationSchema = z.object({
-  key: automationKeySchema,
+  key: builtInAutomationKeySchema,
   label: z.string(),
   trigger: automationTriggerSchema,
   action: automationActionSchema,
