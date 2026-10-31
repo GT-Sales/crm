@@ -4291,14 +4291,19 @@
                                 ]
                               },
                               "automation": {
-                                "type": "string",
-                                "enum": [
-                                  "order_received",
-                                  "sim_order_information_needed",
-                                  "sim_order_dispatched",
-                                  "sim_order_activated",
-                                  "sim_order_cancelled",
-                                  "mobility_activated"
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "order_received",
+                                      "sim_order_information_needed",
+                                      "sim_order_dispatched",
+                                      "sim_order_activated",
+                                      "sim_order_cancelled",
+                                      "mobility_activated"
+                                    ]
+                                  },
+                                  { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                 ]
                               },
                               "templateVersion": {
@@ -5503,14 +5508,19 @@
                                 ]
                               },
                               "automation": {
-                                "type": "string",
-                                "enum": [
-                                  "order_received",
-                                  "sim_order_information_needed",
-                                  "sim_order_dispatched",
-                                  "sim_order_activated",
-                                  "sim_order_cancelled",
-                                  "mobility_activated"
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "order_received",
+                                      "sim_order_information_needed",
+                                      "sim_order_dispatched",
+                                      "sim_order_activated",
+                                      "sim_order_cancelled",
+                                      "mobility_activated"
+                                    ]
+                                  },
+                                  { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                 ]
                               },
                               "templateVersion": {
@@ -5582,14 +5592,19 @@
                         "type": "object",
                         "properties": {
                           "automation": {
-                            "type": "string",
-                            "enum": [
-                              "order_received",
-                              "sim_order_information_needed",
-                              "sim_order_dispatched",
-                              "sim_order_activated",
-                              "sim_order_cancelled",
-                              "mobility_activated"
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "order_received",
+                                  "sim_order_information_needed",
+                                  "sim_order_dispatched",
+                                  "sim_order_activated",
+                                  "sim_order_cancelled",
+                                  "mobility_activated"
+                                ]
+                              },
+                              { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                             ]
                           },
                           "template": {
@@ -6511,14 +6526,19 @@
                                 ]
                               },
                               "automation": {
-                                "type": "string",
-                                "enum": [
-                                  "order_received",
-                                  "sim_order_information_needed",
-                                  "sim_order_dispatched",
-                                  "sim_order_activated",
-                                  "sim_order_cancelled",
-                                  "mobility_activated"
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "order_received",
+                                      "sim_order_information_needed",
+                                      "sim_order_dispatched",
+                                      "sim_order_activated",
+                                      "sim_order_cancelled",
+                                      "mobility_activated"
+                                    ]
+                                  },
+                                  { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                 ]
                               },
                               "templateVersion": {
@@ -7395,14 +7415,19 @@
                                 ]
                               },
                               "automation": {
-                                "type": "string",
-                                "enum": [
-                                  "order_received",
-                                  "sim_order_information_needed",
-                                  "sim_order_dispatched",
-                                  "sim_order_activated",
-                                  "sim_order_cancelled",
-                                  "mobility_activated"
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "order_received",
+                                      "sim_order_information_needed",
+                                      "sim_order_dispatched",
+                                      "sim_order_activated",
+                                      "sim_order_cancelled",
+                                      "mobility_activated"
+                                    ]
+                                  },
+                                  { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                 ]
                               },
                               "templateVersion": {
@@ -8273,14 +8298,19 @@
                                   ]
                                 },
                                 "automation": {
-                                  "type": "string",
-                                  "enum": [
-                                    "order_received",
-                                    "sim_order_information_needed",
-                                    "sim_order_dispatched",
-                                    "sim_order_activated",
-                                    "sim_order_cancelled",
-                                    "mobility_activated"
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "order_received",
+                                        "sim_order_information_needed",
+                                        "sim_order_dispatched",
+                                        "sim_order_activated",
+                                        "sim_order_cancelled",
+                                        "mobility_activated"
+                                      ]
+                                    },
+                                    { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                   ]
                                 },
                                 "templateVersion": {
@@ -9092,14 +9122,19 @@
                                   ]
                                 },
                                 "automation": {
-                                  "type": "string",
-                                  "enum": [
-                                    "order_received",
-                                    "sim_order_information_needed",
-                                    "sim_order_dispatched",
-                                    "sim_order_activated",
-                                    "sim_order_cancelled",
-                                    "mobility_activated"
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "order_received",
+                                        "sim_order_information_needed",
+                                        "sim_order_dispatched",
+                                        "sim_order_activated",
+                                        "sim_order_cancelled",
+                                        "mobility_activated"
+                                      ]
+                                    },
+                                    { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                   ]
                                 },
                                 "templateVersion": {
@@ -9735,14 +9770,19 @@
                                   ]
                                 },
                                 "automation": {
-                                  "type": "string",
-                                  "enum": [
-                                    "order_received",
-                                    "sim_order_information_needed",
-                                    "sim_order_dispatched",
-                                    "sim_order_activated",
-                                    "sim_order_cancelled",
-                                    "mobility_activated"
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "order_received",
+                                        "sim_order_information_needed",
+                                        "sim_order_dispatched",
+                                        "sim_order_activated",
+                                        "sim_order_cancelled",
+                                        "mobility_activated"
+                                      ]
+                                    },
+                                    { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                   ]
                                 },
                                 "templateVersion": {
@@ -10554,14 +10594,19 @@
                                   ]
                                 },
                                 "automation": {
-                                  "type": "string",
-                                  "enum": [
-                                    "order_received",
-                                    "sim_order_information_needed",
-                                    "sim_order_dispatched",
-                                    "sim_order_activated",
-                                    "sim_order_cancelled",
-                                    "mobility_activated"
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "order_received",
+                                        "sim_order_information_needed",
+                                        "sim_order_dispatched",
+                                        "sim_order_activated",
+                                        "sim_order_cancelled",
+                                        "mobility_activated"
+                                      ]
+                                    },
+                                    { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                                   ]
                                 },
                                 "templateVersion": {
@@ -11017,14 +11062,19 @@
                               ]
                             },
                             "automation": {
-                              "type": "string",
-                              "enum": [
-                                "order_received",
-                                "sim_order_information_needed",
-                                "sim_order_dispatched",
-                                "sim_order_activated",
-                                "sim_order_cancelled",
-                                "mobility_activated"
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                               ]
                             },
                             "templateVersion": {
@@ -11487,14 +11537,19 @@
                               ]
                             },
                             "automation": {
-                              "type": "string",
-                              "enum": [
-                                "order_received",
-                                "sim_order_information_needed",
-                                "sim_order_dispatched",
-                                "sim_order_activated",
-                                "sim_order_cancelled",
-                                "mobility_activated"
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
                               ]
                             },
                             "templateVersion": {

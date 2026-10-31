@@ -334,6 +334,11 @@ export {
   brandColorSchema,
   customerEmailJobPayloadSchema,
   customerEmailTemplateSchema,
+  SITE_TEMPLATE_KEY_PATTERN,
+  emailTemplateKeySchema,
+  isSiteTemplateKey,
+  siteTemplateKeySchema,
+  type EmailTemplateKey,
   emailBodySchema,
   emailFillIns,
   emailSettingsResponseSchema,
@@ -372,11 +377,12 @@ export {
   type UpdateEmailTemplateRequest,
 } from './customer-email';
 
+export * from './automation-keys';
+export * from './automation-flows';
+
 export {
   BUILT_IN_AUTOMATIONS,
-  BUILT_IN_AUTOMATION_KEYS,
   automationActionSchema,
-  automationKeySchema,
   automationResponseSchema,
   automationRunSchema,
   automationSchema,
@@ -389,7 +395,6 @@ export {
   updateAutomationRequestSchema,
   type Automation,
   type AutomationAction,
-  type AutomationKey,
   type AutomationResponse,
   type AutomationRun,
   type AutomationTrigger,

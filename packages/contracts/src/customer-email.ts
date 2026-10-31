@@ -28,6 +28,17 @@ export const CUSTOMER_EMAIL_TEMPLATES = [
 export const customerEmailTemplateSchema = z.enum(CUSTOMER_EMAIL_TEMPLATES);
 export type CustomerEmailTemplate = z.infer<typeof customerEmailTemplateSchema>;
 
+/** A site-made template's key (Settings → Email "New template"): `tpl_` and 16 of `[a-z0-9]`. */
+export const SITE_TEMPLATE_KEY_PATTERN = /^tpl_[a-z0-9]{16}$/;
+export const siteTemplateKeySchema = z.string().regex(SITE_TEMPLATE_KEY_PATTERN);
+/** Any template's key: one of the nine built-ins or a site-made one. */
+export const emailTemplateKeySchema = z.union([customerEmailTemplateSchema, siteTemplateKeySchema]);
+export type EmailTemplateKey = z.infer<typeof emailTemplateKeySchema>;
+
+export function isSiteTemplateKey(key: string): boolean {
+  return SITE_TEMPLATE_KEY_PATTERN.test(key);
+}
+
 export const CUSTOMER_EMAIL_TEMPLATE_LABELS: Readonly<Record<CustomerEmailTemplate, string>> = {
   tracking_code: 'Tracking code',
   order_received: 'Order received',
