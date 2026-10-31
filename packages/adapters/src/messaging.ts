@@ -1,3 +1,4 @@
+import { isSiteTemplateKey, type SiteTemplateKey } from '@gt-sales/contracts';
 import { z } from 'zod';
 
 /**
@@ -18,6 +19,13 @@ const siteContentEmailTemplates = [
 ] as const;
 
 /**
+ * Mail to a site's staff the backend renders itself and sends from the
+ * deployment's sender (an automation's "notify staff" step), so no copy for
+ * it lives here either.
+ */
+const renderedStaffEmailTemplates = ['staff_notification'] as const;
+
+/**
  * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
  * plus the site-content templates a site's staff edit. `abandoned_form_marketing` is the one marketing template; every
  * other template is transactional and is never gated on marketing opt-out.
@@ -30,6 +38,7 @@ export const emailTemplates = [
   'order_activation',
   'abandoned_form_marketing',
   ...siteContentEmailTemplates,
+  ...renderedStaffEmailTemplates,
 ] as const;
 export type EmailTemplate = (typeof emailTemplates)[number];
 
@@ -54,7 +63,8 @@ export interface EmailMessage {
   workspaceId: string;
   /** Stable logical job id; used for provider-level dedup, never regenerated on retry. */
   messageId: string;
-  template: EmailTemplate;
+  /** A built-in template, or a site-made one (`tpl_…`), which always arrives rendered. */
+  template: EmailTemplate | SiteTemplateKey;
   toAddress: string;
   /** Present for order-scoped templates. */
   orderId?: string;
@@ -297,9 +307,15 @@ function contentFor(
   senderName: string,
 ): { subject: string; text: string; html?: string } | undefined {
   if (message.rendered) return message.rendered;
-  if (siteContentEmailTemplates.some((template) => template === message.template)) return undefined;
-  return renderTemplate(message, senderName);
+  const { template } = message;
+  if (isSiteTemplateKey(template)) return undefined;
+  if (siteContentEmailTemplates.some((entry) => entry === template)) return undefined;
+  if (renderedStaffEmailTemplates.some((entry) => entry === template)) return undefined;
+  return renderTemplate({ ...message, template }, senderName);
 }
+
+/** A message of one of the built-in templates the adapter renders itself. */
+type BuiltInMessage = EmailMessage & { template: EmailTemplate };
 
 /**
  * Sender identification on every email (CASL s.6(2) requires it in each
@@ -307,14 +323,14 @@ function contentFor(
  * site that sends it, as its From header shows.
  */
 function renderTemplate(
-  message: EmailMessage,
+  message: BuiltInMessage,
   senderName: string,
 ): { subject: string; text: string; html?: string } {
   const rendered = renderTemplateBody(message);
   return { ...rendered, text: `${rendered.text}\n\n${senderName}` };
 }
 
-function renderTemplateBody(message: EmailMessage): {
+function renderTemplateBody(message: BuiltInMessage): {
   subject: string;
   text: string;
   html?: string;
@@ -362,6 +378,7 @@ function renderTemplateBody(message: EmailMessage): {
     case 'sim_number_ready':
     case 'change_approved':
     case 'change_rejected':
+    case 'staff_notification':
       // Never reached: `contentFor` refuses these without a rendered message.
       throw new Error('rendered_message_missing');
     case 'abandoned_form_marketing':

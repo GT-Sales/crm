@@ -132,6 +132,19 @@ export const domainErrorCodeSchema = z.enum([
   'invalid_email_markup',
   'automation_not_found',
   'intake_check_off',
+  'automation_limit_reached',
+  'revision_conflict',
+  'flow_invalid',
+  'no_active_version',
+  'automation_not_builtin',
+  'automation_builtin',
+  'activation_needs_lead_manage',
+  'automation_version_not_found',
+  'automation_run_not_found',
+  'automation_archived',
+  'email_template_not_found',
+  'email_template_builtin',
+  'email_template_limit_reached',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

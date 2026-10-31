@@ -1,14 +1,19 @@
 import type { TenantTransaction } from '@gt-sales/db';
 import {
   customerEmailJobPayloadSchema,
+  emailTemplateLabel,
+  isSiteTemplateKey,
   type CustomerEmailJobPayload,
-  type CustomerEmailTemplate,
-  type EmailFillInKey,
+  type EmailFillInName,
+  type EmailTemplateKey,
+  type PropertyCatalog,
 } from '@gt-sales/contracts';
 import { z } from 'zod';
 
 import { fillInValuesForLead, sampleFillInValues, type FillInLead } from './fill-in-values.js';
 import { renderCustomerEmail, type FillInValues } from './layout.js';
+import { templatePropertyKeys } from './markup.js';
+import { loadPropertyCatalog } from '../properties/catalog.js';
 import { resolveSiteSender, type CustomerEmailEnvironment } from './senders.js';
 import { readEmailTemplate } from './settings-store.js';
 
@@ -19,6 +24,10 @@ import { readEmailTemplate } from './settings-store.js';
  * Whether to send is the caller's decision (an automation rule that is on, a
  * staff click); the composer only says whether the mail can be made, and if
  * not, why. Runs in the caller's tenant transaction and writes nothing.
+ *
+ * A site-made (`tpl_`) template may also show the lead's properties
+ * (`{prop:<key>}`), each only while a customer may see it, else the mail is
+ * skipped as missing it; one that is gone or archived is `template_unavailable`.
  *
  * A mail that does not parse, or does not fit the job (a long name can push a
  * subject past its limit), throws: the worker would refuse it for good, so it
@@ -34,12 +43,17 @@ export type ComposeRecipient =
   | { kind: 'tracking_code'; toAddress: string; code: string };
 
 export type ComposeOutcome =
-  | { kind: 'ready'; payload: CustomerEmailJobPayload }
+  | {
+      kind: 'ready';
+      payload: CustomerEmailJobPayload;
+      /** The template as staff read it: a built-in's label, a site-made one's name. */
+      templateName: string;
+    }
   | {
       kind: 'skipped';
-      reason: 'no_sender' | 'no_customer_email' | 'missing_fill_in';
+      reason: 'no_sender' | 'no_customer_email' | 'missing_fill_in' | 'template_unavailable';
       /** For `missing_fill_in`: the fill-ins the recipient has no value for. */
-      missing?: EmailFillInKey[];
+      missing?: EmailFillInName[];
     };
 
 const emailAddress = z.email();
@@ -53,10 +67,11 @@ function validAddress(value: string | null): string | undefined {
 function fillInValues(
   recipient: ComposeRecipient,
   site: { siteName: string; siteUrl: string | null },
+  properties: { catalog: PropertyCatalog; propertyKeys: readonly string[] } | undefined,
 ): FillInValues {
   switch (recipient.kind) {
     case 'lead':
-      return fillInValuesForLead(recipient.lead, site);
+      return fillInValuesForLead(recipient.lead, site, properties);
     case 'staff_test':
       return sampleFillInValues(site);
     case 'tracking_code':
@@ -67,7 +82,13 @@ function fillInValues(
 export async function composeCustomerEmail(
   tx: TenantTransaction,
   environment: CustomerEmailEnvironment,
-  input: { workspaceId: string; template: CustomerEmailTemplate; recipient: ComposeRecipient },
+  input: {
+    workspaceId: string;
+    template: EmailTemplateKey;
+    recipient: ComposeRecipient;
+    /** The site's catalogue, when the caller has it; loaded only for a template that needs it. */
+    catalog?: PropertyCatalog;
+  },
 ): Promise<ComposeOutcome> {
   if (!environment.providerReady) return { kind: 'skipped', reason: 'no_sender' };
   const site = await resolveSiteSender(tx, input.workspaceId);
@@ -80,13 +101,21 @@ export async function composeCustomerEmail(
   if (!toAddress) return { kind: 'skipped', reason: 'no_customer_email' };
 
   const stored = await readEmailTemplate(tx, input.workspaceId, input.template);
+  if (!stored) return { kind: 'skipped', reason: 'template_unavailable' };
   const siteValues = { siteName: site.sender.fromName, siteUrl: site.siteUrl };
+  const propertyKeys = isSiteTemplateKey(input.template)
+    ? templatePropertyKeys(stored.subject, stored.body)
+    : [];
+  const properties =
+    propertyKeys.length > 0
+      ? { catalog: input.catalog ?? (await loadPropertyCatalog(tx)), propertyKeys }
+      : undefined;
   const rendered = renderCustomerEmail({
     template: input.template,
     subject: stored.subject,
     body: stored.body,
     branding: site.branding,
-    values: fillInValues(recipient, siteValues),
+    values: fillInValues(recipient, siteValues, properties),
   });
   if (!rendered.ok) {
     if ('missing' in rendered) {
@@ -110,5 +139,9 @@ export async function composeCustomerEmail(
   if (!payload.success) {
     throw new Error(`composed ${input.template} mail does not fit its job payload`);
   }
-  return { kind: 'ready', payload: payload.data };
+  return {
+    kind: 'ready',
+    payload: payload.data,
+    templateName: emailTemplateLabel(input.template, stored.name),
+  };
 }

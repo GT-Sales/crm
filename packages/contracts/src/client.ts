@@ -33,30 +33,51 @@ import {
   type ResolveUncertainJobResponse,
   type RetryWorkspaceJobResponse,
 } from './jobs';
+import type { AutomationKey } from './automation-keys';
 import {
-  automationResponseSchema,
-  listAutomationRunsResponseSchema,
-  listAutomationsResponseSchema,
-  updateAutomationRequestSchema,
-  type AutomationKey,
-  type AutomationResponse,
-  type ListAutomationRunsResponse,
-  type ListAutomationsResponse,
-  type UpdateAutomationRequest,
-} from './automations';
+  flowListResponseSchema,
+  flowToggleResponseSchema,
+  listFlowRunsResponseSchema,
+  toggleFlowRequestSchema,
+  type FlowListQuery,
+  type FlowListResponse,
+  type FlowToggleResponse,
+  type ListFlowRunsQuery,
+  type ListFlowRunsResponse,
+  type ToggleFlowRequest,
+  activateFlowRequestSchema,
+  createFlowRequestSchema,
+  flowCatalogResponseSchema,
+  flowDetailResponseSchema,
+  flowRunResponseSchema,
+  flowVersionResponseSchema,
+  saveFlowDraftRequestSchema,
+  updateFlowDetailsRequestSchema,
+  type ActivateFlowRequest,
+  type CreateFlowRequest,
+  type FlowCatalogResponse,
+  type FlowDetailResponse,
+  type FlowRunResponse,
+  type FlowVersionResponse,
+  type SaveFlowDraftRequest,
+  type UpdateFlowDetailsRequest,
+} from './automation-api';
 import {
   emailSettingsResponseSchema,
-  emailTemplateResponseSchema,
-  listEmailTemplatesResponseSchema,
+  createEmailTemplateRequestSchema,
+  siteEmailTemplateResponseSchema,
+  type CreateEmailTemplateRequest,
+  type SiteEmailTemplateResponse,
+  listSiteEmailTemplatesResponseSchema,
   previewEmailTemplateRequestSchema,
   previewEmailTemplateResponseSchema,
   sendTestEmailResponseSchema,
   updateEmailSettingsRequestSchema,
   updateEmailTemplateRequestSchema,
-  type CustomerEmailTemplate,
   type EmailSettingsResponse,
-  type EmailTemplateResponse,
-  type ListEmailTemplatesResponse,
+  type EmailTemplateKey,
+  type ListEmailTemplatesQuery,
+  type ListSiteEmailTemplatesResponse,
   type PreviewEmailTemplateRequest,
   type PreviewEmailTemplateResponse,
   type SendTestEmailResponse,
@@ -504,28 +525,78 @@ export interface BackendClient {
       workspaceId: string,
       body: UpdateEmailSettingsRequestInput,
     ): Promise<EmailSettingsResponse>;
-    listEmailTemplates(workspaceId: string): Promise<ListEmailTemplatesResponse>;
+    listEmailTemplates(
+      workspaceId: string,
+      query?: ListEmailTemplatesQuery,
+    ): Promise<ListSiteEmailTemplatesResponse>;
     updateEmailTemplate(
       workspaceId: string,
-      key: CustomerEmailTemplate,
+      key: EmailTemplateKey,
       body: UpdateEmailTemplateRequest,
-    ): Promise<EmailTemplateResponse>;
+    ): Promise<SiteEmailTemplateResponse>;
     previewEmailTemplate(
       workspaceId: string,
-      key: CustomerEmailTemplate,
+      key: EmailTemplateKey,
       body: PreviewEmailTemplateRequest,
     ): Promise<PreviewEmailTemplateResponse>;
-    sendTestEmail(workspaceId: string, key: CustomerEmailTemplate): Promise<SendTestEmailResponse>;
-    listAutomations(workspaceId: string): Promise<ListAutomationsResponse>;
+    sendTestEmail(workspaceId: string, key: EmailTemplateKey): Promise<SendTestEmailResponse>;
+    listAutomations(workspaceId: string, query?: FlowListQuery): Promise<FlowListResponse>;
     updateAutomation(
       workspaceId: string,
       key: AutomationKey,
-      body: UpdateAutomationRequest,
-    ): Promise<AutomationResponse>;
+      body: ToggleFlowRequest,
+    ): Promise<FlowToggleResponse>;
     listAutomationRuns(
       workspaceId: string,
       key: AutomationKey,
-    ): Promise<ListAutomationRunsResponse>;
+      query?: ListFlowRunsQuery,
+    ): Promise<ListFlowRunsResponse>;
+    createAutomation(workspaceId: string, body: CreateFlowRequest): Promise<FlowDetailResponse>;
+    getAutomationCatalog(workspaceId: string): Promise<FlowCatalogResponse>;
+    getAutomation(workspaceId: string, key: AutomationKey): Promise<FlowDetailResponse>;
+    updateAutomationDetails(
+      workspaceId: string,
+      key: AutomationKey,
+      body: UpdateFlowDetailsRequest,
+    ): Promise<FlowDetailResponse>;
+    saveAutomationDraft(
+      workspaceId: string,
+      key: AutomationKey,
+      body: SaveFlowDraftRequest,
+    ): Promise<FlowDetailResponse>;
+    discardAutomationDraft(workspaceId: string, key: AutomationKey): Promise<FlowDetailResponse>;
+    /** Needs `lead.manage` too when the draft assigns, updates or makes tasks. */
+    activateAutomation(
+      workspaceId: string,
+      key: AutomationKey,
+      body: ActivateFlowRequest,
+    ): Promise<FlowDetailResponse>;
+    /** Built-ins only: the draft becomes the default. */
+    resetAutomation(workspaceId: string, key: AutomationKey): Promise<FlowDetailResponse>;
+    archiveAutomation(workspaceId: string, key: AutomationKey): Promise<FlowDetailResponse>;
+    restoreAutomation(workspaceId: string, key: AutomationKey): Promise<FlowDetailResponse>;
+    getAutomationVersion(
+      workspaceId: string,
+      key: AutomationKey,
+      version: number,
+    ): Promise<FlowVersionResponse>;
+    getAutomationRun(
+      workspaceId: string,
+      key: AutomationKey,
+      runId: string,
+    ): Promise<FlowRunResponse>;
+    createEmailTemplate(
+      workspaceId: string,
+      body: CreateEmailTemplateRequest,
+    ): Promise<SiteEmailTemplateResponse>;
+    archiveEmailTemplate(
+      workspaceId: string,
+      key: EmailTemplateKey,
+    ): Promise<SiteEmailTemplateResponse>;
+    restoreEmailTemplate(
+      workspaceId: string,
+      key: EmailTemplateKey,
+    ): Promise<SiteEmailTemplateResponse>;
     listJobs(workspaceId: string): Promise<ListWorkspaceJobsResponse>;
     retryJob(workspaceId: string, jobId: string): Promise<RetryWorkspaceJobResponse>;
     resolveUncertainJob(
@@ -1104,18 +1175,19 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: updateEmailSettingsRequestSchema.parse(body),
           responseSchema: emailSettingsResponseSchema,
         }),
-      listEmailTemplates: (workspaceId) =>
+      listEmailTemplates: (workspaceId, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates`,
-          responseSchema: listEmailTemplatesResponseSchema,
+          query: { archived: query?.archived, before: query?.before },
+          responseSchema: listSiteEmailTemplatesResponseSchema,
         }),
       updateEmailTemplate: (workspaceId, key, body) =>
         call({
           method: 'PUT',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}`,
           body: updateEmailTemplateRequestSchema.parse(body),
-          responseSchema: emailTemplateResponseSchema,
+          responseSchema: siteEmailTemplateResponseSchema,
         }),
       previewEmailTemplate: (workspaceId, key, body) =>
         call({
@@ -1130,24 +1202,121 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}/test`,
           responseSchema: sendTestEmailResponseSchema,
         }),
-      listAutomations: (workspaceId) =>
+      listAutomations: (workspaceId, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations`,
-          responseSchema: listAutomationsResponseSchema,
+          query: { archived: query?.archived, before: query?.before },
+          responseSchema: flowListResponseSchema,
         }),
       updateAutomation: (workspaceId, key, body) =>
         call({
           method: 'PUT',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}`,
-          body: updateAutomationRequestSchema.parse(body),
-          responseSchema: automationResponseSchema,
+          body: toggleFlowRequestSchema.parse(body),
+          responseSchema: flowToggleResponseSchema,
         }),
-      listAutomationRuns: (workspaceId, key) =>
+      listAutomationRuns: (workspaceId, key, query) =>
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/runs`,
-          responseSchema: listAutomationRunsResponseSchema,
+          query: { before: query?.before },
+          responseSchema: listFlowRunsResponseSchema,
+        }),
+      createAutomation: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations`,
+          body: createFlowRequestSchema.parse(body),
+          responseSchema: flowDetailResponseSchema,
+        }),
+      getAutomationCatalog: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/catalog`,
+          responseSchema: flowCatalogResponseSchema,
+        }),
+      getAutomation: (workspaceId, key) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}`,
+          responseSchema: flowDetailResponseSchema,
+        }),
+      updateAutomationDetails: (workspaceId, key, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}`,
+          body: updateFlowDetailsRequestSchema.parse(body),
+          responseSchema: flowDetailResponseSchema,
+        }),
+      saveAutomationDraft: (workspaceId, key, body) =>
+        call({
+          method: 'PUT',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/draft`,
+          body: saveFlowDraftRequestSchema.parse(body),
+          responseSchema: flowDetailResponseSchema,
+        }),
+      discardAutomationDraft: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/draft/discard`,
+          responseSchema: flowDetailResponseSchema,
+        }),
+      activateAutomation: (workspaceId, key, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/activate`,
+          body: activateFlowRequestSchema.parse(body),
+          responseSchema: flowDetailResponseSchema,
+        }),
+      resetAutomation: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/reset`,
+          responseSchema: flowDetailResponseSchema,
+        }),
+      archiveAutomation: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/archive`,
+          responseSchema: flowDetailResponseSchema,
+        }),
+      restoreAutomation: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/restore`,
+          responseSchema: flowDetailResponseSchema,
+        }),
+      getAutomationVersion: (workspaceId, key, version) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/versions/${encode(String(version))}`,
+          responseSchema: flowVersionResponseSchema,
+        }),
+      getAutomationRun: (workspaceId, key, runId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/runs/${encode(runId)}`,
+          responseSchema: flowRunResponseSchema,
+        }),
+      createEmailTemplate: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates`,
+          body: createEmailTemplateRequestSchema.parse(body),
+          responseSchema: siteEmailTemplateResponseSchema,
+        }),
+      archiveEmailTemplate: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}/archive`,
+          responseSchema: siteEmailTemplateResponseSchema,
+        }),
+      restoreEmailTemplate: (workspaceId, key) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/email/templates/${encode(key)}/restore`,
+          responseSchema: siteEmailTemplateResponseSchema,
         }),
       listJobs: (workspaceId) =>
         call({

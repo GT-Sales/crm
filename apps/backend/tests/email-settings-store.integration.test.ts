@@ -1,9 +1,15 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CUSTOMER_EMAIL_TEMPLATES } from '@gt-sales/contracts';
+import {
+  CUSTOMER_EMAIL_TEMPLATES,
+  SITE_TEMPLATE_KEY_PATTERN,
+  builtInFlowName,
+  type FlowDefinition,
+} from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
+import { DatabaseFlowStore } from '../src/automations/flow-store.js';
 import { DatabaseEmailSettingsStore, readEmailTemplate } from '../src/email/settings-store.js';
 import { STARTER_TEMPLATES } from '../src/email/starters.js';
 
@@ -32,6 +38,19 @@ const OTHER_SITE = '1d000000-0000-4000-8000-000000000702';
 const ACTOR = '2d000000-0000-4000-8000-000000000701';
 const REQUEST = '3d000000-0000-4000-8000-000000000701';
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
+
+// Site-made templates (phase 8).
+const MADE_SITE = '18000000-0000-4000-8000-000000008801';
+const LIMIT_SITE = '18000000-0000-4000-8000-000000008802';
+const FLOW_SITE = '18000000-0000-4000-8000-000000008803';
+const MADE_ACTOR = '28000000-0000-4000-8000-000000008801';
+const MADE_REQUEST = '58000000-0000-4000-8000-000000008801';
+const MADE_SITES = [MADE_SITE, LIMIT_SITE, FLOW_SITE];
+const made = (workspaceId: string) => ({
+  workspaceId,
+  actorId: MADE_ACTOR,
+  requestId: MADE_REQUEST,
+});
 
 const scope = { workspaceId: SITE, actorId: ACTOR };
 const write = { ...scope, requestId: REQUEST };
@@ -100,6 +119,25 @@ databaseTest('email settings store', () => {
       maxConnections: 4,
     });
     store = new DatabaseEmailSettingsStore(database);
+
+    await admin`delete from app.workspaces where id in ${admin(MADE_SITES)}`;
+    for (const [index, id] of MADE_SITES.entries()) {
+      await admin`
+        insert into app.workspaces (id, slug, name)
+        values (${id}, ${`email-templates-880${index + 1}`}, ${`Templates site ${index + 1}`})
+      `;
+      await admin`
+        insert into app.memberships (workspace_id, user_id, membership_type, status)
+        values (${id}, ${MADE_ACTOR}, 'staff', 'active')
+      `;
+      await admin`
+        insert into app.properties (workspace_id, object, key, origin, label, kind, position, sensitive, staff_only)
+        values
+          (${id}, 'lead', 'custom_size', 'custom', 'Size', 'text', 1, false, false),
+          (${id}, 'lead', 'custom_secret', 'custom', 'Secret', 'text', 2, true, false),
+          (${id}, 'lead', 'custom_internal', 'custom', 'Internal', 'text', 3, false, true)
+      `;
+    }
   });
 
   afterAll(async () => {
@@ -112,21 +150,26 @@ databaseTest('email settings store', () => {
     expect(await store.getSettings(scope)).toBeUndefined();
     const templates = await store.listTemplates(scope);
     expect(templates.map((template) => template.key)).toEqual([...CUSTOMER_EMAIL_TEMPLATES]);
-    for (const template of templates) {
-      expect(template).toEqual({
-        key: template.key,
-        subject: STARTER_TEMPLATES[template.key].subject,
-        body: STARTER_TEMPLATES[template.key].body,
+    CUSTOMER_EMAIL_TEMPLATES.forEach((key, index) => {
+      expect(templates[index]).toEqual({
+        key,
+        name: null,
+        archived: false,
+        subject: STARTER_TEMPLATES[key].subject,
+        body: STARTER_TEMPLATES[key].body,
         version: 0,
         updatedAt: null,
         updatedBy: null,
+        usedBy: expect.any(Array),
       });
-    }
+    });
     expect(
       await database.withTenantTx(scope, (tx) => readEmailTemplate(tx, SITE, 'dispatched')),
     ).toEqual({
       ...STARTER_TEMPLATES.dispatched,
       key: 'dispatched',
+      name: null,
+      archived: false,
       version: 0,
       updatedAt: null,
       updatedBy: null,
@@ -144,11 +187,14 @@ databaseTest('email settings store', () => {
       kind: 'saved',
       template: {
         key: 'order_received',
+        name: null,
+        archived: false,
         subject: 'Thanks, {first name}',
         body: 'Hi {first name},\n\nYour {site name} order is in.',
         version: 1,
         updatedAt: expect.any(Date),
         updatedBy: ACTOR,
+        usedBy: [{ key: 'order_received', name: builtInFlowName('order_received') }],
       },
     });
     expect(await versionRows(SITE, 'order_received')).toEqual([
@@ -366,5 +412,250 @@ databaseTest('email settings store', () => {
     const after = await audits(SITE);
     expect(after).toHaveLength(2);
     expect(after[1]?.after).toEqual({ fields: ['replyTo', 'logoUrl', 'footerText'] });
+  });
+
+  // -------------------------------------------------------------------------
+  // Site-made templates
+
+  const resetMade = async (workspaceId: string) => {
+    await admin`delete from app.email_template_versions where workspace_id = ${workspaceId}`;
+    await admin`delete from app.email_templates where workspace_id = ${workspaceId}`;
+    await admin`delete from app.audit_events where workspace_id = ${workspaceId}`;
+    await admin`delete from app.automations where workspace_id = ${workspaceId}`;
+  };
+
+  const create = async (
+    workspaceId: string,
+    name: string,
+    subject = 'Hello',
+    body = 'Hi {first name}',
+  ) => {
+    const outcome = await store.createTemplate(made(workspaceId), { name, subject, body });
+    if (outcome.kind !== 'saved') throw new Error(`not created: ${outcome.kind}`);
+    return outcome.template;
+  };
+
+  it('a site-made template is created at version 1 with its version row and audit', async () => {
+    await resetMade(MADE_SITE);
+    const template = await create(
+      MADE_SITE,
+      'Size note',
+      'About {prop:custom_size}',
+      'Order {order number}',
+    );
+    expect(template.key).toMatch(SITE_TEMPLATE_KEY_PATTERN);
+    expect(template).toMatchObject({ name: 'Size note', version: 1, archived: false, usedBy: [] });
+    expect(await versionRows(MADE_SITE, template.key)).toEqual([
+      {
+        version: 1,
+        subject: 'About {prop:custom_size}',
+        body: 'Order {order number}',
+        createdBy: MADE_ACTOR,
+      },
+    ]);
+    expect((await audits(MADE_SITE)).map((row) => [row.action, row.after])).toEqual([
+      ['email.template_created', { key: template.key, version: 1 }],
+    ]);
+    const listed = await store.listTemplates(made(MADE_SITE));
+    expect(listed.map((entry) => entry.key)).toEqual([...CUSTOMER_EMAIL_TEMPLATES, template.key]);
+
+    // A save is version 2, with the same property check.
+    const saved = await store.putTemplate(made(MADE_SITE), template.key, {
+      expectedVersion: 1,
+      subject: 'Now {prop:custom_size}',
+      body: 'Hi',
+    });
+    expect(saved).toMatchObject({ kind: 'saved', template: { version: 2, name: 'Size note' } });
+    expect(
+      await store.putTemplate(made(MADE_SITE), template.key, {
+        expectedVersion: 2,
+        subject: 'Secret {prop:custom_secret}',
+        body: 'Hi',
+      }),
+    ).toMatchObject({ kind: 'invalid', error: 'invalid_fill_in', fillIn: 'prop:custom_secret' });
+    expect(
+      await store.putTemplate(made(MADE_SITE), 'tpl_nosuchtemplate01', {
+        expectedVersion: 0,
+        subject: 'Hi',
+        body: 'Hi',
+      }),
+    ).toEqual({ kind: 'not_found' });
+  });
+
+  it('a sensitive, staff-only or unknown property is refused; a usable one is accepted', async () => {
+    await resetMade(MADE_SITE);
+    for (const property of ['custom_secret', 'custom_internal', 'custom_nothing']) {
+      expect(
+        await store.createTemplate(made(MADE_SITE), {
+          name: property,
+          subject: `About {prop:${property}}`,
+          body: 'Hi',
+        }),
+      ).toMatchObject({
+        kind: 'invalid',
+        error: 'invalid_fill_in',
+        fillIn: `prop:${property}`,
+        where: 'subject',
+      });
+    }
+    expect(
+      (
+        await store.createTemplate(made(MADE_SITE), {
+          name: 'ok',
+          subject: 'Hi',
+          body: 'Size {prop:custom_size}',
+        })
+      ).kind,
+    ).toBe('saved');
+  });
+
+  it('{code} is refused in a site-made template', async () => {
+    await resetMade(MADE_SITE);
+    expect(
+      await store.createTemplate(made(MADE_SITE), {
+        name: 'Code',
+        subject: 'Hi',
+        body: 'Your code {code}',
+      }),
+    ).toMatchObject({ kind: 'invalid', error: 'invalid_fill_in', fillIn: 'code', where: 'body' });
+  });
+
+  it('the 51st template is refused, concurrently too', async () => {
+    await resetMade(LIMIT_SITE);
+    for (let index = 0; index < 50; index += 1) await create(LIMIT_SITE, `Note ${index}`);
+    expect(
+      await store.createTemplate(made(LIMIT_SITE), { name: 'One more', subject: 'Hi', body: 'Hi' }),
+    ).toEqual({ kind: 'limit_reached' });
+
+    await resetMade(LIMIT_SITE);
+    for (let index = 0; index < 46; index += 1) await create(LIMIT_SITE, `Note ${index}`);
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        store.createTemplate(made(LIMIT_SITE), {
+          name: `Race ${index}`,
+          subject: 'Hi',
+          body: 'Hi',
+        }),
+      ),
+    );
+    expect(results.filter((result) => result.kind === 'saved')).toHaveLength(4);
+    expect(results.filter((result) => result.kind === 'limit_reached')).toHaveLength(4);
+  });
+
+  it('archive and restore are site-made only and counted', async () => {
+    await resetMade(LIMIT_SITE);
+    expect(await store.setTemplateArchived(made(LIMIT_SITE), 'dispatched', true)).toEqual({
+      kind: 'builtin',
+    });
+    expect(await store.setTemplateArchived(made(LIMIT_SITE), 'tpl_nosuchtemplate01', true)).toEqual(
+      {
+        kind: 'not_found',
+      },
+    );
+    const first = await create(LIMIT_SITE, 'First');
+    const archived = await store.setTemplateArchived(made(LIMIT_SITE), first.key, true);
+    expect(archived).toMatchObject({ kind: 'saved', template: { archived: true } });
+    // An archived template cannot be saved.
+    expect(
+      await store.putTemplate(made(LIMIT_SITE), first.key, {
+        expectedVersion: 1,
+        subject: 'Hi',
+        body: 'Hi',
+      }),
+    ).toEqual({ kind: 'not_found' });
+    for (let index = 0; index < 50; index += 1) await create(LIMIT_SITE, `Note ${index}`);
+    expect(await store.setTemplateArchived(made(LIMIT_SITE), first.key, false)).toEqual({
+      kind: 'limit_reached',
+    });
+    const another = (await store.listTemplates(made(LIMIT_SITE))).at(-1);
+    if (!another) throw new Error('no template');
+    await store.setTemplateArchived(made(LIMIT_SITE), another.key, true);
+    expect(await store.setTemplateArchived(made(LIMIT_SITE), first.key, false)).toMatchObject({
+      kind: 'saved',
+      template: { archived: false },
+    });
+    const actions = (await audits(LIMIT_SITE)).map((row) => row.action);
+    expect(actions.filter((action) => action === 'email.template_archived')).toHaveLength(2);
+    expect(actions.filter((action) => action === 'email.template_restored')).toHaveLength(1);
+  });
+
+  it('archived templates are listed a page at a time, however many there are', async () => {
+    await resetMade(LIMIT_SITE);
+    await admin`
+      insert into app.email_templates (workspace_id, key, name, subject, body, version, updated_by, archived_at)
+      select ${LIMIT_SITE}, 'tpl_archived' || lpad(n::text, 8, '0'), 'Old ' || n, 'Old', 'Old', 1,
+        ${MADE_ACTOR}, now() - make_interval(secs => n)
+      from generate_series(1, 120) n
+    `;
+    const live = await store.listTemplates(made(LIMIT_SITE));
+    expect(live).toHaveLength(9);
+    const seen: string[] = [];
+    let before: string | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const result = await store.listArchivedTemplates(made(LIMIT_SITE), before ? { before } : {});
+      expect(result.templates.length).toBeLessThanOrEqual(50);
+      seen.push(...result.templates.map((template) => template.key));
+      if (!result.nextBefore) break;
+      before = result.nextBefore;
+    }
+    expect(seen).toHaveLength(120);
+    expect(new Set(seen).size).toBe(120);
+    expect(seen[0]).toBe('tpl_archived00000001');
+  });
+
+  it('usedBy lists the flows whose active version sends each template; archiving one marks that flow', async () => {
+    await resetMade(FLOW_SITE);
+    const flows = new DatabaseFlowStore(database);
+    const template = await create(FLOW_SITE, 'Follow-up note');
+    // Before the page was ever opened, the built-ins count with their defaults.
+    let listed = await store.listTemplates(made(FLOW_SITE));
+    expect(listed.find((entry) => entry.key === 'dispatched')?.usedBy).toEqual([
+      { key: 'sim_order_dispatched', name: builtInFlowName('sim_order_dispatched') },
+    ]);
+    expect(
+      listed.find((entry) => entry.key === 'activated')?.usedBy.map((entry) => entry.key),
+    ).toEqual(['sim_order_activated', 'mobility_activated']);
+    expect(listed.find((entry) => entry.key === template.key)?.usedBy).toEqual([]);
+
+    const created = await flows.create(made(FLOW_SITE), { name: 'Follow up' });
+    if (created.status !== 'ok') throw new Error('no flow');
+    const definition: FlowDefinition = {
+      schemaVersion: 1,
+      trigger: { kind: 'stage_entered', leadType: 'sim_order', stage: 'verified', when: null },
+      steps: [{ id: 's_mail', kind: 'send_email', template: template.key }],
+    };
+    const saved = await flows.saveDraft(made(FLOW_SITE), created.value.key, {
+      expectedRevision: 0,
+      definition: JSON.parse(JSON.stringify(definition)),
+    });
+    expect(saved.status).toBe('ok');
+    // A draft is not what the flow sends.
+    listed = await store.listTemplates(made(FLOW_SITE));
+    expect(listed.find((entry) => entry.key === template.key)?.usedBy).toEqual([]);
+    expect(
+      (
+        await flows.activate(made(FLOW_SITE), created.value.key, {
+          expectedRevision: 1,
+          mayChangeLeads: false,
+        })
+      ).status,
+    ).toBe('ok');
+    listed = await store.listTemplates(made(FLOW_SITE));
+    expect(listed.find((entry) => entry.key === template.key)?.usedBy).toEqual([
+      { key: created.value.key, name: 'Follow up' },
+    ]);
+    expect((await flows.list(made(FLOW_SITE), { archived: false })).needsAttention.size).toBe(0);
+
+    const archived = await store.setTemplateArchived(made(FLOW_SITE), template.key, true);
+    expect(archived).toMatchObject({
+      kind: 'saved',
+      template: { usedBy: [{ key: created.value.key }] },
+    });
+    const { needsAttention } = await flows.list(made(FLOW_SITE), { archived: false });
+    expect(needsAttention.get(created.value.key)).toEqual({
+      path: 'steps.0.template',
+      code: 'template_unavailable',
+      ref: template.key,
+    });
   });
 });

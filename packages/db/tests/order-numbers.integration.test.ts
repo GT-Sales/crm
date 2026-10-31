@@ -117,7 +117,7 @@ databaseTest('per-site counters (app.site_counters, migrations 0015 and 0016)', 
     }
   });
 
-  it('has RLS enabled and forced, its tenant and backup read policies, and 38 read policies in all', async () => {
+  it('has RLS enabled and forced, its tenant and backup read policies, and 42 read policies in all', async () => {
     const [table] = await admin<{ rowSecurity: boolean; forced: boolean }[]>`
       select c.relrowsecurity as "rowSecurity", c.relforcerowsecurity as forced
       from pg_class c
@@ -140,7 +140,7 @@ databaseTest('per-site counters (app.site_counters, migrations 0015 and 0016)', 
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(38);
+    expect(backupPolicies?.count).toBe(42);
   });
 
   it('app_runtime may select, insert and update but never delete; backup_reader reads it', async () => {

@@ -2,9 +2,11 @@ import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiErrorResponseSchema,
+  codePropertyCatalog,
   emailSettingsResponseSchema,
-  emailTemplateResponseSchema,
+  listSiteEmailTemplatesResponseSchema,
   previewEmailTemplateResponseSchema,
+  siteEmailTemplateResponseSchema,
   sendTestEmailResponseSchema,
   type StaffWorkspace,
 } from '@gt-sales/contracts';
@@ -17,8 +19,8 @@ import type { ComposeOutcome } from '../src/email/compose.js';
 import type { CustomerEmail, CustomerEmailEnvironment } from '../src/email/senders.js';
 import type {
   EmailSettingsStore,
+  ListedEmailTemplate,
   StoredEmailSettings,
-  StoredEmailTemplate,
 } from '../src/email/settings-store.js';
 import type { LeadStore } from '../src/leads/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
@@ -106,13 +108,26 @@ const settings: StoredEmailSettings = {
   updatedBy: ACTOR,
 };
 
-const template: StoredEmailTemplate = {
+const template: ListedEmailTemplate = {
   key: 'order_received',
+  name: null,
+  archived: false,
   subject: 'We got your order',
   body: 'Hi {first name},\n\nThanks.',
   version: 3,
   updatedAt: NOW,
   updatedBy: ACTOR,
+  usedBy: [{ key: 'order_received', name: 'Order received email' }],
+};
+
+const SITE_MADE = 'tpl_routetemplate001';
+const siteMade: ListedEmailTemplate = {
+  ...template,
+  key: SITE_MADE,
+  name: 'Size note',
+  subject: 'About {prop:custom_size}',
+  version: 1,
+  usedBy: [],
 };
 
 function memoryEmailStore() {
@@ -120,10 +135,21 @@ function memoryEmailStore() {
     getSettings: vi.fn<EmailSettingsStore['getSettings']>(async () => settings),
     putSettings: vi.fn<EmailSettingsStore['putSettings']>(async () => settings),
     listTemplates: vi.fn<EmailSettingsStore['listTemplates']>(async () => [template]),
+    listArchivedTemplates: vi.fn<EmailSettingsStore['listArchivedTemplates']>(async () => ({
+      templates: [{ ...siteMade, archived: true }],
+      nextBefore: SITE_MADE,
+    })),
     putTemplate: vi.fn<EmailSettingsStore['putTemplate']>(async () => ({
       kind: 'saved',
       template,
     })),
+    createTemplate: vi.fn<EmailSettingsStore['createTemplate']>(async () => ({
+      kind: 'saved',
+      template: siteMade,
+    })),
+    setTemplateArchived: vi.fn<EmailSettingsStore['setTemplateArchived']>(
+      async (_ctx, _key, archived) => ({ kind: 'saved', template: { ...siteMade, archived } }),
+    ),
   } satisfies EmailSettingsStore;
 }
 
@@ -139,6 +165,8 @@ function customerEmailWith(): CustomerEmail {
 // Compose and queue are mocked, so the transaction is only passed through.
 const fakeTx: TenantTransaction = Object.create(null);
 const withTenantTx: DatabaseClient['withTenantTx'] = vi.fn(async (_ctx, fn) => fn(fakeTx));
+
+const loadCatalog = vi.fn(async () => codePropertyCatalog);
 
 let server: Server;
 let baseUrl: string;
@@ -157,6 +185,7 @@ async function start(customerEmail: CustomerEmail) {
       emailSettingsStore: emails,
       customerEmail,
       withTenantTx,
+      loadPropertyCatalog: loadCatalog,
     },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -223,6 +252,9 @@ const routes = [
     { subject: 'Hi', body: 'Hi {first name}' },
   ],
   ['POST test', '/templates/order_received/test', 'POST', undefined],
+  ['POST template', '/templates', 'POST', { name: 'Size note', subject: 'Hi', body: 'Hi' }],
+  ['POST archive', `/templates/${SITE_MADE}/archive`, 'POST', undefined],
+  ['POST restore', `/templates/${SITE_MADE}/restore`, 'POST', undefined],
 ] as const;
 
 describe('staff email settings routes', () => {
@@ -275,19 +307,24 @@ describe('staff email settings routes', () => {
     expect(emailSettingsResponseSchema.parse(raw).settings).toBeNull();
   });
 
-  it('GET templates returns the seven as the store has them', async () => {
+  it('GET templates returns them as the store has them, named, with the flows that send them', async () => {
     const response = await call(emailUrl('/templates'));
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.templates).toHaveLength(1);
-    expect(body.templates[0]).toEqual({
-      key: 'order_received',
-      subject: 'We got your order',
-      body: 'Hi {first name},\n\nThanks.',
-      version: 3,
-      updatedAt: NOW.toISOString(),
-      updatedBy: ACTOR,
-    });
+    const body = listSiteEmailTemplatesResponseSchema.parse(await response.json());
+    expect(body.nextBefore).toBeNull();
+    expect(body.templates).toEqual([
+      {
+        key: 'order_received',
+        name: 'Order received',
+        subject: 'We got your order',
+        body: 'Hi {first name},\n\nThanks.',
+        version: 3,
+        updatedAt: NOW.toISOString(),
+        updatedBy: ACTOR,
+        archived: false,
+        usedBy: [{ key: 'order_received', name: 'Order received email' }],
+      },
+    ]);
     expect(emails.listTemplates).toHaveBeenCalledWith({
       workspaceId: WORKSPACE,
       actorId: ACTOR,
@@ -301,7 +338,7 @@ describe('staff email settings routes', () => {
       body: templateBody,
     });
     expect(ok.status).toBe(200);
-    expect(emailTemplateResponseSchema.parse(await ok.json()).template.version).toBe(3);
+    expect(siteEmailTemplateResponseSchema.parse(await ok.json()).template.version).toBe(3);
     expect(emails.putTemplate).toHaveBeenLastCalledWith(
       { workspaceId: WORKSPACE, actorId: ACTOR, requestId: expect.any(String) },
       'order_received',
@@ -362,7 +399,7 @@ describe('staff email settings routes', () => {
       body: templateBody,
     });
     expect(unknown.status).toBe(404);
-    expect((await errorOf(unknown)).code).toBe('not_found');
+    expect((await errorOf(unknown)).code).toBe('email_template_not_found');
     expect(emails.putTemplate).toHaveBeenCalledTimes(calls);
   });
 
@@ -475,5 +512,163 @@ describe('staff email settings routes', () => {
     const unknown = await call(emailUrl('/templates/nope/test'), { method: 'POST' });
     expect(unknown.status).toBe(404);
     expect(compose).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST templates creates a site-made template with the catalogue, and maps each refusal', async () => {
+    const body = { name: '  Size note ', subject: 'About {prop:custom_size}', body: 'Hi' };
+    const created = await call(emailUrl('/templates'), { method: 'POST', body });
+    expect(created.status).toBe(201);
+    expect(siteEmailTemplateResponseSchema.parse(await created.json()).template).toMatchObject({
+      key: SITE_MADE,
+      name: 'Size note',
+      archived: false,
+      usedBy: [],
+    });
+    expect(emails.createTemplate).toHaveBeenCalledWith(
+      { workspaceId: WORKSPACE, actorId: ACTOR, requestId: expect.any(String) },
+      { name: 'Size note', subject: 'About {prop:custom_size}', body: 'Hi' },
+      codePropertyCatalog,
+    );
+
+    emails.createTemplate.mockResolvedValueOnce({ kind: 'limit_reached' });
+    const limit = await call(emailUrl('/templates'), { method: 'POST', body });
+    expect(limit.status).toBe(409);
+    expect((await errorOf(limit)).code).toBe('email_template_limit_reached');
+
+    emails.createTemplate.mockResolvedValueOnce({
+      kind: 'invalid',
+      error: 'invalid_fill_in',
+      fillIn: 'prop:custom_secret',
+      where: 'subject',
+    });
+    const refused = await call(emailUrl('/templates'), { method: 'POST', body });
+    expect(refused.status).toBe(400);
+    expect(await errorOf(refused)).toMatchObject({
+      code: 'invalid_fill_in',
+      details: { fillIn: 'prop:custom_secret', where: 'subject' },
+    });
+
+    for (const bad of [
+      { ...body, name: '' },
+      { ...body, extra: 1 },
+      { name: 'x', subject: '' },
+    ]) {
+      const response = await call(emailUrl('/templates'), { method: 'POST', body: bad });
+      expect(response.status).toBe(400);
+      expect((await errorOf(response)).code).toBe('invalid_request');
+    }
+  });
+
+  it('archive and restore map each outcome; the key is checked after the permission', async () => {
+    const archived = await call(emailUrl(`/templates/${SITE_MADE}/archive`), { method: 'POST' });
+    expect(archived.status).toBe(200);
+    expect(siteEmailTemplateResponseSchema.parse(await archived.json()).template.archived).toBe(
+      true,
+    );
+    expect(emails.setTemplateArchived).toHaveBeenLastCalledWith(
+      { workspaceId: WORKSPACE, actorId: ACTOR, requestId: expect.any(String) },
+      SITE_MADE,
+      true,
+    );
+    const restored = await call(emailUrl(`/templates/${SITE_MADE}/restore`), { method: 'POST' });
+    expect(siteEmailTemplateResponseSchema.parse(await restored.json()).template.archived).toBe(
+      false,
+    );
+
+    for (const [outcome, status, code] of [
+      ['builtin', 409, 'email_template_builtin'],
+      ['not_found', 404, 'email_template_not_found'],
+      ['limit_reached', 409, 'email_template_limit_reached'],
+    ] as const) {
+      emails.setTemplateArchived.mockResolvedValueOnce({ kind: outcome });
+      const response = await call(emailUrl(`/templates/${SITE_MADE}/restore`), { method: 'POST' });
+      expect(response.status, outcome).toBe(status);
+      expect((await errorOf(response)).code).toBe(code);
+    }
+
+    const calls = emails.setTemplateArchived.mock.calls.length;
+    asRole('viewer');
+    const refused = await call(emailUrl('/templates/nope/archive'), { method: 'POST' });
+    expect(refused.status).toBe(403);
+    asRole('owner');
+    const unknown = await call(emailUrl('/templates/nope/archive'), { method: 'POST' });
+    expect(unknown.status).toBe(404);
+    expect((await errorOf(unknown)).code).toBe('email_template_not_found');
+    expect(emails.setTemplateArchived).toHaveBeenCalledTimes(calls);
+  });
+
+  it('GET templates?archived=1 pages the archived site-made templates', async () => {
+    const response = await call(emailUrl(`/templates?archived=1&before=${SITE_MADE}`));
+    expect(response.status).toBe(200);
+    const body = listSiteEmailTemplatesResponseSchema.parse(await response.json());
+    expect(body).toMatchObject({
+      nextBefore: SITE_MADE,
+      templates: [{ key: SITE_MADE, archived: true }],
+    });
+    expect(emails.listArchivedTemplates).toHaveBeenCalledWith(
+      { workspaceId: WORKSPACE, actorId: ACTOR, requestId: expect.any(String) },
+      { before: SITE_MADE },
+    );
+    expect(emails.listTemplates).not.toHaveBeenCalled();
+    expect((await call(emailUrl('/templates?archived=yes'))).status).toBe(400);
+    expect((await call(emailUrl('/templates?before=dispatched'))).status).toBe(400);
+  });
+
+  it('PUT and preview take a site-made key: the save checks it against the catalogue', async () => {
+    const saved = await call(emailUrl(`/templates/${SITE_MADE}`), {
+      method: 'PUT',
+      body: templateBody,
+    });
+    expect(saved.status).toBe(200);
+    expect(emails.putTemplate).toHaveBeenLastCalledWith(
+      { workspaceId: WORKSPACE, actorId: ACTOR, requestId: expect.any(String) },
+      SITE_MADE,
+      templateBody,
+      codePropertyCatalog,
+    );
+    emails.putTemplate.mockResolvedValueOnce({ kind: 'not_found' });
+    const gone = await call(emailUrl(`/templates/${SITE_MADE}`), {
+      method: 'PUT',
+      body: templateBody,
+    });
+    expect(gone.status).toBe(404);
+    expect((await errorOf(gone)).code).toBe('email_template_not_found');
+
+    // A built-in key is saved without reading the catalogue.
+    loadCatalog.mockClear();
+    await call(emailUrl('/templates/order_received'), { method: 'PUT', body: templateBody });
+    expect(loadCatalog).not.toHaveBeenCalled();
+
+    const preview = await call(emailUrl(`/templates/${SITE_MADE}/preview`), {
+      method: 'POST',
+      body: { subject: 'Your {prop:custom_size}', body: 'Order {order number}' },
+    });
+    expect(preview.status).toBe(200);
+    const rendered = previewEmailTemplateResponseSchema.parse(await preview.json());
+    expect(rendered.subject).toBe('Your [custom_size]');
+    expect(rendered.text).toContain('Order MS-1042');
+  });
+
+  it('a test mail of a site-made template that is gone is 404, one with properties 409', async () => {
+    compose.mockResolvedValueOnce({
+      kind: 'skipped',
+      reason: 'template_unavailable',
+    } satisfies ComposeOutcome);
+    const gone = await call(emailUrl(`/templates/${SITE_MADE}/test`), { method: 'POST' });
+    expect(gone.status).toBe(404);
+    expect((await errorOf(gone)).code).toBe('email_template_not_found');
+
+    compose.mockResolvedValueOnce({
+      kind: 'skipped',
+      reason: 'missing_fill_in',
+      missing: ['prop:custom_size'],
+    } satisfies ComposeOutcome);
+    const props = await call(emailUrl(`/templates/${SITE_MADE}/test`), { method: 'POST' });
+    expect(props.status).toBe(409);
+    expect(await errorOf(props)).toMatchObject({
+      code: 'feature_not_ready',
+      details: { reason: 'property_fill_ins' },
+    });
+    expect(queue).not.toHaveBeenCalled();
   });
 });

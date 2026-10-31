@@ -16,9 +16,15 @@ import { expect, test, type Page } from '@playwright/test';
  * one after it adds a plan, works an order and archives and restores it. The
  * last takes that order to Activated: Rogers 60GB requires a passport, Nadia
  * Khan's is attached and not reviewed, Get Canada Sim's email settings are
- * saved with its Dispatched email at version 1, and every automation is off.
- * Nadia Khan also has a pending change request #1 from the website's tracking
- * (a new phone and arrival date), which the tenth journey approves.
+ * saved with its Dispatched email at version 1, and every flow is off: the
+ * six built-ins and one custom flow, "Verified follow-up" (when a SIM order
+ * moves to Verified: if its plan is Rogers 60GB, a task for the lead's owner;
+ * else wait two days, then the Activated email), activated through the flow
+ * store. Nadia Khan also has a pending change request #1 from the website's
+ * tracking (a new phone and arrival date), which the tenth journey approves.
+ * Leila Ahmadi, a second Rogers 60GB order on Pending, is the one the custom
+ * flow's journey moves; Omar Haddad, an abandoned checkout (Incomplete, the
+ * Fido plan, never submitted), is the one the last journey rescues.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -515,16 +521,17 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   const errors = trackErrors(page);
   const dispatchedRule = 'When a SIM order moves to Delivered → send the Dispatched email';
   const activatedRule = 'When a SIM order moves to Activated → send the Activated email';
+  const flows = page.getByRole('table', { name: 'Automation flows' });
   const ruleRow = (label: string) =>
-    page
-      .getByRole('list', { name: 'Automations' })
-      .getByRole('listitem')
-      .filter({ has: page.getByRole('switch', { name: label, exact: true }) });
+    flows.getByRole('row').filter({ has: page.getByRole('switch', { name: label, exact: true }) });
 
-  // Automations: every rule is off until the owner switches it on.
+  // Automations: the six built-in flows and the custom one, every one off
+  // until the owner switches it on.
   await page.goto('/w/getcanadasim/automations');
-  const switches = page.getByRole('list', { name: 'Automations' }).getByRole('switch');
-  await expect(switches).toHaveCount(6);
+  const switches = flows.getByRole('switch');
+  await expect(switches).toHaveCount(7);
+  await expect(flows.getByText('Built in', { exact: true })).toHaveCount(6);
+  await expect(page.getByRole('switch', { name: 'Verified follow-up', exact: true })).toBeVisible();
   for (const toggle of await switches.all()) {
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
   }
@@ -603,18 +610,23 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   await expect(stage).toHaveValue('activated');
   await expect(timeline).toContainText('Activated email queued by an automation');
 
-  // Automations: each rule queued one email; the Dispatched rule's run is Nadia Khan's.
+  // Automations: each flow ran once; the Dispatched flow's page shows Nadia Khan's run.
   await page.goto('/w/getcanadasim/automations');
   for (const rule of [dispatchedRule, activatedRule]) {
-    await expect(ruleRow(rule).locator('dt:text-is("Emails queued") + dd')).toHaveText('1');
+    // Name, When, On, Last run, Runs, Status.
+    await expect(ruleRow(rule).getByRole('cell').nth(4)).toHaveText('1');
   }
-  await ruleRow(dispatchedRule).getByRole('button', { name: 'Recent runs' }).click();
-  const runs = ruleRow(dispatchedRule)
-    .getByRole('list', { name: 'Recent runs' })
-    .getByRole('listitem');
+  await ruleRow(dispatchedRule).getByRole('link', { name: dispatchedRule, exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: dispatchedRule })).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'What it does' })
+      .getByText('Send the Dispatched email', { exact: true }),
+  ).toBeVisible();
+  const runs = page.getByRole('list', { name: 'Recent runs' }).getByRole('listitem');
   await expect(runs).toHaveCount(1);
   await expect(runs.first().getByRole('link', { name: 'Nadia Khan' })).toBeVisible();
-  await expect(runs.first()).toContainText('Queued');
+  await expect(runs.first()).toContainText('Completed');
 
   // Settings → Email: the Dispatched email is edited, previewed and saved as version 2.
   await page.goto('/w/getcanadasim/settings');
@@ -685,5 +697,107 @@ test('a customer’s change request is approved on the lead page', async ({ page
   await expect(page.getByRole('heading', { level: 1, name: 'Nadia Khan' })).toBeVisible();
   await expect(page.locator('dt:text-is("Phone") + dd')).toHaveText('647 555 0299');
   await expect(page.getByRole('region', { name: 'Change request #1' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+const flowRow = (page: Page, name: string) =>
+  page
+    .getByRole('table', { name: 'Automation flows' })
+    .getByRole('row')
+    .filter({ has: page.getByRole('link', { name, exact: true }) });
+
+test('a custom flow with an if/else and a wait is read on its page, switched on and fires on a move', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/automations');
+  const row = flowRow(page, 'Verified follow-up');
+  await expect(row).toContainText('A SIM order moves to Verified');
+  await expect(row.getByText(/Needs attention|Not activated|Draft changes/)).toHaveCount(0);
+
+  // Its page reads the flow top to bottom, the branches labelled Yes and No.
+  await row.getByRole('link', { name: 'Verified follow-up', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Verified follow-up' })).toBeVisible();
+  await expect(page.getByText('Active, version 1')).toBeVisible();
+  const definition = page.getByRole('region', { name: 'What it does' });
+  await expect(definition.getByRole('list', { name: 'Yes' })).toBeVisible();
+  const text = (await definition.textContent()) ?? '';
+  let at = 0;
+  for (const words of [
+    'When a SIM order moves to Verified',
+    'If the plan is Rogers 60GB',
+    'Yes',
+    'Create the task "Call {first name} about {order number}" due in 1 day for the lead\'s owner',
+    'No',
+    'Wait 2 days',
+    'Send the Activated email',
+  ]) {
+    const found = text.indexOf(words, at);
+    expect(found, words).toBeGreaterThanOrEqual(0);
+    at = found + words.length;
+  }
+  const flowPage = page.url();
+
+  // Back on the list, switched on.
+  await page.getByRole('link', { name: 'All automations' }).click();
+  const toggle = flowRow(page, 'Verified follow-up').getByRole('switch', {
+    name: 'Verified follow-up',
+  });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+  // Leila Ahmadi's order (Rogers 60GB) moves from Pending to Verified: the yes branch.
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await page.getByRole('link', { name: 'Leila Ahmadi' }).click();
+  await page.getByRole('link', { name: 'Open full page' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Leila Ahmadi' })).toBeVisible();
+  const stage = page.getByLabel('Stage');
+  await expect(stage).toHaveValue('pending');
+  await stage.selectOption({ label: 'Verified' });
+  await expect(page.getByRole('region', { name: 'Timeline' })).toContainText(
+    'moved this from Pending to Verified',
+  );
+  await page.reload();
+  await expect(page.getByRole('region', { name: /^Tasks/ })).toContainText(
+    /Call Leila about MS-\d+/,
+  );
+
+  // The flow's page shows the run, completed, for Leila Ahmadi.
+  await page.goto(flowPage);
+  const runs = page.getByRole('list', { name: 'Recent runs' }).getByRole('listitem');
+  await expect(runs).toHaveCount(1);
+  await expect(runs.first().getByRole('link', { name: 'Leila Ahmadi' })).toBeVisible();
+  await expect(runs.first()).toContainText('Completed');
+  expect(errors).toEqual([]);
+});
+
+test('a rescued checkout is submitted and gets the Order received email', async ({ page }) => {
+  const errors = trackErrors(page);
+  const orderReceived = 'When an order is submitted on the website → send the Order received email';
+  await page.goto('/w/getcanadasim/automations');
+  const toggle = flowRow(page, orderReceived).getByRole('switch', {
+    name: orderReceived,
+    exact: true,
+  });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+  // Omar Haddad never finished his checkout; staff move it on to Pending.
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await page.getByRole('link', { name: 'Omar Haddad' }).click();
+  await page.getByRole('link', { name: 'Open full page' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Omar Haddad' })).toBeVisible();
+  const stage = page.getByLabel('Stage');
+  await expect(stage).toHaveValue('incomplete');
+  await stage.selectOption({ label: 'Pending' });
+  await expect(stage).toHaveValue('pending');
+  const timeline = page.getByRole('region', { name: 'Timeline' });
+  await expect(timeline).toContainText('Order received email queued by an automation');
+  await expect(timeline).toContainText('submitted this checkout for the customer');
+  await expect(timeline).toContainText('moved this from Incomplete to Pending');
+
+  // Submitted now: the order received flow ran once for it.
+  await page.goto('/w/getcanadasim/automations');
+  await expect(flowRow(page, orderReceived).getByRole('cell').nth(4)).toHaveText('1');
   expect(errors).toEqual([]);
 });

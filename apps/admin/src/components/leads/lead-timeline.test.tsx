@@ -260,9 +260,59 @@ describe('LeadTimeline', () => {
     expect(first?.textContent).toContain('Dispatched email queued by an automation (version 3)');
     expect(first?.textContent).not.toContain('You');
     expect(within(first!).getByRole('link', { name: 'an automation' }).getAttribute('href')).toBe(
-      '/w/getcanadasim/automations',
+      '/w/getcanadasim/automations/sim_order_dispatched',
     );
     expect(second?.textContent).toContain('You emailed the customer their SIM number');
+  });
+
+  it('says a staff move submitted a checkout the customer never finished', () => {
+    const rescued = leadActivitySchema.parse(entry('c', { event: 'submitted' }));
+    const region = timeline([rescued]);
+    const [first] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain('You submitted this checkout for the customer');
+    expect(first?.textContent).not.toContain('on the website');
+  });
+
+  it('names a site-made template a flow sent by its name', () => {
+    const queued = leadActivitySchema.parse(
+      entry('a', {
+        event: 'customer_emailed',
+        template: 'tpl_abcdefghij012345',
+        templateName: 'Welcome note',
+        templateVersion: 2,
+        automation: 'flow_abcdefghij012345',
+        automationName: 'Follow up new orders',
+      }),
+    );
+    const region = timeline([queued]);
+    const [first] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain('Welcome note email queued by an automation (version 2)');
+    expect(within(first!).getByRole('link', { name: 'an automation' }).getAttribute('href')).toBe(
+      '/w/getcanadasim/automations/flow_abcdefghij012345',
+    );
+  });
+
+  it('says a flow made a move, by its name, linked to the flow', () => {
+    const moved = leadActivitySchema.parse({
+      id: '92000000-0000-4000-8000-00000000000b',
+      actorId: SELF,
+      createdAt: NOW,
+      kind: 'status_change',
+      from: 'pending',
+      to: 'verified',
+      automation: 'flow_abcdefghij012345',
+      automationName: 'Follow up new orders',
+    });
+    const region = timeline([moved]);
+    const [first] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain(
+      'moved this from Pending to Verified by automation Follow up new orders',
+    );
+    // The member who activated the flow is not named as having made the move.
+    expect(first?.textContent).not.toContain('You');
+    expect(
+      within(first!).getByRole('link', { name: 'Follow up new orders' }).getAttribute('href'),
+    ).toBe('/w/getcanadasim/automations/flow_abcdefghij012345');
   });
 
   describe('change requests made through the CRM', () => {

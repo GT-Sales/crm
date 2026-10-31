@@ -1,16 +1,16 @@
 'use client';
 
 import { useMemo } from 'react';
-import type { EmailSettingsResponse, EmailTemplate } from '@gt-sales/contracts';
+import type { EmailSettingsResponse, SiteEmailTemplate } from '@gt-sales/contracts';
 
 import { BackendError, getEmailSettings, listEmailTemplates } from '../../lib/api';
 import { useResource } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
 
-const NO_TEMPLATES: readonly EmailTemplate[] = [];
+const NO_TEMPLATES: readonly SiteEmailTemplate[] = [];
 
 type Loaded =
-  | { kind: 'loaded'; settings: EmailSettingsResponse; templates: readonly EmailTemplate[] }
+  | { kind: 'loaded'; settings: EmailSettingsResponse; templates: readonly SiteEmailTemplate[] }
   | { kind: 'forbidden' };
 
 /** Whether `error` is the backend refusing the caller (a 403). */
@@ -19,14 +19,14 @@ export function isForbidden(error: unknown): boolean {
 }
 
 /**
- * The site's email settings and its nine templates (Settings → Email), read
+ * The site's email settings and its templates (Settings → Email), read
  * together. Until they arrive, or when they cannot be read, `settings` is
  * undefined and `error` says why; `forbidden` is true when the backend
  * refused the caller, who is then not allowed to change email settings.
  */
 export function useEmailSettings(workspaceId: string | undefined): {
   settings: EmailSettingsResponse | undefined;
-  templates: EmailTemplate[];
+  templates: SiteEmailTemplate[];
   forbidden: boolean;
   reload(): Promise<void>;
   error?: string;

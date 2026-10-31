@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import {
-  CUSTOMER_EMAIL_TEMPLATE_LABELS,
+  emailTemplateLabel,
   LEGACY_IMPORT_ACTOR_ID,
   leadStageLabel,
   type AssignableMember,
@@ -104,9 +104,38 @@ function personName(actorId: string | null, members: readonly AssignableMember[]
 
 /**
  * An entry's icon and words. `actor` null leaves out who: an automation
- * queued the mail, whoever made the move that fired it.
+ * queued the mail, whoever made the move that fired it. An entry a flow wrote
+ * (a move, an assignment, a correction) reads "… by automation <name>",
+ * linked to the flow, rather than naming the member who activated it.
  */
 function describe(
+  activity: LeadActivity,
+  leadType: string,
+  members: readonly AssignableMember[],
+  catalog: PropertyCatalog | undefined,
+  workspaceSlug: string,
+): { icon: ReactNode; text: ReactNode; actor?: null } {
+  const described = describeEntry(activity, leadType, members, catalog, workspaceSlug);
+  const isMail = activity.kind === 'system' && activity.event === 'customer_emailed';
+  if (!activity.automation || !activity.automationName || isMail) return described;
+  return {
+    icon: <BotIcon />,
+    actor: null,
+    text: (
+      <>
+        {described.text} by automation{' '}
+        <Link
+          href={`/w/${workspaceSlug}/automations/${activity.automation}`}
+          className="underline-offset-2 hover:underline"
+        >
+          {activity.automationName}
+        </Link>
+      </>
+    ),
+  };
+}
+
+function describeEntry(
   activity: LeadActivity,
   leadType: string,
   members: readonly AssignableMember[],
@@ -162,6 +191,10 @@ function describe(
       if (activity.event === 'trashed') return { icon: <ArchiveIcon />, text: 'archived this' };
       if (activity.event === 'restored') return { icon: <RotateCcwIcon />, text: 'restored this' };
       if (activity.event === 'opened') return { icon: <EyeIcon />, text: 'opened this' };
+      if (activity.event === 'submitted' && members.some((m) => m.actorId === activity.actorId)) {
+        // A staff move rescued a checkout the customer never finished (merge phase 8, O9).
+        return { icon: <ArrowRightIcon />, text: 'submitted this checkout for the customer' };
+      }
       if (activity.event === 'submitted') {
         // The website's credential made the move, so no name is shown.
         return {
@@ -213,9 +246,10 @@ function describe(
           actor: null,
           text: (
             <>
-              {CUSTOMER_EMAIL_TEMPLATE_LABELS[activity.template]} email queued by{' '}
+              {emailTemplateLabel(activity.template, activity.templateName)} email queued by{' '}
               <Link
-                href={`/w/${workspaceSlug}/automations`}
+                href={`/w/${workspaceSlug}/automations/${activity.automation}`}
+                title={activity.automationName}
                 className="underline-offset-2 hover:underline"
               >
                 an automation
@@ -353,7 +387,7 @@ export function LeadTimeline({
                   {icon}
                 </span>
                 <div className="min-w-0 flex-1 pt-1 text-sm">
-                  <p>
+                  <p className={actor === null ? 'first-letter:uppercase' : undefined}>
                     {actor === null ? null : (
                       <>
                         <span className="font-medium">

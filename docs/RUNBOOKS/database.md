@@ -666,6 +666,107 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
   new prune block (a challenge expired 25 hours ago pruned, 23 hours kept,
   another site's kept; a change request never pruned; the table listed).
 
+## 0019_automation_flows
+
+- Merge phase 8, step A
+  (docs/superpowers/plans/2026-10-31-phase-8-automation-flows-step-a.md;
+  spec docs/superpowers/specs/2026-10-31-phase-8-automation-flows-design.md
+  §4), generated from `packages/db/src/schema.ts` and then reordered by hand
+  before any apply (the `(workspace_id, id)` unique constraints on
+  `automations` and `automation_runs` come before the composite FKs that
+  reference them; `db:generate` reports no drift). Additive: every new
+  column is nullable or has a constant or `now()` default, so no table is
+  rewritten.
+- New tables, each with its tenant policy and `<table>_backup_reader_read`
+  (so `app` now has 42 `_backup_reader_read` policies):
+  `app.automation_versions` (a flow's draft, active, retired and discarded
+  versions; one draft and one active per flow; the definition at most 64 KiB),
+  `app.automation_step_runs` (one row per step outcome, append-only,
+  `created_at` from `clock_timestamp()` so a run's steps read in order),
+  `app.automation_waits` (a run paused at a wait step; `attempts` 0 to 5) and
+  `app.automation_timers` (a time trigger waiting for its moment; once per
+  `(workspace, automation, lead, occurrence)`).
+- New columns: `automations` `origin` (default `builtin`), `name` (null for
+  a built-in until seeded), `description`, `active_version_id`, `revision`,
+  `created_by`, `created_at`, `archived_at`; `automation_runs`
+  `automation_id`, `version_id`, `status` (default `completed`),
+  `occurrence`, `trigger_kind`, `depth` (0 to 3), `parent_run_id`, `detail`,
+  `updated_at`, `finished_at`, with `outcome` made nullable (set only on rows
+  from before the conversion); `email_templates` `name` and `archived_at`
+  (site-made `tpl_…` templates only); `memberships` `notification_email`.
+- The key, reason and outcome checks of `automations`, `automation_runs`,
+  `email_templates` and `email_template_versions` are dropped and re-added
+  as shapes (custom flow keys `^flow_[a-z0-9]{16}$`, template keys
+  `^tpl_[a-z0-9]{16}$`, reasons `^[a-z][a-z0-9_]{0,63}$`); each re-added check
+  scans its table once. Unique index `automation_runs_occurrence_unique`: a
+  flow runs once per lead and occurrence.
+- Drizzle hash `c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b`,
+  `created_at` `1793450665432`. **To apply** (below, with 0020).
+
+## 0020_automation_flows_runtime
+
+- Hand-written companion to 0019, every statement safe to run twice: FORCE
+  RLS on the four new tables; `app_runtime` gets `SELECT, INSERT, UPDATE` on
+  versions, waits and timers, `SELECT, INSERT` on step runs, and `UPDATE` of
+  exactly `status`, `reason`, `detail`, `updated_at` and `finished_at` on
+  `automation_runs` (no DELETE anywhere); the FK from a flow to its live
+  version (a guarded `DO` block: the two tables reference each other); the
+  trigger `automation_versions_definition_guard`, which keeps an activated
+  version fixed (its definition, its activation and every status move but
+  `active → retired`; `automation_version_immutable`, SQLSTATE 23514);
+  `app.builtin_flow_definition(key)` and `app.builtin_flow_name(key)` (the six
+  defaults and labels, tied to contracts by
+  `apps/backend/tests/automation-sql-contracts.integration.test.ts`);
+  `app.record_staff_notification_email(address)` (SECURITY DEFINER: the
+  signed-in member's own notification address on their active memberships);
+  `app.current_workspace_identity()` (SECURITY DEFINER: the open tenant
+  transaction's own site slug and name, for a staff notification's subject
+  and link; it takes no argument, needs the site and actor settings every
+  tenant policy needs, and `app_runtime` still has no grant on
+  `app.workspaces`); the conversion of existing rule rows (name, version 1 active,
+  `active_version_id`) and runs (`automation_id`, `status`, `version_id`,
+  `finished_at`, the occurrence from the job's dedupe key), guarded by
+  `is null`; and last `app.prune_operational_rows` replaced with 0018's body
+  except that runs go 90 days after they **finish** (never while waiting)
+  and fired or void timers 90 days after they ended.
+- **The `CREATE OR REPLACE FUNCTION app.prune_operational_rows` statement is
+  the one the owner pastes by hand** (marked `OWNER PASTE` in the paste file,
+  and repeated after the verification selects), as in phases 4 and 5.
+- Drizzle hash `49d165bbb384a89f564456e349c83547826a5c6f67b4e8369b275ca8076b220c`,
+  `created_at` `1793450690795`. **To apply**, before the backend of merge
+  phase 8 step A is deployed.
+- **The deploy window.** Do not switch automation rules between applying
+  these migrations and the new backend going live: the old backend can still
+  switch a rule on, creating a row with no version that the new firing
+  ignores until the Automations list repairs it (production had no rule on
+  on 2026-10-31). The old admin's Automations page may show its load error
+  (its schema expects exactly six rules) until the admin deploys.
+- To apply: in the SQL editor, as `postgres`, run
+  [`manual/0019-0020-automation-flows.sql`](manual/0019-0020-automation-flows.sql)'s
+  pre-check (A: the four tables absent, no `automations.origin`, no tracker
+  rows); paste `BEGIN` … `COMMIT` once (one transaction, both files verbatim
+  and all four tracker rows); run the verification selects one at a time
+  (FORCE RLS on the four, 42 backup read policies, the grants per table and
+  verb with no DELETE and the five updatable run columns, the replaced
+  checks, the FK, the trigger, the five functions and who may run
+  `current_workspace_identity`, the prune function naming
+  `automation_timers` and `status <> 'waiting'`, the tracker rows). Or apply
+  the plain statements through the Supabase tool in small batches, hand the
+  owner the OWNER PASTE statement, add the tracker rows by hand and verify
+  against the catalog, never the trackers. Record the date, the tracker
+  versions and the results here.
+- Rehearsed 2026-10-31 (by Batch 1, twice, and again after Batch 2 added
+  `app.current_workspace_identity()`) on a local database migrated to 0018 holding an enabled built-in, a queued run with
+  its job and a skipped run: the paste file exited 0, every verification
+  select gave its comment's value, the built-in had version 1 active and
+  its name, the queued run became `completed` with its occurrence and the
+  skipped one `skipped`; the migrator then applied nothing.
+- `packages/db/tests/automation-flows.integration.test.ts` covers RLS and
+  FORCE, the policies, the grants, site isolation, every check, the version
+  guard, the notification function, the re-run and the backfill;
+  `apps/backend/tests/operational-retention.integration.test.ts` the new
+  prune blocks.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

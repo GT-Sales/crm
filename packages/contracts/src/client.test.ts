@@ -186,7 +186,10 @@ describe('createBackendClient transport', () => {
       updatedAt: '2026-10-30T12:00:00.000Z',
       updatedBy: UUID,
     };
-    const templates = harness(200, { template, requestId: UUID });
+    const templates = harness(200, {
+      template: { ...template, name: 'Dispatched', archived: false, usedBy: [] },
+      requestId: UUID,
+    });
     await templates.client.staff.updateEmailTemplate(UUID, 'dispatched', {
       expectedVersion: 0,
       subject: 'On its way',
@@ -197,16 +200,21 @@ describe('createBackendClient transport', () => {
       `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/templates/dispatched`,
     );
 
-    const rule = {
+    const flow = {
       key: 'order_received',
-      label: 'When an order is submitted on the website → send the Order received email',
-      trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
-      action: { kind: 'send_email', template: 'order_received' },
+      origin: 'builtin',
+      name: 'When an order is submitted on the website → send the Order received email',
+      description: null,
       enabled: true,
+      archived: false,
+      trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'], when: null },
+      activeVersion: 1,
+      hasDraft: false,
       lastRunAt: null,
       runCount: 0,
+      needsAttention: null,
     };
-    const automations = harness(200, { automation: rule, requestId: UUID });
+    const automations = harness(200, { automation: flow, requestId: UUID });
     await automations.client.staff.updateAutomation(UUID, 'order_received', { enabled: true });
     expect(automations.calls[0]?.method).toBe('PUT');
     expect(automations.calls[0]?.url).toBe(
@@ -214,11 +222,32 @@ describe('createBackendClient transport', () => {
     );
     expect(JSON.parse(automations.calls[0]?.body ?? '{}')).toEqual({ enabled: true });
 
-    const runs = harness(200, { runs: [], requestId: UUID });
+    const list = harness(200, {
+      automations: [flow],
+      nextBefore: null,
+      warnings: [],
+      canManage: true,
+      hasSender: true,
+      limit: 50,
+      requestId: UUID,
+    });
+    await list.client.staff.listAutomations(UUID);
+    await list.client.staff.listAutomations(UUID, {
+      archived: '1',
+      before: 'flow_abcdefghij012345',
+    });
+    expect(list.calls.map((call) => call.url)).toEqual([
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations`,
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations?archived=1&before=flow_abcdefghij012345`,
+    ]);
+
+    const runs = harness(200, { runs: [], nextBefore: null, requestId: UUID });
     await runs.client.staff.listAutomationRuns(UUID, 'order_received');
-    expect(runs.calls[0]?.url).toBe(
+    await runs.client.staff.listAutomationRuns(UUID, 'order_received', { before: UUID });
+    expect(runs.calls.map((call) => call.url)).toEqual([
       `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations/order_received/runs`,
-    );
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations/order_received/runs?before=${UUID}`,
+    ]);
 
     const preview = harness(200, { subject: 'S', html: '<p>x</p>', text: 'x', requestId: UUID });
     await preview.client.staff.previewEmailTemplate(UUID, 'dispatched', {
@@ -642,5 +671,221 @@ describe('source report client method', () => {
     expect(allTime.calls[0]?.url).toBe(
       `https://api.example.test/api/v1/staff/workspaces/${UUID}/reports/sources?leadType=internet`,
     );
+  });
+});
+
+describe('createBackendClient automation flows and site-made templates', () => {
+  const FLOW = 'flow_abcdefghij012345';
+  const AT = '2026-10-31T12:00:00.000Z';
+  const base = `https://api.example.test/api/v1/staff/workspaces/${UUID}`;
+  const summary = {
+    key: FLOW,
+    origin: 'custom',
+    name: 'My flow',
+    description: null,
+    enabled: false,
+    archived: false,
+    trigger: null,
+    activeVersion: null,
+    hasDraft: true,
+    lastRunAt: null,
+    runCount: 0,
+    needsAttention: null,
+  };
+  const detail = {
+    automation: summary,
+    revision: 3,
+    draft: { version: 1, definition: { schemaVersion: 1, trigger: null, steps: [] }, issues: [] },
+    active: null,
+    versions: [{ version: 1, status: 'draft', activatedAt: null, activatedBy: null }],
+    canManage: true,
+    requestId: UUID,
+  };
+  const template = {
+    key: 'tpl_abcdefghij012345',
+    name: 'My note',
+    subject: 'S',
+    body: 'B',
+    version: 1,
+    updatedAt: AT,
+    updatedBy: UUID,
+    archived: false,
+    usedBy: [],
+  };
+  const run = {
+    id: UUID,
+    leadId: UUID,
+    leadName: null,
+    status: 'completed',
+    reason: null,
+    detail: null,
+    triggerKind: 'stage_entered',
+    version: 1,
+    startedAt: AT,
+    finishedAt: AT,
+    resumeAt: null,
+    legacy: false,
+    steps: [],
+  };
+  const catalog = {
+    leadTypes: [],
+    templates: [],
+    members: [],
+    plans: [],
+    properties: [],
+    taskVariables: [],
+    requestId: UUID,
+  };
+
+  it('issues each flow method on its path', async () => {
+    const cases: [
+      (client: BackendClient) => Promise<unknown>,
+      number,
+      unknown,
+      string,
+      string,
+      unknown,
+    ][] = [
+      [
+        (c) => c.staff.createAutomation(UUID, { name: 'My flow' }),
+        201,
+        detail,
+        'POST',
+        '/automations',
+        { name: 'My flow' },
+      ],
+      [
+        (c) => c.staff.getAutomationCatalog(UUID),
+        200,
+        catalog,
+        'GET',
+        '/automations/catalog',
+        undefined,
+      ],
+      [
+        (c) => c.staff.getAutomation(UUID, FLOW),
+        200,
+        detail,
+        'GET',
+        `/automations/${FLOW}`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.updateAutomationDetails(UUID, FLOW, { expectedRevision: 3, name: 'New' }),
+        200,
+        detail,
+        'PATCH',
+        `/automations/${FLOW}`,
+        { expectedRevision: 3, name: 'New' },
+      ],
+      [
+        (c) =>
+          c.staff.saveAutomationDraft(UUID, FLOW, {
+            expectedRevision: 3,
+            definition: { schemaVersion: 1, trigger: null, steps: [] },
+          }),
+        200,
+        detail,
+        'PUT',
+        `/automations/${FLOW}/draft`,
+        { expectedRevision: 3, definition: { schemaVersion: 1, trigger: null, steps: [] } },
+      ],
+      [
+        (c) => c.staff.discardAutomationDraft(UUID, FLOW),
+        200,
+        detail,
+        'POST',
+        `/automations/${FLOW}/draft/discard`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.activateAutomation(UUID, FLOW, { expectedRevision: 3 }),
+        200,
+        detail,
+        'POST',
+        `/automations/${FLOW}/activate`,
+        { expectedRevision: 3 },
+      ],
+      [
+        (c) => c.staff.resetAutomation(UUID, 'order_received'),
+        200,
+        detail,
+        'POST',
+        '/automations/order_received/reset',
+        undefined,
+      ],
+      [
+        (c) => c.staff.archiveAutomation(UUID, FLOW),
+        200,
+        detail,
+        'POST',
+        `/automations/${FLOW}/archive`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.restoreAutomation(UUID, FLOW),
+        200,
+        detail,
+        'POST',
+        `/automations/${FLOW}/restore`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.getAutomationVersion(UUID, FLOW, 2),
+        200,
+        {
+          version: {
+            version: 2,
+            status: 'active',
+            activatedAt: AT,
+            activatedBy: UUID,
+            definition: {},
+          },
+          requestId: UUID,
+        },
+        'GET',
+        `/automations/${FLOW}/versions/2`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.getAutomationRun(UUID, FLOW, UUID),
+        200,
+        { run, requestId: UUID },
+        'GET',
+        `/automations/${FLOW}/runs/${UUID}`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.createEmailTemplate(UUID, { name: 'My note', subject: 'S', body: 'B' }),
+        201,
+        { template, requestId: UUID },
+        'POST',
+        '/email/templates',
+        { name: 'My note', subject: 'S', body: 'B' },
+      ],
+      [
+        (c) => c.staff.archiveEmailTemplate(UUID, template.key),
+        200,
+        { template, requestId: UUID },
+        'POST',
+        `/email/templates/${template.key}/archive`,
+        undefined,
+      ],
+      [
+        (c) => c.staff.restoreEmailTemplate(UUID, template.key),
+        200,
+        { template, requestId: UUID },
+        'POST',
+        `/email/templates/${template.key}/restore`,
+        undefined,
+      ],
+    ];
+    for (const [invoke, status, response, method, path, body] of cases) {
+      const { client, calls } = harness(status, response);
+      await invoke(client);
+      expect(calls[0]?.method, path).toBe(method);
+      expect(calls[0]?.url).toBe(`${base}${path}`);
+      expect(calls[0]?.body === undefined ? undefined : JSON.parse(calls[0].body)).toEqual(body);
+    }
   });
 });

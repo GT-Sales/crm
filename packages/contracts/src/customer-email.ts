@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AUTOMATION_MAX_FLOWS, automationKeySchema, randomKeySuffix } from './automation-keys';
 import { isoDateTimeSchema, requestIdSchema } from './common';
 
 /**
@@ -9,8 +10,8 @@ import { isoDateTimeSchema, requestIdSchema } from './common';
  * A template is content only (subject, body, version); whether it is sent is
  * up to the staff action or the automation rule that names it.
  *
- * This module imports nothing but zod and `./common`, so every family file can
- * use it.
+ * This module imports nothing but zod, `./common` and `./automation-keys`, so
+ * every family file can use it.
  */
 
 /** The mails a site can send, in Settings → Email order. */
@@ -27,6 +28,28 @@ export const CUSTOMER_EMAIL_TEMPLATES = [
 ] as const;
 export const customerEmailTemplateSchema = z.enum(CUSTOMER_EMAIL_TEMPLATES);
 export type CustomerEmailTemplate = z.infer<typeof customerEmailTemplateSchema>;
+
+/** A site-made template's key (Settings → Email "New template"): `tpl_` and 16 of `[a-z0-9]`. */
+export const SITE_TEMPLATE_KEY_PATTERN = /^tpl_[a-z0-9]{16}$/;
+export const siteTemplateKeySchema = z.string().regex(SITE_TEMPLATE_KEY_PATTERN);
+/** Any template's key: one of the nine built-ins or a site-made one. */
+export const emailTemplateKeySchema = z.union([customerEmailTemplateSchema, siteTemplateKeySchema]);
+export type EmailTemplateKey = z.infer<typeof emailTemplateKeySchema>;
+
+/** A site-made template's key as a type. */
+export type SiteTemplateKey = `tpl_${string}`;
+
+export function isSiteTemplateKey(key: string): key is SiteTemplateKey {
+  return SITE_TEMPLATE_KEY_PATTERN.test(key);
+}
+
+/** `tpl_` + 16 of [a-z0-9] from `crypto.getRandomValues`. */
+export function generateTemplateKey(): string {
+  return `tpl_${randomKeySuffix(16)}`;
+}
+
+/** Site-made templates per site that are not archived (P13). */
+export const EMAIL_TEMPLATE_MAX_SITE_MADE = 50;
 
 export const CUSTOMER_EMAIL_TEMPLATE_LABELS: Readonly<Record<CustomerEmailTemplate, string>> = {
   tracking_code: 'Tracking code',
@@ -62,9 +85,15 @@ export const EMAIL_FILL_IN_KEYS = [
   'courier',
   'tracking number',
   'tracking link',
+  'order number',
   'code',
 ] as const;
 export type EmailFillInKey = (typeof EMAIL_FILL_IN_KEYS)[number];
+
+/** Whether `name` is one of `EMAIL_FILL_IN_KEYS` (not a `prop:` fill-in). */
+export function isEmailFillInKey(name: string): name is EmailFillInKey {
+  return EMAIL_FILL_IN_KEYS.some((key) => key === name);
+}
 
 /** One fill-in: what it is replaced with, for the editor's hint, and the templates that may use it. */
 export interface EmailFillIn {
@@ -105,14 +134,39 @@ export const emailFillIns: readonly EmailFillIn[] = [
     hint: 'The link to the site’s order tracking page',
     templates: ORDER_TEMPLATES,
   },
+  { key: 'order number', hint: 'The order number, such as MS-1042', templates: ORDER_TEMPLATES },
   { key: 'code', hint: 'The customer’s one-time tracking code', templates: ['tracking_code'] },
 ];
 
-/** The fill-ins `template` may use, in `EMAIL_FILL_IN_KEYS` order. */
-export function fillInsForTemplate(template: CustomerEmailTemplate): readonly EmailFillInKey[] {
+/**
+ * The fill-ins `template` may use, in `EMAIL_FILL_IN_KEYS` order. A site-made
+ * template may use every one but the code (it is never the tracking code mail).
+ */
+export function fillInsForTemplate(template: EmailTemplateKey): readonly EmailFillInKey[] {
+  const builtIn = customerEmailTemplateSchema.safeParse(template);
+  if (!builtIn.success) return EMAIL_FILL_IN_KEYS.filter((key) => key !== 'code');
   return emailFillIns
-    .filter((fillIn) => fillIn.templates.includes(template))
+    .filter((fillIn) => fillIn.templates.includes(builtIn.data))
     .map((fillIn) => fillIn.key);
+}
+
+/** How a site-made template writes a property's value: `{prop:custom_size}`. */
+export const PROPERTY_FILL_IN_PREFIX = 'prop:';
+/** `prop:` and a property key (`propertyKeySchema`'s pattern, repeated here to keep this module's imports small). */
+const PROPERTY_FILL_IN_PATTERN = /^prop:[a-z][A-Za-z0-9_]{0,63}$/;
+
+/** A fill-in by name: one of `EMAIL_FILL_IN_KEYS`, or `prop:<key>` for a property. */
+export type EmailFillInName = EmailFillInKey | `prop:${string}`;
+export const emailFillInNameSchema = z.union([
+  z.enum(EMAIL_FILL_IN_KEYS),
+  z.string().regex(PROPERTY_FILL_IN_PATTERN),
+]);
+
+/** A template as staff read it: a built-in's label, else the site-made template's name, else "Site email". */
+export function emailTemplateLabel(key: string, name?: string | null): string {
+  const builtIn = customerEmailTemplateSchema.safeParse(key);
+  if (builtIn.success) return CUSTOMER_EMAIL_TEMPLATE_LABELS[builtIn.data];
+  return name ?? 'Site email';
 }
 
 const canonical = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -160,7 +214,7 @@ export const CUSTOMER_EMAIL_JOB_TYPE = 'lead_customer_email';
 export const customerEmailJobPayloadSchema = z
   .object({
     leadId: z.uuid().optional(),
-    template: customerEmailTemplateSchema,
+    template: emailTemplateKeySchema,
     templateVersion: z.int().min(0),
     toAddress: z.email(),
     contactHash: z.string().min(1),
@@ -209,6 +263,30 @@ export type TrackingCodeJobPayload = z.infer<typeof trackingCodeJobPayloadSchema
 /** What a `tracking_code_email` job keeps once it ends: the challenge id only. */
 export const trackingCodeScrubbedPayloadSchema = z.object({ challengeId: z.uuid() }).strict();
 export type TrackingCodeScrubbedPayload = z.infer<typeof trackingCodeScrubbedPayloadSchema>;
+
+/**
+ * The outbox job that mails a staff member a flow's notification (`notify_staff`):
+ * a link to the lead and the flow's name, nothing about the customer (O3).
+ */
+export const STAFF_NOTIFICATION_JOB_TYPE = 'staff_notification_email';
+
+/**
+ * The payload of a `staff_notification_email` job. It carries no address
+ * (P8): the handler reads the member's notification address when it sends,
+ * and skips when the member or the address is gone.
+ */
+export const staffNotificationJobPayloadSchema = z
+  .object({
+    actorId: z.uuid(),
+    flowKey: automationKeySchema,
+    flowName: z.string().min(1).max(80),
+    siteName: z.string().min(1).max(100),
+    leadId: z.uuid(),
+    leadPath: z.string().regex(/^\/w\/[a-z0-9-]{1,64}\/leads\/[0-9a-f-]{36}$/),
+    note: z.string().max(300),
+  })
+  .strict();
+export type StaffNotificationJobPayload = z.infer<typeof staffNotificationJobPayloadSchema>;
 
 /**
  * A site's email settings (`app.email_settings`, Settings → Email): who its
@@ -260,11 +338,66 @@ export const emailTemplateSchema = z.object({
 });
 export type EmailTemplate = z.infer<typeof emailTemplateSchema>;
 
-export const listEmailTemplatesResponseSchema = z.object({
-  templates: z.array(emailTemplateSchema).length(CUSTOMER_EMAIL_TEMPLATES.length),
+/**
+ * One template as Settings → Email lists it once sites make their own: a
+ * built-in (its label as `name`) or a site-made `tpl_` one, whether it is
+ * archived, and the flows whose active version sends it.
+ */
+export const siteEmailTemplateSchema = emailTemplateSchema.extend({
+  key: emailTemplateKeySchema,
+  name: z.string().min(1).max(80),
+  archived: z.boolean(),
+  usedBy: z
+    .array(z.object({ key: automationKeySchema, name: z.string() }))
+    .max(AUTOMATION_MAX_FLOWS),
+});
+export type SiteEmailTemplate = z.infer<typeof siteEmailTemplateSchema>;
+
+/** The archived site-made templates come a page at a time: archiving has no limit. */
+export const EMAIL_TEMPLATE_ARCHIVED_PAGE = 50;
+
+/**
+ * `?archived=1` lists the archived site-made templates instead, most recently
+ * archived first, `EMAIL_TEMPLATE_ARCHIVED_PAGE` at a time; `before` is the
+ * key the last page ended with (its `nextBefore`).
+ */
+export const listEmailTemplatesQuerySchema = z
+  .object({ archived: z.enum(['1']).optional(), before: siteTemplateKeySchema.optional() })
+  .strict();
+export type ListEmailTemplatesQuery = z.infer<typeof listEmailTemplatesQuerySchema>;
+
+/**
+ * `GET …/email/templates`: the nine built-ins, then the site's own that are
+ * not archived (at most `EMAIL_TEMPLATE_MAX_SITE_MADE`), by name; or a page
+ * of the archived ones. `nextBefore` pages the archived list; null otherwise.
+ */
+export const listSiteEmailTemplatesResponseSchema = z.object({
+  templates: z
+    .array(siteEmailTemplateSchema)
+    .max(
+      CUSTOMER_EMAIL_TEMPLATES.length +
+        Math.max(EMAIL_TEMPLATE_MAX_SITE_MADE, EMAIL_TEMPLATE_ARCHIVED_PAGE),
+    ),
+  nextBefore: siteTemplateKeySchema.nullable(),
   requestId: requestIdSchema,
 });
-export type ListEmailTemplatesResponse = z.infer<typeof listEmailTemplatesResponseSchema>;
+export type ListSiteEmailTemplatesResponse = z.infer<typeof listSiteEmailTemplatesResponseSchema>;
+
+/** `POST …/email/templates`: a site-made template; its markup and fill-ins are checked as on a save. */
+export const createEmailTemplateRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    subject: emailSubjectSchema,
+    body: emailBodySchema,
+  })
+  .strict();
+export type CreateEmailTemplateRequest = z.infer<typeof createEmailTemplateRequestSchema>;
+
+export const siteEmailTemplateResponseSchema = z.object({
+  template: siteEmailTemplateSchema,
+  requestId: requestIdSchema,
+});
+export type SiteEmailTemplateResponse = z.infer<typeof siteEmailTemplateResponseSchema>;
 
 /** `PUT …/email/templates/:key`; `expectedVersion` is the version the editor loaded. */
 export const updateEmailTemplateRequestSchema = z
@@ -275,12 +408,6 @@ export const updateEmailTemplateRequestSchema = z
   })
   .strict();
 export type UpdateEmailTemplateRequest = z.infer<typeof updateEmailTemplateRequestSchema>;
-
-export const emailTemplateResponseSchema = z.object({
-  template: emailTemplateSchema,
-  requestId: requestIdSchema,
-});
-export type EmailTemplateResponse = z.infer<typeof emailTemplateResponseSchema>;
 
 /** `POST …/email/templates/:key/preview`: the unsaved subject and body, rendered with sample values. */
 export const previewEmailTemplateRequestSchema = z

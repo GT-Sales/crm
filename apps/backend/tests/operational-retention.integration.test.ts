@@ -104,6 +104,56 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     await automationRun('no_sender', daysAgo(91));
     await automationRun('no_customer_email', daysAgo(89));
 
+    // Flow runs 90 days after they finish (a waiting one never), their step
+    // runs and waits with them; fired and void timers 90 days after they ended.
+    await admin`delete from app.automations where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
+    const [flow] = await admin<{ id: string }[]>`
+      insert into app.automations (workspace_id, key, updated_by)
+      values (${WORKSPACE}, 'order_received', ${ACTOR})
+      returning id
+    `;
+    if (!flow) throw new Error('the flow was not inserted');
+    const flowRun = async (
+      detail: string,
+      status: string,
+      createdAt: Date,
+      finishedAt: Date | null,
+    ) => {
+      const [row] = await admin<{ id: string }[]>`
+        insert into app.automation_runs
+          (workspace_id, automation_key, automation_id, lead_id, status, detail, occurrence,
+           created_at, finished_at)
+        values (${WORKSPACE}, 'order_received', ${flow.id}, ${lead.id}, ${status}, ${detail},
+          ${detail}, ${createdAt}, ${finishedAt})
+        returning id
+      `;
+      if (!row) throw new Error('the run was not inserted');
+      await admin`
+        insert into app.automation_step_runs (workspace_id, run_id, step_id, step_kind, outcome, created_at)
+        values (${WORKSPACE}, ${row.id}, 's_wait', 'wait', 'waiting', ${createdAt})
+      `;
+      await admin`
+        insert into app.automation_waits
+          (workspace_id, run_id, automation_id, lead_id, step_id, resume_at, status)
+        values (${WORKSPACE}, ${row.id}, ${flow.id}, ${lead.id}, 's_wait', ${createdAt},
+          ${status === 'waiting' ? 'pending' : 'resumed'})
+      `;
+    };
+    await flowRun('flow_waiting_old', 'waiting', daysAgo(200), null);
+    await flowRun('flow_finished_old', 'completed', daysAgo(200), daysAgo(91));
+    await flowRun('flow_finished_recent', 'completed', daysAgo(200), daysAgo(10));
+    const timer = (occurrence: string, status: string, updatedAt: Date) => admin`
+      insert into app.automation_timers
+        (workspace_id, automation_id, lead_id, trigger_kind, occurrence, event_at, due_at, status,
+         updated_at)
+      values (${WORKSPACE}, ${flow.id}, ${lead.id}, 'after_submitted', ${occurrence},
+        ${daysAgo(300)}, ${daysAgo(299)}, ${status}, ${updatedAt})
+    `;
+    await timer('fired_old', 'fired', daysAgo(91));
+    await timer('void_old', 'void', daysAgo(91));
+    await timer('fired_recent', 'fired', daysAgo(89));
+    await timer('pending_old', 'pending', daysAgo(200));
+
     // Tracking challenges 24 hours after they expire; change requests are kept.
     await admin`delete from app.tracking_challenges where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
     const challenge = (workspace: string, emailDigit: string, expiresAt: Date) => admin`
@@ -141,11 +191,13 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     expect(result).toContainEqual({ tableName: 'outbox_jobs', deleted: 1 });
     expect(result).toContainEqual({ tableName: 'email_provider_events', deleted: 1 });
     expect(result).toContainEqual({ tableName: 'idempotency_keys', deleted: 1 });
-    expect(result).toContainEqual({ tableName: 'automation_runs', deleted: 1 });
+    expect(result).toContainEqual({ tableName: 'automation_runs', deleted: 2 });
+    expect(result).toContainEqual({ tableName: 'automation_timers', deleted: 2 });
     expect(result).toContainEqual({ tableName: 'tracking_challenges', deleted: 1 });
     expect(result.map((row) => row.tableName).sort()).toEqual(
       [
         'automation_runs',
+        'automation_timers',
         'email_provider_events',
         'idempotency_keys',
         'outbox_job_alerts',
@@ -178,10 +230,28 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
       { workspace_id: WORKSPACE, key_hash: '6'.repeat(64) },
       { workspace_id: OTHER_WORKSPACE, key_hash: '9'.repeat(64) },
     ]);
-    const runs = await admin<{ reason: string }[]>`
-      select reason from app.automation_runs where workspace_id = ${WORKSPACE}
+    const runs = await admin<{ label: string }[]>`
+      select coalesce(reason, detail) as label from app.automation_runs
+      where workspace_id = ${WORKSPACE} order by label
     `;
-    expect(runs.map((row) => row.reason)).toEqual(['no_customer_email']);
+    expect(runs.map((row) => row.label)).toEqual([
+      'flow_finished_recent',
+      'flow_waiting_old',
+      'no_customer_email',
+    ]);
+    const steps = await admin<{ count: number }[]>`
+      select count(*)::int as count from app.automation_step_runs where workspace_id = ${WORKSPACE}
+    `;
+    expect(steps[0]?.count).toBe(2);
+    const waits = await admin<{ status: string }[]>`
+      select status from app.automation_waits where workspace_id = ${WORKSPACE} order by status
+    `;
+    expect(waits.map((row) => row.status)).toEqual(['pending', 'resumed']);
+    const timers = await admin<{ occurrence: string }[]>`
+      select occurrence from app.automation_timers where workspace_id = ${WORKSPACE}
+      order by occurrence
+    `;
+    expect(timers.map((row) => row.occurrence)).toEqual(['fired_recent', 'pending_old']);
     const challenges = await admin<{ workspace_id: string; email_hash: string }[]>`
       select workspace_id, email_hash from app.tracking_challenges
       where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE}) order by email_hash
@@ -208,14 +278,26 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
 
   test('the runtime role holds no direct delete grant on the pruned tables', async () => {
     const [grants] = await admin<
-      { jobs: boolean; events: boolean; keys: boolean; runs: boolean; challenges: boolean }[]
+      {
+        jobs: boolean;
+        events: boolean;
+        keys: boolean;
+        runs: boolean;
+        challenges: boolean;
+        steps: boolean;
+        waits: boolean;
+        timers: boolean;
+      }[]
     >`
       select
         has_table_privilege('app_runtime', 'app.outbox_jobs', 'delete') as jobs,
         has_table_privilege('app_runtime', 'app.email_provider_events', 'delete') as events,
         has_table_privilege('app_runtime', 'app.idempotency_keys', 'delete') as keys,
         has_table_privilege('app_runtime', 'app.automation_runs', 'delete') as runs,
-        has_table_privilege('app_runtime', 'app.tracking_challenges', 'delete') as challenges
+        has_table_privilege('app_runtime', 'app.tracking_challenges', 'delete') as challenges,
+        has_table_privilege('app_runtime', 'app.automation_step_runs', 'delete') as steps,
+        has_table_privilege('app_runtime', 'app.automation_waits', 'delete') as waits,
+        has_table_privilege('app_runtime', 'app.automation_timers', 'delete') as timers
     `;
     expect(grants).toEqual({
       jobs: false,
@@ -223,6 +305,9 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
       keys: false,
       runs: false,
       challenges: false,
+      steps: false,
+      waits: false,
+      timers: false,
     });
   });
 });

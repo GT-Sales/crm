@@ -4,7 +4,6 @@ import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
-import { DatabaseAutomationStore } from '../src/automations/store.js';
 import { DatabaseDocumentStore } from '../src/documents/store.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { findMissingDocuments } from '../src/leads/documents-check.js';
@@ -481,7 +480,6 @@ databaseTest('customer change requests and held documents', () => {
         emailEnvironment: customerEmailEnvironmentFromEnv({
           EMAIL_CONTACT_HASH_SECRET: 'change-requests-contact-secret-01',
         }),
-        automations: new DatabaseAutomationStore(database),
       },
       objects: { deleteObject },
       bucket: 'documents',

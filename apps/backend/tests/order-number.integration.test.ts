@@ -214,10 +214,12 @@ databaseTest('order numbers from the site counter', () => {
         values (${SITE}, 'sim_order', 'submitted', 'pending', 'legacy', 'MS-9102')
       `;
       const creating = store.createLead(draft({ contact: { fullName: 'Omar Example' } }));
+      // Handled from the start: the refusal can arrive while the commit is still answering.
+      const refused = expect(creating).rejects.toBeInstanceOf(ExternalRefTakenError);
       await new Promise((resolve) => setTimeout(resolve, 300));
       await conn`commit`;
       conn.release();
-      await expect(creating).rejects.toBeInstanceOf(ExternalRefTakenError);
+      await refused;
       // The number went back with the rollback; the next create is past the import.
       expect(await counter()).toBe(9101);
       expect((await store.createLead(draft())).lead.externalRef).toBe('MS-9103');

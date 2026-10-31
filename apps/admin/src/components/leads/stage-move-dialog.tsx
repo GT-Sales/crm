@@ -2,7 +2,7 @@
 
 import { useId, useState, type FormEvent } from 'react';
 import {
-  CUSTOMER_EMAIL_TEMPLATE_LABELS,
+  emailTemplateLabel,
   leadStageLabel,
   type EmailSkipped,
   type LeadDetail,
@@ -61,7 +61,7 @@ export function listText(items: readonly string[]): string {
 
 /** Why a move's automation did not email the customer, in one line. */
 export function emailSkippedText(skipped: EmailSkipped): string {
-  const lead = `The ${CUSTOMER_EMAIL_TEMPLATE_LABELS[skipped.template]} email was not sent`;
+  const lead = `The ${emailTemplateLabel(skipped.template, skipped.templateName)} email was not sent`;
   switch (skipped.reason) {
     case 'no_sender':
       return `${lead}: this site has no sender yet. Check Settings → Email, and that the deployment's email provider is configured.`;
@@ -69,6 +69,8 @@ export function emailSkippedText(skipped: EmailSkipped): string {
       return `${lead}: the customer has no email address.`;
     case 'missing_fill_in':
       return `${lead}: it needs the ${listText(skipped.missing ?? [])}.`;
+    case 'compose_failed':
+      return `${lead}: the email could not be made. Check the template in Settings → Email.`;
   }
 }
 

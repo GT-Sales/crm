@@ -3,29 +3,43 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   BUILT_IN_AUTOMATIONS,
   CUSTOMER_EMAIL_TEMPLATES,
-  type CustomerEmailTemplate,
-  type EmailTemplate,
+  emailTemplateLabel,
+  type SiteEmailTemplate,
 } from '@gt-sales/contracts';
 
 import { TemplateList } from './template-list';
 
-function template(key: CustomerEmailTemplate, version = 0): EmailTemplate {
+const ruleLabel = (key: string) =>
+  BUILT_IN_AUTOMATIONS.find((rule) => rule.key === key)?.label ?? key;
+
+/** The flows each template is sent by, as the backend answers `usedBy`. */
+const SENT_BY: Partial<Record<string, SiteEmailTemplate['usedBy']>> = {
+  dispatched: [{ key: 'sim_order_dispatched', name: 'Dispatched email' }],
+  activated: [
+    { key: 'sim_order_activated', name: ruleLabel('sim_order_activated') },
+    { key: 'mobility_activated', name: ruleLabel('mobility_activated') },
+  ],
+};
+
+function template(key: string, version = 0): SiteEmailTemplate {
   return {
     key,
+    name: emailTemplateLabel(key, key.startsWith('tpl_') ? 'Site note' : null),
     subject: `Subject of ${key}`,
     body: `Body of ${key}`,
     version,
     updatedAt: version === 0 ? null : '2026-10-01T00:00:00.000Z',
     updatedBy: version === 0 ? null : '30000000-0000-4000-8000-000000000001',
+    archived: false,
+    usedBy: SENT_BY[key] ?? [],
   };
 }
 
-const templates = CUSTOMER_EMAIL_TEMPLATES.map((key) =>
-  template(key, key === 'dispatched' ? 3 : 0),
-);
-
-const ruleLabel = (key: string) =>
-  BUILT_IN_AUTOMATIONS.find((rule) => rule.key === key)?.label ?? key;
+const templates = [
+  ...CUSTOMER_EMAIL_TEMPLATES.map((key) => template(key, key === 'dispatched' ? 3 : 0)),
+  // Site-made templates are listed in a later release.
+  template('tpl_abcdefghij012345', 1),
+];
 
 function row(label: string) {
   const item = screen
@@ -63,17 +77,28 @@ describe('TemplateList', () => {
     expect(within(row('Cancelled')).getByText('Starter text')).toBeTruthy();
   });
 
-  it('links each rule that sends an email to the Automations page', () => {
+  it('links each flow that sends an email to its page, from usedBy', () => {
     render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
     const links = within(row('Activated')).getAllByRole('link');
     expect(links.map((link) => link.textContent)).toEqual([
       ruleLabel('sim_order_activated'),
       ruleLabel('mobility_activated'),
     ]);
-    for (const link of links) {
-      expect(link.getAttribute('href')).toBe('/w/canadawide/automations');
-    }
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/w/canadawide/automations/sim_order_activated',
+      '/w/canadawide/automations/mobility_activated',
+    ]);
     expect(within(row('Activated')).getAllByText(/Used by:/)).toHaveLength(2);
+    expect(within(row('Dispatched')).getByText(/Used by:/).textContent).toBe(
+      'Used by: Dispatched email',
+    );
+    expect(within(row('Cancelled')).queryByText(/Used by:/)).toBeNull();
+  });
+
+  it('shows the nine built-ins and no site-made row', () => {
+    render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(9);
+    expect(screen.queryByRole('heading', { name: 'Site note' })).toBeNull();
   });
 
   it('says who sends the emails no rule sends', () => {

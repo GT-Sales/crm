@@ -8,8 +8,12 @@ import {
   leadStatusSchema,
   leadTypeSchema,
 } from './leads';
-import { automationKeySchema } from './automations';
-import { EMAIL_FILL_IN_KEYS, customerEmailTemplateSchema } from './customer-email';
+import { automationKeySchema } from './automation-keys';
+import {
+  EMAIL_FILL_IN_KEYS,
+  emailFillInNameSchema,
+  emailTemplateKeySchema,
+} from './customer-email';
 import { CHANGE_REQUEST_DOCUMENTS, changeRequestFieldsSchema } from './tracking';
 import { documentChecklistKeySchema } from './domain';
 import { fileReviewDecisionSchema, leadDocumentSchema } from './files';
@@ -50,6 +54,10 @@ const activityBase = {
   id: z.uuid(),
   actorId: z.uuid(),
   createdAt: isoDateTimeSchema,
+  /** The flow that wrote the entry (a mail it queued, a move, an assignment); absent for staff and websites. */
+  automation: automationKeySchema.optional(),
+  /** That flow's name when it wrote the entry, so the timeline reads "by automation <name>". */
+  automationName: z.string().min(1).max(80).optional(),
 };
 
 /**
@@ -114,9 +122,10 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
       'documents_override',
       'unknown',
     ]),
-    template: customerEmailTemplateSchema.optional(),
-    /** For `customer_emailed`: the rule that queued it; absent when staff sent it by hand. */
-    automation: automationKeySchema.optional(),
+    /** For `customer_emailed`: the template sent (the flow that queued it is `automation`; absent when staff sent it by hand). */
+    template: emailTemplateKeySchema.optional(),
+    /** For `customer_emailed` of a site-made template: its name when it was sent. */
+    templateName: z.string().min(1).max(80).optional(),
     /** For `customer_emailed`: the template's version (0 is the starter text). */
     templateVersion: z.int().min(0).optional(),
     /** For `documents_override`: the required documents that were not approved. */
@@ -300,15 +309,19 @@ export const updateWorkspaceLeadRequestSchema = z
 export type UpdateWorkspaceLeadRequest = z.infer<typeof updateWorkspaceLeadRequestSchema>;
 
 /**
- * A customer mail an automation rule did not queue when staff moved the lead,
- * so the admin can say so: the rule, its template and why. `missing` lists
- * the fill-ins the order lacked, for `missing_fill_in`.
+ * A customer mail a flow did not queue when staff moved the lead (or a flow
+ * that move set off did), so the admin can say so: the flow and its name, the
+ * template and its name, and why. `missing` lists the fill-ins the order
+ * lacked, for `missing_fill_in`; `compose_failed` is a template that would
+ * not render. A mail already sent for the move is never listed.
  */
 export const emailSkippedSchema = z.object({
   automation: automationKeySchema,
-  template: customerEmailTemplateSchema,
-  reason: z.enum(['no_sender', 'no_customer_email', 'missing_fill_in']),
-  missing: z.array(z.enum(EMAIL_FILL_IN_KEYS)).optional(),
+  flowName: z.string().min(1).max(80),
+  template: emailTemplateKeySchema,
+  templateName: z.string().min(1).max(80),
+  reason: z.enum(['no_sender', 'no_customer_email', 'missing_fill_in', 'compose_failed']),
+  missing: z.array(emailFillInNameSchema).optional(),
 });
 export type EmailSkipped = z.infer<typeof emailSkippedSchema>;
 
@@ -321,7 +334,7 @@ export const updateWorkspaceLeadResponseSchema = z.object({
   lead: leadDetailSchema,
   activities: z.array(leadActivitySchema),
   allowedMoves: z.array(leadStageSchema),
-  emailSkipped: z.array(emailSkippedSchema).max(6).optional(),
+  emailSkipped: z.array(emailSkippedSchema).max(200).optional(),
   requestId: requestIdSchema,
 });
 export type UpdateWorkspaceLeadResponse = z.infer<typeof updateWorkspaceLeadResponseSchema>;
