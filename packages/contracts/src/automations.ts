@@ -1,10 +1,6 @@
-import { z } from 'zod';
-
 import { orderLeadTypes } from '@gt-sales/types';
 
-import { customerEmailTemplateSchema, type CustomerEmailTemplate } from './customer-email';
-import { leadTypeSchema } from './leads';
-import { leadStageSchema } from './workspace-leads';
+import type { CustomerEmailTemplate } from './customer-email';
 import type { BuiltInAutomationKey } from './automation-keys';
 
 export {
@@ -14,11 +10,10 @@ export {
 } from './automation-keys';
 
 /**
- * Automation rules (spec §15): a trigger and an action. Phase 4 ships the
- * built-in rules below, each switched on or off per site (`app.automations`,
- * off until the owner switches it on); a firing is a run
- * (`app.automation_runs`). The keys are also a CHECK constraint in the
- * database, so a rule is added here and in a migration together.
+ * The six built-in rules as phase 4 defined them. Automation flows replaced
+ * them at run time; they remain only as the seed for each built-in flow's
+ * version-1 definition and default name (`builtInFlowDefinition`,
+ * `builtInFlowName` in `automation-flows.ts`).
  */
 
 /** When a rule fires: a website submits a lead of one of `leadTypes`, or staff move a lead into `stage`. */
@@ -31,19 +26,6 @@ export type AutomationAction = {
   readonly kind: 'send_email';
   readonly template: CustomerEmailTemplate;
 };
-
-export const automationTriggerSchema = z.discriminatedUnion('kind', [
-  z
-    .object({ kind: z.literal('lead_submitted'), leadTypes: z.array(leadTypeSchema).min(1) })
-    .strict(),
-  z
-    .object({ kind: z.literal('stage_entered'), leadType: leadTypeSchema, stage: leadStageSchema })
-    .strict(),
-]);
-
-export const automationActionSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('send_email'), template: customerEmailTemplateSchema }).strict(),
-]);
 
 export interface BuiltInAutomation {
   readonly key: BuiltInAutomationKey;
@@ -97,25 +79,3 @@ export const BUILT_IN_AUTOMATIONS: readonly BuiltInAutomation[] = [
     action: sendEmail('activated'),
   },
 ];
-
-/** The built-in rules a move of a `leadType` lead into stage `to` fires, in key order. */
-export function automationsForMove(leadType: string, to: string): readonly BuiltInAutomation[] {
-  return BUILT_IN_AUTOMATIONS.filter(
-    ({ trigger }) =>
-      trigger.kind === 'stage_entered' && trigger.leadType === leadType && trigger.stage === to,
-  );
-}
-
-/** The built-in rules a website's submission of a `leadType` lead fires, in key order. */
-export function automationsForSubmit(leadType: string): readonly BuiltInAutomation[] {
-  return BUILT_IN_AUTOMATIONS.filter(
-    ({ trigger }) => trigger.kind === 'lead_submitted' && trigger.leadTypes.includes(leadType),
-  );
-}
-
-/** The built-in rules that send `template`, for its settings card. */
-export function automationsUsingTemplate(
-  template: CustomerEmailTemplate,
-): readonly BuiltInAutomation[] {
-  return BUILT_IN_AUTOMATIONS.filter(({ action }) => action.template === template);
-}

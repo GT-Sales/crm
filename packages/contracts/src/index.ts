@@ -401,11 +401,6 @@ export * from './automation-api';
 
 export {
   BUILT_IN_AUTOMATIONS,
-  automationActionSchema,
-  automationTriggerSchema,
-  automationsForMove,
-  automationsForSubmit,
-  automationsUsingTemplate,
   type AutomationAction,
   type AutomationTrigger,
   type BuiltInAutomation,
