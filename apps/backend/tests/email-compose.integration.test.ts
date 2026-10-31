@@ -79,9 +79,12 @@ const simLead = (
   kind: 'lead',
   lead: {
     id: LEAD,
+    leadType: 'sim_order',
     fullName: 'Nadia Khan',
     email: ` ${CUSTOMER} `,
+    externalRef: null,
     form: { simNumber: '+1 647 555 0199' },
+    customValues: {},
     order: null,
     ...overrides,
   },
@@ -204,6 +207,19 @@ databaseTest('customer email composer and queue', () => {
       maxConnections: 4,
     });
     settings = new DatabaseEmailSettingsStore(database);
+
+    const property = (
+      key: string,
+      kind: string,
+      options: { value: string; label: string; hidden: boolean }[],
+      position: number,
+    ) => admin`
+      insert into app.properties (workspace_id, object, key, origin, label, kind, options, position)
+      values (${SITE}, 'lead', ${key}, 'custom', ${key}, ${kind}, ${admin.json(options)}, ${position})
+    `;
+    await property('custom_size', 'choice', [{ value: 'small', label: 'Small', hidden: false }], 1);
+    await property('custom_deposit', 'money', [], 2);
+    await property('custom_insured', 'yesNo', [], 3);
   });
 
   afterAll(async () => {
@@ -548,5 +564,80 @@ databaseTest('customer email composer and queue', () => {
       expect(written).not.toContain(secret);
     }
     expect(written).not.toContain('@');
+  });
+
+  describe('site-made templates and the flow fill-ins', () => {
+    const SITE_MADE = 'tpl_composetest00001';
+    const siteMade = async (values: { archived?: boolean } = {}) => {
+      await admin`
+        insert into app.email_templates
+          (workspace_id, key, name, subject, body, version, updated_by, archived_at)
+        values (${SITE}, ${SITE_MADE}, 'My note', 'Order {order number}',
+          ${'Size {prop:custom_size}, deposit {prop:custom_deposit}, insured {prop:custom_insured}.'},
+          1, ${ACTOR}, ${values.archived ? new Date() : null})
+      `;
+    };
+    const propertyLead = () =>
+      simLead({
+        externalRef: 'MS-1042',
+        customValues: { custom_size: 'small', custom_deposit: 4000, custom_insured: true },
+      });
+    const setProperty = (
+      key: string,
+      values: { sensitive?: boolean; staffOnly?: boolean },
+    ) => admin`
+      update app.properties
+      set sensitive = ${values.sensitive ?? false}, staff_only = ${values.staffOnly ?? false}
+      where workspace_id = ${SITE} and key = ${key}
+    `;
+
+    it('a tpl_ template renders each property as the record shows it and {order number}', async () => {
+      await reset();
+      await siteMade();
+      const outcome = await compose(SITE, SITE_MADE, propertyLead());
+      if (outcome.kind !== 'ready') throw new Error(`not ready: ${JSON.stringify(outcome)}`);
+      expect(outcome.templateName).toBe('My note');
+      expect(outcome.payload).toMatchObject({ template: SITE_MADE, templateVersion: 1 });
+      expect(outcome.payload.rendered.subject).toBe('Order MS-1042');
+      expect(outcome.payload.rendered.text).toContain('Size Small, deposit $40.00, insured Yes.');
+      expect(customerEmailJobPayloadSchema.parse(outcome.payload)).toEqual(outcome.payload);
+    });
+
+    it('a property made sensitive or staff-only after the save is never rendered', async () => {
+      await reset();
+      await siteMade();
+      for (const change of [{ sensitive: true }, { staffOnly: true }]) {
+        await setProperty('custom_size', change);
+        const outcome = await compose(SITE, SITE_MADE, propertyLead());
+        expect(outcome).toEqual({
+          kind: 'skipped',
+          reason: 'missing_fill_in',
+          missing: ['prop:custom_size'],
+        });
+        await setProperty('custom_size', {});
+      }
+      expect((await compose(SITE, SITE_MADE, propertyLead())).kind).toBe('ready');
+    });
+
+    it('an archived or unknown tpl_ key is template_unavailable', async () => {
+      await reset();
+      expect(await compose(SITE, 'tpl_nosuchtemplate00', propertyLead())).toEqual({
+        kind: 'skipped',
+        reason: 'template_unavailable',
+      });
+      await siteMade({ archived: true });
+      expect(await compose(SITE, SITE_MADE, propertyLead())).toEqual({
+        kind: 'skipped',
+        reason: 'template_unavailable',
+      });
+    });
+
+    it('a built-in template is named by its label and composes as before', async () => {
+      await reset();
+      const outcome = await compose(SITE, 'sim_number_ready', simLead({ externalRef: 'MS-7' }));
+      if (outcome.kind !== 'ready') throw new Error('not ready');
+      expect(outcome.templateName).toBe('SIM number ready');
+      expect(outcome.payload.template).toBe('sim_number_ready');
+    });
   });
 });

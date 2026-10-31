@@ -2152,7 +2152,11 @@ export const automationStepRuns = appSchema
       detail: text('detail'),
       jobId: uuid('job_id'),
       taskId: uuid('task_id'),
-      createdAt: createdAt(),
+      // The clock, not the transaction's start: a run writes several step rows
+      // in one transaction, and they are read back in this order.
+      createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+        .default(sql`clock_timestamp()`)
+        .notNull(),
     },
     (table) => [
       foreignKey({

@@ -16,6 +16,10 @@ import { queueComposedEmail } from '../email/queue.js';
 import type { CustomerEmailEnvironment } from '../email/senders.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { toLeadOrder } from '../leads/order.js';
+import { z } from 'zod';
+
+/** A lead's stored custom values: an object of values by property key. */
+const storedValuesSchema = z.record(z.string(), z.unknown());
 import { enabledAutomationKeys, type AutomationStore } from './store.js';
 
 /**
@@ -90,6 +94,8 @@ export async function runAutomations(
     }
 
     if (composed.kind === 'skipped') {
+      // A built-in rule sends a built-in template, which always exists.
+      if (composed.reason === 'template_unavailable') continue;
       await input.store.recordRun(tx, {
         workspaceId,
         key: rule.key,
@@ -138,13 +144,19 @@ export function automationLeadOf(row: {
   status: string;
   fullName: string | null;
   email: string | null;
+  externalRef: string | null;
   payload: unknown;
+  customValues: unknown;
   orderDetails: unknown;
 }): AutomationLead {
   const form = leadFormSchema.safeParse(row.payload);
+  const customValues = storedValuesSchema.safeParse(row.customValues);
   return {
     id: row.id,
+    leadType: row.leadType,
     fullName: row.fullName,
+    externalRef: row.externalRef,
+    customValues: customValues.success ? customValues.data : {},
     email: row.email,
     submitted: row.status !== 'incomplete',
     form: form.success ? form.data.payload : {},
@@ -165,7 +177,9 @@ export async function readAutomationLead(
       status: leads.status,
       fullName: leads.fullName,
       email: leads.email,
+      externalRef: leads.externalRef,
       payload: leads.payload,
+      customValues: leads.customValues,
       orderDetails: leads.orderDetails,
     })
     .from(leads)

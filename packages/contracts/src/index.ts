@@ -340,6 +340,7 @@ export {
   createEmailTemplateRequestSchema,
   emailFillInNameSchema,
   emailTemplateLabel,
+  isEmailFillInKey,
   generateTemplateKey,
   listSiteEmailTemplatesResponseSchema,
   siteEmailTemplateResponseSchema,

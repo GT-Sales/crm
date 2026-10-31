@@ -112,21 +112,25 @@ databaseTest('email settings store', () => {
     expect(await store.getSettings(scope)).toBeUndefined();
     const templates = await store.listTemplates(scope);
     expect(templates.map((template) => template.key)).toEqual([...CUSTOMER_EMAIL_TEMPLATES]);
-    for (const template of templates) {
-      expect(template).toEqual({
-        key: template.key,
-        subject: STARTER_TEMPLATES[template.key].subject,
-        body: STARTER_TEMPLATES[template.key].body,
+    CUSTOMER_EMAIL_TEMPLATES.forEach((key, index) => {
+      expect(templates[index]).toEqual({
+        key,
+        name: null,
+        archived: false,
+        subject: STARTER_TEMPLATES[key].subject,
+        body: STARTER_TEMPLATES[key].body,
         version: 0,
         updatedAt: null,
         updatedBy: null,
       });
-    }
+    });
     expect(
       await database.withTenantTx(scope, (tx) => readEmailTemplate(tx, SITE, 'dispatched')),
     ).toEqual({
       ...STARTER_TEMPLATES.dispatched,
       key: 'dispatched',
+      name: null,
+      archived: false,
       version: 0,
       updatedAt: null,
       updatedBy: null,
@@ -144,6 +148,8 @@ databaseTest('email settings store', () => {
       kind: 'saved',
       template: {
         key: 'order_received',
+        name: null,
+        archived: false,
         subject: 'Thanks, {first name}',
         body: 'Hi {first name},\n\nYour {site name} order is in.',
         version: 1,

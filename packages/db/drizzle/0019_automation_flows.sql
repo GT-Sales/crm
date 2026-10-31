@@ -10,7 +10,7 @@ CREATE TABLE "app"."automation_step_runs" (
 	"detail" text,
 	"job_id" uuid,
 	"task_id" uuid,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
 	CONSTRAINT "automation_step_runs_step_id_check" CHECK ("app"."automation_step_runs"."step_id" ~ '^[a-z0-9_]{1,40}$'),
 	CONSTRAINT "automation_step_runs_step_kind_check" CHECK ("app"."automation_step_runs"."step_kind" in ('send_email', 'create_task', 'assign_lead', 'update_lead', 'notify_staff', 'if_else', 'wait')),
 	CONSTRAINT "automation_step_runs_outcome_check" CHECK ("app"."automation_step_runs"."outcome" in ('done', 'skipped', 'failed', 'waiting', 'cancelled')),

@@ -108,6 +108,8 @@ const settings: StoredEmailSettings = {
 
 const template: StoredEmailTemplate = {
   key: 'order_received',
+  name: null,
+  archived: false,
   subject: 'We got your order',
   body: 'Hi {first name},\n\nThanks.',
   version: 3,

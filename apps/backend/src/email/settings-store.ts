@@ -11,7 +11,9 @@ import {
 import {
   CUSTOMER_EMAIL_TEMPLATES,
   customerEmailTemplateSchema,
+  emailTemplateKeySchema,
   type CustomerEmailTemplate,
+  type EmailTemplateKey,
   type UpdateEmailSettingsRequest,
   type UpdateEmailTemplateRequest,
 } from '@gt-sales/contracts';
@@ -43,7 +45,11 @@ export interface StoredEmailSettings {
 }
 
 export interface StoredEmailTemplate {
-  key: CustomerEmailTemplate;
+  key: EmailTemplateKey;
+  /** A site-made template's name; null for the nine built-ins. */
+  name: string | null;
+  /** Site-made templates only; a built-in is never archived. */
+  archived: boolean;
   subject: string;
   body: string;
   /** 0 for the starter text, which is never saved. */
@@ -101,7 +107,9 @@ const toSettings = (record: SettingsRecord): StoredEmailSettings => ({
 });
 
 const toTemplate = (record: TemplateRecord): StoredEmailTemplate => ({
-  key: customerEmailTemplateSchema.parse(record.key),
+  key: emailTemplateKeySchema.parse(record.key),
+  name: record.name,
+  archived: record.archivedAt !== null,
   subject: record.subject,
   body: record.body,
   version: record.version,
@@ -111,6 +119,8 @@ const toTemplate = (record: TemplateRecord): StoredEmailTemplate => ({
 
 const starter = (key: CustomerEmailTemplate): StoredEmailTemplate => ({
   key,
+  name: null,
+  archived: false,
   subject: STARTER_TEMPLATES[key].subject,
   body: STARTER_TEMPLATES[key].body,
   version: 0,
@@ -130,17 +140,33 @@ export async function readEmailSettings(
   return record ? toSettings(record) : undefined;
 }
 
-/** The site's current copy of `key`: the saved version, else the starter at version 0. */
+/**
+ * The site's current copy of `key`: the saved version, else (a built-in) the
+ * starter at version 0. Undefined only for a site-made key with no row or an
+ * archived one.
+ */
 export async function readEmailTemplate(
   tx: TenantTransaction,
   workspaceId: string,
   key: CustomerEmailTemplate,
-): Promise<StoredEmailTemplate> {
+): Promise<StoredEmailTemplate>;
+export async function readEmailTemplate(
+  tx: TenantTransaction,
+  workspaceId: string,
+  key: EmailTemplateKey,
+): Promise<StoredEmailTemplate | undefined>;
+export async function readEmailTemplate(
+  tx: TenantTransaction,
+  workspaceId: string,
+  key: EmailTemplateKey,
+): Promise<StoredEmailTemplate | undefined> {
   const [record] = await tx
     .select()
     .from(emailTemplates)
     .where(and(eq(emailTemplates.workspaceId, workspaceId), eq(emailTemplates.key, key)));
-  return record ? toTemplate(record) : starter(key);
+  const builtIn = customerEmailTemplateSchema.safeParse(key);
+  if (builtIn.success) return record ? toTemplate(record) : starter(builtIn.data);
+  return record && record.archivedAt === null ? toTemplate(record) : undefined;
 }
 
 /** One save of a template at a time per site and key, so two editors cannot both write version n + 1. */
@@ -228,6 +254,7 @@ export class DatabaseEmailSettingsStore implements EmailSettingsStore {
         .select()
         .from(emailTemplates)
         .where(eq(emailTemplates.workspaceId, ctx.workspaceId));
+      // The nine built-ins; site-made templates are listed by phase 8's routes.
       const byKey = new Map(records.map((record) => [record.key, record]));
       return CUSTOMER_EMAIL_TEMPLATES.map((key) => {
         const record = byKey.get(key);

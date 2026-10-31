@@ -1,8 +1,12 @@
 import {
+  PROPERTY_FILL_IN_PREFIX,
   fillInsForTemplate,
+  isSiteTemplateKey,
   normalizeFillInName,
-  type CustomerEmailTemplate,
+  propertyKeySchema,
   type EmailFillInKey,
+  type EmailFillInName,
+  type EmailTemplateKey,
 } from '@gt-sales/contracts';
 
 /**
@@ -11,7 +15,8 @@ import {
  * `**bold**`, `[label](https://…)` links, one `[button: Label](https://…)`
  * alone in its paragraph, and `{fill-ins}` the template may use. A link or
  * button goes to an `http(s)://` address with no braces in it, or to
- * `{tracking link}` as the whole address. What is not markup (an unclosed
+ * `{tracking link}` as the whole address. A site-made (`tpl_`) template may
+ * also write a property of the lead, `{prop:<key>}`. What is not markup (an unclosed
  * `**`, a `{` with no `}` on its line, brackets that are not a link) stays
  * literal text. The subject and a button's label take fill-ins only.
  *
@@ -24,14 +29,14 @@ export type EmailHref = { kind: 'url'; url: string } | { kind: 'fillIn'; key: 't
 
 export type EmailInline =
   | { kind: 'text'; text: string }
-  | { kind: 'fillIn'; key: EmailFillInKey }
+  | { kind: 'fillIn'; key: EmailFillInName }
   | { kind: 'bold'; children: readonly EmailInline[] }
   | { kind: 'link'; label: readonly EmailInline[]; href: EmailHref }
   | { kind: 'break' };
 
 /** Text and fill-ins, nothing else: a subject, or a button's label. */
 export type EmailTextPart =
-  { kind: 'text'; text: string } | { kind: 'fillIn'; key: EmailFillInKey };
+  { kind: 'text'; text: string } | { kind: 'fillIn'; key: EmailFillInName };
 
 export type EmailBlock =
   | { kind: 'paragraph'; inlines: readonly EmailInline[] }
@@ -47,10 +52,33 @@ type Failure = { ok: false } & MarkupError;
 type ButtonToken = { kind: 'button'; label: EmailTextPart[]; href: EmailHref };
 type Token = EmailInline | ButtonToken;
 
+export interface MarkupOptions {
+  /** Save-time check of a `{prop:…}` (true = usable in a customer email); absent at render time. */
+  property?: (key: string) => boolean;
+}
+
 interface Reader {
   readonly allowed: ReadonlySet<EmailFillInKey>;
+  /** Whether `{prop:<key>}` is markup here: site-made templates only. */
+  readonly properties: boolean;
+  readonly property: ((key: string) => boolean) | undefined;
   readonly where: 'subject' | 'body';
 }
+
+function readerFor(
+  template: EmailTemplateKey,
+  where: 'subject' | 'body',
+  options: MarkupOptions | undefined,
+): Reader {
+  return {
+    allowed: new Set(fillInsForTemplate(template)),
+    properties: isSiteTemplateKey(template),
+    property: options?.property,
+    where,
+  };
+}
+
+const PROPERTY_FILL_IN = /^prop:(.*)$/is;
 
 const FILL_IN = /\{([^{}\n]*)\}/y;
 const BUTTON_LABEL = /^button:(.*)$/is;
@@ -63,7 +91,19 @@ const markupError = (reason: 'two_buttons' | 'button_not_alone' | 'bad_link'): F
 });
 
 /** The fill-in written as `{inner}`, if the template may use it. */
-function readFillIn(inner: string, reader: Reader): { ok: true; key: EmailFillInKey } | Failure {
+function readFillIn(inner: string, reader: Reader): { ok: true; key: EmailFillInName } | Failure {
+  const property = PROPERTY_FILL_IN.exec(inner.trim());
+  if (property) {
+    const key = (property[1] ?? '').trim();
+    const usable =
+      reader.properties &&
+      propertyKeySchema.safeParse(key).success &&
+      (reader.property === undefined || reader.property(key));
+    if (!usable) {
+      return { ok: false, error: 'invalid_fill_in', fillIn: inner.trim(), where: reader.where };
+    }
+    return { ok: true, key: `${PROPERTY_FILL_IN_PREFIX}${key}` };
+  }
   const key = normalizeFillInName(inner);
   if (key === undefined || !reader.allowed.has(key)) {
     return { ok: false, error: 'invalid_fill_in', fillIn: inner.trim(), where: reader.where };
@@ -269,9 +309,10 @@ function paragraphsOf(body: string): string[] {
  */
 export function parseEmailBody(
   body: string,
-  template: CustomerEmailTemplate,
+  template: EmailTemplateKey,
+  options?: MarkupOptions,
 ): { ok: true; blocks: EmailBlock[] } | Failure {
-  const reader: Reader = { allowed: new Set(fillInsForTemplate(template)), where: 'body' };
+  const reader = readerFor(template, 'body', options);
   const blocks: EmailBlock[] = [];
   let hasButton = false;
   for (const paragraph of paragraphsOf(body)) {
@@ -294,10 +335,45 @@ export function parseEmailBody(
 /** The parts of a template's subject: text and fill-ins, nothing else is markup there. */
 export function parseEmailSubject(
   subject: string,
-  template: CustomerEmailTemplate,
+  template: EmailTemplateKey,
+  options?: MarkupOptions,
 ): { ok: true; parts: EmailTextPart[] } | Failure {
-  return readTextParts(subject, {
-    allowed: new Set(fillInsForTemplate(template)),
-    where: 'subject',
+  return readTextParts(subject, readerFor(template, 'subject', options));
+}
+
+/** Any site-made key: what a `tpl_` template may write does not depend on which one it is. */
+const ANY_SITE_TEMPLATE = 'tpl_0000000000000000';
+
+function inlineNames(inlines: readonly EmailInline[]): EmailFillInName[] {
+  return inlines.flatMap((inline): EmailFillInName[] => {
+    switch (inline.kind) {
+      case 'fillIn':
+        return [inline.key];
+      case 'bold':
+        return inlineNames(inline.children);
+      case 'link':
+        return inlineNames(inline.label);
+      default:
+        return [];
+    }
   });
+}
+
+/** The `{prop:…}` keys a site-made template's subject and body use, sorted, each once; [] when it does not parse. */
+export function templatePropertyKeys(subject: string, body: string): string[] {
+  const parsedSubject = parseEmailSubject(subject, ANY_SITE_TEMPLATE);
+  const parsedBody = parseEmailBody(body, ANY_SITE_TEMPLATE);
+  if (!parsedSubject.ok || !parsedBody.ok) return [];
+  const names = [
+    ...parsedSubject.parts.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : [])),
+    ...parsedBody.blocks.flatMap((block) =>
+      block.kind === 'button'
+        ? block.label.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : []))
+        : inlineNames(block.inlines),
+    ),
+  ];
+  const keys = names
+    .filter((name) => name.startsWith(PROPERTY_FILL_IN_PREFIX))
+    .map((name) => name.slice(PROPERTY_FILL_IN_PREFIX.length));
+  return [...new Set(keys)].sort();
 }

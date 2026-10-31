@@ -628,10 +628,13 @@ databaseTest('automation rules send customer emails', () => {
           ...staff(),
           lead: {
             id: leadId,
+            leadType: 'sim_order',
             fullName: 'Nadia Khan',
             email: 'once@example.test',
+            externalRef: null,
             submitted: true,
             form: {},
+            customValues: {},
             order: null,
           },
           automations: cancelled,

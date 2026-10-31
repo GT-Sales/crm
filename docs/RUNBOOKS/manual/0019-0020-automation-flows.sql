@@ -53,7 +53,7 @@
 -- The two files are below verbatim but for drizzle's
 -- `--> statement-breakpoint` markers and the OWNER PASTE note. Drizzle hashes
 -- (sha256 of each file) and journal `when` values:
---   0019_automation_flows          2b9445fe6d5c6f25ec56e9896269edd824968b47aef730fd8f8a1eddfb2e9a29  1793450665432
+--   0019_automation_flows          c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b  1793450665432
 --   0020_automation_flows_runtime  a0f39bb675b6ffd591f1ca376724a0f551fbc398d4081f0ec695bdf53730742b  1793450690795
 
 -- A. Pre-check. Expect one row: automation_versions, automation_step_runs,
@@ -87,7 +87,7 @@ CREATE TABLE "app"."automation_step_runs" (
 	"detail" text,
 	"job_id" uuid,
 	"task_id" uuid,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
 	CONSTRAINT "automation_step_runs_step_id_check" CHECK ("app"."automation_step_runs"."step_id" ~ '^[a-z0-9_]{1,40}$'),
 	CONSTRAINT "automation_step_runs_step_kind_check" CHECK ("app"."automation_step_runs"."step_kind" in ('send_email', 'create_task', 'assign_lead', 'update_lead', 'notify_staff', 'if_else', 'wait')),
 	CONSTRAINT "automation_step_runs_outcome_check" CHECK ("app"."automation_step_runs"."outcome" in ('done', 'skipped', 'failed', 'waiting', 'cancelled')),
@@ -600,7 +600,7 @@ REVOKE ALL ON FUNCTION app.prune_operational_rows(uuid, timestamptz) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION app.prune_operational_rows(uuid, timestamptz) TO app_runtime;
 
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT '2b9445fe6d5c6f25ec56e9896269edd824968b47aef730fd8f8a1eddfb2e9a29', 1793450665432
+SELECT 'c91f1c89269e3e1fa63110fc594d1f250b72d884889000ad5e7af4a19aadcd1b', 1793450665432
 WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1793450665432);
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
 SELECT 'a0f39bb675b6ffd591f1ca376724a0f551fbc398d4081f0ec695bdf53730742b', 1793450690795

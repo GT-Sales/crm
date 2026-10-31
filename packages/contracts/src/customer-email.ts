@@ -90,6 +90,11 @@ export const EMAIL_FILL_IN_KEYS = [
 ] as const;
 export type EmailFillInKey = (typeof EMAIL_FILL_IN_KEYS)[number];
 
+/** Whether `name` is one of `EMAIL_FILL_IN_KEYS` (not a `prop:` fill-in). */
+export function isEmailFillInKey(name: string): name is EmailFillInKey {
+  return EMAIL_FILL_IN_KEYS.some((key) => key === name);
+}
+
 /** One fill-in: what it is replaced with, for the editor's hint, and the templates that may use it. */
 export interface EmailFillIn {
   readonly key: EmailFillInKey;

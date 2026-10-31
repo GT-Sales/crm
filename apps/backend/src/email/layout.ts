@@ -1,7 +1,9 @@
 import {
   DEFAULT_EMAIL_BRAND_COLOR,
-  type CustomerEmailTemplate,
+  PROPERTY_FILL_IN_PREFIX,
   type EmailFillInKey,
+  type EmailFillInName,
+  type EmailTemplateKey,
 } from '@gt-sales/contracts';
 
 import {
@@ -29,11 +31,14 @@ export interface EmailBranding {
   footerText: string;
 }
 
-export type FillInValues = Partial<Record<EmailFillInKey, string>>;
+/** The fill-ins' values; `props` holds a site-made template's `{prop:<key>}` values by property key. */
+export type FillInValues = Partial<Record<EmailFillInKey, string>> & {
+  readonly props?: Readonly<Record<string, string>>;
+};
 
 export type RenderedEmail =
   | { ok: true; subject: string; html: string; text: string }
-  | { ok: false; missing: EmailFillInKey[] }
+  | { ok: false; missing: EmailFillInName[] }
   | ({ ok: false } & MarkupError);
 
 const TEXT_COLOR = '#15130f';
@@ -54,14 +59,20 @@ function safeColor(color: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : DEFAULT_EMAIL_BRAND_COLOR;
 }
 
+const isPropertyFillIn = (name: EmailFillInName): name is `prop:${string}` =>
+  name.startsWith(PROPERTY_FILL_IN_PREFIX);
+
 /** A value counts only when it is not blank. */
-function present(values: FillInValues, key: EmailFillInKey): string | undefined {
-  const value = values[key]?.trim();
+function present(values: FillInValues, name: EmailFillInName): string | undefined {
+  const raw = isPropertyFillIn(name)
+    ? values.props?.[name.slice(PROPERTY_FILL_IN_PREFIX.length)]
+    : values[name];
+  const value = raw?.trim();
   return value === undefined || value === '' ? undefined : value;
 }
 
-function inlineFillIns(inlines: readonly EmailInline[]): EmailFillInKey[] {
-  return inlines.flatMap((inline): EmailFillInKey[] => {
+function inlineFillIns(inlines: readonly EmailInline[]): EmailFillInName[] {
+  return inlines.flatMap((inline): EmailFillInName[] => {
     switch (inline.kind) {
       case 'fillIn':
         return [inline.key];
@@ -75,11 +86,11 @@ function inlineFillIns(inlines: readonly EmailInline[]): EmailFillInKey[] {
   });
 }
 
-function hrefFillIns(href: EmailHref): EmailFillInKey[] {
+function hrefFillIns(href: EmailHref): EmailFillInName[] {
   return href.kind === 'fillIn' ? [href.key] : [];
 }
 
-function textPartFillIns(parts: readonly EmailTextPart[]): EmailFillInKey[] {
+function textPartFillIns(parts: readonly EmailTextPart[]): EmailFillInName[] {
   return parts.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : []));
 }
 
@@ -94,7 +105,7 @@ function filledText(parts: readonly EmailTextPart[], values: FillInValues): stri
 function fillInsUsed(
   subject: readonly EmailTextPart[],
   blocks: readonly EmailBlock[],
-): EmailFillInKey[] {
+): EmailFillInName[] {
   const keys = [
     ...textPartFillIns(subject),
     ...blocks.flatMap((block) =>
@@ -113,7 +124,7 @@ class Drawing {
     private readonly brandColor: string,
   ) {}
 
-  private value(key: EmailFillInKey): string {
+  private value(key: EmailFillInName): string {
     return present(this.values, key) ?? '';
   }
 
@@ -180,7 +191,7 @@ class Drawing {
  * blank) is collected into `missing` and nothing renders.
  */
 export function renderCustomerEmail(input: {
-  template: CustomerEmailTemplate;
+  template: EmailTemplateKey;
   subject: string;
   body: string;
   branding: EmailBranding;

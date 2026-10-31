@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseEmailBody, parseEmailSubject } from '../src/email/markup.js';
+import { parseEmailBody, parseEmailSubject, templatePropertyKeys } from '../src/email/markup.js';
 
 describe('email body markup', () => {
   it('splits paragraphs on blank lines and a single newline into a break', () => {
@@ -376,5 +376,80 @@ describe('email subject markup', () => {
       ok: true,
       parts: [{ kind: 'text', text: 'Order { soon' }],
     });
+  });
+});
+
+describe('flow fill-ins', () => {
+  const SITE_MADE = 'tpl_abcdefghij012345';
+
+  it('{order number} parses in dispatched and is refused in tracking_code', () => {
+    expect(parseEmailSubject('Order {order number} is on its way', 'dispatched')).toEqual({
+      ok: true,
+      parts: [
+        { kind: 'text', text: 'Order ' },
+        { kind: 'fillIn', key: 'order number' },
+        { kind: 'text', text: ' is on its way' },
+      ],
+    });
+    expect(parseEmailBody('Your code for {Order Number}', 'tracking_code')).toEqual({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'Order Number',
+      where: 'body',
+    });
+  });
+
+  it('{prop:custom_size} is refused in dispatched and accepted in a tpl_ template', () => {
+    expect(parseEmailBody('Size {prop:custom_size}', 'dispatched')).toEqual({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'prop:custom_size',
+      where: 'body',
+    });
+    expect(parseEmailBody('Size {prop:custom_size}, {first name}', SITE_MADE)).toEqual({
+      ok: true,
+      blocks: [
+        {
+          kind: 'paragraph',
+          inlines: [
+            { kind: 'text', text: 'Size ' },
+            { kind: 'fillIn', key: 'prop:custom_size' },
+            { kind: 'text', text: ', ' },
+            { kind: 'fillIn', key: 'first name' },
+          ],
+        },
+      ],
+    });
+    expect(parseEmailSubject('Your {code}', SITE_MADE)).toMatchObject({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'code',
+    });
+    expect(parseEmailSubject('{prop:Not A Key}', SITE_MADE)).toMatchObject({
+      ok: false,
+      fillIn: 'prop:Not A Key',
+    });
+  });
+
+  it('with options.property returning false it is invalid_fill_in naming prop:custom_size', () => {
+    const property = (key: string) => key !== 'custom_size';
+    expect(parseEmailBody('Size {prop:custom_size}', SITE_MADE, { property })).toEqual({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'prop:custom_size',
+      where: 'body',
+    });
+    expect(parseEmailSubject('{prop:custom_colour}', SITE_MADE, { property }).ok).toBe(true);
+  });
+
+  it('templatePropertyKeys sorts and dedupes', () => {
+    expect(
+      templatePropertyKeys(
+        'About {prop:custom_size}',
+        'Size {prop:custom_size}\n\n**{prop:custom_colour}** and [{prop:custom_b}](https://x.example)',
+      ),
+    ).toEqual(['custom_b', 'custom_colour', 'custom_size']);
+    expect(templatePropertyKeys('No fill-ins', 'None here')).toEqual([]);
+    expect(templatePropertyKeys('{code}', 'Body')).toEqual([]);
   });
 });
