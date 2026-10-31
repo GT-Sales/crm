@@ -68,8 +68,8 @@ and nothing is written there; check the id anyway before saving it (step 3).
    it shows, with slug `intake-check` (and no other site's id), then save it
    in Railway (service `crm`; backend only).
 4. **Redeploy** (Railway applies variables with a redeploy).
-5. **Watch two or three runs** in the deploy logs: the first comes about
-   10 seconds after start, then one every 15 minutes, each
+5. **Watch two or three runs** in the deploy logs: the first comes 10 to
+   15 seconds after start, then one every 15 minutes, each
    `{"event":"intake_check","status":"ok",…}`.
 
 If the scope is missing, the backend still starts and runs the outbox, the
