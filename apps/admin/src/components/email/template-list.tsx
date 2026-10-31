@@ -5,9 +5,9 @@ import Link from 'next/link';
 import {
   ALWAYS_SENT_TEMPLATES,
   CUSTOMER_EMAIL_TEMPLATE_LABELS,
-  automationsUsingTemplate,
+  customerEmailTemplateSchema,
   type CustomerEmailTemplate,
-  type EmailTemplate,
+  type SiteEmailTemplate,
 } from '@gt-sales/contracts';
 import { Button } from '@gt-sales/ui';
 
@@ -24,12 +24,12 @@ const ALWAYS_SENT_WHEN: Partial<Record<CustomerEmailTemplate, string>> = {
 };
 
 /**
- * The site's nine customer emails, in Settings → Email order: each one's
- * label, whether it is still the starter text or which saved version it is,
- * what sends it ("Used by" the automation rules that name it, linking to the
- * Automations page; the always-sent emails say when they go out) and Edit.
- * Whether a rule-driven email is sent is up to those rules, so the list has no
- * on/off switch.
+ * The site's nine built-in customer emails, in Settings → Email order: each
+ * one's label, whether it is still the starter text or which saved version it
+ * is, what sends it ("Used by" the flows whose active version sends it, each
+ * linking to its flow; the always-sent emails say when they go out) and Edit.
+ * Whether a flow-driven email is sent is up to those flows, so the list has no
+ * on/off switch. The site's own templates are listed in a later release.
  */
 export function TemplateList({
   workspaceSlug,
@@ -38,17 +38,19 @@ export function TemplateList({
   readOnly = false,
 }: {
   workspaceSlug: string;
-  templates: EmailTemplate[];
+  templates: SiteEmailTemplate[];
   onEdit(key: CustomerEmailTemplate): void;
   /** The caller may not change email settings: no Edit. */
   readOnly?: boolean;
 }): JSX.Element {
-  const automationsHref = `/w/${workspaceSlug}/automations`;
+  const builtIns = templates.flatMap((template) => {
+    const key = customerEmailTemplateSchema.safeParse(template.key);
+    return key.success ? [{ ...template, key: key.data }] : [];
+  });
   return (
     <ul aria-label="Emails" className="divide-y rounded-md border">
-      {templates.map((template) => {
+      {builtIns.map((template) => {
         const label = CUSTOMER_EMAIL_TEMPLATE_LABELS[template.key];
-        const rules = automationsUsingTemplate(template.key);
         const sentBy = ALWAYS_SENT_TEMPLATES.includes(template.key)
           ? ALWAYS_SENT_WHEN[template.key]
           : SENT_BY_STAFF[template.key];
@@ -59,11 +61,11 @@ export function TemplateList({
               <p className="text-xs text-muted-foreground">
                 {template.version === 0 ? 'Starter text' : `Version ${template.version}`}
               </p>
-              {rules.map((rule) => (
-                <p key={rule.key} className="text-xs text-muted-foreground">
+              {template.usedBy.map((flow) => (
+                <p key={flow.key} className="text-xs text-muted-foreground">
                   Used by:{' '}
-                  <Link className="underline" href={automationsHref}>
-                    {rule.label}
+                  <Link className="underline" href={`/w/${workspaceSlug}/automations/${flow.key}`}>
+                    {flow.name}
                   </Link>
                 </p>
               ))}

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { AUTOMATION_MAX_FLOWS, automationKeySchema } from './automation-keys';
+import { AUTOMATION_MAX_FLOWS, automationKeySchema, customFlowKeySchema } from './automation-keys';
 import {
   AUTOMATION_RUN_PAGE,
   AUTOMATION_RUN_STATUSES,
@@ -53,17 +53,30 @@ export const flowSummarySchema = z.object({
 });
 export type FlowSummary = z.infer<typeof flowSummarySchema>;
 
-/** `?archived=1` lists the archived flows instead. */
-export const flowListQuerySchema = z.object({ archived: z.enum(['1']).optional() }).strict();
+/** The archived flows come a page at a time: archiving has no limit. */
+export const AUTOMATION_ARCHIVED_PAGE = 50;
+
+/**
+ * `?archived=1` lists the archived flows instead, most recently archived
+ * first, `AUTOMATION_ARCHIVED_PAGE` at a time; `before` is the key the last
+ * page ended with (its `nextBefore`).
+ */
+export const flowListQuerySchema = z
+  .object({ archived: z.enum(['1']).optional(), before: customFlowKeySchema.optional() })
+  .strict();
 export type FlowListQuery = z.infer<typeof flowListQuerySchema>;
 
 /**
- * `GET …/automations`: the site's flows (the six built-ins seeded first),
- * the overlap warnings (O10), whether the caller may change them, whether the
- * site has a sender, and the limit.
+ * `GET …/automations`: the site's flows (the six built-ins seeded first; at
+ * most `AUTOMATION_MAX_FLOWS` are not archived), the overlap warnings (O10),
+ * whether the caller may change them, whether the site has a sender, and the
+ * limit. `nextBefore` pages the archived list; null otherwise.
  */
 export const flowListResponseSchema = z.object({
-  automations: z.array(flowSummarySchema).max(200),
+  automations: z
+    .array(flowSummarySchema)
+    .max(Math.max(AUTOMATION_MAX_FLOWS, AUTOMATION_ARCHIVED_PAGE)),
+  nextBefore: automationKeySchema.nullable(),
   warnings: z.array(flowOverlapWarningSchema).max(100),
   canManage: z.boolean(),
   hasSender: z.boolean(),
@@ -93,7 +106,10 @@ export type FlowVersionSummary = z.infer<typeof flowVersionSummarySchema>;
 /**
  * `GET …/automations/:key` and the answer of every flow change: the flow,
  * its `revision` (the `expectedRevision` of the next change), its draft with
- * the site's warnings, its active definition and every version.
+ * the site's warnings, its active definition and its versions, newest first.
+ * A stored definition that no longer parses is served as `definition: null`
+ * (the flow then needs attention, `definition_invalid`), so the page still
+ * opens.
  */
 export const flowDetailResponseSchema = z.object({
   automation: flowSummarySchema,
@@ -101,12 +117,15 @@ export const flowDetailResponseSchema = z.object({
   draft: z
     .object({
       version: z.int().positive(),
-      definition: flowDraftSchemaFor('builtin'),
+      definition: flowDraftSchemaFor('builtin').nullable(),
       issues: z.array(flowIssueSchema),
     })
     .nullable(),
   active: z
-    .object({ version: z.int().positive(), definition: flowDefinitionSchemaFor('builtin') })
+    .object({
+      version: z.int().positive(),
+      definition: flowDefinitionSchemaFor('builtin').nullable(),
+    })
     .nullable(),
   versions: z.array(flowVersionSummarySchema).max(500),
   canManage: z.boolean(),

@@ -15,8 +15,9 @@ export default async function AutomationsPage({
           <h1>Automations</h1>
         </CardTitle>
         <CardDescription>
-          The emails this site sends its customers on its own when an order arrives or moves stage.
-          Each rule stays off until someone with the Integrations permission switches it on.
+          The flows this site runs on its own when a lead is submitted, moves stage or waits too
+          long: emails to the customer, tasks and notes to staff. Each flow stays off until someone
+          with the Integrations permission switches it on.
         </CardDescription>
       </CardHeader>
       <CardContent>

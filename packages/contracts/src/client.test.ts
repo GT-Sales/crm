@@ -186,7 +186,10 @@ describe('createBackendClient transport', () => {
       updatedAt: '2026-10-30T12:00:00.000Z',
       updatedBy: UUID,
     };
-    const templates = harness(200, { template, requestId: UUID });
+    const templates = harness(200, {
+      template: { ...template, name: 'Dispatched', archived: false, usedBy: [] },
+      requestId: UUID,
+    });
     await templates.client.staff.updateEmailTemplate(UUID, 'dispatched', {
       expectedVersion: 0,
       subject: 'On its way',
@@ -197,16 +200,21 @@ describe('createBackendClient transport', () => {
       `https://api.example.test/api/v1/staff/workspaces/${UUID}/email/templates/dispatched`,
     );
 
-    const rule = {
+    const flow = {
       key: 'order_received',
-      label: 'When an order is submitted on the website → send the Order received email',
-      trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
-      action: { kind: 'send_email', template: 'order_received' },
+      origin: 'builtin',
+      name: 'When an order is submitted on the website → send the Order received email',
+      description: null,
       enabled: true,
+      archived: false,
+      trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'], when: null },
+      activeVersion: 1,
+      hasDraft: false,
       lastRunAt: null,
       runCount: 0,
+      needsAttention: null,
     };
-    const automations = harness(200, { automation: rule, requestId: UUID });
+    const automations = harness(200, { automation: flow, requestId: UUID });
     await automations.client.staff.updateAutomation(UUID, 'order_received', { enabled: true });
     expect(automations.calls[0]?.method).toBe('PUT');
     expect(automations.calls[0]?.url).toBe(
@@ -214,11 +222,32 @@ describe('createBackendClient transport', () => {
     );
     expect(JSON.parse(automations.calls[0]?.body ?? '{}')).toEqual({ enabled: true });
 
-    const runs = harness(200, { runs: [], requestId: UUID });
+    const list = harness(200, {
+      automations: [flow],
+      nextBefore: null,
+      warnings: [],
+      canManage: true,
+      hasSender: true,
+      limit: 50,
+      requestId: UUID,
+    });
+    await list.client.staff.listAutomations(UUID);
+    await list.client.staff.listAutomations(UUID, {
+      archived: '1',
+      before: 'flow_abcdefghij012345',
+    });
+    expect(list.calls.map((call) => call.url)).toEqual([
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations`,
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations?archived=1&before=flow_abcdefghij012345`,
+    ]);
+
+    const runs = harness(200, { runs: [], nextBefore: null, requestId: UUID });
     await runs.client.staff.listAutomationRuns(UUID, 'order_received');
-    expect(runs.calls[0]?.url).toBe(
+    await runs.client.staff.listAutomationRuns(UUID, 'order_received', { before: UUID });
+    expect(runs.calls.map((call) => call.url)).toEqual([
       `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations/order_received/runs`,
-    );
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/automations/order_received/runs?before=${UUID}`,
+    ]);
 
     const preview = harness(200, { subject: 'S', html: '<p>x</p>', text: 'x', requestId: UUID });
     await preview.client.staff.previewEmailTemplate(UUID, 'dispatched', {

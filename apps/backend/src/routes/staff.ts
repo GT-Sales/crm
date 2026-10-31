@@ -46,7 +46,7 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { sensitiveFieldsKey } from '../crypto/cipher.js';
-import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
+import { DatabaseFlowStore, type FlowStore } from '../automations/flow-store.js';
 import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
 import type { ChangeRequestService } from '../tracking/change-requests.js';
 import { DatabaseEmailSettingsStore, type EmailSettingsStore } from '../email/settings-store.js';
@@ -115,8 +115,8 @@ export interface StaffRouteDependencies {
   planStore?: PlanStore;
   /** The site's reports (counts only); omitted in route tests that do not reach them. */
   reportStore?: ReportStore;
-  /** The built-in automation rules' state and runs; omitted in route tests that do not reach them. */
-  automationStore?: AutomationStore;
+  /** The site's automation flows, their versions and runs; omitted in route tests that do not reach them. */
+  flowStore?: FlowStore;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
@@ -140,7 +140,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     savedViewStore: new DatabaseSavedViewStore(),
     planStore: new DatabasePlanStore(),
     reportStore: new DatabaseReportStore(),
-    automationStore: new DatabaseAutomationStore(),
+    flowStore: new DatabaseFlowStore(),
     emailSettingsStore: new DatabaseEmailSettingsStore(),
     errorTracker: createErrorTrackerFromEnv(),
   };
@@ -180,17 +180,33 @@ const unconfiguredPlanStore: PlanStore = {
 const unconfiguredReportStore: ReportStore = {
   sourceReport: () => notConfigured('report store'),
 };
-const unconfiguredAutomationStore: AutomationStore = {
-  list: () => notConfigured('automation store'),
-  setEnabled: () => notConfigured('automation store'),
-  recordRun: () => notConfigured('automation store'),
-  listRuns: () => notConfigured('automation store'),
+const unconfiguredFlowStore: FlowStore = {
+  list: () => notConfigured('flow store'),
+  get: () => notConfigured('flow store'),
+  create: () => notConfigured('flow store'),
+  updateDetails: () => notConfigured('flow store'),
+  setEnabled: () => notConfigured('flow store'),
+  archive: () => notConfigured('flow store'),
+  restore: () => notConfigured('flow store'),
+  listRuns: () => notConfigured('flow store'),
+  getRun: () => notConfigured('flow store'),
+  saveDraft: () => notConfigured('flow store'),
+  discardDraft: () => notConfigured('flow store'),
+  activate: () => notConfigured('flow store'),
+  reset: () => notConfigured('flow store'),
+  getVersion: () => notConfigured('flow store'),
+  versions: () => notConfigured('flow store'),
+  catalog: () => notConfigured('flow store'),
+  detail: () => notConfigured('flow store'),
 };
 const unconfiguredEmailSettingsStore: EmailSettingsStore = {
   getSettings: () => notConfigured('email settings store'),
   putSettings: () => notConfigured('email settings store'),
   listTemplates: () => notConfigured('email settings store'),
+  listArchivedTemplates: () => notConfigured('email settings store'),
   putTemplate: () => notConfigured('email settings store'),
+  createTemplate: () => notConfigured('email settings store'),
+  setTemplateArchived: () => notConfigured('email settings store'),
 };
 /** A deployment with no customer mail: no provider, so no site can send. */
 const unconfiguredCustomerEmail: CustomerEmail = {
@@ -1567,6 +1583,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       withTenantTx: dependencies.withTenantTx ?? withTenantTx,
       decide,
       reportFailure,
+      ...(dependencies.loadPropertyCatalog
+        ? { loadCatalog: dependencies.loadPropertyCatalog }
+        : {}),
     }),
   );
 
@@ -1588,7 +1607,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
 
   router.use(
     createAutomationRoutes({
-      store: dependencies.automationStore ?? unconfiguredAutomationStore,
+      store: dependencies.flowStore ?? unconfiguredFlowStore,
       customerEmail: dependencies.customerEmail,
       decide,
       canSeeContacts,

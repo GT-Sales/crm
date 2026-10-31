@@ -104,9 +104,38 @@ function personName(actorId: string | null, members: readonly AssignableMember[]
 
 /**
  * An entry's icon and words. `actor` null leaves out who: an automation
- * queued the mail, whoever made the move that fired it.
+ * queued the mail, whoever made the move that fired it. An entry a flow wrote
+ * (a move, an assignment, a correction) reads "… by automation <name>",
+ * linked to the flow, rather than naming the member who activated it.
  */
 function describe(
+  activity: LeadActivity,
+  leadType: string,
+  members: readonly AssignableMember[],
+  catalog: PropertyCatalog | undefined,
+  workspaceSlug: string,
+): { icon: ReactNode; text: ReactNode; actor?: null } {
+  const described = describeEntry(activity, leadType, members, catalog, workspaceSlug);
+  const isMail = activity.kind === 'system' && activity.event === 'customer_emailed';
+  if (!activity.automation || !activity.automationName || isMail) return described;
+  return {
+    icon: <BotIcon />,
+    actor: null,
+    text: (
+      <>
+        {described.text} by automation{' '}
+        <Link
+          href={`/w/${workspaceSlug}/automations/${activity.automation}`}
+          className="underline-offset-2 hover:underline"
+        >
+          {activity.automationName}
+        </Link>
+      </>
+    ),
+  };
+}
+
+function describeEntry(
   activity: LeadActivity,
   leadType: string,
   members: readonly AssignableMember[],
@@ -215,7 +244,8 @@ function describe(
             <>
               {emailTemplateLabel(activity.template, activity.templateName)} email queued by{' '}
               <Link
-                href={`/w/${workspaceSlug}/automations`}
+                href={`/w/${workspaceSlug}/automations/${activity.automation}`}
+                title={activity.automationName}
                 className="underline-offset-2 hover:underline"
               >
                 an automation
@@ -353,7 +383,7 @@ export function LeadTimeline({
                   {icon}
                 </span>
                 <div className="min-w-0 flex-1 pt-1 text-sm">
-                  <p>
+                  <p className={actor === null ? 'first-letter:uppercase' : undefined}>
                     {actor === null ? null : (
                       <>
                         <span className="font-medium">

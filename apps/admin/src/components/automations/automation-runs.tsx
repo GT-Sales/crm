@@ -1,31 +1,22 @@
 import type { JSX } from 'react';
-import type { AutomationRun } from '@gt-sales/contracts';
+import type { FlowRun } from '@gt-sales/contracts';
 import Link from 'next/link';
 
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
-
-const SKIP_REASONS: Readonly<Record<NonNullable<AutomationRun['reason']>, string>> = {
-  no_sender: 'no sender',
-  no_customer_email: 'no customer email',
-  missing_fill_in: 'missing fill-ins',
-};
-
-function outcomeLabel(run: AutomationRun): string {
-  if (run.outcome === 'queued') return 'Queued';
-  return run.reason === null ? 'Skipped' : `Skipped: ${SKIP_REASONS[run.reason]}`;
-}
+import { runStatusText } from './flow-words';
 
 /**
- * A rule's latest runs as the backend lists them (newest first, at most 50):
+ * A flow's latest runs as the backend lists them (newest first, at most 50):
  * the lead, linked to its record and named only for viewers with contact
- * access, whether the email was queued or why it was skipped, and when.
+ * access (otherwise "Lead" and the start of its id), the run's status in
+ * words, the version it ran and when it started.
  */
 export function AutomationRuns({
   workspaceSlug,
   runs,
 }: {
   workspaceSlug: string;
-  runs: AutomationRun[];
+  runs: readonly FlowRun[];
 }): JSX.Element {
   if (runs.length === 0) {
     return <p className="text-sm text-muted-foreground">No runs yet.</p>;
@@ -38,15 +29,18 @@ export function AutomationRuns({
             className="mr-auto font-medium underline"
             href={`/w/${workspaceSlug}/leads/${run.leadId}`}
           >
-            {run.leadName ?? 'Open lead'}
+            {run.leadName ?? `Lead ${run.leadId.slice(0, 8)}`}
           </Link>
-          <span>{outcomeLabel(run)}</span>
+          <span>{runStatusText(run)}</span>
+          {run.version === null ? null : (
+            <span className="text-muted-foreground">Version {run.version}</span>
+          )}
           <time
             className="text-muted-foreground"
-            dateTime={run.createdAt}
-            title={dateTimeLabel(run.createdAt)}
+            dateTime={run.startedAt}
+            title={dateTimeLabel(run.startedAt)}
           >
-            {relativeTime(run.createdAt)}
+            {relativeTime(run.startedAt)}
           </time>
         </li>
       ))}

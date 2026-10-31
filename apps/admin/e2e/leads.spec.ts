@@ -515,16 +515,15 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   const errors = trackErrors(page);
   const dispatchedRule = 'When a SIM order moves to Delivered → send the Dispatched email';
   const activatedRule = 'When a SIM order moves to Activated → send the Activated email';
+  const flows = page.getByRole('table', { name: 'Automation flows' });
   const ruleRow = (label: string) =>
-    page
-      .getByRole('list', { name: 'Automations' })
-      .getByRole('listitem')
-      .filter({ has: page.getByRole('switch', { name: label, exact: true }) });
+    flows.getByRole('row').filter({ has: page.getByRole('switch', { name: label, exact: true }) });
 
-  // Automations: every rule is off until the owner switches it on.
+  // Automations: the six built-in flows, every one off until the owner switches it on.
   await page.goto('/w/getcanadasim/automations');
-  const switches = page.getByRole('list', { name: 'Automations' }).getByRole('switch');
+  const switches = flows.getByRole('switch');
   await expect(switches).toHaveCount(6);
+  await expect(flows.getByText('Built in', { exact: true })).toHaveCount(6);
   for (const toggle of await switches.all()) {
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
   }
@@ -603,18 +602,23 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   await expect(stage).toHaveValue('activated');
   await expect(timeline).toContainText('Activated email queued by an automation');
 
-  // Automations: each rule queued one email; the Dispatched rule's run is Nadia Khan's.
+  // Automations: each flow ran once; the Dispatched flow's page shows Nadia Khan's run.
   await page.goto('/w/getcanadasim/automations');
   for (const rule of [dispatchedRule, activatedRule]) {
-    await expect(ruleRow(rule).locator('dt:text-is("Emails queued") + dd')).toHaveText('1');
+    // Name, When, On, Last run, Runs, Status.
+    await expect(ruleRow(rule).getByRole('cell').nth(4)).toHaveText('1');
   }
-  await ruleRow(dispatchedRule).getByRole('button', { name: 'Recent runs' }).click();
-  const runs = ruleRow(dispatchedRule)
-    .getByRole('list', { name: 'Recent runs' })
-    .getByRole('listitem');
+  await ruleRow(dispatchedRule).getByRole('link', { name: dispatchedRule, exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: dispatchedRule })).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'What it does' })
+      .getByText('Send the Dispatched email', { exact: true }),
+  ).toBeVisible();
+  const runs = page.getByRole('list', { name: 'Recent runs' }).getByRole('listitem');
   await expect(runs).toHaveCount(1);
   await expect(runs.first().getByRole('link', { name: 'Nadia Khan' })).toBeVisible();
-  await expect(runs.first()).toContainText('Queued');
+  await expect(runs.first()).toContainText('Completed');
 
   // Settings → Email: the Dispatched email is edited, previewed and saved as version 2.
   await page.goto('/w/getcanadasim/settings');

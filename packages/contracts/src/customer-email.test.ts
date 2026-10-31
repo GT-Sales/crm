@@ -14,12 +14,11 @@ import {
   emailFillIns,
   emailSettingsResponseSchema,
   emailSettingsSchema,
-  emailTemplateResponseSchema,
   emailTemplateSchema,
   emailSubjectSchema,
   fillInsForTemplate,
   httpsUrlSchema,
-  listEmailTemplatesResponseSchema,
+  listEmailTemplatesQuerySchema,
   normalizeFillInName,
   previewEmailTemplateRequestSchema,
   previewEmailTemplateResponseSchema,
@@ -290,29 +289,44 @@ describe('email templates', () => {
     updatedBy: version === 0 ? null : UUID_A,
   });
 
-  it('lists exactly the nine templates', () => {
-    const templates = CUSTOMER_EMAIL_TEMPLATES.map((key) => template(key));
+  it('lists the nine, then the site-made ones not archived, and pages the archived', () => {
+    const builtIns = CUSTOMER_EMAIL_TEMPLATES.map((key) => ({
+      ...template(key),
+      name: emailTemplateLabel(key),
+      archived: false,
+      usedBy: [],
+    }));
+    const siteMade = Array.from({ length: 50 }, (_, index) => ({
+      ...template(`tpl_abcdefghij0${String(index).padStart(5, '0')}`, 1),
+      name: `Note ${index}`,
+      archived: false,
+      usedBy: [],
+    }));
+    const listed = { templates: [...builtIns, ...siteMade], nextBefore: null, requestId: UUID_A };
+    expect(listSiteEmailTemplatesResponseSchema.parse(listed).templates).toHaveLength(59);
     expect(
-      listEmailTemplatesResponseSchema.parse({ templates, requestId: UUID_A }).templates,
-    ).toHaveLength(9);
-    expect(
-      listEmailTemplatesResponseSchema.safeParse({
-        templates: templates.slice(1),
-        requestId: UUID_A,
+      listSiteEmailTemplatesResponseSchema.safeParse({
+        ...listed,
+        templates: [...listed.templates, siteMade[0]],
       }).success,
     ).toBe(false);
+    expect(
+      listSiteEmailTemplatesResponseSchema.safeParse({
+        templates: siteMade.map((entry) => ({ ...entry, archived: true })),
+        nextBefore: 'tpl_abcdefghij000049',
+        requestId: UUID_A,
+      }).success,
+    ).toBe(true);
+    expect(
+      listEmailTemplatesQuerySchema.parse({ archived: '1', before: 'tpl_abcdefghij000049' }),
+    ).toEqual({ archived: '1', before: 'tpl_abcdefghij000049' });
+    expect(listEmailTemplatesQuerySchema.safeParse({ before: 'dispatched' }).success).toBe(false);
   });
 
   it('reads one template, the starter text being version 0', () => {
     expect(emailTemplateSchema.parse(template('dispatched'))).toEqual(template('dispatched'));
     expect(emailTemplateSchema.safeParse(template('dispatched', -1)).success).toBe(false);
     expect(emailTemplateSchema.safeParse(template('unknown')).success).toBe(false);
-    expect(
-      emailTemplateResponseSchema.safeParse({
-        template: template('dispatched', 2),
-        requestId: UUID_A,
-      }).success,
-    ).toBe(true);
   });
 
   it('refuses a 151-character subject, an empty body and an enabled key on a save', () => {
@@ -431,7 +445,7 @@ describe('site-made templates', () => {
       archived: true,
       usedBy: [{ key: 'flow_aaaaaaaaaaaaaaaa', name: 'My flow' }],
     };
-    const list = { templates: [builtIn, own], requestId: UUID_A };
+    const list = { templates: [builtIn, own], nextBefore: null, requestId: UUID_A };
     expect(listSiteEmailTemplatesResponseSchema.parse(list)).toEqual(list);
     expect(siteEmailTemplateResponseSchema.parse({ template: own, requestId: UUID_A })).toEqual({
       template: own,
@@ -440,6 +454,7 @@ describe('site-made templates', () => {
     expect(
       listSiteEmailTemplatesResponseSchema.safeParse({
         templates: [{ ...builtIn, key: 'tpl_short' }],
+        nextBefore: null,
         requestId: UUID_A,
       }).success,
     ).toBe(false);

@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CUSTOMER_EMAIL_TEMPLATES,
+  CUSTOMER_EMAIL_TEMPLATE_LABELS,
   type CustomerEmailTemplate,
   type EmailSettingsResponse,
-  type EmailTemplate,
+  type SiteEmailTemplate,
   type UpdateEmailSettingsRequest,
 } from '@gt-sales/contracts';
 
@@ -69,9 +70,12 @@ const saved: EmailSettingsResponse = {
 
 const unsaved: EmailSettingsResponse = { settings: null, requestId: 'req_test' };
 
-function template(key: CustomerEmailTemplate, version = 0): EmailTemplate {
+function template(key: CustomerEmailTemplate, version = 0): SiteEmailTemplate {
   return {
     key,
+    name: CUSTOMER_EMAIL_TEMPLATE_LABELS[key],
+    archived: false,
+    usedBy: [],
     subject: `Subject of ${key}`,
     body: `Body of ${key}`,
     version,
@@ -157,7 +161,11 @@ describe('EmailSettingsScreen', () => {
       mock.mockReset();
     }
     mocks.getEmailSettings.mockResolvedValue(saved);
-    mocks.listEmailTemplates.mockResolvedValue({ templates, requestId: 'req_test' });
+    mocks.listEmailTemplates.mockResolvedValue({
+      templates,
+      nextBefore: null,
+      requestId: 'req_test',
+    });
     mocks.previewEmailTemplate.mockResolvedValue({
       subject: 'Subject of dispatched',
       html: '<p>Body</p>',
@@ -226,11 +234,16 @@ describe('EmailSettingsScreen', () => {
   });
 
   it('reads the emails again on a conflict, keeps the draft and saves it over the new version', async () => {
-    mocks.listEmailTemplates.mockResolvedValueOnce({ templates, requestId: 'req_test' });
+    mocks.listEmailTemplates.mockResolvedValueOnce({
+      templates,
+      nextBefore: null,
+      requestId: 'req_test',
+    });
     mocks.listEmailTemplates.mockResolvedValue({
       templates: templates.map((entry) =>
         entry.key === 'dispatched' ? template('dispatched', 5) : entry,
       ),
+      nextBefore: null,
       requestId: 'req_test',
     });
     mocks.updateEmailTemplate

@@ -70,7 +70,7 @@ export function emailSkippedText(skipped: EmailSkipped): string {
     case 'missing_fill_in':
       return `${lead}: it needs the ${listText(skipped.missing ?? [])}.`;
     case 'compose_failed':
-      return `${lead}: its template could not be read. Check it under Settings → Email.`;
+      return `${lead}: the email could not be made. Check the template in Settings → Email.`;
   }
 }
 
