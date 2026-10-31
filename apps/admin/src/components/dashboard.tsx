@@ -3,18 +3,17 @@
 import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  LEAD_STATS_WINDOWS,
   leadStageLabel,
   leadTypeEntry,
   leadTypeLabel,
   type LeadStatsResponse,
-  type LeadTypeCount,
 } from '@gt-sales/contracts';
 import { Card, CardContent, NativeSelect, cn } from '@gt-sales/ui';
 import { BellRingIcon } from 'lucide-react';
 
 import { getLeadsSummary, getLeadStats, listStaffTasks } from '../lib/api';
 import { dueTone, followUpLabel, todayDay } from '../lib/dates';
+import { WINDOWS, busiest, type StatsWindow } from '../lib/stats-windows';
 import { useResource } from '../lib/use-resource';
 import { TopPartners, VolumeChart } from './dashboard-charts';
 import { leadDisplayName } from './leads/lead-display';
@@ -22,21 +21,6 @@ import { useStaffSession } from './staff-session-provider';
 
 /** As many follow-ups as Get Canada Sim's dashboard lists before "View all". */
 const SHOWN = 6;
-
-type StatsWindow = (typeof LEAD_STATS_WINDOWS)[number] | null;
-
-/** Get Canada Sim's windows, in its words and order; it opens on the last 7 days. */
-const WINDOWS: { days: StatsWindow; label: string; period: string }[] = [
-  { days: null, label: 'All time', period: 'all time' },
-  { days: 90, label: 'Last 3 months', period: 'the last 3 months' },
-  { days: 30, label: 'Last 30 days', period: 'the last 30 days' },
-  { days: 7, label: 'Last 7 days', period: 'the last 7 days' },
-];
-
-/** The type with the most active leads (a site's orders before its partner applications). */
-function busiest(types: readonly LeadTypeCount[]): string | undefined {
-  return [...types].sort((a, b) => b.total - a.total)[0]?.leadType;
-}
 
 /**
  * The site's dashboard, where the day starts, as in Get Canada Sim's admin:
@@ -62,6 +46,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
     chosenType && types.some((entry) => entry.leadType === chosenType)
       ? chosenType
       : busiest(types);
+  // Get Canada Sim's dashboard opens on the last 7 days.
   const [days, setDays] = useState<StatsWindow>(7);
   const loadStats = useMemo(
     () =>
