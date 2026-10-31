@@ -44,8 +44,12 @@ const NEW_TABLES = [
   'idempotency_keys',
   'workspace_email_settings',
 ] as const;
-/** Updated in place by the backend; the other two are append-only. */
+/**
+ * Updated in place by the backend; template versions are append-only. Runs
+ * became updatable in 0020 (a flow's run moves from waiting to its end).
+ */
 const UPDATABLE_TABLES = [
+  'automation_runs',
   'automations',
   'email_templates',
   'idempotency_keys',
@@ -180,10 +184,10 @@ databaseTest('order tools tables, email_messages.template_version and migration 
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(38);
+    expect(backupPolicies?.count).toBe(42);
   });
 
-  it('app_runtime may not DELETE any of them, nor UPDATE versions or runs; backup_reader reads all', async () => {
+  it('app_runtime may not DELETE any of them, nor UPDATE template versions; backup_reader reads all', async () => {
     for (const table of NEW_TABLES) {
       const [privileges] = await admin<
         { select: boolean; insert: boolean; update: boolean; delete: boolean; backup: boolean }[]
@@ -231,11 +235,10 @@ databaseTest('order tools tables, email_messages.template_version and migration 
       `;
     });
     if (!run) throw new Error('the run was not inserted');
-    await expect(
-      asRuntime(WORKSPACE_1, ACTOR_A, (tx) => {
-        return tx`update app.automation_runs set reason = 'no_customer_email' where id = ${run.id}`;
-      }),
-    ).rejects.toMatchObject({ code: INSUFFICIENT_PRIVILEGE });
+    const ended = await asRuntime(WORKSPACE_1, ACTOR_A, (tx) => {
+      return tx`update app.automation_runs set finished_at = now() where id = ${run.id}`;
+    });
+    expect(ended.count).toBe(1);
 
     for (const table of NEW_TABLES) {
       await expect(
@@ -509,7 +512,7 @@ databaseTest('order tools tables, email_messages.template_version and migration 
     ).rejects.toMatchObject({ code: CHECK_VIOLATION });
   });
 
-  it('automation_runs: queued with its job, skipped with its reason, nothing else', async () => {
+  it('automation_runs: a legacy queued run has its job and a skipped one its reason; keys and reasons by shape', async () => {
     const run = (values: {
       key?: string;
       outcome: string;
@@ -521,18 +524,20 @@ databaseTest('order tools tables, email_messages.template_version and migration 
         ${values.reason ?? null}, ${values.jobId ?? null})
     `;
     await run({ outcome: 'queued', jobId: crypto.randomUUID() });
-    for (const reason of ['no_sender', 'no_customer_email', 'missing_fill_in']) {
+    for (const reason of ['no_sender', 'no_customer_email', 'missing_fill_in', 'bounced']) {
       await run({ outcome: 'skipped', reason });
     }
+    // 0019 keeps only each legacy check's one direction, and keys and reasons by shape.
+    await run({ outcome: 'queued', jobId: crypto.randomUUID(), reason: 'no_sender' });
+    await run({ outcome: 'skipped', reason: 'no_sender', jobId: crypto.randomUUID() });
+    await run({ key: 'flow_abcdefghij012345', outcome: 'skipped', reason: 'no_sender' });
 
     const refused = [
       run({ outcome: 'skipped' }),
       run({ outcome: 'queued' }),
-      run({ outcome: 'skipped', reason: 'bounced' }),
-      run({ outcome: 'queued', jobId: crypto.randomUUID(), reason: 'no_sender' }),
-      run({ outcome: 'skipped', reason: 'no_sender', jobId: crypto.randomUUID() }),
+      run({ outcome: 'skipped', reason: 'Bounced!' }),
       run({ outcome: 'failed', reason: 'no_sender' }),
-      run({ key: 'custom_x', outcome: 'skipped', reason: 'no_sender' }),
+      run({ key: 'X', outcome: 'skipped', reason: 'no_sender' }),
     ];
     for (const statement of refused) {
       await expect(statement).rejects.toMatchObject({ code: CHECK_VIOLATION });

@@ -121,6 +121,8 @@ const createdAt = () =>
 const updatedAt = () =>
   timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull();
 
+/** A plain address check; the backend validates addresses properly before they are stored. */
+const emailAddressPattern = sql.raw(`'^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'`);
 const membershipStatusList = sql.raw(membershipStatuses.map((status) => `'${status}'`).join(', '));
 const leadStatusList = sql.raw(leadStatuses.map((status) => `'${status}'`).join(', '));
 
@@ -169,6 +171,12 @@ export const memberships = appSchema
        * readable by every role, and it must not become a staff directory.
        */
       displayName: text('display_name'),
+      /**
+       * Where a flow's staff notification goes: the member's verified sign-in
+       * address, recorded by `app.record_staff_notification_email` when they
+       * sign in (spec ruling R9). Never returned by any route.
+       */
+      notificationEmail: text('notification_email'),
       acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'date' }),
       revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
       createdAt: createdAt(),
@@ -193,6 +201,10 @@ export const memberships = appSchema
       check(
         'memberships_display_name_check',
         sql`${table.displayName} is null or (char_length(${table.displayName}) between 1 and 80 and ${table.displayName} = btrim(${table.displayName}))`,
+      ),
+      check(
+        'memberships_notification_email_check',
+        sql`${table.notificationEmail} is null or (char_length(${table.notificationEmail}) <= 254 and ${table.notificationEmail} ~ ${emailAddressPattern})`,
       ),
       check(
         'memberships_identity_state_check',
@@ -1593,7 +1605,7 @@ const emailTemplateKeyList = quotedList([
   'change_approved',
   'change_rejected',
 ]);
-/** Must match contracts' `BUILT_IN_AUTOMATIONS` keys. */
+/** Must match contracts' `BUILT_IN_AUTOMATION_KEYS`. */
 const automationKeyList = quotedList([
   'order_received',
   'sim_order_information_needed',
@@ -1602,11 +1614,54 @@ const automationKeyList = quotedList([
   'sim_order_cancelled',
   'mobility_activated',
 ]);
+/** Must match contracts' `CUSTOM_FLOW_KEY_PATTERN`. */
+const customFlowKeyPattern = sql.raw(`'^flow_[a-z0-9]{16}$'`);
+/** Must match contracts' `SITE_TEMPLATE_KEY_PATTERN`. */
+const siteTemplateKeyPattern = sql.raw(`'^tpl_[a-z0-9]{16}$'`);
+/** Must match contracts' `AUTOMATION_KEY_SHAPE`: a run names any flow's key. */
+const automationKeyShape = sql.raw(`'^[a-z][a-z0-9_]{2,63}$'`);
+/** Must match contracts' `AUTOMATION_REASON_SHAPE`; the reasons themselves are a contracts enum. */
+const automationReasonShape = sql.raw(`'^[a-z][a-z0-9_]{0,63}$'`);
+/** Must match contracts' `STEP_ID_PATTERN`. */
+const automationStepIdPattern = sql.raw(`'^[a-z0-9_]{1,40}$'`);
+/** Phase 4's run outcomes, kept only on runs written before the flows (spec §4). */
 const automationRunOutcomeList = quotedList(['queued', 'skipped']);
-const automationRunReasonList = quotedList(['no_sender', 'no_customer_email', 'missing_fill_in']);
-
-/** A plain address check; the backend validates addresses properly before they are stored. */
-const emailAddressPattern = sql.raw(`'^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'`);
+/** Must match contracts' `AUTOMATION_RUN_STATUSES`. */
+const automationRunStatusList = quotedList([
+  'waiting',
+  'completed',
+  'skipped',
+  'failed',
+  'cancelled',
+]);
+/** Must match contracts' `AUTOMATION_STEP_OUTCOMES`. */
+const automationStepOutcomeList = quotedList(['done', 'skipped', 'failed', 'waiting', 'cancelled']);
+/** Must match contracts' `FLOW_STEP_KINDS`. */
+const automationStepKindList = quotedList([
+  'send_email',
+  'create_task',
+  'assign_lead',
+  'update_lead',
+  'notify_staff',
+  'if_else',
+  'wait',
+]);
+/** Must match contracts' `FLOW_TRIGGER_KINDS`. */
+const automationTriggerKindList = quotedList([
+  'lead_submitted',
+  'stage_entered',
+  'time_in_stage',
+  'task_overdue',
+  'after_submitted',
+]);
+/** Must match contracts' `AUTOMATION_VERSION_STATUSES`. */
+const automationVersionStatusList = quotedList(['draft', 'active', 'retired', 'discarded']);
+/** Must match contracts' `AUTOMATION_WAIT_STATUSES`. */
+const automationWaitStatusList = quotedList(['pending', 'resumed', 'cancelled']);
+/** Must match contracts' `AUTOMATION_TIMER_STATUSES`. */
+const automationTimerStatusList = quotedList(['pending', 'fired', 'void']);
+/** Must match contracts' `AUTOMATION_TIMER_KINDS`. */
+const automationTimerKindList = quotedList(['time_in_stage', 'task_overdue', 'after_submitted']);
 
 /**
  * A website's double-submit protection: the keyed hash of the
@@ -1755,15 +1810,30 @@ export const emailTemplates = appSchema
         .notNull()
         .references(() => workspaces.id, { onDelete: 'cascade' }),
       key: text('key').notNull(),
+      /** A site-made (`tpl_`) template's name; null for the nine built-ins, which go by their label. */
+      name: text('name'),
       subject: text('subject').notNull(),
       body: text('body').notNull(),
       version: integer('version').notNull(),
       updatedBy: uuid('updated_by').notNull(),
       updatedAt: updatedAt(),
+      /** Site-made templates only: archived, it is no longer offered and a flow that sends it is skipped. */
+      archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
     },
     (table) => [
       unique('email_templates_workspace_key_unique').on(table.workspaceId, table.key),
-      check('email_templates_key_check', sql`${table.key} in (${emailTemplateKeyList})`),
+      check(
+        'email_templates_key_check',
+        sql`${table.key} in (${emailTemplateKeyList}) or ${table.key} ~ ${siteTemplateKeyPattern}`,
+      ),
+      check(
+        'email_templates_name_check',
+        sql`(${table.key} ~ '^tpl_') = (${table.name} is not null) and (${table.name} is null or (char_length(${table.name}) between 1 and 80 and ${table.name} = btrim(${table.name})))`,
+      ),
+      check(
+        'email_templates_archived_check',
+        sql`${table.archivedAt} is null or ${table.key} ~ '^tpl_'`,
+      ),
       check('email_templates_subject_check', sql`char_length(${table.subject}) between 1 and 150`),
       check('email_templates_body_check', sql`char_length(${table.body}) between 1 and 5000`),
       check('email_templates_version_check', sql`${table.version} > 0`),
@@ -1799,7 +1869,10 @@ export const emailTemplateVersions = appSchema
         table.key,
         table.version,
       ),
-      check('email_template_versions_key_check', sql`${table.key} in (${emailTemplateKeyList})`),
+      check(
+        'email_template_versions_key_check',
+        sql`${table.key} in (${emailTemplateKeyList}) or ${table.key} ~ ${siteTemplateKeyPattern}`,
+      ),
       check(
         'email_template_versions_subject_check',
         sql`char_length(${table.subject}) between 1 and 150`,
@@ -1816,10 +1889,13 @@ export const emailTemplateVersions = appSchema
   .enableRLS();
 
 /**
- * A site's state of one automation rule: on or off (off until an owner
- * switches it on), when it last ran and how many times. The rules themselves
- * (trigger and action) are defined in code, contracts `BUILT_IN_AUTOMATIONS`;
- * phase 8's builder adds custom rules here.
+ * One automation flow of a site (phase 8 spec §4): a built-in (one of the six
+ * phase 4 rules, seeded per site) or a custom flow staff built. On or off
+ * (off until someone switches it on), its live version (`active_version_id`),
+ * a `revision` every draft save, discard, reset and activation bumps (the
+ * editor's `expectedRevision`), and when it last ran and how many times. A
+ * built-in's `name` may be null (it reads as its label; the conversion and the
+ * seeding fill it). An archived flow is custom and off.
  */
 export const automations = appSchema
   .table(
@@ -1830,15 +1906,44 @@ export const automations = appSchema
         .notNull()
         .references(() => workspaces.id, { onDelete: 'cascade' }),
       key: text('key').notNull(),
+      origin: text('origin').default('builtin').notNull(),
+      name: text('name'),
+      description: text('description'),
       enabled: boolean('enabled').default(false).notNull(),
+      activeVersionId: uuid('active_version_id'),
+      revision: integer('revision').default(0).notNull(),
       lastRunAt: timestamp('last_run_at', { withTimezone: true, mode: 'date' }),
       runCount: integer('run_count').default(0).notNull(),
+      createdBy: uuid('created_by'),
+      createdAt: createdAt(),
       updatedBy: uuid('updated_by').notNull(),
       updatedAt: updatedAt(),
+      archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
     },
     (table) => [
       unique('automations_workspace_key_unique').on(table.workspaceId, table.key),
-      check('automations_key_check', sql`${table.key} in (${automationKeyList})`),
+      unique('automations_workspace_id_id_unique').on(table.workspaceId, table.id),
+      // automations_active_version_fk ((workspace_id, active_version_id) →
+      // automation_versions) is added in 0020: the two tables reference each
+      // other, which this file cannot type.
+      check(
+        'automations_key_check',
+        sql`(${table.origin} = 'builtin' and ${table.key} in (${automationKeyList})) or (${table.origin} = 'custom' and ${table.key} ~ ${customFlowKeyPattern})`,
+      ),
+      check('automations_origin_check', sql`${table.origin} in ('builtin', 'custom')`),
+      check(
+        'automations_archived_check',
+        sql`${table.archivedAt} is null or (${table.origin} = 'custom' and not ${table.enabled})`,
+      ),
+      check(
+        'automations_name_check',
+        sql`(${table.name} is null and ${table.origin} = 'builtin') or (${table.name} is not null and char_length(btrim(${table.name})) between 1 and 80)`,
+      ),
+      check(
+        'automations_description_check',
+        sql`${table.description} is null or char_length(${table.description}) <= 500`,
+      ),
+      check('automations_revision_check', sql`${table.revision} >= 0`),
       check('automations_run_count_check', sql`${table.runCount} >= 0`),
       tenantPolicy('automations_tenant_policy', table.workspaceId),
       backupReadPolicy('automations'),
@@ -1847,9 +1952,82 @@ export const automations = appSchema
   .enableRLS();
 
 /**
- * One firing of an automation for a lead, append-only: `queued` with the
- * outbox job it queued, or `skipped` with why. Pruned after 90 days by
- * `app.prune_operational_rows`.
+ * Every version of a flow's definition: at most one `draft` and one `active`
+ * per flow, `retired` once replaced, `discarded` when a draft is thrown away.
+ * An activated version's definition never changes (a `BEFORE UPDATE` trigger
+ * in 0020), so a run waiting on it always finds the steps it started with.
+ * `activated_by` is null for a seeded built-in default.
+ */
+export const automationVersions = appSchema
+  .table(
+    'automation_versions',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      automationId: uuid('automation_id').notNull(),
+      version: integer('version').notNull(),
+      status: text('status').default('draft').notNull(),
+      schemaVersion: integer('schema_version').default(1).notNull(),
+      definition: jsonb('definition').notNull(),
+      createdBy: uuid('created_by').notNull(),
+      createdAt: createdAt(),
+      activatedBy: uuid('activated_by'),
+      activatedAt: timestamp('activated_at', { withTimezone: true, mode: 'date' }),
+      retiredAt: timestamp('retired_at', { withTimezone: true, mode: 'date' }),
+    },
+    (table) => [
+      unique('automation_versions_workspace_id_id_unique').on(table.workspaceId, table.id),
+      unique('automation_versions_workspace_automation_version_unique').on(
+        table.workspaceId,
+        table.automationId,
+        table.version,
+      ),
+      uniqueIndex('automation_versions_one_draft')
+        .on(table.workspaceId, table.automationId)
+        .where(sql`${table.status} = 'draft'`),
+      uniqueIndex('automation_versions_one_active')
+        .on(table.workspaceId, table.automationId)
+        .where(sql`${table.status} = 'active'`),
+      foreignKey({
+        name: 'automation_versions_workspace_automation_fk',
+        columns: [table.workspaceId, table.automationId],
+        foreignColumns: [automations.workspaceId, automations.id],
+      }).onDelete('cascade'),
+      check(
+        'automation_versions_status_check',
+        sql`${table.status} in (${automationVersionStatusList})`,
+      ),
+      check('automation_versions_version_check', sql`${table.version} > 0`),
+      check('automation_versions_schema_version_check', sql`${table.schemaVersion} = 1`),
+      check(
+        'automation_versions_definition_check',
+        sql`jsonb_typeof(${table.definition}) = 'object' and octet_length(${table.definition}::text) <= 65536`,
+      ),
+      check(
+        'automation_versions_activated_check',
+        sql`(${table.status} in ('active', 'retired')) = (${table.activatedAt} is not null)`,
+      ),
+      check(
+        'automation_versions_retired_check',
+        sql`(${table.status} = 'retired') = (${table.retiredAt} is not null)`,
+      ),
+      tenantPolicy('automation_versions_tenant_policy', table.workspaceId),
+      backupReadPolicy('automation_versions'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * One firing of a flow for a lead: `waiting` at a wait step, then
+ * `completed`, `skipped` (with why), `failed` or `cancelled`. Once per
+ * `(workspace, automation_key, lead, occurrence)`. Rows written before the
+ * flows keep phase 4's `outcome` (`queued` with its job, `skipped` with its
+ * reason); new rows leave it null. `parent_run_id` names the run whose stage
+ * move set this one off (no FK: pruning a parent never blocks). The store only
+ * ever updates `status`, `reason`, `detail`, `updated_at` and `finished_at`.
+ * Pruned 90 days after it finishes by `app.prune_operational_rows`.
  */
 export const automationRuns = appSchema
   .table(
@@ -1860,45 +2038,279 @@ export const automationRuns = appSchema
         .notNull()
         .references(() => workspaces.id, { onDelete: 'cascade' }),
       automationKey: text('automation_key').notNull(),
+      automationId: uuid('automation_id'),
+      versionId: uuid('version_id'),
       leadId: uuid('lead_id').notNull(),
-      outcome: text('outcome').notNull(),
+      status: text('status').default('completed').notNull(),
+      outcome: text('outcome'),
       reason: text('reason'),
+      detail: text('detail'),
       jobId: uuid('job_id'),
+      occurrence: text('occurrence'),
+      triggerKind: text('trigger_kind'),
+      depth: integer('depth').default(0).notNull(),
+      parentRunId: uuid('parent_run_id'),
       createdAt: createdAt(),
+      updatedAt: updatedAt(),
+      finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
     },
     (table) => [
+      unique('automation_runs_workspace_id_id_unique').on(table.workspaceId, table.id),
       foreignKey({
         name: 'automation_runs_workspace_lead_fk',
         columns: [table.workspaceId, table.leadId],
         foreignColumns: [leads.workspaceId, leads.id],
       }).onDelete('cascade'),
+      foreignKey({
+        name: 'automation_runs_workspace_automation_fk',
+        columns: [table.workspaceId, table.automationId],
+        foreignColumns: [automations.workspaceId, automations.id],
+      }).onDelete('cascade'),
+      foreignKey({
+        name: 'automation_runs_workspace_version_fk',
+        columns: [table.workspaceId, table.versionId],
+        foreignColumns: [automationVersions.workspaceId, automationVersions.id],
+      }),
       check(
         'automation_runs_automation_key_check',
-        sql`${table.automationKey} in (${automationKeyList})`,
+        sql`${table.automationKey} ~ ${automationKeyShape}`,
       ),
       check(
         'automation_runs_outcome_check',
-        sql`${table.outcome} in (${automationRunOutcomeList})`,
+        sql`${table.outcome} is null or ${table.outcome} in (${automationRunOutcomeList})`,
       ),
       check(
         'automation_runs_reason_check',
-        sql`${table.reason} is null or ${table.reason} in (${automationRunReasonList})`,
+        sql`${table.reason} is null or ${table.reason} ~ ${automationReasonShape}`,
       ),
       check(
         'automation_runs_skipped_reason_check',
-        sql`(${table.outcome} = 'skipped') = (${table.reason} is not null)`,
+        sql`${table.outcome} is distinct from 'skipped' or ${table.reason} is not null`,
       ),
       check(
         'automation_runs_queued_job_check',
-        sql`(${table.outcome} = 'queued') = (${table.jobId} is not null)`,
+        sql`${table.outcome} is distinct from 'queued' or ${table.jobId} is not null`,
       ),
+      check('automation_runs_status_check', sql`${table.status} in (${automationRunStatusList})`),
+      check(
+        'automation_runs_waiting_check',
+        sql`${table.status} <> 'waiting' or ${table.finishedAt} is null`,
+      ),
+      check('automation_runs_depth_check', sql`${table.depth} between 0 and 3`),
+      check(
+        'automation_runs_trigger_kind_check',
+        sql`${table.triggerKind} is null or ${table.triggerKind} in (${automationTriggerKindList})`,
+      ),
+      check(
+        'automation_runs_occurrence_check',
+        sql`${table.occurrence} is null or char_length(${table.occurrence}) <= 200`,
+      ),
+      check(
+        'automation_runs_detail_check',
+        sql`${table.detail} is null or char_length(${table.detail}) <= 200`,
+      ),
+      uniqueIndex('automation_runs_occurrence_unique')
+        .on(table.workspaceId, table.automationKey, table.leadId, table.occurrence)
+        .where(sql`${table.occurrence} is not null`),
       index('automation_runs_workspace_key_created_idx').on(
         table.workspaceId,
         table.automationKey,
         table.createdAt.desc(),
       ),
+      index('automation_runs_workspace_automation_created_idx').on(
+        table.workspaceId,
+        table.automationId,
+        table.createdAt.desc(),
+      ),
       tenantPolicy('automation_runs_tenant_policy', table.workspaceId),
       backupReadPolicy('automation_runs'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * One step's outcome in a run, append-only: `done`, `skipped` (with why),
+ * `failed`, `waiting` (a wait that started; `done` when it resumes) or
+ * `cancelled`; the branch an if/else took; the job a mail queued or the task
+ * it made. `detail` holds keys, ids or fill-in names, never a value. Goes with
+ * its run.
+ */
+export const automationStepRuns = appSchema
+  .table(
+    'automation_step_runs',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      runId: uuid('run_id').notNull(),
+      stepId: text('step_id').notNull(),
+      stepKind: text('step_kind').notNull(),
+      outcome: text('outcome').notNull(),
+      branch: text('branch'),
+      reason: text('reason'),
+      detail: text('detail'),
+      jobId: uuid('job_id'),
+      taskId: uuid('task_id'),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      foreignKey({
+        name: 'automation_step_runs_workspace_run_fk',
+        columns: [table.workspaceId, table.runId],
+        foreignColumns: [automationRuns.workspaceId, automationRuns.id],
+      }).onDelete('cascade'),
+      check(
+        'automation_step_runs_step_id_check',
+        sql`${table.stepId} ~ ${automationStepIdPattern}`,
+      ),
+      check(
+        'automation_step_runs_step_kind_check',
+        sql`${table.stepKind} in (${automationStepKindList})`,
+      ),
+      check(
+        'automation_step_runs_outcome_check',
+        sql`${table.outcome} in (${automationStepOutcomeList})`,
+      ),
+      check(
+        'automation_step_runs_branch_check',
+        sql`${table.branch} is null or ${table.branch} in ('yes', 'no')`,
+      ),
+      check(
+        'automation_step_runs_reason_check',
+        sql`${table.reason} is null or ${table.reason} ~ ${automationReasonShape}`,
+      ),
+      check(
+        'automation_step_runs_detail_check',
+        sql`${table.detail} is null or char_length(${table.detail}) <= 200`,
+      ),
+      index('automation_step_runs_workspace_run_created_idx').on(
+        table.workspaceId,
+        table.runId,
+        table.createdAt,
+      ),
+      tenantPolicy('automation_step_runs_tenant_policy', table.workspaceId),
+      backupReadPolicy('automation_step_runs'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A run paused at a wait step until `resume_at`: `pending`, then `resumed`
+ * or `cancelled`. A resume that fails is retried, at most 5 attempts. Goes
+ * with its run.
+ */
+export const automationWaits = appSchema
+  .table(
+    'automation_waits',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      runId: uuid('run_id').notNull(),
+      automationId: uuid('automation_id').notNull(),
+      leadId: uuid('lead_id').notNull(),
+      stepId: text('step_id').notNull(),
+      resumeAt: timestamp('resume_at', { withTimezone: true, mode: 'date' }).notNull(),
+      status: text('status').default('pending').notNull(),
+      attempts: integer('attempts').default(0).notNull(),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('automation_waits_run_id_unique').on(table.runId),
+      foreignKey({
+        name: 'automation_waits_workspace_run_fk',
+        columns: [table.workspaceId, table.runId],
+        foreignColumns: [automationRuns.workspaceId, automationRuns.id],
+      }).onDelete('cascade'),
+      check('automation_waits_step_id_check', sql`${table.stepId} ~ ${automationStepIdPattern}`),
+      check('automation_waits_status_check', sql`${table.status} in (${automationWaitStatusList})`),
+      check('automation_waits_attempts_check', sql`${table.attempts} between 0 and 5`),
+      index('automation_waits_workspace_status_resume_idx').on(
+        table.workspaceId,
+        table.status,
+        table.resumeAt,
+      ),
+      tenantPolicy('automation_waits_tenant_policy', table.workspaceId),
+      backupReadPolicy('automation_waits'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A time trigger waiting for its moment (`time_in_stage`, `task_overdue`,
+ * `after_submitted`), written only while its flow is on (spec ruling R3):
+ * `pending` until `due_at`, then `fired` or `void` (no longer true, or the
+ * flow went off). Once per `(workspace, automation, lead, occurrence)`.
+ * `subject_id` is the task of a `task_overdue` timer and `stage` the stage of
+ * a `time_in_stage` one. Pruned 90 days after it fired or went void.
+ */
+export const automationTimers = appSchema
+  .table(
+    'automation_timers',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      automationId: uuid('automation_id').notNull(),
+      leadId: uuid('lead_id').notNull(),
+      triggerKind: text('trigger_kind').notNull(),
+      occurrence: text('occurrence').notNull(),
+      subjectId: uuid('subject_id'),
+      stage: text('stage'),
+      eventAt: timestamp('event_at', { withTimezone: true, mode: 'date' }).notNull(),
+      dueAt: timestamp('due_at', { withTimezone: true, mode: 'date' }).notNull(),
+      status: text('status').default('pending').notNull(),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('automation_timers_occurrence_unique').on(
+        table.workspaceId,
+        table.automationId,
+        table.leadId,
+        table.occurrence,
+      ),
+      foreignKey({
+        name: 'automation_timers_workspace_automation_fk',
+        columns: [table.workspaceId, table.automationId],
+        foreignColumns: [automations.workspaceId, automations.id],
+      }).onDelete('cascade'),
+      foreignKey({
+        name: 'automation_timers_workspace_lead_fk',
+        columns: [table.workspaceId, table.leadId],
+        foreignColumns: [leads.workspaceId, leads.id],
+      }).onDelete('cascade'),
+      check(
+        'automation_timers_trigger_kind_check',
+        sql`${table.triggerKind} in (${automationTimerKindList})`,
+      ),
+      check(
+        'automation_timers_status_check',
+        sql`${table.status} in (${automationTimerStatusList})`,
+      ),
+      check(
+        'automation_timers_occurrence_check',
+        sql`char_length(${table.occurrence}) between 1 and 200`,
+      ),
+      check(
+        'automation_timers_subject_check',
+        sql`(${table.triggerKind} = 'task_overdue') = (${table.subjectId} is not null)`,
+      ),
+      check(
+        'automation_timers_stage_check',
+        sql`(${table.triggerKind} = 'time_in_stage') = (${table.stage} is not null)`,
+      ),
+      index('automation_timers_workspace_status_due_idx').on(
+        table.workspaceId,
+        table.status,
+        table.dueAt,
+      ),
+      tenantPolicy('automation_timers_tenant_policy', table.workspaceId),
+      backupReadPolicy('automation_timers'),
     ],
   )
   .enableRLS();
