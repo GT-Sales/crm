@@ -3,8 +3,9 @@
 -- five columns of app.automation_runs (a run moves from waiting to its end),
 -- the circular FK from a flow to its live version, the guard that keeps an
 -- activated version fixed, the six built-in default definitions and names, the
--- notification address function, the conversion of the phase 4 rows into
--- flows (merge phase 8, spec §6) and, last, the retention of runs and timers.
+-- notification address function, the current site's identity, the conversion
+-- of the phase 4 rows into flows (merge phase 8, spec §6) and, last, the
+-- retention of runs and timers.
 -- backup_reader needs no grant here: 0007's default privileges make every new
 -- app table readable, and each table's read policy comes from schema.ts in
 -- 0019. Every statement is safe to run twice.
@@ -187,6 +188,29 @@ $function$;
 REVOKE ALL ON FUNCTION app.record_staff_notification_email(text) FROM PUBLIC;
 --> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app.record_staff_notification_email(text) TO app_runtime;
+--> statement-breakpoint
+
+-- The open tenant transaction's own site, for a staff notification's subject
+-- and link. It takes no argument and reads only app.workspace_id, under the
+-- same guard as every tenant policy (a site context and a verified actor), so
+-- it names only the site the transaction is already scoped to. The runtime
+-- still has no grant on app.workspaces and cannot enumerate sites.
+CREATE OR REPLACE FUNCTION app.current_workspace_identity()
+RETURNS TABLE (workspace_slug text, workspace_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT workspace.slug, workspace.name
+  FROM app.workspaces AS workspace
+  WHERE workspace.id = nullif(pg_catalog.current_setting('app.workspace_id', true), '')::uuid
+    AND nullif(pg_catalog.current_setting('app.actor_id', true), '') IS NOT NULL;
+$function$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app.current_workspace_identity() FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app.current_workspace_identity() TO app_runtime;
 --> statement-breakpoint
 
 -- The conversion (spec §6): each existing rule row becomes a built-in flow

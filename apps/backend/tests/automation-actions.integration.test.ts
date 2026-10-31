@@ -8,7 +8,7 @@ import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { fireFlows } from '../src/automations/engine.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
-import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { DatabaseLeadWorkStore, applyLeadUpdate } from '../src/leads/work-store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 import { loadPropertyCatalog } from '../src/properties/catalog.js';
 import {
@@ -26,7 +26,8 @@ const LOOP_SITE = '18000000-0000-4000-8000-000000008402'; // flows that move eac
 const CHAIN_SITE = '18000000-0000-4000-8000-000000008403'; // four chained flows
 const SECRET_SITE = '18000000-0000-4000-8000-000000008404'; // a property made sensitive
 const ACCESS_SITE = '18000000-0000-4000-8000-000000008405'; // activators who lost access
-const SITES = [SITE, LOOP_SITE, CHAIN_SITE, SECRET_SITE, ACCESS_SITE];
+const CROSS_SITE = '18000000-0000-4000-8000-000000008409'; // concurrent moves, opposite chains
+const SITES = [SITE, LOOP_SITE, CHAIN_SITE, SECRET_SITE, ACCESS_SITE, CROSS_SITE];
 const OWNER = '28000000-0000-4000-8000-000000008401'; // owner on every site
 const MEMBER = '28000000-0000-4000-8000-000000008402'; // leads role on SITE
 const VIEWER = '28000000-0000-4000-8000-000000008403'; // viewer on ACCESS_SITE
@@ -173,7 +174,7 @@ databaseTest('the lead-changing steps', () => {
     for (const [index, id] of SITES.entries()) {
       await admin`
         insert into app.workspaces (id, slug, name)
-        values (${id}, ${`automation-actions-840${index + 1}`}, ${`Actions Site ${index + 1}`})
+        values (${id}, ${`automation-actions-84${String(index + 1).padStart(2, '0')}`}, ${`Actions Site ${index + 1}`})
       `;
       await admin`
         insert into app.roles (workspace_id, name)
@@ -638,6 +639,88 @@ databaseTest('the lead-changing steps', () => {
       { automationKey: a, status: 'skipped', reason: 'loop_prevented', depth: 2 },
     ]);
     expect((await leadRow(leadId))?.stage).toBe('contacted');
+  });
+
+  it('two concurrent moves whose flows chain in opposite orders both commit, with every run and mail', async () => {
+    const c = flowKey('8409', 1);
+    const d = flowKey('8409', 2);
+    const ids = new Map<string, string>();
+    for (const [key, name, from, to] of [
+      [c, 'C', 'contacted', 'qualified'],
+      [d, 'D', 'qualified', 'contacted'],
+    ] as const) {
+      const created = await insertActiveFlow(admin, {
+        workspaceId: CROSS_SITE,
+        key,
+        name,
+        enabled: true,
+        definition: flow(entered(from, 'internet'), [
+          { id: 's_mail', kind: 'send_email', template: 'information_needed' },
+          toStage('s_move', to),
+        ]),
+        actorId: OWNER,
+      });
+      ids.set(key, created.id);
+    }
+    const first = await insertLead({ workspaceId: CROSS_SITE, leadType: 'internet', stage: 'new' });
+    const second = await insertLead({
+      workspaceId: CROSS_SITE,
+      leadType: 'internet',
+      stage: 'new',
+    });
+    // Both moves read their flows, then go on together: one runs C then D, the other D then C.
+    let release: () => void = () => {};
+    const together = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let arrived = 0;
+    const hold = async () => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await together;
+    };
+    const warn = vi.spyOn(console, 'warn');
+    try {
+      const moves = await Promise.all(
+        [
+          [first, 'contacted'],
+          [second, 'qualified'],
+        ].map(([leadId = '', stage = '']) =>
+          database.withTenantTx({ workspaceId: CROSS_SITE, actorId: OWNER }, (tx) =>
+            applyLeadUpdate(
+              tx,
+              { emailEnvironment: environment, afterFlowsRead: hold },
+              { ...staff(CROSS_SITE), leadId, stage, catalog: codePropertyCatalog },
+            ),
+          ),
+        ),
+      );
+      expect(moves.map((outcome) => outcome.status)).toEqual(['updated', 'updated']);
+      const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logged).not.toContain('40p01');
+      expect(logged).not.toContain('automation_flow_failed');
+    } finally {
+      warn.mockRestore();
+    }
+    for (const [leadId, order] of [
+      [first, [c, d, c]],
+      [second, [d, c, d]],
+    ] as const) {
+      expect((await runs(leadId)).map((run) => [run.automationKey, run.status])).toEqual([
+        [order[0], 'completed'],
+        [order[1], 'completed'],
+        [order[2], 'skipped'],
+      ]);
+      expect(await jobs(leadId)).toHaveLength(2);
+    }
+    const counts = await admin<{ key: string; runCount: number; ran: boolean }[]>`
+      select key, run_count as "runCount", last_run_at is not null as ran from app.automations
+      where workspace_id = ${CROSS_SITE} order by key
+    `;
+    expect(counts).toEqual([
+      { key: c, runCount: 2, ran: true },
+      { key: d, runCount: 2, ran: true },
+    ]);
   });
 
   it("four chained flows: the last move is skipped chain_too_deep and every move's email is queued", async () => {

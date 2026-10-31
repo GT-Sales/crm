@@ -697,6 +697,58 @@ databaseTest('automation flows tables and migrations 0019 and 0020', () => {
     });
   });
 
+  it("current_workspace_identity names only the transaction's own site, and needs an actor", async () => {
+    const identity = (settings: { workspaceId?: string; actorId?: string }) =>
+      runtimeSql.begin(async (tx) => {
+        if (settings.workspaceId) {
+          await tx`select set_config('app.workspace_id', ${settings.workspaceId}, true)`;
+        }
+        if (settings.actorId)
+          await tx`select set_config('app.actor_id', ${settings.actorId}, true)`;
+        return tx<{ workspace_slug: string; workspace_name: string }[]>`
+          select workspace_slug, workspace_name from app.current_workspace_identity()
+        `;
+      });
+    expect(await identity({ workspaceId: SITE_1, actorId: ACTOR })).toEqual([
+      { workspace_slug: 'ci-automation-flows-1', workspace_name: 'CI Automation Flows 1' },
+    ]);
+    expect(await identity({ workspaceId: SITE_2, actorId: ACTOR })).toEqual([
+      { workspace_slug: 'ci-automation-flows-2', workspace_name: 'CI Automation Flows 2' },
+    ]);
+    // An actor-only transaction (sign-in), a site without an actor, a bare connection: nothing.
+    expect(await identity({ actorId: ACTOR })).toEqual([]);
+    expect(await identity({ workspaceId: SITE_1 })).toEqual([]);
+    expect(await identity({})).toEqual([]);
+    // The runtime still cannot read app.workspaces itself.
+    const [privileges] = await admin<{ select: boolean; any: boolean }[]>`
+      select has_table_privilege('app_runtime', 'app.workspaces', 'SELECT') as select,
+        has_any_column_privilege('app_runtime', 'app.workspaces', 'SELECT') as any
+    `;
+    expect(privileges).toEqual({ select: false, any: false });
+    const [definition] = await admin<
+      {
+        secdef: boolean;
+        config: string[] | null;
+        args: number;
+        publicExecute: boolean;
+        runtimeExecute: boolean;
+      }[]
+    >`
+      select p.prosecdef as secdef, p.proconfig as config, p.pronargs::int as args,
+        has_function_privilege('public', p.oid, 'EXECUTE') as "publicExecute",
+        has_function_privilege('app_runtime', p.oid, 'EXECUTE') as "runtimeExecute"
+      from pg_proc p
+      where p.pronamespace = 'app'::regnamespace and p.proname = 'current_workspace_identity'
+    `;
+    expect(definition).toEqual({
+      secdef: true,
+      config: ['search_path=""'],
+      args: 0,
+      publicExecute: false,
+      runtimeExecute: true,
+    });
+  });
+
   it("0020's statements re-run cleanly", async () => {
     const statements = runtimeMigrationStatements();
     expect(statements.length).toBeGreaterThan(0);

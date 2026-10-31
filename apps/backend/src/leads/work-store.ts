@@ -594,6 +594,25 @@ async function editOrder(
 }
 
 /**
+ * The stages that close a lead as lost: the catalogue's `lost` outcome
+ * stages (a SIM order's `cancelled`) and, for the types whose catalogue
+ * names no outcomes, their lost and declined stages. A staff move of a lead
+ * the customer never submitted into one of them is no rescue (controller
+ * ruling, fix round 1): the lead stays unsubmitted and no flow fires.
+ */
+const CLOSING_STAGES: Readonly<Record<string, readonly string[]>> = {
+  sim_order: ['cancelled'],
+  internet: ['lost', 'non_serviceable_address'],
+  mobility: ['lost'],
+  partner_application: ['declined'],
+};
+
+export function isClosingStage(leadType: string, stage: string): boolean {
+  const lost = leadTypeEntry(leadType)?.outcomes?.lost.stages ?? [];
+  return lost.includes(stage) || (CLOSING_STAGES[leadType] ?? []).includes(stage);
+}
+
+/**
  * A rescued checkout's order, frozen as the website's submission would have
  * frozen it (`submittedOrder`) when its `planId` names a plan still
  * available for the type; else as stored (unfrozen). Other stored keys stay.
@@ -627,6 +646,8 @@ export interface LeadUpdateContext {
   afterFlowsRead?: () => Promise<void>;
   /** What staff notification mail needs; read from the environment when absent. */
   staffNotifications?: StaffNotificationEnvironment;
+  /** A flow's own write passes its write's list of started runs (counted once, at the end). */
+  startedRuns?: string[];
 }
 
 /**
@@ -660,7 +681,8 @@ export async function applyLeadUpdate(
   // A flow passes the documents gate as staff do, and never by the override.
   const reason = automation ? undefined : input.documentsOverrideReason?.trim();
   let override: { reason: string; missing: string[] } | undefined;
-  // A staff move of a checkout the customer never submitted submits it (O9, O12).
+  // A staff move of a checkout the customer never submitted submits it (O9, O12),
+  // unless the move closes it (a lost or cancelled stage: `isClosingStage`).
   let rescue = false;
   let base: LockedLead = lead;
   if (input.stage !== undefined && input.stage !== lead.stage) {
@@ -682,7 +704,11 @@ export async function applyLeadUpdate(
     entries.push({ kind: 'status_change', data: { from: lead.stage, to: input.stage } });
     before['stage'] = lead.stage;
     after['stage'] = input.stage;
-    if (!automation && lead.status === 'incomplete') {
+    if (
+      !automation &&
+      lead.status === 'incomplete' &&
+      !isClosingStage(lead.leadType, input.stage)
+    ) {
       rescue = true;
       set.status = 'submitted';
       before['status'] = lead.status;
@@ -913,6 +939,7 @@ export async function applyLeadUpdate(
             ...(context.staffNotifications
               ? { staffNotifications: context.staffNotifications }
               : {}),
+            ...(context.startedRuns ? { startedRuns: context.startedRuns } : {}),
           },
           [
             ...(rescue

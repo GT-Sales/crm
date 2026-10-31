@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { automationRuns, automationWaits, automations, type TenantTransaction } from '@gt-sales/db';
+import { automationRuns, automationWaits, type TenantTransaction } from '@gt-sales/db';
 import {
   AUTOMATION_MAX_CHAIN_DEPTH,
   BUILT_IN_AUTOMATION_KEYS,
@@ -27,6 +27,7 @@ import {
 
 import type { CustomerEmailEnvironment } from '../email/senders.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
+import { intakeCheckCode } from '../intake-check/check.js';
 import { emailSkippedFor, runActionStep, type StepContext, type StepResult } from './actions.js';
 import { evaluateConditionGroup } from './conditions.js';
 import { cancelWaitingRun, detailOf, finishRun, insertStepRun } from './records.js';
@@ -76,6 +77,12 @@ export interface FireFlowsContext {
   now?: () => Date;
   /** Shared by the nested firings of one write; made by the first. */
   siteHolder?: FlowSiteHolder;
+  /**
+   * The runs that started during the write (I1). The outermost firing of a
+   * write makes it and counts them on their flows once, at its end, in flow
+   * id order, so no write holds a flow row while it fires more flows.
+   */
+  startedRuns?: string[];
   /** What staff notification mail needs; read from the environment when absent. */
   staffNotifications?: StaffNotificationEnvironment;
 }
@@ -205,6 +212,11 @@ export function storedTrigger(definition: unknown): FlowTrigger | undefined {
  * Every live flow each event triggers, in order (submission flows before the
  * stage flows of the same write, R4); never throws for a flow's sake. A lead
  * the customer never submitted fires nothing.
+ *
+ * Each call reads the live flows once; a nested firing (a flow's own move)
+ * and `writeTimers` read them again, so under READ COMMITTED a version
+ * activated mid-write may be seen by the nested events but not the top
+ * ones. Every run still uses exactly one version (R2).
  */
 export async function fireFlows(
   tx: TenantTransaction,
@@ -216,26 +228,90 @@ export async function fireFlows(
   const flows = await readLiveFlows(tx, context.workspaceId);
   if (context.afterFlowsRead) await context.afterFlowsRead();
   if (flows.length === 0) return result;
-  const fire: FireFlowsContext = {
+  const base: FireFlowsContext = {
     ...context,
     siteHolder: context.siteHolder ?? flowSiteHolder(context.workspaceId, context.catalog),
   };
 
-  for (const event of events) {
-    const lead = await readAutomationLead(tx, context.workspaceId, event.leadId);
-    if (!lead.submitted) continue;
-    for (const flow of flows) {
-      try {
-        mergeInto(
-          result,
-          await tx.transaction((savepoint) => fireFlow(savepoint, fire, flow, event)),
-        );
-      } catch (error) {
-        logFlowFailure(fire, flow.key, error);
+  await countingRuns(tx, base, async (fire) => {
+    for (const event of events) {
+      const lead = await readAutomationLead(tx, context.workspaceId, event.leadId);
+      if (!lead.submitted) continue;
+      for (const flow of flows) {
+        try {
+          mergeInto(
+            result,
+            await tx.transaction((savepoint) => fireFlow(savepoint, fire, flow, event)),
+          );
+        } catch (error) {
+          logFlowFailure(fire, flow.key, error);
+        }
       }
     }
-  }
+  });
   return result;
+}
+
+/**
+ * Runs `body` with the write's list of started runs: the caller's when it has
+ * one (a nested firing), else a new one this call counts at its end.
+ */
+async function countingRuns<T>(
+  tx: TenantTransaction,
+  context: FireFlowsContext,
+  body: (fire: FireFlowsContext) => Promise<T>,
+): Promise<T> {
+  if (context.startedRuns) return body(context);
+  const startedRuns: string[] = [];
+  const value = await body({ ...context, startedRuns });
+  await countStartedRuns(tx, context.workspaceId, startedRuns);
+  return value;
+}
+
+/**
+ * `run_count` and `last_run_at` for the runs that started and are still
+ * there (a run in a rolled-back savepoint is gone and not counted), one
+ * statement locking the flow rows in id order first, so two writes never
+ * take them in opposite orders.
+ */
+async function countStartedRuns(
+  tx: TenantTransaction,
+  workspaceId: string,
+  runIds: readonly string[],
+): Promise<void> {
+  if (runIds.length === 0) return;
+  const ids = sql.join(
+    runIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const started = await tx.execute<{ automationId: string; n: number }>(sql`
+    select r.automation_id as "automationId", count(*)::int as n
+    from app.automation_runs r
+    where r.workspace_id = ${workspaceId} and r.id in (${ids}) and r.automation_id is not null
+    group by r.automation_id
+    order by r.automation_id
+  `);
+  if (started.length === 0) return;
+  const flows = sql.join(
+    started.map((row) => sql`${row.automationId}::uuid`),
+    sql`, `,
+  );
+  // Locked first, in id order, by a statement of their own; then counted. `no key update`
+  // is the lock the update needs: it does not wait on the key-share locks every run
+  // insert's foreign key holds on its flow in other writes.
+  await tx.execute(sql`
+    select a.id from app.automations a
+    where a.workspace_id = ${workspaceId} and a.id in (${flows})
+    order by a.id
+    for no key update
+  `);
+  for (const row of started) {
+    await tx.execute(sql`
+      update app.automations
+      set run_count = run_count + ${row.n}, last_run_at = now()
+      where workspace_id = ${workspaceId} and id = ${row.automationId}
+    `);
+  }
 }
 
 interface RunInsert {
@@ -249,7 +325,7 @@ interface RunInsert {
  * The run's row, once per flow, lead and occurrence: `undefined` when the
  * occurrence already ran (`automation_runs_occurrence_unique`). A skipped
  * run is written finished; a run that starts is `completed` until its steps
- * say otherwise, and counts on the flow.
+ * say otherwise.
  */
 export async function insertRun(
   tx: TenantTransaction,
@@ -275,14 +351,8 @@ export async function insertRun(
       do nothing
     returning id
   `);
-  const id = rows[0]?.id;
-  if (id && !input.skipped) {
-    await tx
-      .update(automations)
-      .set({ runCount: sql`${automations.runCount} + 1`, lastRunAt: sql`now()` })
-      .where(and(eq(automations.workspaceId, workspaceId), eq(automations.id, input.flow.id)));
-  }
-  return id;
+  // A started run is counted on its flow at the end of the write (`countStartedRuns`).
+  return rows[0]?.id;
 }
 
 /** The first issue a flow has on this site, by where it sits. */
@@ -376,6 +446,7 @@ export async function startFlowRun(
 
   const runId = await runInsert();
   if (!runId) return emptyResult();
+  fire.startedRuns?.push(runId);
   const run: RunState = {
     id: runId,
     flow,
@@ -628,16 +699,9 @@ function logFlowFailure(context: FireFlowsContext, automation: string, error: un
   );
 }
 
-/** A bounded code for a log line: a SQLSTATE when there is one, never the error's text. */
+/** A bounded code for a log line, as the intake check makes it; never the error's text. */
 export function errorCode(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'code' in error) {
-    const code = error.code;
-    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) {
-      return `sqlstate_${code.toLowerCase()}`;
-    }
-  }
-  if (error instanceof Error && /^[a-z][a-z0-9_]{2,63}$/.test(error.message)) return error.message;
-  return 'unexpected_error';
+  return intakeCheckCode(error);
 }
 
 // ---------------------------------------------------------------------------
@@ -859,13 +923,15 @@ export async function resumeRun(
         .update(automationWaits)
         .set({ status: 'resumed', updatedAt: now })
         .where(and(eq(automationWaits.workspaceId, workspaceId), eq(automationWaits.id, wait.id)));
-      const ran = await runSteps(savepoint, fire, state, position);
-      if (ran.ended !== 'waiting') {
-        await finishRun(savepoint, workspaceId, wait.runId, {
-          status: ran.ended,
-          ...(ran.ended === 'failed' ? { reason: 'step_failed' as const } : {}),
-        });
-      }
+      await countingRuns(savepoint, fire, async (counted) => {
+        const ran = await runSteps(savepoint, counted, state, position);
+        if (ran.ended !== 'waiting') {
+          await finishRun(savepoint, workspaceId, wait.runId, {
+            status: ran.ended,
+            ...(ran.ended === 'failed' ? { reason: 'step_failed' as const } : {}),
+          });
+        }
+      });
     });
     return 'resumed';
   } catch (error) {
@@ -877,6 +943,14 @@ export async function resumeRun(
       .set({ attempts, updatedAt: now, ...(givenUp ? { status: 'cancelled' } : {}) })
       .where(and(eq(automationWaits.workspaceId, workspaceId), eq(automationWaits.id, wait.id)));
     if (givenUp) {
+      // The wait step's own row says so, as a cancelled wait's does (P25).
+      await insertStepRun(tx, workspaceId, {
+        runId: wait.runId,
+        stepId: wait.stepId,
+        stepKind: 'wait',
+        outcome: 'failed',
+        reason: 'resume_failed',
+      });
       await finishRun(tx, workspaceId, wait.runId, { status: 'failed', reason: 'resume_failed' });
     }
     return 'failed';
@@ -1012,14 +1086,16 @@ export async function fireTimer(
     return 'deferred';
   }
   await settle('fired');
-  await startFlowRun(tx, fire, flow, {
-    leadId: timer.leadId,
-    leadType: lead.leadType,
-    occurrence: timer.occurrence,
-    depth: 0,
-    chain: [],
-    parentRunId: null,
-    triggerKind: trigger.kind,
-  });
+  await countingRuns(tx, fire, (counted) =>
+    startFlowRun(tx, counted, flow, {
+      leadId: timer.leadId,
+      leadType: lead.leadType,
+      occurrence: timer.occurrence,
+      depth: 0,
+      chain: [],
+      parentRunId: null,
+      triggerKind: trigger.kind,
+    }),
+  );
   return 'fired';
 }

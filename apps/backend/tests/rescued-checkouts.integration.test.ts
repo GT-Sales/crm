@@ -241,6 +241,58 @@ databaseTest('rescued checkouts count as submitted', () => {
     }
   });
 
+  it('a move into a closing stage is no rescue: the lead stays unsubmitted and no flow fires', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: TYPES_SITE,
+      key: flowKey('8407', 9),
+      name: 'Closed flow',
+      enabled: true,
+      definition: flow(
+        {
+          kind: 'lead_submitted',
+          leadTypes: ['sim_order', 'internet', 'mobility', 'partner_application'],
+          when: null,
+        },
+        [send('s_closed', 'order_received')],
+      ),
+      actorId: STAFF,
+    });
+    for (const [leadType, stage] of [
+      ['sim_order', 'cancelled'],
+      ['internet', 'lost'],
+      ['internet', 'non_serviceable_address'],
+      ['mobility', 'lost'],
+      ['partner_application', 'declined'],
+    ] as const) {
+      const { leadId, grant } = await draft(TYPES_SITE, leadType, {
+        email: `closing-${leadType}-${stage}@example.test`,
+      });
+      expect(await move(TYPES_SITE, leadId, stage)).toMatchObject({
+        status: 'updated',
+        lead: { stage },
+      });
+      const row = await leadRow(leadId);
+      expect(row?.status).toBe('incomplete');
+      expect(await runs(leadId)).toEqual([]);
+      expect(
+        await admin`
+          select 1 from app.lead_activities
+          where lead_id = ${leadId} and kind = 'system' and data ->> 'event' = 'submitted'
+        `,
+      ).toEqual([]);
+      expect(await admin`select 1 from app.automation_timers where lead_id = ${leadId}`).toEqual(
+        [],
+      );
+      expect(
+        await admin`select 1 from app.outbox_jobs where payload ->> 'leadId' = ${leadId}`,
+      ).toEqual([]);
+      // The customer's draft is still theirs to finish.
+      expect(
+        await leadStore.updateLead({ ...website(TYPES_SITE), leadId, grantToken: grant }),
+      ).toMatchObject({ status: 'updated' });
+    }
+  });
+
   it('a rescued plan no longer available stays unfrozen', async () => {
     const { leadId } = await draft(OLD_PLAN_SITE, 'sim_order', {
       email: 'rescue-old-plan@example.test',
@@ -258,7 +310,7 @@ databaseTest('rescued checkouts count as submitted', () => {
       email: 'rescue-grant@example.test',
       planId: PLAN,
     });
-    expect(await move(SITE, leadId, 'cancelled')).toMatchObject({ status: 'updated' });
+    expect(await move(SITE, leadId, 'pending')).toMatchObject({ status: 'updated' });
     expect(
       await leadStore.updateLead({
         ...website(SITE),

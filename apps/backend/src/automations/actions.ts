@@ -141,6 +141,7 @@ function updateContextOf(fire: FireFlowsContext): LeadUpdateContext {
     emailEnvironment: fire.environment,
     ...(fire.siteHolder ? { siteHolder: fire.siteHolder } : {}),
     ...(fire.staffNotifications ? { staffNotifications: fire.staffNotifications } : {}),
+    ...(fire.startedRuns ? { startedRuns: fire.startedRuns } : {}),
   };
 }
 

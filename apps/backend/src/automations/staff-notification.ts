@@ -111,45 +111,19 @@ const NOTE_LINE = /\r?\n/g;
 const siteRowSchema = z.object({ slug: z.string().min(1), name: z.string().min(1) });
 
 /**
- * The site's slug and name, for the mail's subject and the lead's link.
- * `app_runtime` has no grant on `app.workspaces`: the one door to them is
- * `app.list_staff_workspaces()`, which lists the sites of the transaction's
- * actor. When the write's actor is no member (a website credential, the
- * scheduler), it is read as one of the site's members (the flow's
- * activator, else a recipient) inside a savepoint that sets `app.actor_id`
- * for that one read and puts it back; the read writes nothing and returns
- * only this site's own row. A follow-up migration should give the runtime a
- * `SECURITY DEFINER` read of the current site instead (Batch 2 report).
+ * The site's slug and name, for the mail's subject and the lead's link:
+ * `app.current_workspace_identity()` (0020) names the open tenant
+ * transaction's own site and nothing else; `app_runtime` has no grant on
+ * `app.workspaces`. No row (no site context) is a bug, so it throws: the
+ * step is recorded `failed`, not blamed on a member.
  */
-async function siteIdentity(
-  tx: TenantTransaction,
-  workspaceId: string,
-  members: readonly string[],
-): Promise<{ slug: string; name: string } | undefined> {
-  const read = async (reader: TenantTransaction) => {
-    const rows = await reader.execute(sql`
-      select workspace_slug as slug, workspace_name as name
-      from app.list_staff_workspaces() where workspace_id = ${workspaceId}
-    `);
-    const parsed = siteRowSchema.safeParse(rows[0]);
-    return parsed.success ? parsed.data : undefined;
-  };
-  const own = await read(tx);
-  if (own) return own;
-  const [current] = await tx.execute<{ actorId: string }>(
-    sql`select pg_catalog.current_setting('app.actor_id', true) as "actorId"`,
-  );
-  const actorId = current?.actorId ?? '';
-  for (const member of new Set(members)) {
-    const found = await tx.transaction(async (savepoint) => {
-      await savepoint.execute(sql`select pg_catalog.set_config('app.actor_id', ${member}, true)`);
-      const row = await read(savepoint);
-      await savepoint.execute(sql`select pg_catalog.set_config('app.actor_id', ${actorId}, true)`);
-      return row;
-    });
-    if (found) return found;
-  }
-  return undefined;
+async function siteIdentity(tx: TenantTransaction): Promise<{ slug: string; name: string }> {
+  const rows = await tx.execute(sql`
+    select workspace_slug as slug, workspace_name as name from app.current_workspace_identity()
+  `);
+  const parsed = siteRowSchema.safeParse(rows[0]);
+  if (!parsed.success) throw new Error('site_identity_unavailable');
+  return parsed.data;
 }
 
 /**
@@ -172,12 +146,7 @@ export async function notifyStaffStep(
   ].filter((actorId, index, all) => all.indexOf(actorId) === index);
   if (recipients.length === 0) return { outcome: 'skipped', reason: 'member_unavailable' };
 
-  const site = await siteIdentity(tx, fire.workspaceId, [
-    fire.actorId,
-    ...(run.flow.activatedBy ? [run.flow.activatedBy] : []),
-    ...recipients,
-  ]);
-  if (!site) return { outcome: 'skipped', reason: 'member_unavailable' };
+  const site = await siteIdentity(tx);
 
   const problems: Array<{
     reason: 'member_unavailable' | 'member_has_no_address';

@@ -591,6 +591,11 @@ databaseTest('the automations scheduler task', () => {
       info.mockRestore();
     }
     expect((await runs(leadId))[0]).toMatchObject({ status: 'failed', reason: 'resume_failed' });
+    expect((await steps(run?.id ?? '')).at(-1)).toEqual({
+      stepId: 's_wait',
+      outcome: 'failed',
+      reason: 'resume_failed',
+    });
     expect(await jobs(leadId)).toEqual([]);
     expect(await tick(FAIL_SITE, Date.now() + 3 * HOUR)).toMatchObject({ resumed: 0, failed: 0 });
   });

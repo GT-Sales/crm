@@ -26,6 +26,7 @@ const NO_ADDRESS = '28000000-0000-4000-8000-000000008504'; // active, never sign
 const GONE = '28000000-0000-4000-8000-000000008505'; // revoked
 const SIGNER = '28000000-0000-4000-8000-000000008506'; // signs in
 const WEBSITE = '28000000-0000-4000-8000-000000008507'; // a website credential: no member
+const INVITEE = '28000000-0000-4000-8000-000000008508'; // first sign-in, invited
 const TEST_RUNTIME_PASSWORD = 'local_ci_runtime_password';
 
 const ENV: NodeJS.ProcessEnv = {
@@ -231,6 +232,56 @@ databaseTest('staff notifications and the notification address', () => {
     expect(actorAfter).toBe(WEBSITE);
   });
 
+  it('a website write on a flow with no activator, mailing only the assignee, still names the site', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: SITE,
+      key: flowKey('8501', 2),
+      name: 'Assignee only',
+      enabled: true,
+      definition: {
+        ...flow([
+          { id: 's_notify', kind: 'notify_staff', toAssignee: true, actorIds: [], note: '' },
+        ]),
+        trigger: { kind: 'stage_entered', leadType: 'sim_order', stage: 'verified', when: null },
+      },
+      actorId: OWNER,
+      activatedBy: null,
+    });
+    const leadId = await insertLead(ASSIGNEE);
+    await database.withTenantTx({ workspaceId: SITE, actorId: WEBSITE }, (tx) =>
+      fireFlows(
+        tx,
+        {
+          workspaceId: SITE,
+          actorId: WEBSITE,
+          requestId: randomUUID(),
+          environment,
+          staffNotifications: ready,
+        },
+        [
+          {
+            kind: 'stage_entered',
+            leadId,
+            leadType: 'sim_order',
+            stage: 'verified',
+            occurrence: 'notify-5',
+            depth: 0,
+            chain: [],
+            parentRunId: null,
+            at: new Date(),
+          },
+        ],
+      ),
+    );
+    expect((await jobs(leadId)).map((job) => job.payload)).toEqual([
+      expect.objectContaining({
+        actorId: ASSIGNEE,
+        siteName: 'GetCanadaSim',
+        leadPath: `/w/getcanadasim-8501/leads/${leadId}`,
+      }),
+    ]);
+  });
+
   it('no deployment sender skips no_staff_sender', async () => {
     const leadId = await insertLead(ASSIGNEE);
     await fire(leadId, 'notify-3', { ...ready, ready: false });
@@ -271,6 +322,25 @@ databaseTest('staff notifications and the notification address', () => {
     const changed = await state();
     expect(changed.filter((row) => row.email === 'new.signer@staff.example')).toHaveLength(2);
     expect(changed.find((row) => row.workspaceId === SITE)?.email).toBeNull();
+  });
+
+  it('a first sign-in that accepts an invitation records the address on the new membership', async () => {
+    await admin`
+      insert into app.memberships (workspace_id, membership_type, status, invited_email)
+      values (${OTHER_SIGNIN_SITE}, 'staff', 'pending', 'invitee@staff.example')
+    `;
+    const workspaces = await new DatabaseStaffStore(database).bootstrapStaff({
+      actorId: INVITEE,
+      verifiedEmail: 'Invitee@Staff.Example',
+      requestId: randomUUID(),
+    });
+    expect(workspaces.map((workspace) => workspace.id)).toEqual([OTHER_SIGNIN_SITE]);
+    expect(
+      await admin`
+        select status, notification_email as email from app.memberships
+        where user_id = ${INVITEE}
+      `,
+    ).toEqual([{ status: 'active', email: 'invitee@staff.example' }]);
   });
 
   it('the address is never returned', async () => {

@@ -527,23 +527,33 @@ databaseTest('the built-in flows send customer emails as the phase 4 rules did',
     ]);
   });
 
-  it('a checkout staff rescue counts as submitted: its submitted and stage flows fire once (O9)', async () => {
+  it('cancelling a checkout the customer never submitted is no rescue: it mails nothing and stays unsubmitted', async () => {
     const before = await runCount('sim_order_cancelled');
     const abandoned = await insertLead({ status: 'incomplete', stage: 'incomplete' });
     const outcome = await move(abandoned, 'cancelled');
     expect(outcome).toMatchObject({ status: 'updated', lead: { stage: 'cancelled' } });
-    // The order has no plan, so the order received mail lacks its fill-ins; the cancellation goes.
-    expect(outcome).toMatchObject({
+    expect(outcome).not.toHaveProperty('emailSkipped');
+    expect(await jobs(abandoned)).toEqual([]);
+    expect(await runs(abandoned)).toEqual([]);
+    const [row] = await admin<{ status: string }[]>`
+      select status from app.leads where id = ${abandoned}
+    `;
+    expect(row?.status).toBe('incomplete');
+    expect(await runCount('sim_order_cancelled')).toBe(before);
+
+    // A checkout staff move on (to Pending) is a rescue: its submitted and stage flows fire once (O9).
+    const rescued = await insertLead({ status: 'incomplete', stage: 'incomplete' });
+    const moved = await move(rescued, 'pending');
+    // The order has no plan, so the order received mail lacks its fill-ins.
+    expect(moved).toMatchObject({
+      status: 'updated',
       emailSkipped: [
         { automation: 'order_received', reason: 'missing_fill_in', missing: ['plan', 'price'] },
       ],
     });
-    expect((await jobs(abandoned)).map((job) => job.payload.template)).toEqual(['cancelled']);
-    expect(await runs(abandoned)).toMatchObject([
+    expect(await runs(rescued)).toMatchObject([
       { automationKey: 'order_received', status: 'completed', outcome: 'skipped' },
-      { automationKey: 'sim_order_cancelled', status: 'completed', outcome: 'done' },
     ]);
-    expect(await runCount('sim_order_cancelled')).toBe(before + 1);
 
     // The same move of an order that was placed mails the customer.
     const placed = await insertLead({ stage: 'pending' });
@@ -562,7 +572,7 @@ databaseTest('the built-in flows send customer emails as the phase 4 rules did',
         jobId: queued[0]?.id,
       },
     ]);
-    expect(await runCount('sim_order_cancelled')).toBe(before + 2);
+    expect(await runCount('sim_order_cancelled')).toBe(before + 1);
   });
 
   it('fires nothing for a flow that is off or a type with no flows', async () => {
