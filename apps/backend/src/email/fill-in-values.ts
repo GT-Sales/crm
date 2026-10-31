@@ -75,6 +75,7 @@ export function fillInValuesForLead(
     courier: text(lead.order?.courier),
     'tracking number': text(lead.order?.trackingNumber),
     'tracking link': trackingLink(site.siteUrl),
+    'order number': undefined,
     code: undefined,
   });
 }
@@ -94,6 +95,7 @@ export function sampleFillInValues(site: {
     courier: 'Canada Post',
     'tracking number': 'LX123456789CA',
     'tracking link': trackingLink(site.siteUrl) ?? 'https://example.com/track',
+    'order number': 'MS-1042',
     code: '483920',
   };
 }

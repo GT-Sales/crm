@@ -82,6 +82,21 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   automation_not_found: 'No automation rule with this key on this site.',
   plan_not_available: 'The chosen plan is not available on this site for this kind of order.',
   intake_check_off: 'The intake check is off on this deployment.',
+  automation_limit_reached: 'This site already has 50 flows. Archive one first.',
+  revision_conflict: 'Someone else changed this flow. Reload to see their changes.',
+  flow_invalid: 'The flow is not ready to be activated.',
+  no_active_version: 'Activate the flow before switching it on.',
+  automation_not_builtin: 'Only a built-in flow can be reset to its default.',
+  automation_builtin: 'A built-in flow cannot be archived; switch it off instead.',
+  activation_needs_lead_manage:
+    'Activating a flow that changes leads needs the Leads permission too.',
+  automation_version_not_found: 'This flow has no version with this number.',
+  automation_run_not_found: 'This flow has no run with this id.',
+  automation_archived: 'This flow is archived. Restore it first.',
+  email_template_not_found: 'No email template with this key on this site.',
+  email_template_builtin: 'A built-in email template cannot be archived.',
+  email_template_limit_reached:
+    'This site already has 50 email templates of its own. Archive one first.',
 };
 
 export function sendDomainError(

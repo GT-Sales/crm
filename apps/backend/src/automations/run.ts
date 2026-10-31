@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { leads, type TenantTransaction } from '@gt-sales/db';
 import {
+  emailTemplateLabel,
   isOrderLeadType,
   leadFormSchema,
   type BuiltInAutomation,
@@ -98,7 +99,9 @@ export async function runAutomations(
       });
       skipped.push({
         automation: rule.key,
+        flowName: rule.label,
         template,
+        templateName: emailTemplateLabel(template),
         reason: composed.reason,
         ...(composed.missing ? { missing: composed.missing } : {}),
       });

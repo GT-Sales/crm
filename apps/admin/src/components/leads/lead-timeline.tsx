@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import {
-  CUSTOMER_EMAIL_TEMPLATE_LABELS,
+  emailTemplateLabel,
   LEGACY_IMPORT_ACTOR_ID,
   leadStageLabel,
   type AssignableMember,
@@ -213,7 +213,7 @@ function describe(
           actor: null,
           text: (
             <>
-              {CUSTOMER_EMAIL_TEMPLATE_LABELS[activity.template]} email queued by{' '}
+              {emailTemplateLabel(activity.template, activity.templateName)} email queued by{' '}
               <Link
                 href={`/w/${workspaceSlug}/automations`}
                 className="underline-offset-2 hover:underline"

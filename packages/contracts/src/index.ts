@@ -334,11 +334,29 @@ export {
   brandColorSchema,
   customerEmailJobPayloadSchema,
   customerEmailTemplateSchema,
+  EMAIL_TEMPLATE_MAX_SITE_MADE,
+  PROPERTY_FILL_IN_PREFIX,
+  STAFF_NOTIFICATION_JOB_TYPE,
+  createEmailTemplateRequestSchema,
+  emailFillInNameSchema,
+  emailTemplateLabel,
+  generateTemplateKey,
+  listSiteEmailTemplatesResponseSchema,
+  siteEmailTemplateResponseSchema,
+  siteEmailTemplateSchema,
+  staffNotificationJobPayloadSchema,
+  type CreateEmailTemplateRequest,
+  type EmailFillInName,
+  type ListSiteEmailTemplatesResponse,
+  type SiteEmailTemplate,
+  type SiteEmailTemplateResponse,
+  type StaffNotificationJobPayload,
   SITE_TEMPLATE_KEY_PATTERN,
   emailTemplateKeySchema,
   isSiteTemplateKey,
   siteTemplateKeySchema,
   type EmailTemplateKey,
+  type SiteTemplateKey,
   emailBodySchema,
   emailFillIns,
   emailSettingsResponseSchema,
@@ -379,6 +397,7 @@ export {
 
 export * from './automation-keys';
 export * from './automation-flows';
+export * from './automation-api';
 
 export {
   BUILT_IN_AUTOMATIONS,

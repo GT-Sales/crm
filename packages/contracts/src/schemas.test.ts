@@ -569,12 +569,14 @@ describe('phase 4 stage moves and idempotent intake', () => {
     ).toBe(true);
   });
 
-  it('answers a stage move with the next moves and the mails it skipped', () => {
+  it('answers a stage move with the next moves and up to 200 mails it skipped', () => {
     const skipped = {
       automation: 'sim_order_dispatched',
+      flowName: 'Dispatched email',
       template: 'dispatched',
+      templateName: 'Dispatched',
       reason: 'missing_fill_in',
-      missing: ['courier', 'tracking number'],
+      missing: ['courier', 'tracking number', 'prop:custom_size'],
     };
     const response = {
       lead,
@@ -591,7 +593,7 @@ describe('phase 4 stage moves and idempotent intake', () => {
     expect(
       updateWorkspaceLeadResponseSchema.safeParse({
         ...response,
-        emailSkipped: Array.from({ length: 7 }, () => skipped),
+        emailSkipped: Array.from({ length: 201 }, () => skipped),
       }).success,
     ).toBe(false);
   });
@@ -599,10 +601,25 @@ describe('phase 4 stage moves and idempotent intake', () => {
   it('describes a skipped mail by its rule, template and reason', () => {
     const skipped = {
       automation: 'order_received',
+      flowName: 'Order received',
       template: 'order_received',
+      templateName: 'Order received',
       reason: 'no_sender',
     };
     expect(emailSkippedSchema.parse(skipped)).toEqual(skipped);
+    const custom = {
+      ...skipped,
+      automation: 'flow_abcdefghij012345',
+      template: 'tpl_abcdefghij012345',
+      templateName: 'My note',
+      reason: 'compose_failed',
+    };
+    expect(emailSkippedSchema.parse(custom)).toEqual(custom);
+    expect(emailSkippedSchema.safeParse({ ...skipped, reason: 'already_sent' }).success).toBe(
+      false,
+    );
+    const { flowName: _flowName, ...withoutName } = skipped;
+    expect(emailSkippedSchema.safeParse(withoutName).success).toBe(false);
     const { automation: _automation, ...withoutAutomation } = skipped;
     expect(emailSkippedSchema.safeParse(withoutAutomation).success).toBe(false);
     expect(emailSkippedSchema.safeParse({ ...skipped, reason: 'other' }).success).toBe(false);

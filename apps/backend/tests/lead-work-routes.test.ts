@@ -863,10 +863,18 @@ describe('staff lead work routes', () => {
 
   it('answers an update with the next moves and passes the skipped mails through', async () => {
     const skipped: EmailSkipped[] = [
-      { automation: 'sim_order_dispatched', template: 'dispatched', reason: 'no_customer_email' },
+      {
+        automation: 'sim_order_dispatched',
+        flowName: 'Dispatched email',
+        template: 'dispatched',
+        templateName: 'Dispatched',
+        reason: 'no_customer_email',
+      },
       {
         automation: 'sim_order_activated',
+        flowName: 'Activated email',
         template: 'activated',
+        templateName: 'Activated',
         reason: 'missing_fill_in',
         missing: ['SIM number'],
       },

@@ -446,7 +446,9 @@ databaseTest('automation rules send customer emails', () => {
     expect(outcome.emailSkipped).toEqual([
       {
         automation: 'sim_order_dispatched',
+        flowName: 'When a SIM order moves to Delivered → send the Dispatched email',
         template: 'dispatched',
+        templateName: 'Dispatched',
         reason: 'missing_fill_in',
         missing: ['tracking number'],
       },

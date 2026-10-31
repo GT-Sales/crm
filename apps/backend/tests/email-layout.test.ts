@@ -312,6 +312,7 @@ describe('sampleFillInValues', () => {
       courier: 'Canada Post',
       'tracking number': 'LX123456789CA',
       'tracking link': 'https://getcanadasim.example/track',
+      'order number': 'MS-1042',
       code: '483920',
     });
   });

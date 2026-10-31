@@ -3,7 +3,10 @@ import {
   CUSTOMER_EMAIL_JOB_TYPE,
   TRACKING_CODE_JOB_TYPE,
   customerEmailJobPayloadSchema,
+  customerEmailTemplateSchema,
+  isSiteTemplateKey,
   type CustomerEmailJobPayload,
+  type SiteTemplateKey,
 } from '@gt-sales/contracts';
 import { z } from 'zod';
 
@@ -64,7 +67,7 @@ export interface EmailDeliveryRecorder {
     actorId: string;
     messageId: string;
     contactHash: string;
-    template: EmailTemplate;
+    template: EmailTemplate | SiteTemplateKey;
     /** The site template version the mail was rendered from; absent for built-in copy. */
     templateVersion?: number;
     messageClass: 'transactional' | 'marketing';
@@ -287,6 +290,11 @@ function transactionalEmailHandler(
  * suppression check, the delivery record (with the template version and the
  * mail's own sender), the send and its result.
  */
+/** A job's template key as the adapter types it: a site-made `tpl_` key, else one of the nine. */
+function payloadTemplate(template: string): EmailTemplate | SiteTemplateKey {
+  return isSiteTemplateKey(template) ? template : customerEmailTemplateSchema.parse(template);
+}
+
 export async function sendRenderedCustomerEmail(
   dependencies: {
     email: EmailAdapter;
@@ -296,7 +304,8 @@ export async function sendRenderedCustomerEmail(
   job: ClaimedJob,
   payload: CustomerEmailJobPayload,
 ): Promise<JobHandlerResult> {
-  const { leadId, template, templateVersion, toAddress, contactHash, sender, rendered } = payload;
+  const { leadId, templateVersion, toAddress, contactHash, sender, rendered } = payload;
+  const template = payloadTemplate(payload.template);
   const actorId = emailActor(job);
   const check = await dependencies.eligibility.checkTransactional({
     workspaceId: job.workspaceId,
