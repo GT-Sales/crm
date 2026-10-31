@@ -342,7 +342,13 @@ every request.
    and O12): the first staff stage move of an incomplete lead marks it
    submitted, freezes its plan and fires the submitted and stage flows; the
    customer can then no longer finish that checkout (O13), and the website's
-   next `PATCH` with the draft grant answers `draft_already_submitted`.
+   next `PATCH` with the draft grant answers `draft_already_submitted`. A
+   move of such a lead into a closing stage (`isClosingStage` in
+   `leads/work-store.ts`: a SIM order's Cancelled, internet Lost and
+   Non-serviceable address, mobility Lost, a partner application's
+   Declined, a contact message's Closed) is no rescue: the lead stays
+   unsubmitted, nothing is frozen and no flow fires (controller ruling,
+   2026-10-31).
 5. Documents: `uploads/intents` → browser uploads to the signed target →
    `uploads/:id/finalize` re-reads the bytes and checks the file signature.
 6. Rate limits are per credential, per visitor and per endpoint. A website
@@ -936,7 +942,8 @@ Owner rulings of 2026-10-30 on the plan's first draft:
    by hand (Incomplete → Pending and onward): its Dispatched and Activated
    emails stay silent, because a staff move never changes `status`. If the
    owner wants rescued checkouts mailed, that is a small follow-up (flip
-   `status` on the first staff move out of Incomplete). Each firing writes a
+   `status` on the first staff move out of Incomplete; done in merge phase 8,
+   §3.10). Each firing writes a
    run: `queued` with its
    outbox job, or `skipped` with the reason. A skipped rule never blocks the
    move or the submit; the move's response lists it as `emailSkipped` and the
@@ -1265,7 +1272,13 @@ Runs tab and Settings → Email "New template") is to plan.
    `automations` resumes and fires every 5 minutes. Chains stop at depth 3
    (`chain_too_deep`) and never repeat a flow (`loop_prevented`). A rescued
    checkout (the first staff move out of Incomplete) counts as submitted for
-   every lead type (O9, O12; O13: the customer can no longer finish it).
+   every lead type (O9, O12; O13: the customer can no longer finish it),
+   except a move into a closing stage (`isClosingStage`: cancelled, lost,
+   declined, closed), which leaves the lead unsubmitted and fires nothing.
+   The flows' run counters are written once at the end of each write, the
+   flows locked `FOR NO KEY UPDATE` in id order, so concurrent moves never
+   deadlock; a staff notification names the site through
+   `app.current_workspace_identity()`.
 4. **The flow store and routes** (`src/automations/flow-store.ts`,
    `src/routes/automations.ts`, every route of §2.3): the 50-flow limit under
    an advisory lock, rename, switch (off cancels waiting runs and voids

@@ -292,7 +292,11 @@ them (spec ruling R4). A **rescued checkout** counts as submitted for every
 lead type (owner decisions O9 and O12): the first staff stage move of an
 incomplete lead marks it submitted, freezes its plan and fires the submitted
 and stage flows; the customer can then no longer finish that checkout
-(O13).
+(O13). A move of such a lead into a closing stage (`isClosingStage` in
+`leads/work-store.ts`: a SIM order's Cancelled, internet Lost and
+Non-serviceable address, mobility Lost, a partner application's Declined, a
+contact message's Closed) is no rescue: the lead stays unsubmitted, nothing is
+frozen and no flow fires (controller ruling, 2026-10-31).
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
 Settings → Email): from name and address, reply-to, logo, brand colour, footer

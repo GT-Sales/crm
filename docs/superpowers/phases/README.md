@@ -123,6 +123,9 @@ Each is "decision: why (where recorded)".
     staff stage move of an incomplete lead marks it submitted, freezes its plan
     and fires the submitted and stage flows** (owner decisions O9 and O12,
     2026-10-31; the customer can then no longer finish that checkout, O13).
+    A move into a closing stage (cancelled, lost, declined, closed) is no
+    rescue: the lead stays unsubmitted and no flow fires (controller ruling,
+    2026-10-31).
 14. **No multi-factor sign-in in any deployment** (owner decision 2026-10-25;
     spec decision 5).
 15. **Admin copy in sentence case, every control labelled, keyboard-usable**;

@@ -719,7 +719,11 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
   `apps/backend/tests/automation-sql-contracts.integration.test.ts`);
   `app.record_staff_notification_email(address)` (SECURITY DEFINER: the
   signed-in member's own notification address on their active memberships);
-  the conversion of existing rule rows (name, version 1 active,
+  `app.current_workspace_identity()` (SECURITY DEFINER: the open tenant
+  transaction's own site slug and name, for a staff notification's subject
+  and link; it takes no argument, needs the site and actor settings every
+  tenant policy needs, and `app_runtime` still has no grant on
+  `app.workspaces`); the conversion of existing rule rows (name, version 1 active,
   `active_version_id`) and runs (`automation_id`, `status`, `version_id`,
   `finished_at`, the occurrence from the job's dedupe key), guarded by
   `is null`; and last `app.prune_operational_rows` replaced with 0018's body
@@ -728,7 +732,7 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
 - **The `CREATE OR REPLACE FUNCTION app.prune_operational_rows` statement is
   the one the owner pastes by hand** (marked `OWNER PASTE` in the paste file,
   and repeated after the verification selects), as in phases 4 and 5.
-- Drizzle hash `d0358cece7c5ae47cd3b4072ff12426999752400fb64597e0d216dd45c753cd8`,
+- Drizzle hash `49d165bbb384a89f564456e349c83547826a5c6f67b4e8369b275ca8076b220c`,
   `created_at` `1793450690795`. **To apply**, before the backend of merge
   phase 8 step A is deployed.
 - **The deploy window.** Do not switch automation rules between applying
@@ -744,14 +748,15 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
   and all four tracker rows); run the verification selects one at a time
   (FORCE RLS on the four, 42 backup read policies, the grants per table and
   verb with no DELETE and the five updatable run columns, the replaced
-  checks, the FK, the trigger, the four functions, the prune function naming
+  checks, the FK, the trigger, the five functions and who may run
+  `current_workspace_identity`, the prune function naming
   `automation_timers` and `status <> 'waiting'`, the tracker rows). Or apply
   the plain statements through the Supabase tool in small batches, hand the
   owner the OWNER PASTE statement, add the tracker rows by hand and verify
   against the catalog, never the trackers. Record the date, the tracker
   versions and the results here.
-- Rehearsed 2026-10-31 (twice, the second after the fix round) on a local
-  database migrated to 0018 holding an enabled built-in, a queued run with
+- Rehearsed 2026-10-31 (by Batch 1, twice, and again after Batch 2 added
+  `app.current_workspace_identity()`) on a local database migrated to 0018 holding an enabled built-in, a queued run with
   its job and a skipped run: the paste file exited 0, every verification
   select gave its comment's value, the built-in had version 1 active and
   its name, the queued run became `completed` with its occurrence and the
