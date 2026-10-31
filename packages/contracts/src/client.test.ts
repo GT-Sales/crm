@@ -614,3 +614,33 @@ describe('tracking client methods', () => {
     }
   });
 });
+
+describe('source report client method', () => {
+  const report = {
+    leadType: 'internet',
+    days: 30,
+    totals: { received: 1, submitted: 1, madeIt: 0 },
+    rows: [
+      { source: 'direct', kind: 'direct', received: 1, submitted: 1, madeIt: 0, campaigns: [] },
+    ],
+    withSourceData: 0,
+    requestId: UUID,
+  };
+
+  it('reads one type over a window, and all time without days', async () => {
+    const windowed = harness(200, report);
+    expect(
+      await windowed.client.staff.sourceReport(UUID, { leadType: 'internet', days: 30 }),
+    ).toEqual(report);
+    expect(windowed.calls[0]?.method).toBe('GET');
+    expect(windowed.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/reports/sources?leadType=internet&days=30`,
+    );
+
+    const allTime = harness(200, { ...report, days: null });
+    await allTime.client.staff.sourceReport(UUID, { leadType: 'internet' });
+    expect(allTime.calls[0]?.url).toBe(
+      `https://api.example.test/api/v1/staff/workspaces/${UUID}/reports/sources?leadType=internet`,
+    );
+  });
+});
