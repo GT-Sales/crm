@@ -26,6 +26,7 @@ import {
   type LeadDetail,
   type LeadDocument,
   type LeadIdentity,
+  type StaffChangeRequest,
   type LeadListItem,
   type LeadPropertyFilter,
   type LeadPropertyValue,
@@ -43,6 +44,11 @@ import {
 import { orderLeadTypes } from '@gt-sales/types';
 import { z } from 'zod';
 
+import {
+  PENDING_REQUEST_JSON,
+  pendingRequestFromJson,
+  toStaffChangeRequest,
+} from '../tracking/change-request-rows.js';
 import { LATEST_REVIEW, currentLeadDocuments } from './documents-check.js';
 import { toLeadOrder } from './order.js';
 import { deriveSource } from './source.js';
@@ -1066,6 +1072,8 @@ export interface LeadWithWork {
   related: RelatedLead[];
   identities: LeadIdentity[];
   documents: LeadDocument[];
+  /** The customer's pending change request, if any (ruling 3: at most one). */
+  changeRequest: StaffChangeRequest | null;
 }
 
 /**
@@ -1095,6 +1103,7 @@ export async function selectLeadWithWork(
       related: unknown[];
       identities: unknown[];
       documents: unknown[];
+      changeRequest: unknown;
     }
   >(sql`
     select
@@ -1190,7 +1199,8 @@ export async function selectLeadWithWork(
         from app.files f
         ${LATEST_REVIEW}
         where ${currentLeadDocuments(sql`l.workspace_id`, sql`l.id`)}
-      ) as documents
+      ) as documents,
+      ${PENDING_REQUEST_JSON} as "changeRequest"
     from app.leads l
     ${OPEN_TASK_SUMMARY}
     where l.workspace_id = ${workspaceId}
@@ -1223,7 +1233,13 @@ export async function selectLeadWithWork(
       const parsed = leadDocumentSchema.safeParse(item);
       return parsed.success ? [parsed.data] : [];
     }),
+    changeRequest: pendingStaffRequest(row.changeRequest),
   };
+}
+
+function pendingStaffRequest(value: unknown): StaffChangeRequest | null {
+  const pending = pendingRequestFromJson(value);
+  return pending ? toStaffChangeRequest(pending) : null;
 }
 
 export async function selectTask(

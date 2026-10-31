@@ -148,7 +148,17 @@ export function fieldLabel(
 ): string {
   const definition =
     catalog.forType(leadType).find((entry) => entry.key === key) ?? catalog.get(key);
-  return definition ? definition.label.toLowerCase() : key;
+  return definition ? inSentence(definition.label) : key;
+}
+
+/**
+ * A label inside a sentence: its first letter lower case, the rest as written
+ * ("arrival in Canada"); a label that opens with an acronym keeps it ("SIM number").
+ */
+export function inSentence(label: string): string {
+  const [first = ''] = label.split(' ');
+  if (first.length > 1 && first === first.toUpperCase() && /[A-Z]/.test(first)) return label;
+  return label.charAt(0).toLowerCase() + label.slice(1);
 }
 
 /**

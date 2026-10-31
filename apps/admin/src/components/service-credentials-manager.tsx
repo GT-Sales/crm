@@ -22,6 +22,11 @@ import {
 } from '../lib/api';
 import { useStaffSession } from './staff-session-provider';
 
+/** What a scope lets the website do, for the scopes whose name alone does not say. */
+const SCOPE_LABELS: Partial<Record<WebsiteScopeName, string>> = {
+  tracking: 'Order tracking',
+};
+
 const DEFAULT_SCOPES: readonly WebsiteScopeName[] = ['leads:write', 'uploads:customer'];
 
 export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: string }) {
@@ -122,6 +127,7 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
                   checked={selectedScopes.includes(scope)}
                   onChange={() => toggleScope(scope)}
                 />
+                {SCOPE_LABELS[scope] ? <span>{SCOPE_LABELS[scope]}</span> : null}
                 <code>{scope}</code>
               </label>
             ))}

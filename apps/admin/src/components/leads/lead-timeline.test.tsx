@@ -50,6 +50,33 @@ describe('change requests', () => {
   });
 });
 
+describe('CRM change requests', () => {
+  const SITE = '30000000-0000-4000-8000-0000000000aa';
+  const crm = (event: string, requestNo: number, extra: Record<string, unknown> = {}) =>
+    leadActivitySchema.parse({
+      id: `92000000-0000-4000-8000-${event === 'change_requested' ? 'e' : 'f'}${String(requestNo).padStart(11, '0')}`,
+      actorId: SITE,
+      createdAt: '2026-10-30T10:00:00.000Z',
+      kind: 'system',
+      event,
+      requestNo,
+      changeRequestId: 'c0000000-0000-4000-8000-000000000001',
+      ...extra,
+    });
+
+  it('leaves a request made through the CRM to the change request card', () => {
+    // Only a request carried over from the old admin waits there.
+    expect(pendingChangeRequest([crm('change_requested', 70)])).toBeUndefined();
+    const carried = change('change_requested', 3);
+    expect(pendingChangeRequest([crm('change_requested', 70), carried])?.requestNo).toBe(3);
+  });
+
+  it('does not count a CRM decision as the old admin deciding an imported request', () => {
+    const carried = change('change_requested', 3);
+    expect(pendingChangeRequest([crm('change_approved', 3), carried])?.requestNo).toBe(3);
+  });
+});
+
 describe('LeadTimeline', () => {
   const SELF = '20000000-0000-4000-8000-000000000001';
   const MIGRATION = '00000000-0000-4000-8000-00000000a002';
@@ -141,8 +168,38 @@ describe('LeadTimeline', () => {
       },
     ]);
     expect(
-      within(region).getByText('corrected the plan, quantity, payment status, carrier commission'),
+      within(region).getByText(
+        'corrected the plan, quantity, payment status and carrier commission',
+      ),
     ).toBeTruthy();
+  });
+
+  it('keeps a label’s capitals after its first letter, and joins three or more with "and"', () => {
+    const region = timeline([
+      {
+        id: '92000000-0000-4000-8000-000000000014',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'edit',
+        fields: ['arrivalDate', 'simNumber', 'permitType'],
+      },
+    ]);
+    expect(
+      within(region).getByText(
+        'corrected the arrival in Canada, SIM number and visa / permit type',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('says the website submitted the order and it moved to Pending, with no staff name', () => {
+    const region = timeline([
+      leadActivitySchema.parse(
+        entry('15', { actorId: '30000000-0000-4000-8000-0000000000aa', event: 'submitted' }),
+      ),
+    ]);
+    const [first] = within(region).getAllByRole('listitem');
+    expect(first?.textContent).toContain('Submitted on the website and moved to Pending');
+    expect(first?.textContent).not.toContain('Former teammate');
   });
 
   it('names the document a review approved or rejected', () => {
@@ -206,5 +263,49 @@ describe('LeadTimeline', () => {
       '/w/getcanadasim/automations',
     );
     expect(second?.textContent).toContain('You emailed the customer their SIM number');
+  });
+
+  describe('change requests made through the CRM', () => {
+    const SITE = '30000000-0000-4000-8000-0000000000aa';
+    const crm = (event: string, requestNo: number, extra: Record<string, unknown> = {}) =>
+      leadActivitySchema.parse(
+        entry(`${event === 'change_requested' ? 'e' : 'f'}${requestNo}`, {
+          actorId: SITE,
+          event,
+          requestNo,
+          changeRequestId: 'c0000000-0000-4000-8000-000000000001',
+          ...extra,
+        }),
+      );
+
+    it('says the customer asked, naming the fields, without a staff name', () => {
+      const region = timeline([
+        crm('change_requested', 70, { fields: ['phone', 'arrivalDate'], documents: [] }),
+      ]);
+      const [first] = within(region).getAllByRole('listitem');
+      expect(first?.textContent).toContain(
+        'The customer asked to change the phone and arrival in Canada (request #70)',
+      );
+      expect(first?.textContent).not.toContain('Former teammate');
+    });
+
+    it('names a plan and a new document', () => {
+      const region = timeline([
+        crm('change_requested', 71, { fields: ['planId', 'fullName'], documents: ['passport'] }),
+      ]);
+      expect(within(region).getAllByRole('listitem')[0]?.textContent).toContain(
+        'The customer asked to change the plan and name, and sent a new passport (request #71)',
+      );
+    });
+
+    it('says who approved or rejected it', () => {
+      const region = timeline([
+        crm('change_rejected', 71, { actorId: SELF }),
+        crm('change_approved', 70, { actorId: SELF }),
+      ]);
+      const [rejected, approved] = within(region).getAllByRole('listitem');
+      expect(rejected?.textContent).toContain("You rejected the customer's change request #71");
+      expect(approved?.textContent).toContain("You approved the customer's change request #70");
+    });
   });
 });

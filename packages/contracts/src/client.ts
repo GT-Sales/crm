@@ -97,6 +97,10 @@ import {
   updateLeadTaskRequestSchema,
   updateWorkspaceLeadRequestSchema,
   updateWorkspaceLeadResponseSchema,
+  resolveChangeRequestRequestSchema,
+  resolveChangeRequestResponseSchema,
+  type ResolveChangeRequestRequest,
+  type ResolveChangeRequestResponse,
   type CreateLeadNoteRequest,
   type CreateLeadNoteResponse,
   type CreateLeadTaskRequest,
@@ -215,6 +219,24 @@ import {
   type ListWorkspaceLeadsQueryInput,
   type ListWorkspaceLeadsResponse,
 } from './workspace-leads';
+import {
+  createTrackedChangeRequestSchema,
+  trackedChangeResponseSchema,
+  trackingCodeRequestSchema,
+  trackingCodeResponseSchema,
+  trackingOrdersResponseSchema,
+  trackingUploadIntentRequestSchema,
+  trackingVerifyRequestSchema,
+  trackingVerifyResponseSchema,
+  type CreateTrackedChangeRequest,
+  type TrackedChangeResponse,
+  type TrackingCodeRequest,
+  type TrackingCodeResponse,
+  type TrackingOrdersResponse,
+  type TrackingUploadIntentRequest,
+  type TrackingVerifyRequest,
+  type TrackingVerifyResponse,
+} from './tracking';
 
 /**
  * The one typed backend client, consumed by both the admin (staff session as the
@@ -290,6 +312,11 @@ export interface IdempotencyOption {
   readonly idempotencyKey?: string;
 }
 
+/** The grant `tracking.verify` returned, sent as `X-Customer-Grant`. */
+export interface CustomerGrantOption {
+  readonly customerGrant: string;
+}
+
 export interface BackendClient {
   health(): Promise<HealthResponse>;
   leads: {
@@ -336,6 +363,28 @@ export interface BackendClient {
       fileId: string,
       options: { draftGrant: string } & WebsiteBotProof,
     ): Promise<CreateDownloadLinkResponse>;
+  };
+  /** Customer order tracking: the code, then calls carrying the customer's grant. */
+  tracking: {
+    requestCode(body: TrackingCodeRequest, proof?: WebsiteBotProof): Promise<TrackingCodeResponse>;
+    verify(body: TrackingVerifyRequest, proof?: WebsiteBotProof): Promise<TrackingVerifyResponse>;
+    orders(options: CustomerGrantOption): Promise<TrackingOrdersResponse>;
+    requestChange(
+      reference: string,
+      body: CreateTrackedChangeRequest,
+      options: CustomerGrantOption & WebsiteBotProof,
+    ): Promise<TrackedChangeResponse>;
+    createUpload(
+      reference: string,
+      body: TrackingUploadIntentRequest,
+      options: CustomerGrantOption & WebsiteBotProof,
+    ): Promise<CreateUploadIntentResponse>;
+    finalizeUpload(
+      reference: string,
+      uploadId: string,
+      body: FinalizeUploadRequest,
+      options: CustomerGrantOption & WebsiteBotProof,
+    ): Promise<TrackedChangeResponse>;
   };
   staff: {
     listWorkspaces(): Promise<StaffWorkspacesResponse>;
@@ -496,6 +545,20 @@ export interface BackendClient {
       leadId: string,
       identityId: string,
     ): Promise<RevealLeadIdentityResponse>;
+    /** Apply the customer's pending change request (`expectedVersion` as loaded). */
+    approveChangeRequest(
+      workspaceId: string,
+      leadId: string,
+      changeRequestId: string,
+      body: ResolveChangeRequestRequest,
+    ): Promise<ResolveChangeRequestResponse>;
+    /** Turn down the customer's pending change request. */
+    rejectChangeRequest(
+      workspaceId: string,
+      leadId: string,
+      changeRequestId: string,
+      body: ResolveChangeRequestRequest,
+    ): Promise<ResolveChangeRequestResponse>;
   };
 }
 
@@ -676,6 +739,58 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/website/files/${encode(fileId)}/download-link`,
           headers: { 'x-draft-grant': opts.draftGrant, ...proofHeader(opts) },
           responseSchema: createDownloadLinkResponseSchema,
+        }),
+    },
+
+    tracking: {
+      requestCode: (body, proof) =>
+        call({
+          method: 'POST',
+          path: '/api/v1/website/tracking/code',
+          body: trackingCodeRequestSchema.parse(body),
+          headers: proofHeader(proof),
+          responseSchema: trackingCodeResponseSchema,
+        }),
+      verify: (body, proof) =>
+        call({
+          method: 'POST',
+          path: '/api/v1/website/tracking/verify',
+          body: trackingVerifyRequestSchema.parse(body),
+          headers: proofHeader(proof),
+          responseSchema: trackingVerifyResponseSchema,
+        }),
+      orders: (opts) =>
+        call({
+          method: 'GET',
+          path: '/api/v1/website/tracking/orders',
+          headers: { 'x-customer-grant': opts.customerGrant },
+          responseSchema: trackingOrdersResponseSchema,
+        }),
+      requestChange: (reference, body, opts) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/website/tracking/orders/${encode(reference)}/changes`,
+          body: createTrackedChangeRequestSchema.parse(body),
+          headers: { 'x-customer-grant': opts.customerGrant, ...proofHeader(opts) },
+          responseSchema: trackedChangeResponseSchema,
+        }),
+      createUpload: (reference, body, opts) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/website/tracking/orders/${encode(reference)}/uploads/intents`,
+          body: trackingUploadIntentRequestSchema.parse(body),
+          headers: { 'x-customer-grant': opts.customerGrant, ...proofHeader(opts) },
+          responseSchema: createUploadIntentResponseSchema,
+        }),
+      finalizeUpload: (reference, uploadId, body, opts) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/website/tracking/orders/${encode(reference)}/uploads/${encode(
+            uploadId,
+          )}/finalize`,
+          body: finalizeUploadRequestSchema.parse(body),
+          headers: { 'x-customer-grant': opts.customerGrant, ...proofHeader(opts) },
+          responseSchema: trackedChangeResponseSchema,
         }),
     },
 
@@ -1068,6 +1183,24 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             leadId,
           )}/identities/${encode(identityId)}/reveal`,
           responseSchema: revealLeadIdentityResponseSchema,
+        }),
+      approveChangeRequest: (workspaceId, leadId, changeRequestId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(
+            leadId,
+          )}/change-requests/${encode(changeRequestId)}/approve`,
+          body: resolveChangeRequestRequestSchema.parse(body),
+          responseSchema: resolveChangeRequestResponseSchema,
+        }),
+      rejectChangeRequest: (workspaceId, leadId, changeRequestId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/${encode(
+            leadId,
+          )}/change-requests/${encode(changeRequestId)}/reject`,
+          body: resolveChangeRequestRequestSchema.parse(body),
+          responseSchema: resolveChangeRequestResponseSchema,
         }),
     },
   };

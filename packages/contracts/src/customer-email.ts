@@ -22,6 +22,8 @@ export const CUSTOMER_EMAIL_TEMPLATES = [
   'activated',
   'cancelled',
   'sim_number_ready',
+  'change_approved',
+  'change_rejected',
 ] as const;
 export const customerEmailTemplateSchema = z.enum(CUSTOMER_EMAIL_TEMPLATES);
 export type CustomerEmailTemplate = z.infer<typeof customerEmailTemplateSchema>;
@@ -34,7 +36,20 @@ export const CUSTOMER_EMAIL_TEMPLATE_LABELS: Readonly<Record<CustomerEmailTempla
   activated: 'Activated',
   cancelled: 'Cancelled',
   sim_number_ready: 'SIM number ready',
+  change_approved: 'Change approved',
+  change_rejected: 'Change rejected',
 };
+
+/**
+ * The mails sent whenever their moment comes, never through an automation
+ * rule: the tracking code answers the customer's own request, and the two
+ * change decisions answer the change request they sent from `/track`.
+ */
+export const ALWAYS_SENT_TEMPLATES: readonly CustomerEmailTemplate[] = [
+  'tracking_code',
+  'change_approved',
+  'change_rejected',
+];
 
 /** What a template may write in braces (`{first name}`), as the owner types it. */
 export const EMAIL_FILL_IN_KEYS = [
@@ -63,13 +78,21 @@ const ALL_TEMPLATES: readonly CustomerEmailTemplate[] = CUSTOMER_EMAIL_TEMPLATES
 const ORDER_TEMPLATES: readonly CustomerEmailTemplate[] = ALL_TEMPLATES.filter(
   (template) => template !== 'tracking_code',
 );
+/**
+ * The order mails that may name the plan, its price and the last name. The
+ * two change decisions may not: a decision mail always goes out, so it uses
+ * only what every order has (ruling T9).
+ */
+const ORDER_DETAIL_TEMPLATES: readonly CustomerEmailTemplate[] = ORDER_TEMPLATES.filter(
+  (template) => template !== 'change_approved' && template !== 'change_rejected',
+);
 
 export const emailFillIns: readonly EmailFillIn[] = [
   { key: 'first name', hint: 'The customer’s first name', templates: ORDER_TEMPLATES },
-  { key: 'last name', hint: 'The customer’s last name', templates: ORDER_TEMPLATES },
+  { key: 'last name', hint: 'The customer’s last name', templates: ORDER_DETAIL_TEMPLATES },
   { key: 'site name', hint: 'The site’s name, as its emails sign', templates: ALL_TEMPLATES },
-  { key: 'plan', hint: 'The name of the plan ordered', templates: ORDER_TEMPLATES },
-  { key: 'price', hint: 'The plan’s price, such as $40.00', templates: ORDER_TEMPLATES },
+  { key: 'plan', hint: 'The name of the plan ordered', templates: ORDER_DETAIL_TEMPLATES },
+  { key: 'price', hint: 'The plan’s price, such as $40.00', templates: ORDER_DETAIL_TEMPLATES },
   {
     key: 'SIM number',
     hint: 'The order’s Canadian phone number',
@@ -161,6 +184,33 @@ export const customerEmailJobPayloadSchema = z
 export type CustomerEmailJobPayload = z.infer<typeof customerEmailJobPayloadSchema>;
 
 /**
+ * The outbox job that sends one tracking code mail. Unlike a
+ * `lead_customer_email` it is rendered when it is sent, after checking that
+ * its challenge is still open, so no readable code ever sits in the outbox
+ * (spec ruling 5).
+ */
+export const TRACKING_CODE_JOB_TYPE = 'tracking_code_email';
+
+/**
+ * The payload of a `tracking_code_email` job (payload version 1): the code
+ * only sealed to its challenge (`sealTrackingCode`), never in the clear.
+ */
+export const trackingCodeJobPayloadSchema = z
+  .object({
+    challengeId: z.uuid(),
+    toAddress: z.email(),
+    contactHash: z.string().min(1),
+    sealedCode: z.string().min(1).max(100),
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+export type TrackingCodeJobPayload = z.infer<typeof trackingCodeJobPayloadSchema>;
+
+/** What a `tracking_code_email` job keeps once it ends: the challenge id only. */
+export const trackingCodeScrubbedPayloadSchema = z.object({ challengeId: z.uuid() }).strict();
+export type TrackingCodeScrubbedPayload = z.infer<typeof trackingCodeScrubbedPayloadSchema>;
+
+/**
  * A site's email settings (`app.email_settings`, Settings → Email): who its
  * mails come from and how they look. `replyTo`, `logoUrl` and `siteUrl` are
  * null when left empty.
@@ -191,18 +241,10 @@ export type UpdateEmailSettingsRequestInput = z.input<typeof updateEmailSettings
 
 /**
  * `GET`/`PUT …/email/settings`. `settings` is null until the owner saves
- * them; `fallback` is then the sender configured for the deployment
- * (`EMAIL_SENDERS_JSON`), which mails use meanwhile, or null when there is none.
+ * them; until then the site sends no email to its customers.
  */
 export const emailSettingsResponseSchema = z.object({
   settings: emailSettingsSchema.nullable(),
-  fallback: z
-    .object({
-      fromName: z.string(),
-      fromAddress: z.email(),
-      siteUrl: z.url().nullable(),
-    })
-    .nullable(),
   requestId: requestIdSchema,
 });
 export type EmailSettingsResponse = z.infer<typeof emailSettingsResponseSchema>;

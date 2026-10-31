@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
+import { STAFF_SEED_IDS } from '@gt-sales/db/seed';
 import {
   LEGACY_IMPORT_ACTOR_ID,
   codePropertyCatalog,
@@ -43,7 +44,9 @@ const IMPORT_SQL = readFileSync(
 );
 
 // A distinct id range from every other integration test file sharing this database.
-const CANADAWIDE_CANDIDATE = '14000000-0000-4000-8000-000000000f01';
+// The synthetic seed's CanadaWide (same id, slug, name and domain), so the db
+// suite's seed finds its own workspace after this suite made it.
+const CANADAWIDE_CANDIDATE = STAFF_SEED_IDS.canadaWideWorkspace;
 const WON = '14000000-0000-4000-8000-000000000f11';
 const TRASHED = '14000000-0000-4000-8000-000000000f12';
 const MOBILITY = '14000000-0000-4000-8000-000000000f13';
@@ -93,8 +96,8 @@ databaseTest('CanadaWide historical import', () => {
     });
     await claimLegacyTables(admin);
     await admin`
-      insert into app.workspaces (id, slug, name)
-      values (${CANADAWIDE_CANDIDATE}, 'canadawide', 'CanadaWide')
+      insert into app.workspaces (id, slug, name, domain)
+      values (${CANADAWIDE_CANDIDATE}, 'canadawide', 'CanadaWide', 'canadawideinternet.com')
       on conflict do nothing
     `;
     const [site] = await admin<

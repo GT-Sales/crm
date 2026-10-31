@@ -43,6 +43,8 @@ const mocks = vi.hoisted(() => ({
   emailLeadCustomer: vi.fn(),
   getPropertyModel: vi.fn(),
   reviewFile: vi.fn(),
+  approveChangeRequest: vi.fn(),
+  rejectChangeRequest: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -116,6 +118,7 @@ function response(overrides: Partial<GetWorkspaceLeadResponse> = {}): GetWorkspa
     identities: [],
     documents: [],
     allowedMoves: [],
+    changeRequest: null,
     access: { contacts: true, manage: true },
     requestId: '00000000-0000-4000-8000-000000000001',
     ...overrides,
@@ -730,11 +733,230 @@ describe('LeadRecord order details', () => {
       'Old admin approved the customer’s change request #1',
     );
     expect(entries[2]?.textContent).toContain(
-      'Customer asked to change the arrival in canada and sent a new passport and visa or approval letter (request #1)',
+      'Customer asked to change the arrival in Canada and sent a new passport and visa or approval letter (request #1)',
     );
     // #2 is still undecided: the page says where it is decided.
     const waiting = screen.getByText(/Waiting in the old admin/);
     expect(waiting.textContent).toContain('asked to change the phone (request #2)');
+    // The old admin decides it, so the CRM's card has nothing to show.
+    expect(screen.queryByRole('heading', { name: /^Change request/ })).toBeNull();
+  });
+
+  describe('a change request made through the CRM', () => {
+    const REQUEST = 'c0000000-0000-4000-8000-000000000001';
+    const SITE_ACTOR = '30000000-0000-4000-8000-0000000000aa';
+    const REQUEST_FILE = 'f0000000-0000-4000-8000-000000000009';
+    const decider = { contacts: true, manage: true, decideChanges: true, downloadDocuments: true };
+    const pending = {
+      id: REQUEST,
+      requestNo: 70,
+      status: 'pending' as const,
+      fields: { phone: '+1 403 555 0199' },
+      documents: [{ fileId: REQUEST_FILE, documentType: 'passport' as const }],
+      version: 2,
+      createdAt: '2026-10-30T10:00:00.000Z',
+      updatedAt: '2026-10-30T11:55:00.000Z',
+    };
+    const asked: LeadActivity = {
+      id: '92000000-0000-4000-8000-00000000e070',
+      actorId: SITE_ACTOR,
+      createdAt: '2026-10-30T10:00:00.000Z',
+      kind: 'system',
+      event: 'change_requested',
+      requestNo: 70,
+      changeRequestId: REQUEST,
+      fields: ['phone'],
+      documents: ['passport'],
+    };
+    const decision = (event: 'change_approved' | 'change_rejected'): LeadActivity => ({
+      id: '92000000-0000-4000-8000-00000000f070',
+      actorId: SELF,
+      createdAt: NOW,
+      kind: 'system',
+      event,
+      requestNo: 70,
+      changeRequestId: REQUEST,
+    });
+    const orderLead = (): LeadDetail => ({
+      ...lead,
+      leadType: 'sim_order',
+      stage: 'pending',
+      form: { schemaVersion: 1, payload: { delivery: 'esim' } },
+    });
+
+    function loaded(overrides: Partial<GetWorkspaceLeadResponse> = {}) {
+      return response({
+        lead: orderLead(),
+        activities: [asked],
+        changeRequest: pending,
+        access: decider,
+        ...overrides,
+      });
+    }
+
+    it('shows the card above the timeline, not the old admin banner', async () => {
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      const heading = await screen.findByRole('heading', { name: 'Change request #70' });
+      const timeline = screen.getByRole('heading', { name: 'Timeline' });
+      expect(
+        heading.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(screen.queryByText(/Waiting in the old admin/)).toBeNull();
+      expect(within(timeline.parentElement!).getAllByRole('listitem')[0]?.textContent).toContain(
+        'The customer asked to change the phone and sent a new passport (request #70)',
+      );
+    });
+
+    it('has no card when the lead has no pending request', async () => {
+      mocks.getStaffLead.mockResolvedValue(loaded({ changeRequest: null, activities: [] }));
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+      expect(screen.queryByRole('heading', { name: /^Change request/ })).toBeNull();
+    });
+
+    it('approves with the loaded version, adds the entry and reloads the documents', async () => {
+      mocks.getStaffLead.mockResolvedValueOnce(loaded());
+      mocks.approveChangeRequest.mockResolvedValue({
+        lead: orderLead(),
+        activities: [decision('change_approved')],
+        allowedMoves: [],
+        requestId: NOW,
+      });
+      mocks.getStaffLead.mockResolvedValueOnce(
+        loaded({ changeRequest: null, activities: [decision('change_approved'), asked] }),
+      );
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Approve changes' }));
+      await waitFor(() =>
+        expect(mocks.approveChangeRequest).toHaveBeenCalledWith(
+          'staff-token',
+          WORKSPACE,
+          LEAD,
+          REQUEST,
+          2,
+        ),
+      );
+      expect(
+        await screen.findByText('Approved. The documents now wait for an Orders review.'),
+      ).toBeTruthy();
+      // The record is read again so the approved document lands on the Documents card.
+      await waitFor(() => expect(mocks.getStaffLead).toHaveBeenCalledTimes(2));
+      const timeline = screen.getByRole('heading', { name: 'Timeline' }).parentElement!;
+      expect(within(timeline).getAllByRole('listitem')[0]?.textContent).toContain(
+        "You approved the customer's change request #70",
+      );
+      // The outcome stays on screen after the reload, with the focus on it; the decision buttons do not.
+      const outcome = screen.getByText(/Approved\. The documents now wait/);
+      expect(document.activeElement).toBe(outcome);
+      expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
+      expect(mocks.rejectChangeRequest).not.toHaveBeenCalled();
+    });
+
+    it('rejects with the loaded version and says the customer is told', async () => {
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      mocks.rejectChangeRequest.mockResolvedValue({
+        lead: orderLead(),
+        activities: [decision('change_rejected')],
+        allowedMoves: [],
+        requestId: NOW,
+      });
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
+      expect(await screen.findByText('Rejected. The customer will be told by email.')).toBeTruthy();
+      expect(mocks.rejectChangeRequest).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        LEAD,
+        REQUEST,
+        2,
+      );
+    });
+
+    it('says the customer changed the request, and Reload reads it again', async () => {
+      const { BackendError } = await import('../../lib/api');
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      mocks.approveChangeRequest.mockRejectedValue(new BackendError('version_conflict', 409, NOW));
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Approve changes' }));
+      expect(
+        await screen.findByText('The customer changed this request. Reload to see the latest.'),
+      ).toBeTruthy();
+      mocks.getStaffLead.mockResolvedValueOnce(
+        loaded({ changeRequest: { ...pending, version: 3 } }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      await waitFor(() => expect(mocks.getStaffLead).toHaveBeenCalledTimes(2));
+      // The reloaded request is a new version: the card starts afresh, without the alert.
+      await waitFor(() =>
+        expect(
+          screen.queryByText('The customer changed this request. Reload to see the latest.'),
+        ).toBeNull(),
+      );
+      expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Approve changes' })).toHaveProperty(
+        'disabled',
+        false,
+      );
+    });
+
+    it('views the request’s document through an inline link', async () => {
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      mocks.createFileDownloadLink.mockResolvedValueOnce({
+        url: 'https://storage.example.test/held',
+        expiresAt: NOW,
+        requestId: NOW,
+      });
+      const tab = { show: vi.fn(), close: vi.fn() };
+      vi.spyOn(downloadNavigation, 'openTab').mockReturnValue(tab);
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'View Passport' }));
+      await waitFor(() =>
+        expect(tab.show).toHaveBeenCalledWith('https://storage.example.test/held'),
+      );
+      expect(mocks.createFileDownloadLink).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        REQUEST_FILE,
+        'inline',
+      );
+    });
+
+    it('says why the document could not be opened, and when the browser blocks the tab', async () => {
+      const { BackendError } = await import('../../lib/api');
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      const openTab = vi.spyOn(downloadNavigation, 'openTab').mockReturnValueOnce(undefined);
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'View Passport' }));
+      expect((await screen.findByRole('alert')).textContent).toContain('blocked the new tab');
+      const tab = { show: vi.fn(), close: vi.fn() };
+      openTab.mockReturnValueOnce(tab);
+      mocks.createFileDownloadLink.mockRejectedValueOnce(
+        new BackendError('file_not_available', 409, NOW),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'View Passport' }));
+      expect(await screen.findByText('This document is not available yet.')).toBeTruthy();
+      expect(tab.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the request without buttons to staff who cannot decide, or on an archived lead', async () => {
+      mocks.getStaffLead.mockResolvedValue(
+        loaded({ access: { contacts: true, manage: true, downloadDocuments: true } }),
+      );
+      const { unmount } = render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      await screen.findByRole('heading', { name: 'Change request #70' });
+      expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
+      expect(screen.getByText('Only someone with the Leads role can decide this.')).toBeTruthy();
+      unmount();
+
+      mocks.getStaffLead.mockResolvedValue(loaded({ lead: { ...orderLead(), deletedAt: NOW } }));
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      await screen.findByRole('heading', { name: 'Change request #70' });
+      expect(screen.queryByRole('button', { name: 'Approve changes' })).toBeNull();
+      // A Leads member may decide it once the lead is restored.
+      expect(screen.getByText('Restore this lead to decide this request.')).toBeTruthy();
+      expect(screen.queryByText('Only someone with the Leads role can decide this.')).toBeNull();
+    });
   });
 
   it('offers no delivery letter for a lead type without one', async () => {
@@ -785,7 +1007,7 @@ describe('LeadRecord order details', () => {
       }),
     );
     const timeline = screen.getByRole('region', { name: 'Timeline' });
-    expect(await within(timeline).findByText(/corrected the arrival in canada/)).toBeTruthy();
+    expect(await within(timeline).findByText(/corrected the arrival in Canada/)).toBeTruthy();
   });
 
   it('saves a SIM number from the staff card', async () => {
@@ -1385,7 +1607,7 @@ describe('LeadRecord from the site layout', () => {
     // The timeline names custom keys by their label.
     const timeline = screen.getByRole('region', { name: 'Timeline' });
     expect(
-      within(timeline).getByText('corrected the arrival in canada, referral code, vip'),
+      within(timeline).getByText('corrected the arrival in Canada, referral code and VIP'),
     ).toBeTruthy();
   });
 
@@ -1451,7 +1673,7 @@ describe('LeadRecord from the site layout', () => {
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const timeline = await screen.findByRole('region', { name: 'Timeline' });
     expect(
-      await within(timeline).findByText('corrected the referral code, custom_gone'),
+      await within(timeline).findByText('corrected the referral code and custom_gone'),
     ).toBeTruthy();
   });
 
@@ -1657,7 +1879,7 @@ describe('LeadRecord order section', () => {
       /^Frozen Oct 20, 2026: Unlimited 50, \$50\.00 \/ Monthly$/,
     );
     const timeline = screen.getByRole('region', { name: 'Timeline' });
-    expect(within(timeline).getByText('corrected the plan, payment status')).toBeTruthy();
+    expect(within(timeline).getByText('corrected the plan and payment status')).toBeTruthy();
   });
 
   it('leaves the order out of a lead the backend sent no order details for', async () => {

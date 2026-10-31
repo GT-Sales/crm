@@ -87,6 +87,8 @@ export const domainErrorCodeSchema = z.enum([
   'reminder_not_found',
   'change_request_not_found',
   'change_request_resolved',
+  'change_request_not_allowed',
+  'external_ref_taken',
   'persistence_unavailable',
   'terms_version_unsupported',
   'upload_not_found',

@@ -65,7 +65,7 @@ function reviewBadge(review: LeadDocument['review']): { label: string; className
   return { label: 'Not reviewed', className: 'text-muted-foreground' };
 }
 
-function linkFailure(code: string): string {
+export function linkFailure(code: string): string {
   if (code === 'permission_denied') return 'You need the document download permission for this.';
   if (code === 'file_not_available') return 'This document is not available yet.';
   if (code === 'feature_not_ready') return 'Document storage is not set up yet.';

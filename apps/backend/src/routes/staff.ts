@@ -22,6 +22,7 @@ import {
   updateLeadTaskRequestSchema,
   updateStaffProfileRequestSchema,
   updateWorkspaceLeadRequestSchema,
+  resolveChangeRequestRequestSchema,
   type LeadAccess,
   type LeadDetail,
   type LeadListItem,
@@ -47,6 +48,7 @@ import { sendWebsiteError } from '../http/website-errors.js';
 import { sensitiveFieldsKey } from '../crypto/cipher.js';
 import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
 import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
+import type { ChangeRequestService } from '../tracking/change-requests.js';
 import { DatabaseEmailSettingsStore, type EmailSettingsStore } from '../email/settings-store.js';
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
@@ -115,6 +117,8 @@ export interface StaffRouteDependencies {
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
   withTenantTx?: DatabaseClient['withTenantTx'];
+  /** Decides customers' change requests; `createApp` supplies the tracking one when omitted. */
+  changeRequests?: Pick<ChangeRequestService, 'approve' | 'reject'>;
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
@@ -180,17 +184,15 @@ const unconfiguredEmailSettingsStore: EmailSettingsStore = {
   listTemplates: () => notConfigured('email settings store'),
   putTemplate: () => notConfigured('email settings store'),
 };
-/** A deployment with no customer mail: no provider, no fallback sender, so no site can send. */
+/** A deployment with no customer mail: no provider, so no site can send. */
 const unconfiguredCustomerEmail: CustomerEmail = {
   environment: {
     providerReady: false,
     contactHash: () => {
       throw new Error('customer email is not configured');
     },
-    fallbackSenders: { forWorkspace: () => undefined },
   },
   available: async () => false,
-  fallback: () => undefined,
 };
 const unconfiguredCatalog = () => notConfigured('property catalogue');
 
@@ -628,6 +630,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
         reviewDocuments: decideAccess(decision.access, 'order.manage').allowed,
         overrideDocuments: decideAccess(decision.access, 'order.override').allowed,
+        decideChanges: decideAccess(decision.access, 'lead.manage').allowed,
       };
       // Form details, notes and tasks carry personal details as freely as
       // the contact fields do, so they travel only with contact visibility.
@@ -651,6 +654,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         related: access.contacts ? result.related : [],
         identities: access.contacts ? result.identities : [],
         documents: access.contacts ? result.documents : [],
+        // The customer's own values: with contact visibility only.
+        changeRequest: access.contacts ? result.changeRequest : null,
         access,
         requestId: req.id,
       });
@@ -756,6 +761,78 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   });
+
+  // A customer's change request (Get Canada Sim's `/track`): staff who work
+  // leads approve it, applying the values as their own edit, or reject it.
+  for (const decision of ['approve', 'reject'] as const) {
+    router.post(
+      `/workspaces/:workspaceId/leads/:leadId/change-requests/:changeRequestId/${decision}`,
+      async (req, res) => {
+        const params = uuidParams(req, res, 'leadId');
+        if (!params) return;
+        const changeRequestId = z.uuid().safeParse(req.params['changeRequestId']);
+        const body = resolveChangeRequestRequestSchema.safeParse(req.body);
+        if (!changeRequestId.success || !body.success) {
+          sendStaffAuthError(res, req.id, 'invalid_request', 400);
+          return;
+        }
+        try {
+          const { actor, decision: allowed } = await decide(req, params.workspaceId, 'lead.manage');
+          if (!allowed.allowed) {
+            sendStaffAuthError(res, req.id, denyReasonOf(allowed), 403);
+            return;
+          }
+          const service = dependencies.changeRequests;
+          if (!service) {
+            reportFailure(req, new Error('change request service is not configured'));
+            sendStaffAuthError(res, req.id, 'internal_error', 500);
+            return;
+          }
+          const input = {
+            workspaceId: params.workspaceId,
+            actorId: actor.actorId,
+            requestId: req.id,
+            leadId: params.id,
+            changeRequestId: changeRequestId.data,
+            expectedVersion: body.data.expectedVersion,
+            catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
+          };
+          const outcome =
+            decision === 'approve' ? await service.approve(input) : await service.reject(input);
+          switch (outcome.status) {
+            case 'approved':
+            case 'rejected':
+              res.json({
+                lead: outcome.lead,
+                activities: outcome.activities,
+                allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
+                ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
+                requestId: req.id,
+              });
+              return;
+            case 'not_found':
+              sendDomainError(res, req.id, 'change_request_not_found', 404);
+              return;
+            case 'resolved':
+              sendDomainError(res, req.id, 'change_request_resolved', 409);
+              return;
+            case 'version_conflict':
+              sendDomainError(res, req.id, 'version_conflict', 409);
+              return;
+            case 'trashed':
+              sendDomainError(res, req.id, 'lead_trashed', 409);
+              return;
+            case 'invalid_field':
+              sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
+              return;
+          }
+        } catch (error) {
+          reportFailure(req, error);
+          sendStaffAuthError(res, req.id, 'internal_error', 500);
+        }
+      },
+    );
+  }
 
   // `trash` is the old name of `archive`; both archive the lead with one handler.
   for (const [path, archived] of [

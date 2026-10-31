@@ -120,6 +120,20 @@
       "when": 1793380656599,
       "tag": "0016_order_numbers_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793385700370,
+      "tag": "0017_customer_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793385701352,
+      "tag": "0018_customer_tracking_runtime",
+      "breakpoints": true
     }
   ]
 }

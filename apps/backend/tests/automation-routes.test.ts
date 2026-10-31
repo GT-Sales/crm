@@ -95,7 +95,6 @@ const emailEnvironment: CustomerEmailEnvironment = {
   contactHash: () => {
     throw new Error('unused');
   },
-  fallbackSenders: { forWorkspace: () => undefined },
 };
 
 const stored = (key: StoredAutomation['key'], enabled = false): StoredAutomation => ({
@@ -149,7 +148,7 @@ beforeEach(async () => {
       credentialStore: noopCredentialStore,
       leadStore: unusedLeadStore,
       automationStore: automations,
-      customerEmail: { environment: emailEnvironment, available, fallback: () => undefined },
+      customerEmail: { environment: emailEnvironment, available },
     },
   }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));

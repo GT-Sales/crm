@@ -4,7 +4,7 @@ import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 
 import { idempotencyKeyHash, requestFingerprint } from '../src/leads/idempotency.js';
-import { DatabaseLeadStore } from '../src/leads/store.js';
+import { DatabaseLeadStore, ExternalRefTakenError } from '../src/leads/store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
@@ -96,9 +96,9 @@ databaseTest('DatabaseLeadStore', () => {
 
     // The same order number on the same site is one record, however many times
     // the website retries; another lead type or another site may reuse it.
-    await expect(store.createLead({ ...base, externalRef: ref })).rejects.toMatchObject({
-      cause: { code: '23505' },
-    });
+    await expect(store.createLead({ ...base, externalRef: ref })).rejects.toBeInstanceOf(
+      ExternalRefTakenError,
+    );
     await expect(
       store.createLead({ ...base, leadType: 'partner_application', externalRef: ref }),
     ).resolves.toBeDefined();
@@ -511,6 +511,83 @@ databaseTest('DatabaseLeadStore', () => {
       });
     });
 
+    const stageTrail = async (id: string) => ({
+      stage: (await admin<{ stage: string }[]>`select stage from app.leads where id = ${id}`)[0]
+        ?.stage,
+      entries: await admin<{ kind: string; data: unknown }[]>`
+        select kind, data from app.lead_activities where lead_id = ${id} order by created_at, id
+      `,
+      audits: await admin<{ action: string; after: unknown }[]>`
+        select action, after from app.audit_events where entity_id = ${id} order by created_at, id
+      `,
+    });
+
+    test('a SIM order submitted on its create starts at Pending, with the audit and one entry', async () => {
+      const created = await store.createLead({
+        ...simBase,
+        submit: true,
+        contact: { fullName: 'Nadia Khan', email: 'nadia@example.test' },
+        form: { schemaVersion: 1, payload: { delivery: 'esim' } },
+        order: { planId, quantity: 1 },
+      });
+      const trail = await stageTrail(created.lead.id);
+      expect(trail.stage).toBe('pending');
+      expect(trail.entries).toEqual([{ kind: 'system', data: { event: 'submitted' } }]);
+      expect(trail.audits).toEqual([
+        {
+          action: 'lead.created',
+          after: expect.objectContaining({ status: 'submitted', stage: 'pending' }),
+        },
+      ]);
+    });
+
+    test('a SIM order draft stays at Incomplete until the save that submits it moves it to Pending', async () => {
+      const draft = await store.createLead({
+        ...simBase,
+        contact: { fullName: 'Nadia Khan', email: 'nadia@example.test' },
+        form: { schemaVersion: 1, payload: { delivery: 'esim' } },
+      });
+      const before = await stageTrail(draft.lead.id);
+      expect(before.stage).toBe('incomplete');
+      expect(before.entries).toEqual([]);
+      expect(before.audits[0]?.after).toMatchObject({ stage: 'incomplete' });
+
+      const save = { ...sim, leadId: draft.lead.id, grantToken: draftToken(draft) };
+      expect(await store.updateLead({ ...save, order: { planId, quantity: 1 } })).toMatchObject({
+        status: 'updated',
+      });
+      expect((await stageTrail(draft.lead.id)).stage).toBe('incomplete');
+      expect(
+        await store.updateLead({ ...save, order: { planId, quantity: 1 }, submit: true }),
+      ).toMatchObject({ status: 'updated', lead: { status: 'submitted' } });
+      const after = await stageTrail(draft.lead.id);
+      expect(after.stage).toBe('pending');
+      expect(after.entries).toEqual([{ kind: 'system', data: { event: 'submitted' } }]);
+      expect(after.audits.at(-1)).toEqual({
+        action: 'lead.updated',
+        after: expect.objectContaining({
+          changedFields: expect.arrayContaining(['status', 'stage']),
+          stage: 'pending',
+        }),
+      });
+    });
+
+    test('a submitted draft that staff already moved keeps its stage', async () => {
+      const draft = await store.createLead({
+        ...simBase,
+        contact: { fullName: 'Nadia Khan', email: 'nadia@example.test' },
+        form: { schemaVersion: 1, payload: { delivery: 'esim' } },
+      });
+      await admin`update app.leads set stage = 'on_hold' where id = ${draft.lead.id}`;
+      const save = { ...sim, leadId: draft.lead.id, grantToken: draftToken(draft) };
+      expect(
+        await store.updateLead({ ...save, order: { planId, quantity: 1 }, submit: true }),
+      ).toMatchObject({ status: 'updated' });
+      const after = await stageTrail(draft.lead.id);
+      expect(after.stage).toBe('on_hold');
+      expect(after.entries).toEqual([]);
+    });
+
     test('a CanadaWide internet order is created as before', async () => {
       const payload = {
         planId: 'ab-1gbps',
@@ -533,6 +610,10 @@ databaseTest('DatabaseLeadStore', () => {
         status: 'submitted',
         payload: { schemaVersion: 1, payload },
       });
+      // Its first stage, as before, with no entry.
+      const trail = await stageTrail(created.lead.id);
+      expect(trail.stage).toBe('new');
+      expect(trail.entries).toEqual([]);
     });
   });
 });

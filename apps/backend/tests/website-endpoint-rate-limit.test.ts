@@ -194,6 +194,15 @@ describe('loadEndpointRateLimits', () => {
     expect(limits.leads).toEqual({ maxCount: 5, windowSeconds: 120 });
   });
 
+  it('limits customer tracking to 30 per 60 s per visitor, overridable', () => {
+    expect(DEFAULT_ENDPOINT_RATE_LIMITS.tracking).toEqual({ windowSeconds: 60, maxCount: 30 });
+    expect(loadEndpointRateLimits({}).tracking).toEqual({ windowSeconds: 60, maxCount: 30 });
+    expect(
+      loadEndpointRateLimits({ RATE_LIMIT_TRACKING_MAX: '12', RATE_LIMIT_TRACKING_WINDOW: '90' })
+        .tracking,
+    ).toEqual({ maxCount: 12, windowSeconds: 90 });
+  });
+
   it('rejects non-positive overrides', () => {
     const limits = loadEndpointRateLimits({
       RATE_LIMIT_LEADS_MAX: '0',

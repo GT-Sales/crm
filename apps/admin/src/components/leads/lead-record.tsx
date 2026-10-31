@@ -15,6 +15,8 @@ import {
   type LeadActivity,
   type LeadContactEdit,
   type LeadTask,
+  type ResolveChangeRequestResponse,
+  type StaffChangeRequest,
   type UpdateWorkspaceLeadRequest,
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
@@ -22,20 +24,25 @@ import { Button, Card, CardContent, cn, Input, NativeSelect } from '@gt-sales/ui
 import { ArchiveIcon, ArrowLeftIcon, CopyIcon, PrinterIcon, RotateCcwIcon } from 'lucide-react';
 
 import {
+  approveChangeRequest,
+  createFileDownloadLink,
   emailLeadCustomer,
   getStaffLead,
   markLeadOpened,
+  rejectChangeRequest,
   setLeadArchived,
   updateStaffLead,
 } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
+import { downloadNavigation } from '../../lib/file-links';
 import { memberName } from '../../lib/people';
 import { errorDetailList, errorReason, useResource } from '../../lib/use-resource';
 import { PropertySections } from '../properties/property-sections';
 import { usePropertyModel } from '../properties/use-property-model';
+import { ChangeRequestCard } from './change-request-card';
 import { leadDisplayName, StageBadge } from './lead-display';
 import { IdentityCheck } from './identity-check';
-import { LeadDocuments } from './lead-documents';
+import { LeadDocuments, linkFailure } from './lead-documents';
 import type { PropertyEdits } from './lead-form-editor';
 import { deliveryLetterUrl, leadSummaryText } from './lead-summary';
 import { LeadTasks } from './lead-tasks';
@@ -199,6 +206,8 @@ export function LeadRecord({
   const [copied, setCopied] = useState(false);
   // Staff closed the notice of the last failed refresh.
   const [refreshDismissed, setRefreshDismissed] = useState(false);
+  // The change request staff just decided: its card stays to say what happened.
+  const [decided, setDecided] = useState<{ leadId: string; request: StaffChangeRequest }>();
 
   // "Copied" reads for a moment, then the button is itself again.
   useEffect(() => {
@@ -238,6 +247,8 @@ export function LeadRecord({
   const { lead, activities, tasks, related, identities, documents, access } = record.data;
   const letterUrl = access.contacts ? deliveryLetterUrl(record.data) : undefined;
   const waitingChange = pendingChangeRequest(activities);
+  const shownRequest =
+    record.data.changeRequest ?? (decided?.leadId === leadId ? decided.request : undefined);
   const canWrite = access.manage && lead.deletedAt === null;
   const stages = leadTypeEntry(lead.leadType)?.stages ?? [];
   const stageListed = stages.some((entry) => entry.key === lead.stage);
@@ -333,6 +344,52 @@ export function LeadRecord({
   async function refresh() {
     setRefreshDismissed(false);
     await record.reload();
+  }
+
+  /** The customer's request, decided: the answer is shown, then the record is read again for its documents. */
+  async function decideChange(
+    request: StaffChangeRequest,
+    decision: 'approve' | 'reject',
+    expectedVersion: number,
+  ): Promise<ResolveChangeRequestResponse> {
+    if (!accessToken || !workspaceId) throw new Error('signed out');
+    const decide = decision === 'approve' ? approveChangeRequest : rejectChangeRequest;
+    return decide(accessToken, workspaceId, leadId, request.id, expectedVersion);
+  }
+
+  async function changeDecided(request: StaffChangeRequest, result: ResolveChangeRequestResponse) {
+    setDecided({ leadId, request });
+    changeRecord((current) => ({
+      ...current,
+      lead: result.lead,
+      activities: [...result.activities, ...current.activities],
+      allowedMoves: result.allowedMoves,
+      changeRequest: null,
+    }));
+    // An approval changed the lead's fields and made the held documents current.
+    await refresh();
+  }
+
+  /**
+   * Opens a document that came with the request in a tab of its own. The tab
+   * opens inside the click (a popup blocker would refuse it later); a failure
+   * is thrown with the words staff read.
+   */
+  async function openRequestDocument(fileId: string): Promise<void> {
+    if (!accessToken || !workspaceId) throw new Error('Sign in again to open documents.');
+    const tab = downloadNavigation.openTab();
+    if (!tab) {
+      throw new Error(
+        'Your browser blocked the new tab. Allow pop-ups for this site, or download it.',
+      );
+    }
+    try {
+      const link = await createFileDownloadLink(accessToken, workspaceId, fileId, 'inline');
+      tab.show(link.url);
+    } catch (error) {
+      tab.close();
+      throw new Error(linkFailure(errorReason(error)));
+    }
   }
 
   async function reviewed() {
@@ -843,6 +900,23 @@ export function LeadRecord({
                 />
               </CardContent>
             </Card>
+            {shownRequest ? (
+              <ChangeRequestCard
+                // A new version (the customer replaced it, or staff reloaded) starts the card afresh.
+                key={`${shownRequest.id}:${shownRequest.version}`}
+                lead={lead}
+                changeRequest={shownRequest}
+                catalog={catalog}
+                canDecide={access.decideChanges === true}
+                canDownload={access.downloadDocuments === true}
+                onDecide={(decision, expectedVersion) =>
+                  decideChange(shownRequest, decision, expectedVersion)
+                }
+                onDone={(result) => void changeDecided(shownRequest, result)}
+                openDocument={openRequestDocument}
+                onReload={() => void refresh()}
+              />
+            ) : null}
             <Card>
               <CardContent>
                 <LeadTimeline

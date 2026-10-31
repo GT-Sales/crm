@@ -18,7 +18,9 @@ page's assignment, note and task; completing that task from My tasks; the
 archive and restore; custom properties, saved views and plans; and a SIM order
 taken from Pending to Activated: the passport approved, the Dispatched and
 Activated automations switched on and queuing their emails, and a template
-edited, previewed and saved.
+edited, previewed and saved; and a customer's change request from the website's
+tracking (a new phone and arrival date, seeded as the website's credential)
+approved on the lead page.
 
 `pnpm --filter admin test:e2e:leads` builds the admin into `.next-e2e` with a
 browser-test session seam, then `playwright.leads.config.ts` starts two

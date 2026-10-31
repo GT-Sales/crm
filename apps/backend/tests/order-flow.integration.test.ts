@@ -339,9 +339,12 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
       )
     `;
 
+    // The submitted order is Pending at once (an unfinished checkout stays Incomplete).
     const detail = await call('GET', leadPath(leadId), 'order-flow-owner');
-    expect(detail.body).toMatchObject({ lead: { stage: 'incomplete' } });
-    expect(await patch(leadId, { stage: 'pending' })).toMatchObject({ status: 200 });
+    expect(detail.body).toMatchObject({ lead: { stage: 'pending' } });
+    expect(getWorkspaceLeadResponseSchema.parse(detail.body).activities).toContainEqual(
+      expect.objectContaining({ kind: 'system', event: 'submitted', actorId: CREDENTIAL }),
+    );
     expect(await patch(leadId, { stage: 'verified' })).toMatchObject({ status: 200 });
 
     // Delivered asks for the approved passport first.

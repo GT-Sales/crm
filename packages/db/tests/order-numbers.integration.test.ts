@@ -117,7 +117,7 @@ databaseTest('per-site counters (app.site_counters, migrations 0015 and 0016)', 
     }
   });
 
-  it('has RLS enabled and forced, its tenant and backup read policies, and 36 read policies in all', async () => {
+  it('has RLS enabled and forced, its tenant and backup read policies, and 38 read policies in all', async () => {
     const [table] = await admin<{ rowSecurity: boolean; forced: boolean }[]>`
       select c.relrowsecurity as "rowSecurity", c.relforcerowsecurity as forced
       from pg_class c
@@ -140,7 +140,7 @@ databaseTest('per-site counters (app.site_counters, migrations 0015 and 0016)', 
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(36);
+    expect(backupPolicies?.count).toBe(38);
   });
 
   it('app_runtime may select, insert and update but never delete; backup_reader reads it', async () => {
@@ -211,8 +211,12 @@ databaseTest('per-site counters (app.site_counters, migrations 0015 and 0016)', 
 
   it('refuses an unknown counter, a negative value and a second row for one site and counter', async () => {
     await admin`delete from app.site_counters where workspace_id = ${WORKSPACE_2}`;
-    // Part B widens the list with change_request_no; until then it is refused.
-    for (const counter of ['change_request_no', 'x']) {
+    // 0017 widened the list with change_request_no (customer tracking).
+    await admin`
+      insert into app.site_counters (workspace_id, counter, last_value)
+      values (${WORKSPACE_2}, 'change_request_no', 0)
+    `;
+    for (const counter of ['order_ref', 'x']) {
       await expect(
         admin`
           insert into app.site_counters (workspace_id, counter, last_value)

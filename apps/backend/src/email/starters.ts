@@ -5,9 +5,8 @@ import type { CustomerEmailTemplate } from '@gt-sales/contracts';
  * (version 0 in Settings → Email). Plain and short, and each uses only the
  * fill-ins an order nearly always has, since a missing value blocks the send:
  * `dispatched` alone needs the dispatch details and the site's address.
- * `sim_number_ready` keeps the words of the mail the adapters sent before
- * phase 4 (`renderSimNumberReady`), with only `{first name}` and
- * `{SIM number}`.
+ * `sim_number_ready` keeps the words of the built-in mail the adapters sent
+ * before phase 4, with only `{first name}` and `{SIM number}`.
  */
 export const STARTER_TEMPLATES: Readonly<
   Record<CustomerEmailTemplate, { subject: string; body: string }>
@@ -68,6 +67,21 @@ export const STARTER_TEMPLATES: Readonly<
       'Your Canadian number: **{SIM number}**',
       '**What this means:**\nThis is the Canadian mobile number that belongs to your plan. The line activates up to 24 hours before your arrival date, so it will generally be working the moment you land. Until then, you can share the number, but calls and texts to it will not be delivered.',
       'If the number does not match what you were expecting, reply to this email straight away and our team will sort it. It is much easier to fix now than after you land.',
+    ].join('\n\n'),
+  },
+  change_approved: {
+    subject: 'Your change request was approved',
+    body: [
+      'Hi {first name},',
+      'The changes you asked for on your order with {site name} have been made.',
+      'Reply to this email if anything looks wrong.',
+    ].join('\n\n'),
+  },
+  change_rejected: {
+    subject: 'About your change request',
+    body: [
+      'Hi {first name},',
+      'We could not make the changes you asked for on your order with {site name}. Reply to this email and we will help.',
     ].join('\n\n'),
   },
 };

@@ -45,6 +45,8 @@ export interface CreateIntentInput {
   documentType: string;
   declaredContentType: DocumentMediaType;
   declaredSizeBytes: number;
+  /** A customer's passport or visa for a change request, held until staff approve it. */
+  held?: true;
 }
 
 export type CreateIntentOutcome =
@@ -184,6 +186,7 @@ export class DocumentService {
       declaredContentType: input.declaredContentType,
       declaredSizeBytes: input.declaredSizeBytes,
       expiresAt: new Date(this.now().getTime() + this.intentTtlSeconds * 1000),
+      ...(input.held ? { held: input.held } : {}),
     });
     return {
       status: 'created',

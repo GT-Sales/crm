@@ -86,19 +86,10 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
 
   function settingsResponse(
     req: Request,
-    workspaceId: string,
     saved: StoredEmailSettings | undefined,
   ): EmailSettingsResponse {
-    const fallback = customerEmail.fallback(workspaceId);
     return {
       settings: saved ? toSettings(saved) : null,
-      fallback: fallback
-        ? {
-            fromName: fallback.fromName,
-            fromAddress: fallback.fromAddress,
-            siteUrl: fallback.siteUrl ?? null,
-          }
-        : null,
       requestId: req.id,
     };
   }
@@ -116,7 +107,7 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
       const allowed = await allowedScope(req, res, workspaceId.data);
       if (!allowed) return;
       const { scope } = allowed;
-      res.json(settingsResponse(req, workspaceId.data, await store.getSettings(scope)));
+      res.json(settingsResponse(req, await store.getSettings(scope)));
     } catch (error) {
       failed(req, res, error);
     }
@@ -133,7 +124,7 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
       const allowed = await allowedScope(req, res, workspaceId.data);
       if (!allowed) return;
       const { scope } = allowed;
-      res.json(settingsResponse(req, workspaceId.data, await store.putSettings(scope, body.data)));
+      res.json(settingsResponse(req, await store.putSettings(scope, body.data)));
     } catch (error) {
       failed(req, res, error);
     }
@@ -213,15 +204,14 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
         siteUrl: saved.siteUrl,
       };
     }
-    const fallback = customerEmail.fallback(scope.workspaceId);
     return {
       branding: {
-        siteName: fallback?.fromName ?? 'Your site',
+        siteName: 'Your site',
         logoUrl: null,
         brandColor: DEFAULT_EMAIL_BRAND_COLOR,
         footerText: '',
       },
-      siteUrl: fallback?.siteUrl ?? null,
+      siteUrl: null,
     };
   }
 

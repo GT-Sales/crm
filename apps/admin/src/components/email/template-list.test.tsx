@@ -36,10 +36,10 @@ function row(label: string) {
 }
 
 describe('TemplateList', () => {
-  it('lists the seven emails by label, with no on/off switch', () => {
+  it('lists the nine emails by label, with no on/off switch', () => {
     render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
     const list = screen.getByRole('list', { name: 'Emails' });
-    expect(within(list).getAllByRole('listitem')).toHaveLength(7);
+    expect(within(list).getAllByRole('listitem')).toHaveLength(9);
     for (const label of [
       'Tracking code',
       'Order received',
@@ -48,6 +48,8 @@ describe('TemplateList', () => {
       'Activated',
       'Cancelled',
       'SIM number ready',
+      'Change approved',
+      'Change rejected',
     ]) {
       expect(within(list).getByRole('heading', { name: label })).toBeTruthy();
     }
@@ -80,9 +82,24 @@ describe('TemplateList', () => {
       within(row('SIM number ready')).getByText('Sent by staff from the lead page'),
     ).toBeTruthy();
     expect(within(row('SIM number ready')).queryByRole('link')).toBeNull();
-    expect(
-      within(row('Tracking code')).getByText('Sent by order tracking (coming next)'),
-    ).toBeTruthy();
+  });
+
+  it('says when the three always-sent emails go out, with no rule and no switch', () => {
+    render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
+    const lines: Record<string, string> = {
+      'Tracking code': 'Always sent: when a customer asks for a code on the tracking page',
+      'Change approved': "Always sent: when staff approve a customer's change request",
+      'Change rejected': "Always sent: when staff reject a customer's change request",
+    };
+    for (const [label, line] of Object.entries(lines)) {
+      expect(within(row(label)).getByText(line)).toBeTruthy();
+      expect(within(row(label)).queryByRole('link')).toBeNull();
+      expect(within(row(label)).queryByText(/Used by/)).toBeNull();
+    }
+    expect(screen.queryByText(/coming next/)).toBeNull();
+    // The emails a rule sends do not claim to be always sent.
+    expect(within(row('Dispatched')).queryByText(/Always sent/)).toBeNull();
+    expect(screen.getAllByText(/^Always sent:/)).toHaveLength(3);
   });
 
   it('opens an email for editing', () => {

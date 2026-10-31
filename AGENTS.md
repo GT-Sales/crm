@@ -120,6 +120,15 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   and `queue.ts` render a mail and queue it) with the staff routes in
   `src/routes/email-settings.ts`; contracts in
   `packages/contracts/src/customer-email.ts`.
+- Customer order tracking: `apps/backend/src/tracking/` (`secrets.ts` the
+  keyed hashes, the code and the signed grant, `store.ts` the challenges and
+  the customer's order list, `service.ts` the code request, verify and grant
+  check, `delivery.ts` the tracking code mail's outbox handler,
+  `change-requests.ts` the customer's change requests, their held documents
+  and staff's approve and reject) with the website routes in
+  `src/routes/tracking.ts` and the two staff decision routes in
+  `src/routes/staff.ts`; contracts in `packages/contracts/src/tracking.ts`;
+  the lead page's card in `apps/admin/src/components/leads/change-request-card.tsx`.
 - Automations: `apps/backend/src/automations/` (`store.ts` for each site's
   state and runs, `run.ts` fires the rules a stage move or a website submit
   triggers) with the staff routes in `src/routes/automations.ts`; the built-in
@@ -236,18 +245,30 @@ site's counter `sim_order_ref` in `app.site_counters`
 idempotency claim and the order check, so a replay or a refused create takes
 none). Unseeded, the counter starts after the site's highest imported
 `MS-<n>`; on switch day it is seeded past the old checkout's last number
-(`docs/RUNBOOKS/manual/gcs-switch-day.sql`) and it only ever goes up. A
-website that sends its own `externalRef` keeps it as sent and takes no
-number. A `sim_order` draft may be partial; its submission needs the
-contact's name and email, a plan (`order.planId`) and `delivery` (`esim`, or
-`pickup` with a shipping address), else `400 validation_error` with
-`details.field` `contact`, `order` or `form` (the registry's `submitCheck`).
+(`docs/RUNBOOKS/manual/gcs-switch-day.sql`) and it only ever goes up. It
+never issues a number a lead already holds: a counter left behind the site's
+highest `MS-<n>` jumps past it (the upsert takes the greater of the next
+value and that highest plus 1); a number a concurrent import takes in the
+same moment answers `409 external_ref_taken` and logs
+`site_counter_collision` with ids only. A website that sends its own
+`externalRef` keeps it as sent and takes no number (one already held is
+`409 external_ref_taken` too). A `sim_order` draft may be partial and stays
+at stage `incomplete`; its submission needs the contact's name and email, a
+plan (`order.planId`) and `delivery` (`esim`, or `pickup` with a shipping
+address), else `400 validation_error` with `details.field` `contact`,
+`order` or `form` (the registry's `submitCheck`). Submitted (on the create
+or the save that submits the draft), a SIM order still at `incomplete`
+moves to `pending` in the same transaction (`submittedLeadStage`), with
+`stage` in the audit and a `system` `submitted` timeline entry by the
+website's credential; no stage-move automation runs (the submit rules
+already fired). Other lead types stay at their first stage.
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
 Settings → Email): from name and address, reply-to, logo, brand colour, footer
-and site address. A **template** is the current copy of one of seven emails
+and site address. A **template** is the current copy of one of nine emails
 (`tracking_code`, `order_received`, `information_needed`, `dispatched`,
-`activated`, `cancelled`, `sim_number_ready`; `app.email_templates`): a subject,
+`activated`, `cancelled`, `sim_number_ready`, `change_approved`,
+`change_rejected`; `app.email_templates`): a subject,
 a body and a **version**, content only, so a template never says whether it is
 sent. Every save is a new version in the append-only
 `app.email_template_versions` (`expectedVersion` guards a concurrent save,
@@ -258,8 +279,40 @@ written in a small markup (`email/markup.ts`: paragraphs, `**bold**`, links, one
 list is `EMAIL_FILL_IN_KEYS` and each template may use only some
 (`fillInsForTemplate`). A misspelt or disallowed fill-in is refused when the
 template is saved. The backend renders a mail when it queues it, so the outbox
-job (`lead_customer_email`) only sends it. Until a site saves its email
-settings, its `EMAIL_SENDERS_JSON` entry is the sender (docs/ENV.md).
+job (`lead_customer_email`) only sends it; the tracking code mail is the one
+exception (below). A site that has not saved its email settings sends no
+customer email at all (`no_sender`). An **always-sent email** is one of the
+three that no automation rule controls (`ALWAYS_SENT_TEMPLATES`):
+`tracking_code`, sent whenever the site has saved email settings, and
+`change_approved` and `change_rejected`, queued in the staff decision's own
+transaction; Settings → Email says so beside each.
+
+**Customer order tracking** is how a customer of a site follows and changes
+their own orders (Get Canada Sim's `/track`), through the website's key with
+the `tracking` scope. A **tracking code** is the six digits a customer gets by
+email for one address on one site; its **challenge** is the row that holds
+the code's keyed hash (`app.tracking_challenges`: 10 minutes, 5 tries, a new
+request replaces the pending one, pruned a day after it expires). The code
+mail is the outbox job `tracking_code_email`, which carries the code sealed
+and renders it only at send time; when the job ends its payload is scrubbed
+to `{ challengeId }`. A verified code gives a **grant**: a signed token sent
+back as `X-Customer-Grant`, valid 30 minutes, bound to the site and the
+normalized email (`trim().toLowerCase()`), with which the website lists that
+email's submitted orders on that site. `TRACKING_HASH_SECRET` keys every hash
+and signs the grant; no raw email or code is stored or logged. A **change
+request** is a customer's ask to change a `sim_order` at `pending`,
+`verified` or `on_hold` (`app.change_requests`): name, phone, plan,
+delivery, arrival date, permit type, addresses, flight booked and new
+passport or visa files, never the email. A lead has at most one pending
+request; a new one from the customer replaces it in place (same number,
+`version + 1`), and staff approve or reject a version they saw
+(`expectedVersion`, else `version_conflict`). Approval applies the fields
+through `applyLeadUpdate`, the staff edit's own path. Requests are numbered
+per site from the counter `change_request_no`, after the imported ones. A
+**held document** is a customer's file sent with a pending request
+(`files.held_for_change_request`): not on the Documents card and not current
+until the request is approved, deleted if it is rejected. The timeline and
+audit carry request numbers, field keys and document types, never values.
 
 An **automation rule** is a trigger and an action, for example "when a SIM
 order moves to Delivered, send the Dispatched email". Phase 4 has six built-in

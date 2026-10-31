@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
+import { STAFF_SEED_IDS } from '@gt-sales/db/seed';
 
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { claimLegacyTables, releaseLegacyTables } from './support/legacy-canadawide.js';
@@ -28,7 +29,9 @@ const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 // A distinct id range from every other integration test file sharing this database.
-const CANADAWIDE_CANDIDATE = '12000000-0000-4000-8000-000000000c01';
+// The synthetic seed's CanadaWide (same id, slug, name and domain), so the db
+// suite's seed finds its own workspace after this suite made it.
+const CANADAWIDE_CANDIDATE = STAFF_SEED_IDS.canadaWideWorkspace;
 const OTHER_WORKSPACE = '12000000-0000-4000-8000-000000000c02';
 const ACTOR = '22000000-0000-4000-8000-000000000c01';
 const REQUEST_ID = '32000000-0000-4000-8000-000000000c01';
@@ -97,9 +100,9 @@ databaseTest('CanadaWide legacy mirror (migration 0002)', () => {
     await claimLegacyTables(admin);
     // `canadawide` may already exist in a reused database; the mirror keys on the slug.
     await admin`
-      insert into app.workspaces (id, slug, name)
-      values (${CANADAWIDE_CANDIDATE}, 'canadawide', 'CanadaWide'),
-             (${OTHER_WORKSPACE}, 'ci-mirror-other', 'CI Mirror Other')
+      insert into app.workspaces (id, slug, name, domain)
+      values (${CANADAWIDE_CANDIDATE}, 'canadawide', 'CanadaWide', 'canadawideinternet.com'),
+             (${OTHER_WORKSPACE}, 'ci-mirror-other', 'CI Mirror Other', null)
       on conflict do nothing
     `;
     const [row] = await admin<{ id: string }[]>`

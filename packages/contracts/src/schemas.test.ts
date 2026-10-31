@@ -22,6 +22,7 @@ import {
   idempotencyKeySchema,
   identityLeadTypes,
   initialLeadStage,
+  submittedLeadStage,
   isLeadStage,
   isValidDateOfBirth,
   isValidSin,
@@ -45,6 +46,12 @@ import {
   leadViewSchema,
   leadsSummaryResponseSchema,
   normalizeLeadView,
+  websiteBotActions,
+  websiteScopeSchema,
+  changeDecisionEmailSkippedSchema,
+  leadAccessSchema,
+  resolveChangeRequestRequestSchema,
+  staffChangeRequestSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -282,6 +289,16 @@ const cases: ReadonlyArray<readonly [string, z.ZodType, unknown]> = [
         },
       ],
       allowedMoves: ['won', 'lost'],
+      changeRequest: {
+        id: UUID_C,
+        requestNo: 2,
+        status: 'pending',
+        fields: { phone: '+1 604 555 0199' },
+        documents: [],
+        version: 1,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
       access: {
         contacts: true,
         manage: true,
@@ -433,6 +450,7 @@ describe('contract schemas reject invalid input', () => {
       identities: _identities,
       documents: _documents,
       allowedMoves: _allowedMoves,
+      changeRequest: _changeRequest,
       ...older
     } = getWorkspaceLeadResponseSchema.parse(roundTrip[2]);
     const parsed = getWorkspaceLeadResponseSchema.parse(older);
@@ -440,6 +458,60 @@ describe('contract schemas reject invalid input', () => {
     expect(parsed.identities).toEqual([]);
     expect(parsed.documents).toEqual([]);
     expect(parsed.allowedMoves).toEqual([]);
+    expect(parsed.changeRequest).toBeNull();
+  });
+});
+
+describe('a customer’s change request, as staff decide it', () => {
+  const request = {
+    id: UUID_A,
+    requestNo: 4,
+    status: 'pending',
+    fields: { phone: '+1 647 555 0123', planId: UUID_B },
+    documents: [{ fileId: UUID_C, documentType: 'passport' }],
+    version: 2,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  it('carries the requested values, the sent files and its version', () => {
+    expect(staffChangeRequestSchema.parse(request)).toEqual(request);
+    expect(staffChangeRequestSchema.safeParse({ ...request, version: 0 }).success).toBe(false);
+    expect(staffChangeRequestSchema.safeParse({ ...request, status: 'cancelled' }).success).toBe(
+      false,
+    );
+  });
+
+  it('is decided with the version staff saw', () => {
+    expect(resolveChangeRequestRequestSchema.parse({ expectedVersion: 2 })).toEqual({
+      expectedVersion: 2,
+    });
+    expect(resolveChangeRequestRequestSchema.safeParse({ expectedVersion: 0 }).success).toBe(false);
+    expect(
+      resolveChangeRequestRequestSchema.safeParse({ expectedVersion: 2, note: 'x' }).success,
+    ).toBe(false);
+  });
+
+  it('says when the decision email was skipped and why', () => {
+    expect(
+      changeDecisionEmailSkippedSchema.parse({
+        template: 'change_approved',
+        reason: 'missing_fill_in',
+        missing: ['tracking link'],
+      }),
+    ).toMatchObject({ reason: 'missing_fill_in' });
+    expect(
+      changeDecisionEmailSkippedSchema.safeParse({ template: 'dispatched', reason: 'no_sender' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('lets a lead page say whether the caller decides changes', () => {
+    expect(leadAccessSchema.parse({ contacts: true, manage: true, decideChanges: true })).toEqual({
+      contacts: true,
+      manage: true,
+      decideChanges: true,
+    });
   });
 });
 
@@ -605,6 +677,20 @@ describe('phase 4 timeline entries and documents', () => {
     expect(leadActivitySchema.parse(entry)).toEqual(entry);
   });
 
+  it('records a change decision by request number, id, field keys and document types', () => {
+    const entry = {
+      ...base,
+      kind: 'system',
+      event: 'change_approved',
+      requestNo: 4,
+      changeRequestId: UUID_B,
+      fields: ['phone', 'arrivalDate'],
+      documents: ['passport'],
+    };
+    expect(leadActivitySchema.parse(entry)).toEqual(entry);
+    expect(leadActivitySchema.safeParse({ ...entry, changeRequestId: 'cr-4' }).success).toBe(false);
+  });
+
   it('records which rule and template version sent a customer email', () => {
     const entry = {
       ...base,
@@ -659,6 +745,15 @@ describe('phase 4 timeline entries and documents', () => {
     ]) {
       expect(domainErrorCodeSchema.safeParse(code).success, code).toBe(true);
     }
+  });
+});
+
+describe('customer tracking vocabulary', () => {
+  it('knows the change request refusal, the tracking scope and the two bot actions', () => {
+    expect(domainErrorCodeSchema.safeParse('change_request_not_allowed').success).toBe(true);
+    expect(websiteScopeSchema.options).toEqual(['leads:write', 'uploads:customer', 'tracking']);
+    expect(websiteBotActions).toContain('tracking-request');
+    expect(websiteBotActions).toContain('tracking-verify');
   });
 });
 
@@ -785,6 +880,11 @@ describe('lead-type catalogue', () => {
     expect(isLeadStage('sim_order', 'paid')).toBe(false);
     expect(isLeadStage('sim_order', 'invoiced')).toBe(false);
     expect(initialLeadStage('sim_order')).toBe('incomplete');
+    // A submitted SIM order is Pending; every other type stays at its first stage.
+    expect(submittedLeadStage('sim_order')).toBe('pending');
+    expect(isLeadStage('sim_order', submittedLeadStage('sim_order'))).toBe(true);
+    expect(submittedLeadStage('internet')).toBe(initialLeadStage('internet'));
+    expect(submittedLeadStage('mobility')).toBe(initialLeadStage('mobility'));
     expect(leadStageLabel('internet', 'existing_shaw')).toBe('Existing Shaw');
     expect(leadStageLabel('internet', 'mystery')).toBe('mystery');
     expect(isLeadStage('mobility', 'activated')).toBe(true);

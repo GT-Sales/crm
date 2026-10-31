@@ -301,6 +301,15 @@ export function initialLeadStage(leadType: string): string {
   return catalog.get(leadType)?.stages[0]?.key ?? NEW.key;
 }
 
+/**
+ * Where a lead of this type stands once the website submits it: a SIM order
+ * leaves Incomplete (an unfinished checkout) for Pending, the first stage a
+ * customer may change; every other type stays at its first stage.
+ */
+export function submittedLeadStage(leadType: string): string {
+  return leadType === 'sim_order' ? 'pending' : initialLeadStage(leadType);
+}
+
 /** CanadaWide mobile-plan order, step 1 (`mobility`). Mirrors `lib/mobility-application.ts` there. */
 export const mobilityLeadPayloadSchema = z
   .object({

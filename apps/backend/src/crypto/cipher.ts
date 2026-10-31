@@ -1,48 +1,95 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 
+/** What a queued tracking code is bound to: one challenge of one site (ruling T8). */
 export interface TrackingCodeBinding {
   workspaceId: string;
-  orderId: string;
   challengeId: string;
 }
 
-function key(secret: string): Buffer {
-  return createHmac('sha256', secret).update('gt-sales-crm:sealed-value:v1').digest();
-}
-function aad(binding: TrackingCodeBinding): Buffer {
-  return Buffer.from(JSON.stringify([binding.workspaceId, binding.orderId, binding.challengeId]));
+/** What a grant's sealed email is bound to: one site and the email's keyed hash. */
+export interface TrackingEmailBinding {
+  workspaceId: string;
+  emailHash: string;
 }
 
-/** The queue needs a recoverable code for delivery, but never stores it in plaintext. */
+// Ported from Canadian Plans' tracking/cipher.ts: AES-256-GCM, a fresh IV per
+// value, the key derived per purpose so a sealed code never opens as a sealed
+// email, and the binding as additional data so a value moved to another
+// challenge, site or email does not open: `<iv>.<ciphertext>.<tag>`.
+const CODE_PURPOSE = 'gt-sales-crm:tracking-code:v2';
+const EMAIL_PURPOSE = 'gt-sales-crm:tracking-grant-email:v1';
+/** A sealed six-digit code is 47 characters; anything near this is not one. */
+const MAX_SEALED_CODE_LENGTH = 100;
+
+function purposeKey(secret: string, purpose: string): Buffer {
+  return createHmac('sha256', secret).update(purpose).digest();
+}
+
+function seal(secret: string, purpose: string, aad: readonly string[], plaintext: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', purposeKey(secret, purpose), iv);
+  cipher.setAAD(Buffer.from(JSON.stringify(aad)));
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  return [iv, encrypted, cipher.getAuthTag()].map((part) => part.toString('base64url')).join('.');
+}
+
+function open(
+  secret: string,
+  purpose: string,
+  aad: readonly string[],
+  sealed: string,
+): string | undefined {
+  const parts = sealed.split('.');
+  if (parts.length !== 3 || parts.some((part) => !/^[A-Za-z0-9_-]+$/.test(part))) return undefined;
+  const [iv, encrypted, tag] = parts.map((part) => Buffer.from(part, 'base64url'));
+  if (!iv || !encrypted || !tag || iv.length !== 12 || tag.length !== 16) return undefined;
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', purposeKey(secret, purpose), iv);
+    decipher.setAAD(Buffer.from(JSON.stringify(aad)));
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The code mail needs a recoverable code at send time, but the outbox never holds it readable. */
 export function sealTrackingCode(
   secret: string,
   binding: TrackingCodeBinding,
   code: string,
 ): string {
   if (!/^\d{6}$/.test(code)) throw new Error('invalid_tracking_code');
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key(secret), iv);
-  cipher.setAAD(aad(binding));
-  const encrypted = Buffer.concat([cipher.update(code, 'utf8'), cipher.final()]);
-  return [iv, encrypted, cipher.getAuthTag()].map((part) => part.toString('base64url')).join('.');
+  return seal(secret, CODE_PURPOSE, [binding.workspaceId, binding.challengeId], code);
 }
 
+/** The code, or undefined for a wrong key, another challenge or site, or anything tampered with. */
 export function openTrackingCode(
   secret: string,
   binding: TrackingCodeBinding,
   sealed: string,
 ): string | undefined {
-  if (!/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{8}\.[A-Za-z0-9_-]{22}$/.test(sealed)) return undefined;
-  const parts = sealed.split('.').map((part) => Buffer.from(part, 'base64url'));
-  try {
-    const decipher = createDecipheriv('aes-256-gcm', key(secret), parts[0]!);
-    decipher.setAAD(aad(binding));
-    decipher.setAuthTag(parts[2]!);
-    const code = Buffer.concat([decipher.update(parts[1]!), decipher.final()]).toString('utf8');
-    return /^\d{6}$/.test(code) ? code : undefined;
-  } catch {
-    return undefined;
-  }
+  if (sealed.length > MAX_SEALED_CODE_LENGTH) return undefined;
+  const code = open(secret, CODE_PURPOSE, [binding.workspaceId, binding.challengeId], sealed);
+  return code !== undefined && /^\d{6}$/.test(code) ? code : undefined;
+}
+
+/** Seals the verified email into a grant, so the website never holds it readable. */
+export function sealTrackingEmail(
+  secret: string,
+  binding: TrackingEmailBinding,
+  normalizedEmail: string,
+): string {
+  return seal(secret, EMAIL_PURPOSE, [binding.workspaceId, binding.emailHash], normalizedEmail);
+}
+
+export function openTrackingEmail(
+  secret: string,
+  binding: TrackingEmailBinding,
+  sealed: string,
+): string | undefined {
+  const email = open(secret, EMAIL_PURPOSE, [binding.workspaceId, binding.emailHash], sealed);
+  return email !== undefined && email.length > 0 && email.length <= 254 ? email : undefined;
 }
 
 /** Which row and field a sealed value belongs to; moved anywhere else, it does not open. */

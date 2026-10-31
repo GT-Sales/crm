@@ -54,7 +54,7 @@ export function stageMoveRefusal(code: string, leadType: string, from: string): 
 }
 
 /** `a`, `a and b`, `a, b and c`. */
-function listText(items: readonly string[]): string {
+export function listText(items: readonly string[]): string {
   if (items.length <= 1) return items.join('');
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1) ?? ''}`;
 }

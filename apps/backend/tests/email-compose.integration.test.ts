@@ -2,7 +2,6 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CUSTOMER_EMAIL_JOB_TYPE,
-  DEFAULT_EMAIL_BRAND_COLOR,
   DEFAULT_LEAD_ORDER,
   customerEmailJobPayloadSchema,
   type CustomerEmailJobPayload,
@@ -41,7 +40,8 @@ const databaseTest = migrationUrl ? describe : describe.skip;
 
 // Distinct id range for the composer and queue tests.
 const SITE = '1d000000-0000-4000-8000-000000000711'; // saved settings
-const FALLBACK_SITE = '1d000000-0000-4000-8000-000000000712'; // EMAIL_SENDERS_JSON only
+// Listed in EMAIL_SENDERS_JSON, which is ignored now: no saved settings, so no sender.
+const FALLBACK_SITE = '1d000000-0000-4000-8000-000000000712';
 const NO_SENDER_SITE = '1d000000-0000-4000-8000-000000000713'; // neither
 const ACTOR = '2d000000-0000-4000-8000-000000000711';
 const REQUEST = '3d000000-0000-4000-8000-000000000711';
@@ -57,6 +57,7 @@ const ENV: NodeJS.ProcessEnv = {
   EMAIL_PROVIDER: 'fake',
   NODE_ENV: 'test',
   EMAIL_CONTACT_HASH_SECRET: SECRET,
+  // The removed fallback: set on purpose, it must change nothing.
   EMAIL_SENDERS_JSON: JSON.stringify([
     {
       workspaceId: FALLBACK_SITE,
@@ -65,7 +66,6 @@ const ENV: NodeJS.ProcessEnv = {
       replyToAddress: 'help@fallback.example',
       siteUrl: 'https://fallback.example/',
     },
-    // A site with saved settings: the row wins over this entry.
     { workspaceId: SITE, fromAddress: 'env@site.example', fromName: 'Env Name' },
   ]),
 };
@@ -211,10 +211,10 @@ databaseTest('customer email composer and queue', () => {
     await database?.close();
   });
 
-  it('resolves the saved settings first, else the deployment’s sender, else none', async () => {
+  it('resolves the saved settings, else none, whatever EMAIL_SENDERS_JSON lists', async () => {
     const resolve = (workspaceId: string) =>
       database.withTenantTx({ workspaceId, actorId: ACTOR }, (tx) =>
-        resolveSiteSender(tx, environment, workspaceId),
+        resolveSiteSender(tx, workspaceId),
       );
     expect(await resolve(SITE)).toEqual({
       sender: { fromName: 'Compose Sim', fromAddress: 'orders@compose.example' },
@@ -226,40 +226,25 @@ databaseTest('customer email composer and queue', () => {
       },
       siteUrl: 'https://compose.example',
     });
-    expect(await resolve(FALLBACK_SITE)).toEqual({
-      sender: {
-        fromName: 'Fallback Sim',
-        fromAddress: 'order@fallback.example',
-        replyToAddress: 'help@fallback.example',
-      },
-      branding: {
-        siteName: 'Fallback Sim',
-        logoUrl: null,
-        brandColor: DEFAULT_EMAIL_BRAND_COLOR,
-        footerText: '',
-      },
-      siteUrl: 'https://fallback.example',
-    });
+    expect(await resolve(FALLBACK_SITE)).toBeUndefined();
     expect(await resolve(NO_SENDER_SITE)).toBeUndefined();
   });
 
-  it('can send for a site only with a working provider, the secret and a sender', async () => {
+  it('can send for a site only with a working provider, the secret and saved settings', async () => {
     const mail = customerEmailFromEnv(ENV, database);
     const can = (workspaceId: string) => mail.available({ workspaceId, actorId: ACTOR });
     expect(await can(SITE)).toBe(true);
-    expect(await can(FALLBACK_SITE)).toBe(true);
+    expect(await can(FALLBACK_SITE)).toBe(false);
     expect(await can(NO_SENDER_SITE)).toBe(false);
     const noProvider = customerEmailFromEnv({ ...ENV, EMAIL_PROVIDER: undefined }, database);
     expect(await noProvider.available(scope)).toBe(false);
     const noSecret = customerEmailFromEnv({ ...ENV, EMAIL_CONTACT_HASH_SECRET: '' }, database);
     expect(await noSecret.available(scope)).toBe(false);
-    expect(mail.fallback(FALLBACK_SITE)).toMatchObject({ fromName: 'Fallback Sim' });
-    expect(mail.fallback(NO_SENDER_SITE)).toBeUndefined();
   });
 
-  it('composes from the deployment’s sender for a site with no settings, at the starter version', async () => {
+  it('composes from the saved sender at the starter version until a template is saved', async () => {
     await reset();
-    const payload = await ready(FALLBACK_SITE, 'sim_number_ready', simLead());
+    const payload = await ready(SITE, 'sim_number_ready', simLead());
     expect(customerEmailJobPayloadSchema.parse(payload)).toEqual(payload);
     expect(payload).toMatchObject({
       leadId: LEAD,
@@ -267,25 +252,21 @@ databaseTest('customer email composer and queue', () => {
       templateVersion: 0,
       toAddress: CUSTOMER,
       contactHash: hashContact(CUSTOMER, SECRET),
-      sender: {
-        fromName: 'Fallback Sim',
-        fromAddress: 'order@fallback.example',
-        replyToAddress: 'help@fallback.example',
-      },
+      sender: { fromName: 'Compose Sim', fromAddress: 'orders@compose.example' },
       rendered: { subject: 'Your Canadian mobile number is ready' },
     });
     expect(payload.rendered.text).toContain('+1 647 555 0199');
     expect(payload.rendered.text).toContain('Nadia');
-    // No logo: the header is the sender's name.
-    expect(payload.rendered.html).toContain('Fallback Sim</div>');
     expect(payload.test).toBeUndefined();
   });
 
-  it('skips with no_sender when the site has no sender or the deployment cannot send', async () => {
-    expect(await compose(NO_SENDER_SITE, 'sim_number_ready', simLead())).toEqual({
-      kind: 'skipped',
-      reason: 'no_sender',
-    });
+  it('skips with no_sender when the site has no saved settings or the deployment cannot send', async () => {
+    for (const site of [FALLBACK_SITE, NO_SENDER_SITE]) {
+      expect(await compose(site, 'sim_number_ready', simLead())).toEqual({
+        kind: 'skipped',
+        reason: 'no_sender',
+      });
+    }
     const cannotSend = customerEmailEnvironmentFromEnv({ ...ENV, EMAIL_PROVIDER: 'resend' });
     expect(await compose(SITE, 'sim_number_ready', simLead(), cannotSend)).toEqual({
       kind: 'skipped',
@@ -348,6 +329,34 @@ databaseTest('customer email composer and queue', () => {
       fromName: 'Compose Sim',
       fromAddress: 'orders@compose.example',
     });
+  });
+
+  it('composes a tracking code to its address with the code and the site name only', async () => {
+    await reset();
+    const payload = await ready(SITE, 'tracking_code', {
+      kind: 'tracking_code',
+      toAddress: ` ${CUSTOMER} `,
+      code: '042917',
+    });
+    expect(customerEmailJobPayloadSchema.parse(payload)).toEqual(payload);
+    expect(payload).toMatchObject({
+      template: 'tracking_code',
+      templateVersion: 0,
+      toAddress: CUSTOMER,
+      contactHash: hashContact(CUSTOMER, SECRET),
+      sender: { fromName: 'Compose Sim', fromAddress: 'orders@compose.example' },
+      rendered: { subject: 'Your Compose Sim tracking code' },
+    });
+    expect(payload.leadId).toBeUndefined();
+    expect(payload.test).toBeUndefined();
+    expect(payload.rendered.text).toContain('042917');
+    expect(
+      await compose(NO_SENDER_SITE, 'tracking_code', {
+        kind: 'tracking_code',
+        toAddress: CUSTOMER,
+        code: '042917',
+      }),
+    ).toEqual({ kind: 'skipped', reason: 'no_sender' });
   });
 
   it('composes a staff test with sample values to the staff member', async () => {

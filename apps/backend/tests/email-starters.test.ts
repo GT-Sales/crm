@@ -111,6 +111,29 @@ describe('starter templates', () => {
     expect(mail.text).toContain('reply to this email straight away');
   });
 
+  it.each(['change_approved', 'change_rejected'] as const)(
+    '%s needs only the first name and the site name',
+    (template) => {
+      const { subject, body } = STARTER_TEMPLATES[template];
+      expect(fillInsUsed(subject, body, template)).toEqual(new Set(['first name', 'site name']));
+    },
+  );
+
+  it('the change decision starters say what was decided', () => {
+    expect(STARTER_TEMPLATES.change_approved).toEqual({
+      subject: 'Your change request was approved',
+      body: 'Hi {first name},\n\nThe changes you asked for on your order with {site name} have been made.\n\nReply to this email if anything looks wrong.',
+    });
+    expect(STARTER_TEMPLATES.change_rejected).toEqual({
+      subject: 'About your change request',
+      body: 'Hi {first name},\n\nWe could not make the changes you asked for on your order with {site name}. Reply to this email and we will help.',
+    });
+  });
+
+  it('there are nine', () => {
+    expect(Object.keys(STARTER_TEMPLATES)).toHaveLength(9);
+  });
+
   it('dispatched names the courier and tracking number and offers the tracking button', () => {
     const { subject, body } = STARTER_TEMPLATES.dispatched;
     const used = fillInsUsed(subject, body, 'dispatched');

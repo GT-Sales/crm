@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
+import { STAFF_SEED_IDS } from '@gt-sales/db/seed';
 
 import { openSensitiveValue } from '../src/crypto/cipher.js';
 import { DatabaseIdentityStore } from '../src/leads/identity-store.js';
@@ -33,7 +34,9 @@ const migrationUrl = getDisposableTestDatabaseUrl();
 const databaseTest = migrationUrl ? describe : describe.skip;
 
 // A distinct id range from every other integration test file sharing this database.
-const CANADAWIDE_CANDIDATE = '12000000-0000-4000-8000-000000000d01';
+// The synthetic seed's CanadaWide (same id, slug, name and domain), so the db
+// suite's seed finds its own workspace after this suite made it.
+const CANADAWIDE_CANDIDATE = STAFF_SEED_IDS.canadaWideWorkspace;
 const OTHER_WORKSPACE = '12000000-0000-4000-8000-000000000d02';
 const ACTOR = '22000000-0000-4000-8000-000000000d01';
 const OWNER = '22000000-0000-4000-8000-000000000d02';
@@ -146,9 +149,9 @@ databaseTest('lead identities (migrations 0005–0006)', () => {
     });
     await claimLegacyTables(admin);
     await admin`
-      insert into app.workspaces (id, slug, name)
-      values (${CANADAWIDE_CANDIDATE}, 'canadawide', 'CanadaWide'),
-             (${OTHER_WORKSPACE}, 'ci-identity-other', 'CI Identity Other')
+      insert into app.workspaces (id, slug, name, domain)
+      values (${CANADAWIDE_CANDIDATE}, 'canadawide', 'CanadaWide', 'canadawideinternet.com'),
+             (${OTHER_WORKSPACE}, 'ci-identity-other', 'CI Identity Other', null)
       on conflict do nothing
     `;
     const [row] = await admin<{ id: string }[]>`

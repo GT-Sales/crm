@@ -76,6 +76,36 @@ describe('DocumentService — upload/verify/attach', () => {
     expect(finalized.file.objectKey).not.toBe(staging);
   });
 
+  it('records a held intent for a change request, and finalizes it like any other', async () => {
+    const outcome = await ctx.service.createIntent({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      requestId: REQUEST,
+      recordType: 'lead',
+      recordId: LEAD,
+      documentType: 'passport',
+      declaredContentType: 'application/pdf',
+      declaredSizeBytes: 100,
+      held: true,
+    });
+    if (outcome.status !== 'created') throw new Error('intent not created');
+    expect(ctx.store.isHeld(outcome.uploadId)).toBe(true);
+    const plain = await createLeadIntent(ctx.service);
+    expect(ctx.store.isHeld(plain)).toBe(false);
+
+    ctx.r2.putStagingObject(ctx.store.snapshot(outcome.uploadId)?.stagingKey ?? '', PDF);
+    const finalized = await ctx.service.finalize({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      requestId: REQUEST,
+      fileId: outcome.uploadId,
+      checksumSha256: sha256Hex(PDF),
+      ownedLeadId: LEAD,
+    });
+    expect(finalized.status).toBe('available');
+    expect(ctx.store.isHeld(outcome.uploadId)).toBe(true);
+  });
+
   it('rejects a mislabelled type by signature (declared PDF, bytes are HTML)', async () => {
     const fileId = await createLeadIntent(ctx.service);
     const staging = ctx.store.snapshot(fileId)?.stagingKey ?? '';

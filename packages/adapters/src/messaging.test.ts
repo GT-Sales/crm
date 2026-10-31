@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatFrom, ResendEmailAdapter } from './messaging.js';
+import { emailTemplates, formatFrom, ResendEmailAdapter } from './messaging.js';
 import { z } from 'zod';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -37,6 +37,13 @@ describe('Resend send correlation', () => {
   });
 });
 
+describe('the template list', () => {
+  it('no longer knows the old tracking_otp copy; the code mail is the site’s tracking_code', () => {
+    expect(emailTemplates).not.toContain('tracking_otp');
+    expect(emailTemplates).toContain('tracking_code');
+  });
+});
+
 describe('sender identification', () => {
   it.each([
     'order_acknowledgement',
@@ -44,9 +51,7 @@ describe('sender identification', () => {
     'order_awaiting_customer',
     'order_dispatch',
     'order_activation',
-    'tracking_otp',
     'abandoned_form_marketing',
-    'sim_number_ready',
   ] as const)('every %s email names the site that sends it', async (template) => {
     const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'provider-email-id' }));
     vi.stubGlobal('fetch', send);
@@ -68,70 +73,6 @@ describe('sender identification', () => {
     expect(body.text.endsWith('\n\nTest')).toBe(true);
     if (template === 'order_acknowledgement')
       expect(body.text).toContain('Nothing has been charged');
-  });
-});
-
-describe('sim_number_ready', () => {
-  const GCS = '33333333-3333-4333-8333-333333333333';
-
-  async function sent(variables: Record<string, string>, workspaceId = GCS) {
-    const send = vi.fn<typeof fetch>(async () => Response.json({ id: 'provider-email-id' }));
-    vi.stubGlobal('fetch', send);
-    const adapter = new ResendEmailAdapter({
-      apiKey: 'synthetic-key',
-      sender: { fromAddress: 'crm@example.test', fromName: 'GT Sales' },
-      senderForWorkspace: (id) =>
-        id === GCS
-          ? { fromAddress: 'order@getcanadasim.example', fromName: 'Get Canada Sim' }
-          : undefined,
-    });
-    await adapter.send({
-      workspaceId,
-      messageId: '22222222-2222-4222-8222-222222222222',
-      template: 'sim_number_ready',
-      toAddress: 'customer@example.test',
-      leadId: '44444444-4444-4444-8444-444444444444',
-      reference: 'MS-101',
-      variables,
-    });
-    return z
-      .object({ from: z.string(), subject: z.string(), text: z.string(), html: z.string() })
-      .parse(JSON.parse(String(send.mock.calls[0]?.[1]?.body)));
-  }
-
-  it('gives the number, the order and the way to it, from the site’s own sender', async () => {
-    const body = await sent({
-      firstName: 'Arjun',
-      simNumber: '+1 778-555-0142',
-      planLabel: '75GB · $35, Fido',
-      delivery: 'Instant eSIM (delivered by email)',
-      arrival: 'Monday, November 2, 2026',
-      trackUrl: 'https://getcanadasim.example/track',
-    });
-    expect(body.from).toBe('Get Canada Sim <order@getcanadasim.example>');
-    expect(body.subject).toBe('Your Canadian mobile number is ready (MS-101)');
-    expect(body.text).toContain('Your Canadian mobile number is ready, Arjun.');
-    expect(body.text).toContain('Your Canadian number: +1 778-555-0142');
-    expect(body.text).toContain('Arrival in Canada: Monday, November 2, 2026');
-    expect(body.text).toContain('View your order: https://getcanadasim.example/track');
-    expect(body.text.endsWith('\n\nGet Canada Sim')).toBe(true);
-    expect(body.html).toContain('+1 778-555-0142');
-    expect(body.html).toContain('href="https://getcanadasim.example/track"');
-  });
-
-  it('escapes what staff and customers typed, and leaves out what it does not know', async () => {
-    const body = await sent({ firstName: '<b>Eve</b>', simNumber: '416 & <555>' });
-    expect(body.html).not.toContain('<b>Eve</b>');
-    expect(body.html).toContain('&lt;b&gt;Eve&lt;/b&gt;');
-    expect(body.html).toContain('416 &amp; &lt;555&gt;');
-    expect(body.text).not.toContain('View your order');
-    expect(body.text).not.toContain('Plan:');
-  });
-
-  it('falls back to the deployment’s sender for a site without its own', async () => {
-    const body = await sent({ simNumber: '4165550104' }, '55555555-5555-4555-8555-555555555555');
-    expect(body.from).toBe('GT Sales <crm@example.test>');
-    expect(body.text).toContain('Your Canadian mobile number is ready, there.');
   });
 });
 
@@ -193,10 +134,6 @@ describe('a pre-rendered customer email', () => {
     const adapter = new ResendEmailAdapter({
       apiKey: 'synthetic-key',
       sender: { fromAddress: 'deployment@example.test', fromName: 'Deployment' },
-      senderForWorkspace: () => ({
-        fromAddress: 'registry@example.test',
-        fromName: 'Registry',
-      }),
     });
     return { adapter, send };
   }
@@ -218,6 +155,8 @@ describe('a pre-rendered customer email', () => {
     'activated',
     'cancelled',
     'sim_number_ready',
+    'change_approved',
+    'change_rejected',
   ] as const)('sends the %s message exactly as rendered, from its own sender', async (template) => {
     const { adapter, send } = adapterWithStub();
     expect(await adapter.send({ ...message, template })).toEqual({
@@ -239,30 +178,24 @@ describe('a pre-rendered customer email', () => {
     );
   });
 
-  it('refuses a site-content template that arrives without its rendered message', async () => {
-    const { adapter, send } = adapterWithStub();
-    const { rendered: _rendered, ...unrendered } = message;
-    expect(await adapter.send({ ...unrendered, template: 'dispatched' })).toEqual({
-      status: 'uncertain',
-      errorCode: 'rendered_message_missing',
-    });
-    expect(send).not.toHaveBeenCalled();
-  });
+  it.each(['dispatched', 'sim_number_ready', 'change_approved', 'change_rejected'] as const)(
+    'refuses the site-content template %s when it arrives without its rendered message',
+    async (template) => {
+      const { adapter, send } = adapterWithStub();
+      const { rendered: _rendered, ...unrendered } = message;
+      expect(await adapter.send({ ...unrendered, template })).toEqual({
+        status: 'uncertain',
+        errorCode: 'rendered_message_missing',
+      });
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
-  it('falls back to the workspace’s sender, then the deployment’s, for a message without one', async () => {
+  it('uses the deployment’s sender for a message without one', async () => {
     const { adapter, send } = adapterWithStub();
     const { sender: _sender, ...withoutSender } = message;
     await adapter.send({ ...withoutSender, template: 'dispatched' });
     expect(bodySchema.parse(JSON.parse(String(send.mock.calls[0]![1]!.body))).from).toBe(
-      'Registry <registry@example.test>',
-    );
-
-    const bare = new ResendEmailAdapter({
-      apiKey: 'synthetic-key',
-      sender: { fromAddress: 'deployment@example.test', fromName: 'Deployment' },
-    });
-    await bare.send({ ...withoutSender, template: 'dispatched' });
-    expect(bodySchema.parse(JSON.parse(String(send.mock.calls[1]![1]!.body))).from).toBe(
       'Deployment <deployment@example.test>',
     );
   });

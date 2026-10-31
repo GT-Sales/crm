@@ -7,6 +7,8 @@ export const websiteBotActions = [
   'upload-finalize',
   'file-download',
   'identity-submit',
+  'tracking-request',
+  'tracking-verify',
 ] as const;
 export type WebsiteBotAction = (typeof websiteBotActions)[number];
 export const websiteBotTokenSchema = z.string().min(1).max(2048);

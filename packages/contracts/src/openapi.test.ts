@@ -76,7 +76,7 @@ describe('OpenAPI generation', () => {
     }
   });
 
-  it('requires single-use proof on website writes and leaves authenticated reads proof-free', () => {
+  it('documents single-use proof on website writes as needed only in turnstile mode, and leaves reads proof-free', () => {
     const paths = asObject(doc['paths']);
     for (const endpoint of endpoints.filter(
       (entry) => entry.auth === 'website' || entry.auth === 'customer',
@@ -86,7 +86,11 @@ describe('OpenAPI generation', () => {
       if (!Array.isArray(parameters)) throw new Error('expected parameters');
       const proof = parameters.map(asObject).find((entry) => entry['name'] === 'X-Turnstile-Token');
       if (endpoint.method === 'GET') expect(proof).toBeUndefined();
-      else expect(proof).toMatchObject({ in: 'header', required: true });
+      else {
+        // Production runs WEBSITE_BOT_CHECK=delegated, where the header is not read.
+        expect(proof).toMatchObject({ in: 'header', required: false });
+        expect(String(proof?.['description'])).toMatch(/turnstile.*delegated/s);
+      }
     }
   });
   it('registers the email settings, template and automation operations', () => {
@@ -111,6 +115,55 @@ describe('OpenAPI generation', () => {
       const registered = endpoints.find((entry) => entry.operationId === operationId);
       expect(registered?.method).toBe(method.toUpperCase());
       expect(registered?.successStatus).toBe(status);
+    }
+  });
+
+  it('registers the tracking and change request operations', () => {
+    const site = '/api/v1/website/tracking';
+    const lead =
+      '/api/v1/staff/workspaces/{workspaceId}/leads/{leadId}/change-requests/{changeRequestId}';
+    const expected = [
+      ['requestTrackingCode', 'post', `${site}/code`, 200, 'website'],
+      ['verifyTrackingCode', 'post', `${site}/verify`, 200, 'website'],
+      ['listTrackedOrders', 'get', `${site}/orders`, 200, 'customer'],
+      ['createTrackedOrderChange', 'post', `${site}/orders/{reference}/changes`, 201, 'customer'],
+      [
+        'createTrackedOrderUpload',
+        'post',
+        `${site}/orders/{reference}/uploads/intents`,
+        201,
+        'customer',
+      ],
+      [
+        'finalizeTrackedOrderUpload',
+        'post',
+        `${site}/orders/{reference}/uploads/{uploadId}/finalize`,
+        200,
+        'customer',
+      ],
+      ['approveLeadChangeRequest', 'post', `${lead}/approve`, 200, 'staff'],
+      ['rejectLeadChangeRequest', 'post', `${lead}/reject`, 200, 'staff'],
+    ] as const;
+    const paths = asObject(doc['paths']);
+    for (const [operationId, method, path, status, auth] of expected) {
+      const operation = asObject(asObject(paths[path])[method]);
+      expect(operation['operationId']).toBe(operationId);
+      expect(asObject(operation['responses'])[String(status)]).toBeDefined();
+      const registered = endpoints.find((entry) => entry.operationId === operationId);
+      expect(registered?.method).toBe(method.toUpperCase());
+      expect(registered?.successStatus).toBe(status);
+      expect(registered?.auth).toBe(auth);
+      const parameters = operation['parameters'];
+      const headers = (Array.isArray(parameters) ? parameters : [])
+        .map(asObject)
+        .filter((param) => param['in'] === 'header');
+      const grant = headers.find((param) => param['name'] === 'X-Customer-Grant');
+      if (auth === 'customer') {
+        expect(grant).toMatchObject({ required: true });
+        expect(String(grant?.['description'])).toContain('30-minute grant');
+      } else {
+        expect(grant).toBeUndefined();
+      }
     }
   });
 

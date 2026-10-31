@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ALWAYS_SENT_TEMPLATES,
   CUSTOMER_EMAIL_JOB_TYPE,
   CUSTOMER_EMAIL_TEMPLATES,
   CUSTOMER_EMAIL_TEMPLATE_LABELS,
@@ -25,6 +26,9 @@ import {
   sendTestEmailResponseSchema,
   updateEmailSettingsRequestSchema,
   updateEmailTemplateRequestSchema,
+  TRACKING_CODE_JOB_TYPE,
+  trackingCodeJobPayloadSchema,
+  trackingCodeScrubbedPayloadSchema,
 } from './index';
 
 const UUID_A = '00000000-0000-4000-8000-000000000001';
@@ -40,7 +44,7 @@ const JOB_PAYLOAD = {
 };
 
 describe('customer email templates', () => {
-  it('are the seven, each with a label', () => {
+  it('are the nine, each with a label', () => {
     expect(CUSTOMER_EMAIL_TEMPLATES).toEqual([
       'tracking_code',
       'order_received',
@@ -49,10 +53,14 @@ describe('customer email templates', () => {
       'activated',
       'cancelled',
       'sim_number_ready',
+      'change_approved',
+      'change_rejected',
     ]);
     expect(Object.keys(CUSTOMER_EMAIL_TEMPLATE_LABELS)).toEqual([...CUSTOMER_EMAIL_TEMPLATES]);
     expect(CUSTOMER_EMAIL_TEMPLATE_LABELS.tracking_code).toBe('Tracking code');
     expect(CUSTOMER_EMAIL_TEMPLATE_LABELS.sim_number_ready).toBe('SIM number ready');
+    expect(CUSTOMER_EMAIL_TEMPLATE_LABELS.change_approved).toBe('Change approved');
+    expect(CUSTOMER_EMAIL_TEMPLATE_LABELS.change_rejected).toBe('Change rejected');
     expect(customerEmailTemplateSchema.safeParse('order_status').success).toBe(false);
   });
 
@@ -90,6 +98,19 @@ describe('fill-ins', () => {
     ]);
     expect(fillInsForTemplate('sim_number_ready')).toContain('SIM number');
     expect(fillInsForTemplate('order_received')).not.toContain('SIM number');
+  });
+
+  it('give the two change decision mails the first name, the site name and the tracking link', () => {
+    expect(fillInsForTemplate('change_approved')).toEqual([
+      'first name',
+      'site name',
+      'tracking link',
+    ]);
+    expect(fillInsForTemplate('change_rejected')).toEqual([
+      'first name',
+      'site name',
+      'tracking link',
+    ]);
   });
 
   it('forgive case and spacing, never a misspelling', () => {
@@ -144,6 +165,43 @@ describe('the customer email job', () => {
   });
 });
 
+describe('the mails that are always sent', () => {
+  it('are the tracking code and the two change decisions', () => {
+    expect(ALWAYS_SENT_TEMPLATES).toEqual(['tracking_code', 'change_approved', 'change_rejected']);
+  });
+});
+
+describe('the tracking code job', () => {
+  const payload = {
+    challengeId: UUID_A,
+    toAddress: 'nadia@example.com',
+    contactHash: 'a'.repeat(64),
+    sealedCode: 'v1.sealed',
+    expiresAt: '2026-10-30T12:10:00.000Z',
+  };
+
+  it('carries the code sealed, never in the clear', () => {
+    expect(TRACKING_CODE_JOB_TYPE).toBe('tracking_code_email');
+    expect(trackingCodeJobPayloadSchema.parse(payload)).toEqual(payload);
+    expect(trackingCodeJobPayloadSchema.safeParse({ ...payload, code: '123456' }).success).toBe(
+      false,
+    );
+    expect(
+      trackingCodeJobPayloadSchema.safeParse({ ...payload, sealedCode: 'x'.repeat(101) }).success,
+    ).toBe(false);
+    expect(
+      trackingCodeJobPayloadSchema.safeParse({ ...payload, sealedCode: 'x'.repeat(100) }).success,
+    ).toBe(true);
+  });
+
+  it('is scrubbed to the challenge id', () => {
+    expect(trackingCodeScrubbedPayloadSchema.parse({ challengeId: UUID_A })).toEqual({
+      challengeId: UUID_A,
+    });
+    expect(trackingCodeScrubbedPayloadSchema.safeParse(payload).success).toBe(false);
+  });
+});
+
 const SETTINGS_REQUEST = {
   fromName: 'Get Canada Sim',
   fromAddress: 'orders@example.com',
@@ -191,26 +249,20 @@ describe('email settings', () => {
     expect(refuses({ updatedAt: '2026-10-30T12:00:00.000Z' })).toBe(false);
   });
 
-  it('answers with the saved settings, or the fallback sender while none are saved', () => {
+  it('answers with the saved settings, or null while none are saved, and no fallback sender', () => {
     expect(emailSettingsSchema.parse(SAVED_SETTINGS)).toEqual(SAVED_SETTINGS);
     expect(
-      emailSettingsResponseSchema.parse({
-        settings: SAVED_SETTINGS,
-        fallback: null,
-        requestId: UUID_A,
-      }),
-    ).toMatchObject({ settings: SAVED_SETTINGS, fallback: null });
-    const fallback = {
-      fromName: 'Get Canada Sim',
-      fromAddress: 'orders@example.com',
-      siteUrl: null,
-    };
+      emailSettingsResponseSchema.parse({ settings: SAVED_SETTINGS, requestId: UUID_A }),
+    ).toEqual({ settings: SAVED_SETTINGS, requestId: UUID_A });
+    expect(emailSettingsResponseSchema.parse({ settings: null, requestId: UUID_A })).toEqual({
+      settings: null,
+      requestId: UUID_A,
+    });
+    // An older server's fallback key is dropped, never passed on.
     expect(
-      emailSettingsResponseSchema.parse({ settings: null, fallback, requestId: UUID_A }),
-    ).toMatchObject({ settings: null, fallback });
-    expect(
-      emailSettingsResponseSchema.safeParse({ fallback: null, requestId: UUID_A }).success,
-    ).toBe(false);
+      emailSettingsResponseSchema.parse({ settings: null, fallback: null, requestId: UUID_A }),
+    ).not.toHaveProperty('fallback');
+    expect(emailSettingsResponseSchema.safeParse({ requestId: UUID_A }).success).toBe(false);
   });
 });
 
@@ -224,11 +276,11 @@ describe('email templates', () => {
     updatedBy: version === 0 ? null : UUID_A,
   });
 
-  it('lists exactly the seven templates', () => {
+  it('lists exactly the nine templates', () => {
     const templates = CUSTOMER_EMAIL_TEMPLATES.map((key) => template(key));
     expect(
       listEmailTemplatesResponseSchema.parse({ templates, requestId: UUID_A }).templates,
-    ).toHaveLength(7);
+    ).toHaveLength(9);
     expect(
       listEmailTemplatesResponseSchema.safeParse({
         templates: templates.slice(1),

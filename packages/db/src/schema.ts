@@ -456,6 +456,8 @@ export const leads = appSchema
       // Covers the single-column contacts FK, so removing a contact does not scan leads.
       index('leads_contact_id_idx').on(table.contactId),
       index('leads_workspace_id_assigned_actor_idx').on(table.workspaceId, table.assignedActorId),
+      // Customer tracking finds a site's leads by the normalized email (`/track`).
+      index('leads_workspace_email_idx').on(table.workspaceId, sql`lower(btrim(${table.email}))`),
       tenantPolicy('leads_tenant_policy', table.workspaceId),
       backupReadPolicy('leads'),
     ],
@@ -818,6 +820,12 @@ export const files = appSchema
       revision: integer('revision').default(1).notNull(),
       /** Set on a superseded object when a replacement is attached to the same slot. */
       supersededByFileId: uuid('superseded_by_file_id'),
+      /**
+       * A customer's document sent with a pending change request (`/track`):
+       * attached to the lead but not current until staff approve the request,
+       * so the Documents card and the documents check ignore it meanwhile.
+       */
+      heldForChangeRequest: boolean('held_for_change_request').default(false).notNull(),
       uploadedBy: uuid('uploaded_by').notNull(),
       expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
       finalizedAt: timestamp('finalized_at', { withTimezone: true, mode: 'date' }),
@@ -1572,7 +1580,7 @@ const quotedList = (values: readonly string[]) =>
 /** Must match contracts' idempotency scopes. */
 const idempotencyScopeList = quotedList(['lead_submission']);
 /** Must match the backend's `SiteCounter` (`apps/backend/src/leads/site-counter.ts`). */
-const siteCounterList = quotedList(['sim_order_ref']);
+const siteCounterList = quotedList(['sim_order_ref', 'change_request_no']);
 /** Must match contracts' email template keys. */
 const emailTemplateKeyList = quotedList([
   'tracking_code',
@@ -1582,6 +1590,8 @@ const emailTemplateKeyList = quotedList([
   'activated',
   'cancelled',
   'sim_number_ready',
+  'change_approved',
+  'change_rejected',
 ]);
 /** Must match contracts' `BUILT_IN_AUTOMATIONS` keys. */
 const automationKeyList = quotedList([
@@ -1893,6 +1903,117 @@ export const automationRuns = appSchema
   )
   .enableRLS();
 
+// ---------------------------------------------------------------------------
+// Customer tracking
+// ---------------------------------------------------------------------------
+
+/**
+ * One six-digit code a customer asked for on the website's `/track`: the
+ * site, the keyed hash of the normalized email and of the code (never either
+ * in the clear), the wrong guesses so far and when it expires. A newer request
+ * consumes the email's pending one. Pruned 24 hours after it expires by
+ * `app.prune_operational_rows`.
+ */
+export const trackingChallenges = appSchema
+  .table(
+    'tracking_challenges',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      emailHash: text('email_hash').notNull(),
+      codeHash: text('code_hash').notNull(),
+      attempts: integer('attempts').default(0).notNull(),
+      status: text('status').default('pending').notNull(),
+      expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+      consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'date' }),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      check('tracking_challenges_email_hash_check', sql`${table.emailHash} ~ '^[0-9a-f]{64}$'`),
+      check('tracking_challenges_code_hash_check', sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`),
+      check('tracking_challenges_attempts_check', sql`${table.attempts} >= 0`),
+      check('tracking_challenges_status_check', sql`${table.status} in ('pending', 'consumed')`),
+      check(
+        'tracking_challenges_consumed_check',
+        sql`(${table.status} = 'consumed') = (${table.consumedAt} is not null)`,
+      ),
+      index('tracking_challenges_workspace_email_idx').on(
+        table.workspaceId,
+        table.emailHash,
+        table.status,
+        table.createdAt.desc(),
+      ),
+      tenantPolicy('tracking_challenges_tenant_policy', table.workspaceId),
+      backupReadPolicy('tracking_challenges'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A customer's request to change their order, made on the website's `/track`
+ * and decided by staff. `requested` holds the values asked for: personal
+ * data, never copied to the timeline, audit, logs or runs. `staged_file_ids`
+ * are the documents sent with it (files held for the request). At most one
+ * pending request per lead; a new one replaces it, keeping its number and its
+ * documents, as a newer `version`. Kept, never pruned.
+ */
+export const changeRequests = appSchema
+  .table(
+    'change_requests',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      leadId: uuid('lead_id').notNull(),
+      requestNo: integer('request_no').notNull(),
+      status: text('status').default('pending').notNull(),
+      requested: jsonb('requested').default({}).notNull(),
+      stagedFileIds: uuid('staged_file_ids')
+        .array()
+        .default(sql`array[]::uuid[]`)
+        .notNull(),
+      version: integer('version').default(1).notNull(),
+      createdBy: uuid('created_by').notNull(),
+      resolvedBy: uuid('resolved_by'),
+      resolvedAt: timestamp('resolved_at', { withTimezone: true, mode: 'date' }),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      unique('change_requests_workspace_id_id_unique').on(table.workspaceId, table.id),
+      unique('change_requests_workspace_request_no_unique').on(table.workspaceId, table.requestNo),
+      foreignKey({
+        name: 'change_requests_workspace_lead_fk',
+        columns: [table.workspaceId, table.leadId],
+        foreignColumns: [leads.workspaceId, leads.id],
+      }).onDelete('cascade'),
+      check('change_requests_request_no_check', sql`${table.requestNo} > 0`),
+      check(
+        'change_requests_status_check',
+        sql`${table.status} in ('pending', 'approved', 'rejected')`,
+      ),
+      check('change_requests_version_check', sql`${table.version} > 0`),
+      check(
+        'change_requests_resolved_check',
+        sql`(${table.status} = 'pending') = (${table.resolvedAt} is null) and (${table.resolvedAt} is null) = (${table.resolvedBy} is null)`,
+      ),
+      uniqueIndex('change_requests_one_pending')
+        .on(table.workspaceId, table.leadId)
+        .where(sql`${table.status} = 'pending'`),
+      index('change_requests_workspace_lead_created_idx').on(
+        table.workspaceId,
+        table.leadId,
+        table.createdAt.desc(),
+      ),
+      tenantPolicy('change_requests_tenant_policy', table.workspaceId),
+      backupReadPolicy('change_requests'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
   workspaces,
   memberships,
@@ -1931,4 +2052,6 @@ export const schema = {
   emailTemplateVersions,
   automations,
   automationRuns,
+  trackingChallenges,
+  changeRequests,
 };
