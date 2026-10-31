@@ -596,7 +596,7 @@ async function editOrder(
 /**
  * The stages that close a lead as lost: the catalogue's `lost` outcome
  * stages (a SIM order's `cancelled`) and, for the types whose catalogue
- * names no outcomes, their lost and declined stages. A staff move of a lead
+ * names no outcomes, their lost, declined and closed stages. A staff move of a lead
  * the customer never submitted into one of them is no rescue (controller
  * ruling, fix round 1): the lead stays unsubmitted and no flow fires.
  */
@@ -605,6 +605,7 @@ const CLOSING_STAGES: Readonly<Record<string, readonly string[]>> = {
   internet: ['lost', 'non_serviceable_address'],
   mobility: ['lost'],
   partner_application: ['declined'],
+  contact_message: ['closed'],
 };
 
 export function isClosingStage(leadType: string, stage: string): boolean {
