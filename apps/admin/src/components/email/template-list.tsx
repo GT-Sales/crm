@@ -6,8 +6,11 @@ import {
   ALWAYS_SENT_TEMPLATES,
   CUSTOMER_EMAIL_TEMPLATE_LABELS,
   customerEmailTemplateSchema,
+  isSiteTemplateKey,
   type CustomerEmailTemplate,
+  type EmailTemplateKey,
   type SiteEmailTemplate,
+  type SiteTemplateKey,
 } from '@gt-sales/contracts';
 import { Button } from '@gt-sales/ui';
 
@@ -24,36 +27,40 @@ const ALWAYS_SENT_WHEN: Partial<Record<CustomerEmailTemplate, string>> = {
 };
 
 /**
- * The site's nine built-in customer emails, in Settings → Email order: each
- * one's label, whether it is still the starter text or which saved version it
- * is, what sends it ("Used by" the flows whose active version sends it, each
- * linking to its flow; the always-sent emails say when they go out) and Edit.
- * Whether a flow-driven email is sent is up to those flows, so the list has no
- * on/off switch. The site's own templates are listed in a later release.
+ * The site's customer emails, in Settings → Email order: the nine built-in
+ * templates followed by the site's own (`tpl_…`). Shows each one's label or
+ * name, whether it is still the starter text or which saved version it is,
+ * what sends it ("Used by" the flows whose active version sends it, each
+ * linking to its flow; the always-sent emails say when they go out), Edit, and
+ * Archive for site-made templates.
  */
 export function TemplateList({
   workspaceSlug,
   templates,
   onEdit,
+  onArchive,
   readOnly = false,
 }: {
   workspaceSlug: string;
   templates: SiteEmailTemplate[];
-  onEdit(key: CustomerEmailTemplate): void;
-  /** The caller may not change email settings: no Edit. */
+  onEdit(key: EmailTemplateKey): void;
+  onArchive?(key: SiteTemplateKey): void;
+  /** The caller may not change email settings: no Edit or Archive. */
   readOnly?: boolean;
 }): JSX.Element {
-  const builtIns = templates.flatMap((template) => {
-    const key = customerEmailTemplateSchema.safeParse(template.key);
-    return key.success ? [{ ...template, key: key.data }] : [];
-  });
   return (
     <ul aria-label="Emails" className="divide-y rounded-md border">
-      {builtIns.map((template) => {
-        const label = CUSTOMER_EMAIL_TEMPLATE_LABELS[template.key];
-        const sentBy = ALWAYS_SENT_TEMPLATES.includes(template.key)
-          ? ALWAYS_SENT_WHEN[template.key]
-          : SENT_BY_STAFF[template.key];
+      {templates.map((template) => {
+        const builtIn = customerEmailTemplateSchema.safeParse(template.key);
+        const siteMade = isSiteTemplateKey(template.key) ? template.key : undefined;
+        const label = builtIn.success
+          ? CUSTOMER_EMAIL_TEMPLATE_LABELS[builtIn.data]
+          : template.name;
+        const sentBy = builtIn.success
+          ? ALWAYS_SENT_TEMPLATES.includes(builtIn.data)
+            ? ALWAYS_SENT_WHEN[builtIn.data]
+            : SENT_BY_STAFF[builtIn.data]
+          : undefined;
         return (
           <li key={template.key} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
             <div className="mr-auto flex min-w-0 flex-col gap-0.5">
@@ -72,15 +79,28 @@ export function TemplateList({
               {sentBy ? <p className="text-xs text-muted-foreground">{sentBy}</p> : null}
             </div>
             {readOnly ? null : (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                aria-label={`Edit ${label}`}
-                onClick={() => onEdit(template.key)}
-              >
-                Edit
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`Edit ${label}`}
+                  onClick={() => onEdit(template.key)}
+                >
+                  Edit
+                </Button>
+                {siteMade && onArchive ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Archive ${label}`}
+                    onClick={() => onArchive(siteMade)}
+                  >
+                    Archive
+                  </Button>
+                ) : null}
+              </div>
             )}
           </li>
         );

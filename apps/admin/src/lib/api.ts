@@ -2,15 +2,22 @@ import {
   BackendError,
   createBackendClient,
   type AutomationKey,
+  type ActivateFlowRequest,
+  type CreateEmailTemplateRequest,
   type CreateFlowRequest,
   type FlowCatalogResponse,
   type FlowDetailResponse,
   type FlowListQuery,
   type FlowListResponse,
+  type FlowRunResponse,
   type FlowToggleResponse,
+  type FlowVersionResponse,
+  type ListEmailTemplatesQuery,
   type ListFlowRunsQuery,
   type ListFlowRunsResponse,
+  type SaveFlowDraftRequest,
   type ToggleFlowRequest,
+  type UpdateFlowDetailsRequest,
   type CreateDownloadLinkResponse,
   type CreateSavedViewRequestInput,
   type CreatePlanRequestInput,
@@ -462,6 +469,49 @@ export async function getAutomationCatalog(
   return client(accessToken).staff.getAutomationCatalog(workspaceId);
 }
 
+export async function updateAutomationDetails(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  body: UpdateFlowDetailsRequest,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.updateAutomationDetails(workspaceId, key, body);
+}
+
+export async function saveAutomationDraft(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  body: SaveFlowDraftRequest,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.saveAutomationDraft(workspaceId, key, body);
+}
+
+export async function discardAutomationDraft(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.discardAutomationDraft(workspaceId, key);
+}
+
+export async function activateAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  body: ActivateFlowRequest,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.activateAutomation(workspaceId, key, body);
+}
+
+export async function resetAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+): Promise<FlowDetailResponse> {
+  return client(accessToken).staff.resetAutomation(workspaceId, key);
+}
+
 export async function archiveAutomation(
   accessToken: string,
   workspaceId: string,
@@ -476,6 +526,24 @@ export async function restoreAutomation(
   key: AutomationKey,
 ): Promise<FlowDetailResponse> {
   return client(accessToken).staff.restoreAutomation(workspaceId, key);
+}
+
+export async function getAutomationVersion(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  version: number,
+): Promise<FlowVersionResponse> {
+  return client(accessToken).staff.getAutomationVersion(workspaceId, key, version);
+}
+
+export async function getAutomationRun(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  runId: string,
+): Promise<FlowRunResponse> {
+  return client(accessToken).staff.getAutomationRun(workspaceId, key, runId);
 }
 
 // ---- Settings → Email: the site's sender and its nine templates. Every
@@ -499,8 +567,35 @@ export async function updateEmailSettings(
 export async function listEmailTemplates(
   accessToken: string,
   workspaceId: string,
+  query?: ListEmailTemplatesQuery,
 ): Promise<ListSiteEmailTemplatesResponse> {
-  return client(accessToken).staff.listEmailTemplates(workspaceId);
+  return query
+    ? client(accessToken).staff.listEmailTemplates(workspaceId, query)
+    : client(accessToken).staff.listEmailTemplates(workspaceId);
+}
+
+export async function createEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  body: CreateEmailTemplateRequest,
+): Promise<SiteEmailTemplateResponse> {
+  return client(accessToken).staff.createEmailTemplate(workspaceId, body);
+}
+
+export async function archiveEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  key: EmailTemplateKey,
+): Promise<SiteEmailTemplateResponse> {
+  return client(accessToken).staff.archiveEmailTemplate(workspaceId, key);
+}
+
+export async function restoreEmailTemplate(
+  accessToken: string,
+  workspaceId: string,
+  key: EmailTemplateKey,
+): Promise<SiteEmailTemplateResponse> {
+  return client(accessToken).staff.restoreEmailTemplate(workspaceId, key);
 }
 
 export async function updateEmailTemplate(

@@ -73,7 +73,7 @@ function fillInValues(
     case 'lead':
       return fillInValuesForLead(recipient.lead, site, properties);
     case 'staff_test':
-      return sampleFillInValues(site);
+      return sampleFillInValues(site, properties);
     case 'tracking_code':
       return { 'site name': site.siteName, code: recipient.code };
   }

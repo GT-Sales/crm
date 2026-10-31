@@ -150,9 +150,14 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   property rendering, editing and the settings screens in
   `src/components/properties/`; Settings → Plans in `src/components/plans/`
   (`settings/plans`, with plan properties at `settings/plans/properties`);
-  Settings → Email in `src/components/email/`; the Automations list and a
-  flow's read-only page in `src/components/automations/` (`flow-words.ts`
-  puts a flow in words, `flow-list-view.tsx` reads it as a list); API client
+  Settings → Email in `src/components/email/` (including New template and
+  archive/restore for site-made templates); the Automations list, visual canvas
+  editor (`src/components/automations/canvas/`: `layout-flow.ts` auto-layout,
+  `flow-canvas.tsx` `@xyflow/react` board, `step-side-panel.tsx` right-hand
+  step/trigger editor, `condition-builder.tsx` and `draft-mutations.ts`),
+  accessible `flow-list-view.tsx` toggle and expandable Runs tab in
+  `src/components/automations/` (`flow-words.ts` puts a flow and its step
+  outcomes in words); API client
   `apps/admin/src/lib/api.ts`.
 - Source report: `apps/backend/src/reports/store.ts` (the one SQL statement,
   `sourceLabelSql` and `shapeSourceReport`) with the route in

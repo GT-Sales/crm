@@ -140,12 +140,57 @@ export function fillInValuesForLead(
   return options && options.propertyKeys.length > 0 ? { ...values, props } : values;
 }
 
+function samplePropertyValue(property: SiteProperty | undefined, key: string): string {
+  if (!property) return `Sample ${key}`;
+  switch (property.kind) {
+    case 'money':
+      return '$40.00';
+    case 'yesNo':
+      return 'Yes';
+    case 'choice':
+      return (
+        property.options?.find((option) => !option.hidden)?.label ??
+        property.options?.[0]?.label ??
+        'Sample choice'
+      );
+    case 'number':
+      return '42';
+    case 'count':
+      return '3';
+    case 'date':
+      return '15 Nov 2026';
+    case 'dateTime':
+      return '15 Nov 2026, 14:00';
+    case 'email':
+      return 'customer@example.com';
+    case 'phone':
+      return '+1 647 555 0123';
+    case 'url':
+      return 'https://example.com';
+    case 'text':
+    case 'longText':
+    default:
+      return `Sample ${property.label}`;
+  }
+}
+
 /** A value for every fill-in, for the editor's preview and a staff test send. */
-export function sampleFillInValues(site: {
-  siteName: string;
-  siteUrl: string | null;
-}): FillInValues {
-  return {
+export function sampleFillInValues(
+  site: {
+    siteName: string;
+    siteUrl: string | null;
+  },
+  options?: { catalog: PropertyCatalog; propertyKeys: readonly string[] },
+): FillInValues {
+  const props: Record<string, string> = {};
+  if (options) {
+    for (const key of options.propertyKeys) {
+      const property = options.catalog.get(key);
+      if (property && !readableBy(property, 'customer')) continue;
+      props[key] = samplePropertyValue(property, key);
+    }
+  }
+  const values = {
     'first name': 'Nadia',
     'last name': 'Khan',
     'site name': site.siteName,
@@ -158,4 +203,5 @@ export function sampleFillInValues(site: {
     'order number': 'MS-1042',
     code: '483920',
   };
+  return options && options.propertyKeys.length > 0 ? { ...values, props } : values;
 }

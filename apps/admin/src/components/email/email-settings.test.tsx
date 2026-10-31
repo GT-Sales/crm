@@ -30,7 +30,10 @@ const mocks = vi.hoisted(() => {
     getEmailSettings: vi.fn(),
     updateEmailSettings: vi.fn(),
     listEmailTemplates: vi.fn(),
+    createEmailTemplate: vi.fn(),
     updateEmailTemplate: vi.fn(),
+    archiveEmailTemplate: vi.fn(),
+    restoreEmailTemplate: vi.fn(),
     previewEmailTemplate: vi.fn(),
     sendTestEmail: vi.fn(),
   };
@@ -40,7 +43,10 @@ vi.mock('../../lib/api', () => ({
   getEmailSettings: mocks.getEmailSettings,
   updateEmailSettings: mocks.updateEmailSettings,
   listEmailTemplates: mocks.listEmailTemplates,
+  createEmailTemplate: mocks.createEmailTemplate,
   updateEmailTemplate: mocks.updateEmailTemplate,
+  archiveEmailTemplate: mocks.archiveEmailTemplate,
+  restoreEmailTemplate: mocks.restoreEmailTemplate,
   previewEmailTemplate: mocks.previewEmailTemplate,
   sendTestEmail: mocks.sendTestEmail,
   BackendError: mocks.FakeBackendError,
@@ -83,6 +89,18 @@ function template(key: CustomerEmailTemplate, version = 0): SiteEmailTemplate {
     updatedBy: version === 0 ? null : STAFF,
   };
 }
+
+const siteMade: SiteEmailTemplate = {
+  key: 'tpl_abcdefghij012345',
+  name: 'Welcome check-in',
+  archived: false,
+  usedBy: [],
+  subject: 'Checking in, {first name}',
+  body: 'Hi {first name}, how is your {plan}?',
+  version: 1,
+  updatedAt: STAMP,
+  updatedBy: STAFF,
+};
 
 const templates = CUSTOMER_EMAIL_TEMPLATES.map((key) =>
   template(key, key === 'dispatched' ? 4 : 0),
@@ -154,7 +172,10 @@ describe('EmailSettingsScreen', () => {
       mocks.getEmailSettings,
       mocks.updateEmailSettings,
       mocks.listEmailTemplates,
+      mocks.createEmailTemplate,
       mocks.updateEmailTemplate,
+      mocks.archiveEmailTemplate,
+      mocks.restoreEmailTemplate,
       mocks.previewEmailTemplate,
       mocks.sendTestEmail,
     ]) {
@@ -204,6 +225,91 @@ describe('EmailSettingsScreen', () => {
       ),
     );
     await waitFor(() => expect(mocks.getEmailSettings).toHaveBeenCalledTimes(2));
+  });
+
+  it('creates a new site-made template from New template and reloads the list', async () => {
+    mocks.createEmailTemplate.mockResolvedValue({
+      template: siteMade,
+      requestId: 'req_test',
+    });
+    render(<EmailSettingsScreen workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New template' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
+      target: { value: 'Welcome check-in' },
+    });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Subject' }), {
+      target: { value: 'Checking in, {first name}' },
+    });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Body' }), {
+      target: { value: 'Hi {first name}, how is your {plan}?' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create template' }));
+    await waitFor(() =>
+      expect(mocks.createEmailTemplate).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+        name: 'Welcome check-in',
+        subject: 'Checking in, {first name}',
+        body: 'Hi {first name}, how is your {plan}?',
+      }),
+    );
+    await waitFor(() => expect(mocks.listEmailTemplates).toHaveBeenCalledTimes(2));
+  });
+
+  it('archives and restores a site-made template', async () => {
+    mocks.listEmailTemplates
+      .mockResolvedValueOnce({
+        templates: [...templates, siteMade],
+        nextBefore: null,
+        requestId: 'req_test',
+      })
+      .mockResolvedValueOnce({
+        templates,
+        nextBefore: null,
+        requestId: 'req_test',
+      })
+      .mockResolvedValueOnce({
+        templates: [{ ...siteMade, archived: true }],
+        nextBefore: null,
+        requestId: 'req_test',
+      })
+      .mockResolvedValue({
+        templates: [...templates, siteMade],
+        nextBefore: null,
+        requestId: 'req_test',
+      });
+    mocks.archiveEmailTemplate.mockResolvedValue({
+      template: { ...siteMade, archived: true },
+      requestId: 'req_test',
+    });
+    mocks.restoreEmailTemplate.mockResolvedValue({
+      template: siteMade,
+      requestId: 'req_test',
+    });
+
+    render(<EmailSettingsScreen workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive Welcome check-in' }));
+    await waitFor(() =>
+      expect(mocks.archiveEmailTemplate).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'tpl_abcdefghij012345',
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived templates' }));
+    await waitFor(() =>
+      expect(mocks.listEmailTemplates).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+        archived: '1',
+      }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore Welcome check-in' }));
+    await waitFor(() =>
+      expect(mocks.restoreEmailTemplate).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        'tpl_abcdefghij012345',
+      ),
+    );
   });
 
   it('saves a template with its version and reports a conflict in words', async () => {

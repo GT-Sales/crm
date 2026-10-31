@@ -374,14 +374,15 @@ The intake check stays off until the owner's provisioning (§10). Phase 7
 (Canadian Plans' move) was dropped by the owner on 2026-10-31: Canadian Plans
 is out of scope; GT Sales only. Phase 8 (review, then automation flows; spec
 docs/superpowers/specs/2026-10-31-phase-8-automation-flows-design.md): the
-review chose the automation builder, and step A (the engine, storage, the
+review chose the automation builder, step A (the engine, storage, the
 migration pair 0019 and 0020, every flow route, the seeded built-ins, the
 scheduler's `automations` task, rescued checkouts counting as submitted, and
 the list page with a read-only flow page; plan in
-docs/superpowers/plans/2026-10-31-phase-8-automation-flows-step-a.md) was
-built on 2026-10-31, not deployed; its migrations are to apply before the
-backend (§10). Step B (the canvas, the Runs tab, Settings → Email "New
-template") is to plan. The CRM's own open items (the cross-site inbox, the
+docs/superpowers/plans/2026-10-31-phase-8-automation-flows-step-a.md) went live
+on 2026-10-31 (PR #12, `b9e6139`; migrations 0019 and 0020 applied, §10), and
+step B (the visual canvas editor with Yes/No branches and a right-hand step
+panel, the Runs tab with expandable step outcomes, and Settings → Email "New
+template" with sample property values for test sends) is built. The CRM's own open items (the cross-site inbox, the
 contact page and split/merge) move to a small phase 3b of their own (ruling of 2026-10-30); the cutover
 clean-up waits for staff to move to the CRM (docs/HANDOFF.md §5.1).
 

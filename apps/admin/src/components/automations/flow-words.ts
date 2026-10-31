@@ -13,6 +13,8 @@ import {
   type FlowIssue,
   type FlowRun,
   type FlowStep,
+  type FlowStepKind,
+  type FlowStepRun,
   type FlowSummary,
   type FlowTrigger,
 } from '@gt-sales/contracts';
@@ -296,6 +298,20 @@ export function describeStep(step: FlowStep | FlowDraftStep, names: FlowNames): 
   }
 }
 
+const STEP_KIND_NAMES: Readonly<Record<FlowStepKind, string>> = {
+  send_email: 'Send email',
+  create_task: 'Create task',
+  assign_lead: 'Assign lead',
+  update_lead: 'Update lead',
+  notify_staff: 'Notify staff',
+  if_else: 'If/else',
+  wait: 'Wait',
+};
+
+export function stepKindLabel(kind: FlowStepKind): string {
+  return STEP_KIND_NAMES[kind];
+}
+
 const REASONS: Readonly<Record<AutomationReason, string>> = {
   no_sender: 'the site has no sender yet',
   no_customer_email: 'the customer has no email address',
@@ -361,6 +377,26 @@ export function runStatusText(run: FlowRun): string {
       return 'Completed';
     case 'waiting':
       return run.resumeAt === null ? 'Waiting' : `Waiting until ${resumeLabel(run.resumeAt)}`;
+    case 'skipped':
+      return `Skipped${why}`;
+    case 'failed':
+      return `Failed${why}`;
+    case 'cancelled':
+      return `Cancelled${why}`;
+  }
+}
+
+/** One step's outcome in a run, in plain words. */
+export function stepOutcomeText(step: FlowStepRun): string {
+  const why = step.reason === null ? '' : `: ${reasonText(step.reason, step.detail)}`;
+  switch (step.outcome) {
+    case 'done':
+      if (step.stepKind === 'if_else' && step.branch) {
+        return step.branch === 'yes' ? 'Done (Yes branch)' : 'Done (No branch)';
+      }
+      return 'Done';
+    case 'waiting':
+      return 'Waiting';
     case 'skipped':
       return `Skipped${why}`;
     case 'failed':

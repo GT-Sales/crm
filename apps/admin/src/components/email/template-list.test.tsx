@@ -4,6 +4,7 @@ import {
   BUILT_IN_AUTOMATIONS,
   CUSTOMER_EMAIL_TEMPLATES,
   emailTemplateLabel,
+  type EmailTemplateKey,
   type SiteEmailTemplate,
 } from '@gt-sales/contracts';
 
@@ -21,7 +22,7 @@ const SENT_BY: Partial<Record<string, SiteEmailTemplate['usedBy']>> = {
   ],
 };
 
-function template(key: string, version = 0): SiteEmailTemplate {
+function template(key: EmailTemplateKey, version = 0): SiteEmailTemplate {
   return {
     key,
     name: emailTemplateLabel(key, key.startsWith('tpl_') ? 'Site note' : null),
@@ -35,9 +36,8 @@ function template(key: string, version = 0): SiteEmailTemplate {
   };
 }
 
-const templates = [
+const templates: SiteEmailTemplate[] = [
   ...CUSTOMER_EMAIL_TEMPLATES.map((key) => template(key, key === 'dispatched' ? 3 : 0)),
-  // Site-made templates are listed in a later release.
   template('tpl_abcdefghij012345', 1),
 ];
 
@@ -50,10 +50,10 @@ function row(label: string) {
 }
 
 describe('TemplateList', () => {
-  it('lists the nine emails by label, with no on/off switch', () => {
+  it('lists the nine built-in emails and site-made templates by label, with no on/off switch', () => {
     render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
     const list = screen.getByRole('list', { name: 'Emails' });
-    expect(within(list).getAllByRole('listitem')).toHaveLength(9);
+    expect(within(list).getAllByRole('listitem')).toHaveLength(10);
     for (const label of [
       'Tracking code',
       'Order received',
@@ -64,6 +64,7 @@ describe('TemplateList', () => {
       'SIM number ready',
       'Change approved',
       'Change rejected',
+      'Site note',
     ]) {
       expect(within(list).getByRole('heading', { name: label })).toBeTruthy();
     }
@@ -75,6 +76,7 @@ describe('TemplateList', () => {
     render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
     expect(within(row('Dispatched')).getByText('Version 3')).toBeTruthy();
     expect(within(row('Cancelled')).getByText('Starter text')).toBeTruthy();
+    expect(within(row('Site note')).getByText('Version 1')).toBeTruthy();
   });
 
   it('links each flow that sends an email to its page, from usedBy', () => {
@@ -95,10 +97,20 @@ describe('TemplateList', () => {
     expect(within(row('Cancelled')).queryByText(/Used by:/)).toBeNull();
   });
 
-  it('shows the nine built-ins and no site-made row', () => {
-    render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} />);
-    expect(screen.getAllByRole('listitem')).toHaveLength(9);
-    expect(screen.queryByRole('heading', { name: 'Site note' })).toBeNull();
+  it('offers Archive on site-made templates only', () => {
+    const onArchive = vi.fn();
+    render(
+      <TemplateList
+        workspaceSlug="canadawide"
+        templates={templates}
+        onEdit={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
+    expect(within(row('Dispatched')).queryByRole('button', { name: /^Archive/ })).toBeNull();
+    const archiveBtn = within(row('Site note')).getByRole('button', { name: 'Archive Site note' });
+    fireEvent.click(archiveBtn);
+    expect(onArchive).toHaveBeenCalledWith('tpl_abcdefghij012345');
   });
 
   it('says who sends the emails no rule sends', () => {
@@ -132,12 +144,21 @@ describe('TemplateList', () => {
     render(<TemplateList workspaceSlug="canadawide" templates={templates} onEdit={onEdit} />);
     fireEvent.click(screen.getByRole('button', { name: 'Edit Dispatched' }));
     expect(onEdit).toHaveBeenCalledWith('dispatched');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Site note' }));
+    expect(onEdit).toHaveBeenCalledWith('tpl_abcdefghij012345');
   });
 
-  it('hides Edit when the page is read-only', () => {
+  it('hides Edit and Archive when the page is read-only', () => {
     render(
-      <TemplateList workspaceSlug="canadawide" templates={templates} onEdit={vi.fn()} readOnly />,
+      <TemplateList
+        workspaceSlug="canadawide"
+        templates={templates}
+        onEdit={vi.fn()}
+        onArchive={vi.fn()}
+        readOnly
+      />,
     );
     expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Archive/ })).toBeNull();
   });
 });
