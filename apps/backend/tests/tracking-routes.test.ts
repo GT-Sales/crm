@@ -213,16 +213,6 @@ async function start(
   };
   const context: LeadUpdateContext = {
     emailEnvironment: { providerReady: false, contactHash: () => 'unused' },
-    automations: {
-      list: async () => [],
-      setEnabled: async () => {
-        throw new Error('unused');
-      },
-      recordRun: async () => {
-        throw new Error('unused');
-      },
-      listRuns: async () => [],
-    },
   };
   server = createApp({
     staff: staffOnly,

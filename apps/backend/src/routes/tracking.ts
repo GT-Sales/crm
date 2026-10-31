@@ -22,7 +22,6 @@ import { sendDomainError } from '../http/domain-errors.js';
 import { logRequestError } from '../http/logger.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { customerEmailEnvironmentFromEnv } from '../email/senders.js';
-import { DatabaseAutomationStore } from '../automations/store.js';
 import {
   ChangeRequestService,
   DatabaseChangeRequestStore,
@@ -93,7 +92,7 @@ export function createDefaultTrackingRouteDependencies(
     }),
     changeRequests: new ChangeRequestService({
       store: new DatabaseChangeRequestStore(),
-      context: { emailEnvironment, automations: new DatabaseAutomationStore() },
+      context: { emailEnvironment },
       ...(objects ? { objects } : {}),
     }),
     ...(documents ? { documents: { service: documents } } : {}),

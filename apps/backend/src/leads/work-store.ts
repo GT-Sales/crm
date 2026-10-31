@@ -12,7 +12,6 @@ import {
   ORDER_PROPERTY_KEYS,
   ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
-  automationsForMove,
   applyLeadFormEdit,
   freezePlan,
   isLeadStage,
@@ -40,8 +39,8 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 
-import { automationLeadOf, readAutomationLead, runAutomations } from '../automations/run.js';
-import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
+import { fireFlows, type FlowSiteHolder } from '../automations/engine.js';
+import { automationLeadOf } from '../automations/run.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import {
@@ -497,10 +496,13 @@ async function editOrder(
   };
 }
 
-/** What a lead update needs beyond its transaction: customer mail and the automation rules. */
+/** What a lead update needs beyond its transaction: customer mail (the flows it sets off send it). */
 export interface LeadUpdateContext {
   emailEnvironment: CustomerEmailEnvironment;
-  automations: AutomationStore;
+  /** The site snapshot the write's flows share (P23); a flow's own move passes its write's. */
+  siteHolder?: FlowSiteHolder;
+  /** P24, tests only: called once after the move's flows are read. */
+  afterFlowsRead?: () => Promise<void>;
 }
 
 /**
@@ -722,21 +724,36 @@ export async function applyLeadUpdate(
     });
   }
 
-  // The rules of the stage entered, from the lead as just written; each
+  // The flows of the stage entered, from the lead as just written; each
   // move is its own occurrence, so moving back and forth mails again.
   const statusChange = inserted.find((row) => row.kind === 'status_change');
   const fired =
     statusChange && set.stage !== undefined
-      ? await runAutomations(tx, {
-          workspaceId: input.workspaceId,
-          actorId: input.actorId,
-          requestId: input.requestId,
-          lead: await readAutomationLead(tx, input.workspaceId, input.leadId),
-          automations: automationsForMove(lead.leadType, set.stage),
-          occurrence: statusChange.id,
-          environment: context.emailEnvironment,
-          store: context.automations,
-        })
+      ? await fireFlows(
+          tx,
+          {
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            requestId: input.requestId,
+            environment: context.emailEnvironment,
+            catalog: input.catalog,
+            ...(context.siteHolder ? { siteHolder: context.siteHolder } : {}),
+            ...(context.afterFlowsRead ? { afterFlowsRead: context.afterFlowsRead } : {}),
+          },
+          [
+            {
+              kind: 'stage_entered',
+              leadId: input.leadId,
+              leadType: lead.leadType,
+              stage: set.stage,
+              occurrence: statusChange.id,
+              depth: 0,
+              chain: [],
+              parentRunId: null,
+              at: statusChange.createdAt,
+            },
+          ],
+        )
       : { skipped: [], activities: [] };
   const emailSkipped = fired.skipped;
 
@@ -758,7 +775,6 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     private readonly database: LeadDatabase = defaultLeadDatabase,
     /** What customer mail needs from the deployment: the provider and the hash secret. */
     private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
-    private readonly automations: AutomationStore = new DatabaseAutomationStore(database),
   ) {}
 
   summary(input: Scope & { dueBy?: string }) {
@@ -818,11 +834,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
 
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome> {
     return this.database.withTenantTx(input, (tx) =>
-      applyLeadUpdate(
-        tx,
-        { emailEnvironment: this.emailEnvironment, automations: this.automations },
-        input,
-      ),
+      applyLeadUpdate(tx, { emailEnvironment: this.emailEnvironment }, input),
     );
   }
 

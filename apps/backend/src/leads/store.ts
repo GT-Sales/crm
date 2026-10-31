@@ -9,7 +9,6 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
-  automationsForSubmit,
   initialLeadStage,
   submittedLeadStage,
   isOrderLeadType,
@@ -32,8 +31,7 @@ import {
   type RawAttribution,
 } from '@gt-sales/contracts';
 
-import { readAutomationLead, runAutomations } from '../automations/run.js';
-import { DatabaseAutomationStore, type AutomationStore } from '../automations/store.js';
+import { fireFlows } from '../automations/engine.js';
 import {
   customerEmailEnvironmentFromEnv,
   type CustomerEmailEnvironment,
@@ -322,21 +320,26 @@ async function intakeOrder(
 
 /**
  * The timeline's word that the website's submission moved the order from
- * Incomplete to Pending, by the website's credential. No automation runs on
- * it: submitting already fires the submit rules.
+ * Incomplete to Pending, by the website's credential. Its id is the
+ * occurrence of the stage the submission entered (R4).
  */
 async function recordSubmittedMove(
   tx: TenantTransaction,
   scope: { workspaceId: string; actorId: string },
   leadId: string,
-): Promise<void> {
-  await tx.insert(leadActivities).values({
-    workspaceId: scope.workspaceId,
-    leadId,
-    actorId: scope.actorId,
-    kind: 'system',
-    data: { event: 'submitted' },
-  });
+): Promise<{ id: string; createdAt: Date }> {
+  const [row] = await tx
+    .insert(leadActivities)
+    .values({
+      workspaceId: scope.workspaceId,
+      leadId,
+      actorId: scope.actorId,
+      kind: 'system',
+      data: { event: 'submitted' },
+    })
+    .returning({ id: leadActivities.id, createdAt: leadActivities.createdAt });
+  if (!row) throw new Error('activity insert did not return a row');
+  return row;
 }
 
 /** A new draft grant for a lead; only its hash is stored, so the token is returned once. */
@@ -411,30 +414,42 @@ export class DatabaseLeadStore implements LeadStore {
     private readonly database: LeadDatabase = defaultLeadDatabase,
     /** What customer mail needs from the deployment: the provider, the hash secret, fallback senders. */
     private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
-    private readonly automations: AutomationStore = new DatabaseAutomationStore(database),
   ) {}
 
   /**
-   * The rules a website submission fires, once per lead (`submitted`), as
-   * the website's credential. Their skips are recorded as runs; nobody on
-   * the website is told. A replayed submit never reaches here.
+   * The flows a website submission fires, as the website's credential: the
+   * `lead_submitted` ones (once per lead, `submitted`), then the stage the
+   * submission entered (R4: the submitted move's entry id, or
+   * `submitted:stage` for a type that does not move). Their skips are
+   * recorded as runs; nobody on the website is told. A replayed submit never
+   * reaches here.
    */
-  private async fireSubmitAutomations(
+  private async fireSubmitFlows(
     tx: TenantTransaction,
     input: { workspaceId: string; actorId: string; requestId: string },
-    leadId: string,
-    leadType: string,
+    lead: { id: string; leadType: string; stage: string },
+    moved: { id: string; createdAt: Date } | undefined,
   ): Promise<void> {
-    const automations = automationsForSubmit(leadType);
-    if (automations.length === 0) return;
-    await runAutomations(tx, {
-      ...input,
-      lead: await readAutomationLead(tx, input.workspaceId, leadId),
-      automations,
-      occurrence: 'submitted',
-      environment: this.emailEnvironment,
-      store: this.automations,
-    });
+    const at = moved?.createdAt ?? new Date();
+    const base = { leadId: lead.id, leadType: lead.leadType, stage: lead.stage, depth: 0 };
+    await fireFlows(tx, { ...input, environment: this.emailEnvironment }, [
+      {
+        ...base,
+        kind: 'lead_submitted',
+        occurrence: 'submitted',
+        chain: [],
+        parentRunId: null,
+        at,
+      },
+      {
+        ...base,
+        kind: 'stage_entered',
+        occurrence: moved?.id ?? 'submitted:stage',
+        chain: [],
+        parentRunId: null,
+        at,
+      },
+    ]);
   }
 
   async readLead(
@@ -579,9 +594,15 @@ export class DatabaseLeadStore implements LeadStore {
             ...(orderDetails ? { order: orderDetails } : {}),
           },
         });
-        if (stage !== firstStage) await recordSubmittedMove(tx, input, leadRow.id);
+        const moved =
+          stage !== firstStage ? await recordSubmittedMove(tx, input, leadRow.id) : undefined;
         if (input.submit) {
-          await this.fireSubmitAutomations(tx, input, leadRow.id, input.leadType);
+          await this.fireSubmitFlows(
+            tx,
+            input,
+            { id: leadRow.id, leadType: input.leadType, stage },
+            moved,
+          );
         }
 
         if (claimId) {
@@ -806,9 +827,20 @@ export class DatabaseLeadStore implements LeadStore {
             ...(updates.orderDetails ? { order: updates.orderDetails } : {}),
           },
         });
-        if (movedOnSubmit) await recordSubmittedMove(tx, input, input.leadId);
+        const moved = movedOnSubmit
+          ? await recordSubmittedMove(tx, input, input.leadId)
+          : undefined;
         if (input.submit) {
-          await this.fireSubmitAutomations(tx, input, input.leadId, grant.leadType);
+          await this.fireSubmitFlows(
+            tx,
+            input,
+            {
+              id: input.leadId,
+              leadType: grant.leadType,
+              stage: updates.stage ?? grant.leadStage,
+            },
+            moved,
+          );
         }
 
         if (claimId) {

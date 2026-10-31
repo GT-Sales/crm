@@ -470,7 +470,12 @@ databaseTest('customer email composer and queue', () => {
       leadId: OTHER_LEAD,
       dedupeKey: `${OTHER_LEAD}:sim_order_dispatched:occurrence-1`,
       payload,
-      automation: 'sim_order_dispatched',
+      automation: {
+        key: 'sim_order_dispatched',
+        name: 'Dispatched email',
+        version: 1,
+        runId: '18000000-0000-4000-8000-0000000083ff',
+      },
     });
     expect(queued.queued).toBe(true);
     expect(queued.activity).toMatchObject({
@@ -488,6 +493,7 @@ databaseTest('customer email composer and queue', () => {
           template: 'dispatched',
           templateVersion: 0,
           automation: 'sim_order_dispatched',
+          automationName: 'Dispatched email',
         },
       },
     ]);
@@ -498,7 +504,11 @@ databaseTest('customer email composer and queue', () => {
           template: 'dispatched',
           templateVersion: 0,
           jobId: queued.jobId,
-          automation: 'sim_order_dispatched',
+          automation: {
+            key: 'sim_order_dispatched',
+            version: 1,
+            runId: '18000000-0000-4000-8000-0000000083ff',
+          },
         },
       },
     ]);

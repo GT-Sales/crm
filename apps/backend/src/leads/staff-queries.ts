@@ -310,7 +310,7 @@ export interface LeadFilters {
  * for the list's type (visible, not sensitive), with the kind it is filtered
  * by there (`text` when a built-in's kind differs across types).
  */
-function resolvePropertyFor(
+export function resolvePropertyFor(
   catalog: PropertyCatalog,
   key: string,
   leadType: string | undefined,
@@ -543,7 +543,8 @@ function formFilterCondition(filter: LeadPropertyFilter, property: SiteProperty)
   }
 }
 
-function propertyFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
+/** One property filter on lead `l`, as the inbox applies it (bound values only). */
+export function propertyFilterCondition(filter: LeadPropertyFilter, property: SiteProperty): SQL {
   return property.storage === 'form'
     ? formFilterCondition(filter, property)
     : jsonFilterCondition(filter, property);

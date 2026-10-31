@@ -9,7 +9,7 @@ import {
   createLeadResponseSchema,
   getWorkspaceLeadResponseSchema,
   updateWorkspaceLeadResponseSchema,
-  type AutomationKey,
+  type BuiltInAutomationKey,
   type CustomerEmailJobPayload,
   type CustomerEmailTemplate,
 } from '@gt-sales/contracts';
@@ -35,6 +35,7 @@ import { DatabasePropertyStore } from '../src/properties/store.js';
 import { DatabaseStaffStore } from '../src/staff/store.js';
 import { generateServiceSecret } from '../src/website/credential.js';
 import { DatabaseWebsiteCredentialStore } from '../src/website/store.js';
+import { seedBuiltInFlow } from './support/flows.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
   const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
@@ -77,7 +78,7 @@ const ENV: NodeJS.ProcessEnv = {
   EMAIL_CONTACT_HASH_SECRET: SECRET,
 };
 
-const RULES: readonly AutomationKey[] = [
+const RULES: readonly BuiltInAutomationKey[] = [
   'order_received',
   'sim_order_dispatched',
   'sim_order_activated',
@@ -212,7 +213,7 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
     });
     const environment = customerEmailEnvironmentFromEnv(ENV);
     automations = new DatabaseAutomationStore(database);
-    const leadStore = new DatabaseLeadStore(database, environment, automations);
+    const leadStore = new DatabaseLeadStore(database, environment);
     const emailSettings = new DatabaseEmailSettingsStore(database);
     const planStore = new DatabasePlanStore(database);
 
@@ -252,7 +253,9 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
       'Hi {first name},\n\nIt is with {courier}, tracking number {tracking number}.',
     );
     await saveTemplate('activated', 'Your service is active', 'Hi {first name}, it works now.');
-    for (const key of RULES) await automations.setEnabled(owner, key, true);
+    for (const key of RULES) {
+      await seedBuiltInFlow(admin, { workspaceId: SITE, key, enabled: true, actorId: OWNER });
+    }
 
     server = createApp({
       staff: {
@@ -260,7 +263,7 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
         store: new DatabaseStaffStore(database),
         credentialStore: new DatabaseWebsiteCredentialStore(database),
         leadStore,
-        leadWorkStore: new DatabaseLeadWorkStore(database, environment, automations),
+        leadWorkStore: new DatabaseLeadWorkStore(database, environment),
         documentService: new DocumentService(
           new DatabaseDocumentStore(database),
           new InMemoryR2DocumentStore(),
@@ -469,12 +472,28 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
       { template: 'activated', templateVersion: 1, status: 'sent' },
     ]);
 
-    // Each rule ran once, and queued.
-    const rules = await automations.list(owner);
+    // Each flow ran once, and sent its mail.
     for (const key of RULES) {
-      expect(rules.find((rule) => rule.key === key)).toMatchObject({ enabled: true, runCount: 1 });
-      const runs = await automations.listRuns(owner, key, { includeLeadNames: false });
-      expect(runs).toEqual([expect.objectContaining({ leadId, outcome: 'queued', reason: null })]);
+      expect(
+        await admin`
+          select a.enabled, a.run_count as "runCount", r.lead_id as "leadId", r.status, r.reason,
+            s.step_id as "stepId", s.outcome
+          from app.automations a
+          join app.automation_runs r on r.workspace_id = a.workspace_id and r.automation_id = a.id
+          join app.automation_step_runs s on s.workspace_id = r.workspace_id and s.run_id = r.id
+          where a.workspace_id = ${SITE} and a.key = ${key}
+        `,
+      ).toEqual([
+        {
+          enabled: true,
+          runCount: 1,
+          leadId,
+          status: 'completed',
+          reason: null,
+          stepId: 'main',
+          outcome: 'done',
+        },
+      ]);
     }
   });
 });

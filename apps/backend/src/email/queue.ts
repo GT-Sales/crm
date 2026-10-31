@@ -8,6 +8,7 @@ import {
 } from '@gt-sales/db';
 import {
   CUSTOMER_EMAIL_JOB_TYPE,
+  isSiteTemplateKey,
   type AutomationKey,
   type CustomerEmailJobPayload,
   type LeadActivity,
@@ -15,12 +16,22 @@ import {
 
 import { toLeadActivity } from '../leads/staff-queries.js';
 
+/** The flow a mail is queued for: what the timeline and the audit name. */
+export interface QueuedByAutomation {
+  key: AutomationKey;
+  name: string;
+  version: number;
+  runId: string;
+}
+
 /**
  * Queues a composed customer mail as one `lead_customer_email` outbox job, in
  * the caller's tenant transaction, and records it: for a lead, a
  * `customer_emailed` timeline entry and a `lead.customer_emailed` audit event
- * naming the template, its version and the rule that sent it (null when staff
- * did); for a staff test, an `email.test_sent` audit event. The address and
+ * naming the template, its version and the flow that sent it (null when staff
+ * did: the entry carries the flow's key and name, and a site-made template's
+ * name; the audit `{ key, version, runId }`); for a staff test, an
+ * `email.test_sent` audit event. The address and
  * the mail's words live only in the job's payload. A dedupe key already used
  * for the site queues nothing and records nothing (`queued: false`).
  */
@@ -34,8 +45,10 @@ export async function queueComposedEmail(
     leadId: string | null;
     dedupeKey: string;
     payload: CustomerEmailJobPayload;
-    /** The rule that sends it; null when staff send it by hand. */
-    automation: AutomationKey | null;
+    /** The flow that sends it (its key, name, version and run); null when staff send it by hand. */
+    automation: QueuedByAutomation | null;
+    /** The template as staff read it; written on the entry for a site-made (`tpl_`) template. */
+    templateName?: string;
   },
 ): Promise<{ queued: boolean; jobId: string | null; activity: LeadActivity | null }> {
   const { payload } = input;
@@ -87,7 +100,12 @@ export async function queueComposedEmail(
         event: 'customer_emailed',
         template: payload.template,
         templateVersion: payload.templateVersion,
-        ...(input.automation ? { automation: input.automation } : {}),
+        ...(input.automation
+          ? { automation: input.automation.key, automationName: input.automation.name }
+          : {}),
+        ...(isSiteTemplateKey(payload.template) && input.templateName
+          ? { templateName: input.templateName }
+          : {}),
       },
     })
     .returning({
@@ -118,7 +136,13 @@ export async function queueComposedEmail(
       template: payload.template,
       templateVersion: payload.templateVersion,
       jobId: job.id,
-      automation: input.automation,
+      automation: input.automation
+        ? {
+            key: input.automation.key,
+            version: input.automation.version,
+            runId: input.automation.runId,
+          }
+        : null,
     },
   });
   return {
