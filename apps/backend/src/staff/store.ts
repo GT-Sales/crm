@@ -79,9 +79,15 @@ export class DatabaseStaffStore implements StaffStore {
 
   async bootstrapStaff(input: BootstrapStaffInput): Promise<StaffWorkspace[]> {
     return this.database.withActorTx(input.actorId, async (tx) => {
-      await tx.execute(
-        sql`select app.accept_staff_invitations(${input.verifiedEmail}, ${input.requestId})`,
-      );
+      // One statement: the invitations accepted first, then the verified
+      // address recorded on every active membership where it changed (R9),
+      // for staff notification mail; it is never returned.
+      await tx.execute(sql`
+        select app.record_staff_notification_email(${input.verifiedEmail})
+        from (
+          select app.accept_staff_invitations(${input.verifiedEmail}, ${input.requestId}) as accepted
+        ) invitations
+      `);
       const rows = await tx.execute<StaffWorkspaceRow>(sql`
         select
           workspace_id as "id",

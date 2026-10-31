@@ -29,6 +29,7 @@ import { evaluateConditionGroup } from './conditions.js';
 import { detailOf, finishRun, insertStepRun } from './records.js';
 import { readAutomationLead } from './run.js';
 import { loadFlowSite } from './site.js';
+import type { StaffNotificationEnvironment } from './staff-notification.js';
 
 /**
  * The flow engine (spec §5): inside the transaction of a move or a submit it
@@ -72,6 +73,8 @@ export interface FireFlowsContext {
   now?: () => Date;
   /** Shared by the nested firings of one write; made by the first. */
   siteHolder?: FlowSiteHolder;
+  /** What staff notification mail needs; read from the environment when absent. */
+  staffNotifications?: StaffNotificationEnvironment;
 }
 
 export interface FireFlowsResult {

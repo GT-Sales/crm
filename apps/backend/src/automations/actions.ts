@@ -33,10 +33,12 @@ import {
   applyLeadUpdate,
   insertLeadTask,
   type AutomationAttribution,
+  type LeadUpdateContext,
   type UpdateLeadWorkOutcome,
 } from '../leads/work-store.js';
 import { decideAccess, type StaffAccessSnapshot } from '../staff/authorization.js';
 import type { FireFlowsContext, FireFlowsResult, LiveFlow, RunState } from './engine.js';
+import { notifyStaffStep } from './staff-notification.js';
 import type { AutomationLead } from './run.js';
 
 /**
@@ -80,7 +82,7 @@ export function runActionStep(ctx: StepContext, step: ActionStep): Promise<StepR
     case 'update_lead':
       return updateLeadStep(ctx, step);
     case 'notify_staff':
-      throw new Error('step_not_available');
+      return notifyStaffStep(ctx, step);
   }
 }
 
@@ -131,6 +133,15 @@ async function isActiveMember(
     limit 1
   `);
   return rows.length > 0;
+}
+
+/** The lead update context of a flow's write: the same mail, site snapshot and staff mail. */
+function updateContextOf(fire: FireFlowsContext): LeadUpdateContext {
+  return {
+    emailEnvironment: fire.environment,
+    ...(fire.siteHolder ? { siteHolder: fire.siteHolder } : {}),
+    ...(fire.staffNotifications ? { staffNotifications: fire.staffNotifications } : {}),
+  };
 }
 
 /** The run as the attribution of the writes it makes (R5, R8). */
@@ -270,22 +281,15 @@ export async function assignLeadStep(
   if (!(await isActiveMember(tx, fire.workspaceId, step.actorId))) {
     return { outcome: 'skipped', reason: 'member_unavailable', detail: step.actorId };
   }
-  const outcome = await applyLeadUpdate(
-    tx,
-    {
-      emailEnvironment: fire.environment,
-      ...(fire.siteHolder ? { siteHolder: fire.siteHolder } : {}),
-    },
-    {
-      workspaceId: fire.workspaceId,
-      actorId: activator,
-      requestId: fire.requestId,
-      leadId: run.leadId,
-      assignedActorId: step.actorId,
-      catalog: ctx.site.catalog,
-      automation: attributionOf(run),
-    },
-  );
+  const outcome = await applyLeadUpdate(tx, updateContextOf(fire), {
+    workspaceId: fire.workspaceId,
+    actorId: activator,
+    requestId: fire.requestId,
+    leadId: run.leadId,
+    assignedActorId: step.actorId,
+    catalog: ctx.site.catalog,
+    automation: attributionOf(run),
+  });
   return updateOutcome(outcome);
 }
 
@@ -329,22 +333,15 @@ export async function updateLeadStep(
       return { outcome: 'skipped', reason: 'invalid_field', detail: change.key };
     }
   }
-  const outcome = await applyLeadUpdate(
-    tx,
-    {
-      emailEnvironment: fire.environment,
-      ...(fire.siteHolder ? { siteHolder: fire.siteHolder } : {}),
-    },
-    {
-      workspaceId: fire.workspaceId,
-      actorId: activator,
-      requestId: fire.requestId,
-      leadId: run.leadId,
-      catalog: ctx.site.catalog,
-      automation: attributionOf(run),
-      ...edit,
-    },
-  );
+  const outcome = await applyLeadUpdate(tx, updateContextOf(fire), {
+    workspaceId: fire.workspaceId,
+    actorId: activator,
+    requestId: fire.requestId,
+    leadId: run.leadId,
+    catalog: ctx.site.catalog,
+    automation: attributionOf(run),
+    ...edit,
+  });
   return updateOutcome(outcome, change.kind === 'property' ? change.key : undefined);
 }
 

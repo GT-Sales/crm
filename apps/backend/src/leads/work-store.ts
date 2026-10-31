@@ -42,6 +42,7 @@ import {
 
 import { fireFlows, type FlowSiteHolder } from '../automations/engine.js';
 import { automationLeadOf } from '../automations/run.js';
+import type { StaffNotificationEnvironment } from '../automations/staff-notification.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import {
@@ -601,6 +602,8 @@ export interface LeadUpdateContext {
   siteHolder?: FlowSiteHolder;
   /** P24, tests only: called once after the move's flows are read. */
   afterFlowsRead?: () => Promise<void>;
+  /** What staff notification mail needs; read from the environment when absent. */
+  staffNotifications?: StaffNotificationEnvironment;
 }
 
 /**
@@ -861,6 +864,9 @@ export async function applyLeadUpdate(
             catalog: input.catalog,
             ...(context.siteHolder ? { siteHolder: context.siteHolder } : {}),
             ...(context.afterFlowsRead ? { afterFlowsRead: context.afterFlowsRead } : {}),
+            ...(context.staffNotifications
+              ? { staffNotifications: context.staffNotifications }
+              : {}),
           },
           [
             ...(rescue
