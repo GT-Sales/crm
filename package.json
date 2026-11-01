@@ -10,6 +10,7 @@
   "pnpm": {
     "overrides": {
       "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12",
+      "body-parser@<2.4.0": "2.4.0",
       "proxy-addr@<2.0.8": "2.0.8",
       "source-map-js@<1.2.2": "1.2.2",
       "brace-expansion@^1.0.0": "1.1.21",
