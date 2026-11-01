@@ -42,7 +42,7 @@ export const nodeRunCommand: RunCommand = (command, args, options = {}) =>
     child.once('error', reject);
     // A child may exit before reading all of its input (`age` rejects a
     // malformed recipient before reading the dump). Writing the rest then
-    // fails with EPIPE; without a listener that is an uncaught exception that
+    // fails with EPIPE (EOF on Windows); without a listener that is an uncaught exception that
     // kills the CLI and loses the child's stderr. 'close' still reports the
     // real exit code, so only a broken-pipe write is ignored here.
     child.stdin.on('error', (error) => {
@@ -61,7 +61,7 @@ export const nodeRunCommand: RunCommand = (command, args, options = {}) =>
 
 function isBrokenPipe(error: Error): boolean {
   const code = 'code' in error ? error.code : undefined;
-  return code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
+  return code === 'EPIPE' || code === 'EOF' || code === 'ERR_STREAM_DESTROYED';
 }
 
 /**

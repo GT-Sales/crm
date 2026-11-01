@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   FlowCatalogResponse,
   FlowDefinition,
+  FlowDraft,
   FlowDetailResponse,
   FlowRun,
   FlowSummary,
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => {
     roles: initialRoles,
     getAutomation: vi.fn(),
     getAutomationCatalog: vi.fn(),
+    getAutomationRun: vi.fn(),
     listAutomationRuns: vi.fn(),
     listAutomations: vi.fn(),
     updateAutomation: vi.fn(),
@@ -159,6 +161,7 @@ beforeEach(() => {
   for (const mock of [
     mocks.getAutomation,
     mocks.getAutomationCatalog,
+    mocks.getAutomationRun,
     mocks.listAutomationRuns,
     mocks.listAutomations,
     mocks.updateAutomation,
@@ -222,13 +225,28 @@ beforeEach(() => {
   });
 });
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {
+    throw new Error('Promise not initialized');
+  };
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function openTaskTitle() {
+  fireEvent.click(await screen.findByRole('button', { name: /Create task: Create the task/ }));
+  return screen.findByRole('textbox', { name: 'Task title' });
+}
+
 describe('FlowPage', () => {
   it('renders the flow on the canvas and toggles to List view reading top to bottom', async () => {
     render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' }),
     ).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Automation flow canvas' })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Automation flow canvas' })).toBeTruthy();
     expect(
       screen.getByRole('button', { name: 'Trigger: A SIM order moves to Verified' }),
     ).toBeTruthy();
@@ -278,7 +296,7 @@ describe('FlowPage', () => {
     await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' });
 
     fireEvent.click(
-      screen.getByRole('button', {
+      await screen.findByRole('button', {
         name: /Create task: Create the task "Call \{first name\} about \{order number\}"/,
       }),
     );
@@ -319,7 +337,7 @@ describe('FlowPage', () => {
     render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
     await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' });
 
-    const addFirst = screen.getByRole('button', { name: 'Add first step' });
+    const addFirst = await screen.findByRole('button', { name: 'Add first step' });
     fireEvent.click(addFirst);
     const menu = await screen.findByRole('menu', { name: 'Add step' });
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
@@ -424,5 +442,174 @@ describe('FlowPage', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' }),
     ).toBeTruthy();
+  });
+  it('preserves edits made during a save and queues the next write with the returned revision', async () => {
+    const first = deferred<FlowDetailResponse>();
+    let firstDefinition: FlowDraft = definition;
+    mocks.saveAutomationDraft.mockImplementationOnce(
+      (_token: string, _ws: string, _key: string, body: { definition: FlowDraft }) => {
+        firstDefinition = body.definition;
+        return first.promise;
+      },
+    );
+    mocks.saveAutomationDraft.mockImplementationOnce(
+      async (_token: string, _ws: string, _key: string, body: { definition: FlowDraft }) =>
+        detail({ revision: 5, draft: { version: 2, definition: body.definition, issues: [] } }),
+    );
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    const title = await openTaskTitle();
+    fireEvent.change(title, { target: { value: 'First edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(1));
+    fireEvent.change(title, { target: { value: 'Second edit' } });
+    // Let the debounce expire while the first network request is still pending.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 650));
+    });
+    expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      first.resolve(
+        detail({ revision: 4, draft: { version: 2, definition: firstDefinition, issues: [] } }),
+      );
+    });
+    await waitFor(() => expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(2));
+    expect(mocks.saveAutomationDraft).toHaveBeenLastCalledWith(
+      'staff-token',
+      WORKSPACE,
+      FLOW,
+      expect.objectContaining({ expectedRevision: 4 }),
+    );
+    expect(screen.getByRole('textbox', { name: 'Task title' })).toHaveProperty(
+      'value',
+      'Second edit',
+    );
+    expect(await screen.findByText('Saved')).toBeTruthy();
+  });
+
+  it('waits for an in-flight save before discarding the draft', async () => {
+    const saving = deferred<FlowDetailResponse>();
+    mocks.saveAutomationDraft.mockReturnValue(saving.promise);
+    mocks.discardAutomationDraft.mockResolvedValue(
+      detail({ revision: 5, draft: null, automation: summary({ hasDraft: false }) }),
+    );
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    const title = await openTaskTitle();
+    fireEvent.change(title, { target: { value: 'Discard this edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    expect(mocks.discardAutomationDraft).not.toHaveBeenCalled();
+    await act(async () => {
+      saving.resolve(detail({ revision: 4 }));
+    });
+    await waitFor(() => expect(mocks.discardAutomationDraft).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Viewing active')).toBeTruthy();
+  });
+
+  it('offers Reload for the backend revision_conflict and keeps unsaved edits', async () => {
+    mocks.saveAutomationDraft.mockRejectedValue(new mocks.FakeBackendError('revision_conflict'));
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    const title = await openTaskTitle();
+    fireEvent.change(title, { target: { value: 'My unsaved edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByRole('button', { name: 'Reload' })).toBeTruthy();
+    expect(title).toHaveProperty('value', 'My unsaved edit');
+  });
+
+  it('ignores an old version response after returning to the editor', async () => {
+    const version = deferred<{ version: { definition: FlowDefinition } }>();
+    mocks.getAutomationVersion.mockReturnValue(version.promise);
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    const selector = await screen.findByRole('combobox', { name: 'View version' });
+    fireEvent.change(selector, { target: { value: '1' } });
+    fireEvent.change(selector, { target: { value: 'editor' } });
+    await act(async () => {
+      version.resolve({ version: { definition } });
+    });
+    expect(screen.queryByText('Viewing version 1')).toBeNull();
+    expect(screen.getByText('Viewing draft')).toBeTruthy();
+  });
+  it('keeps editing controls visible and disabled for readers', async () => {
+    mocks.getAutomation.mockResolvedValue(detail({ canManage: false }));
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    expect(await screen.findByRole('button', { name: 'Activate' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(screen.getByRole('button', { name: 'Save draft' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Discard draft' })).toHaveProperty('disabled', true);
+    expect(mocks.saveAutomationDraft).not.toHaveBeenCalled();
+  });
+
+  it('edits and moves steps from List view using the same side panel', async () => {
+    mocks.saveAutomationDraft.mockImplementation(
+      async (_token: string, _ws: string, _key: string, body: { definition: FlowDraft }) =>
+        detail({ revision: 4, draft: { version: 2, definition: body.definition, issues: [] } }),
+    );
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Wait 2 days' }));
+    const panel = await screen.findByRole('complementary', { name: 'Wait' });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Move down' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() =>
+      expect(mocks.saveAutomationDraft).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        FLOW,
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            steps: [
+              expect.objectContaining({
+                else: [
+                  expect.objectContaining({ id: 's_mail' }),
+                  expect.objectContaining({ id: 's_wait' }),
+                ],
+              }),
+            ],
+          }),
+        }),
+      ),
+    );
+    fireEvent.keyDown(panel, { key: 'Escape' });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Wait 2 days' })),
+    );
+  });
+  it('can switch the active flow off even when the draft has a revision conflict', async () => {
+    mocks.getAutomation.mockResolvedValue(detail({ automation: summary({ enabled: true }) }));
+    mocks.saveAutomationDraft.mockRejectedValue(new mocks.FakeBackendError('revision_conflict'));
+    mocks.updateAutomation.mockResolvedValue({ automation: summary({ enabled: false }) });
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    const title = await openTaskTitle();
+    fireEvent.change(title, { target: { value: 'My unsaved edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await screen.findByRole('button', { name: 'Reload' });
+    fireEvent.click(screen.getByRole('switch', { name: 'Verified follow-up' }));
+    await waitFor(() =>
+      expect(mocks.updateAutomation).toHaveBeenCalledWith('staff-token', WORKSPACE, FLOW, {
+        enabled: false,
+      }),
+    );
+    expect(screen.getByRole('textbox', { name: 'Task title' })).toHaveProperty(
+      'value',
+      'My unsaved edit',
+    );
+  });
+
+  it('saves pending edits before archiving and refuses archive when that save fails', async () => {
+    mocks.saveAutomationDraft.mockRejectedValue(new mocks.FakeBackendError('revision_conflict'));
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    const title = await openTaskTitle();
+    fireEvent.change(title, { target: { value: 'Keep this edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Archive Verified follow-up?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive' }));
+    expect(await within(dialog).findByRole('alert')).toHaveProperty(
+      'textContent',
+      'The draft was not saved. Save or reload it before archiving.',
+    );
+    expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(1);
+    expect(mocks.archiveAutomation).not.toHaveBeenCalled();
   });
 });

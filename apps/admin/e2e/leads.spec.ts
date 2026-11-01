@@ -809,8 +809,8 @@ test('a custom flow is built on the canvas with an if/else, activated, switched 
 }) => {
   const errors = trackErrors(page);
   await page.goto('/w/getcanadasim/automations');
-  await page.getByRole('button', { name: 'New automation' }).click();
-  const createDialog = page.getByRole('dialog', { name: 'New automation' });
+  await page.getByRole('button', { name: 'New flow' }).click();
+  const createDialog = page.getByRole('dialog', { name: 'New flow' });
   await createDialog.getByLabel('Name').fill('Verified branch check');
   await createDialog.getByRole('button', { name: 'Create' }).click();
 
@@ -823,6 +823,8 @@ test('a custom flow is built on the canvas with an if/else, activated, switched 
   // Configure the trigger: when a SIM order enters Verified.
   await canvas.getByRole('button', { name: 'Trigger: Choose when this flow runs' }).click();
   const triggerPanel = page.getByRole('complementary', { name: 'Trigger' });
+  await triggerPanel.getByLabel('When', { exact: true }).selectOption('stage_entered');
+  await triggerPanel.getByLabel('Lead type', { exact: true }).selectOption('sim_order');
   await triggerPanel.getByLabel('Stage').selectOption('verified');
 
   // Add an If/else step on plan (Rogers 60GB).
@@ -833,8 +835,20 @@ test('a custom flow is built on the canvas with an if/else, activated, switched 
     .click();
   const ifPanel = page.getByRole('complementary', { name: 'If/else' });
   await ifPanel.getByRole('button', { name: 'Add condition' }).click();
-  await ifPanel.getByLabel('Condition 1 field').selectOption('plan');
+  await ifPanel.getByLabel('Condition 1 kind').selectOption('plan');
   await ifPanel.getByRole('checkbox', { name: 'Rogers 60GB' }).check();
+
+  // The insertion menu must stay above the existing If/else card. Exercise
+  // insertion before a card, then remove that temporary step through its panel.
+  await canvas.getByRole('button', { name: 'Add first step' }).click();
+  await page
+    .getByRole('menu', { name: 'Add step' })
+    .getByRole('menuitem', { name: 'Wait' })
+    .click();
+  await page
+    .getByRole('complementary', { name: 'Wait' })
+    .getByRole('button', { name: 'Remove step' })
+    .click();
 
   // In the Yes branch, send the Information needed email.
   await canvas.getByRole('button', { name: 'Add step to Yes branch' }).click();

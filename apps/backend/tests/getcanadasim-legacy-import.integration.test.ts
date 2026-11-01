@@ -754,7 +754,7 @@ function switchDayBlock(name: 'SEED' | 'RECONCILE'): string {
     fileURLToPath(new URL('../../../docs/RUNBOOKS/manual/gcs-switch-day.sql', import.meta.url)),
     'utf8',
   );
-  const begin = text.indexOf(`-- ${name} BEGIN\n`);
+  const begin = text.indexOf(`-- ${name} BEGIN`);
   const end = text.indexOf(`-- ${name} END`);
   if (begin < 0 || end < begin) throw new Error(`no ${name} block in gcs-switch-day.sql`);
   return text.slice(begin, end);

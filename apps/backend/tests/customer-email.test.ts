@@ -62,6 +62,6 @@ describe('customer mail environment', () => {
     );
     expect(values.props).toBeDefined();
     expect(values.props?.['firstName']).toBe('Sample First name');
-    expect(values.props?.['custom_demo']).toBe('Sample custom_demo');
+    expect(values.props).not.toHaveProperty('custom_demo');
   });
 });

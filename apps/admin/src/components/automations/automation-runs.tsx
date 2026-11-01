@@ -26,6 +26,8 @@ export function AutomationRuns({
   workspaceSlug,
   runs,
   definition,
+  definitionVersion,
+  onLoadRun,
   names = namesFromCode(),
   nextBefore = null,
   loadingMore = false,
@@ -34,12 +36,41 @@ export function AutomationRuns({
   workspaceSlug: string;
   runs: readonly FlowRun[];
   definition?: FlowDefinition | FlowDraft | null;
+  definitionVersion?: number | null;
+  onLoadRun?(run: FlowRun): Promise<{
+    run: FlowRun;
+    definition: FlowDefinition | FlowDraft | null;
+  }>;
   names?: FlowNames;
   nextBefore?: string | null;
   loadingMore?: boolean;
   onLoadMore?(): Promise<void> | void;
 }): JSX.Element {
   const [expandedId, setExpandedId] = useState<string>();
+  const [details, setDetails] = useState<
+    Record<string, { run: FlowRun; definition: FlowDefinition | FlowDraft | null }>
+  >({});
+  const [loadingId, setLoadingId] = useState<string>();
+  const [loadErrorId, setLoadErrorId] = useState<string>();
+
+  async function expand(run: FlowRun) {
+    if (expandedId === run.id) {
+      setExpandedId(undefined);
+      return;
+    }
+    setExpandedId(run.id);
+    if (!onLoadRun) return;
+    setLoadingId(run.id);
+    setLoadErrorId(undefined);
+    try {
+      const detail = await onLoadRun(run);
+      setDetails((current) => ({ ...current, [run.id]: detail }));
+    } catch {
+      setLoadErrorId(run.id);
+    } finally {
+      setLoadingId((current) => (current === run.id ? undefined : current));
+    }
+  }
 
   if (runs.length === 0) {
     return <p className="text-sm text-muted-foreground">No runs yet.</p>;
@@ -49,6 +80,13 @@ export function AutomationRuns({
     <div className="flex flex-col gap-3">
       <ol aria-label="Recent runs" className="divide-y rounded-md border text-sm">
         {runs.map((run) => {
+          const detail = details[run.id];
+          const shownRun = detail?.run ?? run;
+          const runDefinition = detail
+            ? detail.definition
+            : run.version !== null && run.version === definitionVersion
+              ? definition
+              : undefined;
           const leadLabel = run.leadName ?? `Lead ${run.leadId.slice(0, 8)}`;
           const isExpanded = expandedId === run.id;
           return (
@@ -60,7 +98,7 @@ export function AutomationRuns({
                 >
                   {leadLabel}
                 </Link>
-                <span>{runStatusText(run)}</span>
+                <span>{runStatusText(shownRun)}</span>
                 {run.version === null ? null : (
                   <span className="text-muted-foreground">Version {run.version}</span>
                 )}
@@ -78,21 +116,36 @@ export function AutomationRuns({
                     variant="ghost"
                     aria-expanded={isExpanded}
                     aria-label={`Steps for ${leadLabel}`}
-                    onClick={() => setExpandedId(isExpanded ? undefined : run.id)}
+                    onClick={() => void expand(run)}
                   >
                     {isExpanded ? 'Hide steps' : `Steps (${run.steps.length})`}
                   </Button>
                 ) : null}
               </div>
 
+              <div aria-label="Step statuses" className="flex flex-wrap gap-2 text-xs">
+                {shownRun.steps.map((step, index) => (
+                  <span key={`${step.stepId}:${index}`} className="rounded border px-2 py-0.5">
+                    {stepKindLabel(step.stepKind)}: {stepOutcomeText(step)}
+                  </span>
+                ))}
+              </div>
+
+              {isExpanded && loadingId === run.id ? <p role="status">Loading run…</p> : null}
+              {isExpanded && loadErrorId === run.id ? (
+                <p role="alert">
+                  The run details could not be loaded. Close and reopen the steps to retry.
+                </p>
+              ) : null}
+
               {isExpanded && run.steps.length > 0 ? (
                 <ol
                   aria-label={`Step outcomes for ${leadLabel}`}
                   className="flex flex-col gap-1.5 rounded-md border bg-muted/20 p-2.5 text-xs"
                 >
-                  {run.steps.map((stepRun, index) => {
-                    const found = definition
-                      ? findStepById(definition.steps, stepRun.stepId)
+                  {shownRun.steps.map((stepRun, index) => {
+                    const found = runDefinition
+                      ? findStepById(runDefinition.steps, stepRun.stepId)
                       : undefined;
                     const stepTitle = found
                       ? describeStep(found.step, names)

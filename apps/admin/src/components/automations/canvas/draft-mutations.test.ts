@@ -3,6 +3,8 @@ import { EMPTY_FLOW_DRAFT } from '@gt-sales/contracts';
 
 import {
   countNestedSteps,
+  moveStepById,
+  stepMoveAvailability,
   findStepById,
   insertStepAt,
   removeStepById,
@@ -47,4 +49,22 @@ describe('draft-mutations', () => {
     expect(findStepById(removed.steps, inNo.stepId)).toBeUndefined();
     expect(countNestedSteps(removed.steps[0]!)).toBe(0);
   });
+});
+
+it('moves within a nested path but never past an if/else or across branches', () => {
+  let draft = insertStepAt(EMPTY_FLOW_DRAFT, 'steps', 0, 'if_else').draft;
+  const first = insertStepAt(draft, 'steps.0.then', 0, 'send_email');
+  const second = insertStepAt(first.draft, 'steps.0.then', 1, 'wait');
+  const split = insertStepAt(second.draft, 'steps.0.then', 2, 'if_else');
+  draft = moveStepById(split.draft, second.stepId, 'up');
+  const root = draft.steps[0];
+  expect(root?.kind === 'if_else' && root.then.map((step) => step.id)).toEqual([
+    second.stepId,
+    first.stepId,
+    split.stepId,
+  ]);
+  expect(stepMoveAvailability(draft.steps, first.stepId)).toEqual({ up: true, down: false });
+  expect(moveStepById(draft, split.stepId, 'up')).toBe(draft);
+  expect(moveStepById(draft, second.stepId, 'up')).toBe(draft);
+  expect(moveStepById(draft, first.stepId, 'down')).toBe(draft);
 });

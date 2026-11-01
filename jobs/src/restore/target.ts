@@ -209,7 +209,7 @@ export class PsqlAndS3RestoreTarget implements RestoreTarget {
       sql,
     ]);
     const counts: Record<string, number> = {};
-    for (const line of text.split('\n')) {
+    for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue;
       const match = COUNT_LINE.exec(line);
       const name = match?.[1];

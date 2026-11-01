@@ -166,6 +166,16 @@ function countSteps(steps: readonly (FlowStep | FlowDraftStep)[]): number {
   return count;
 }
 
+function branchDepth(steps: readonly (FlowStep | FlowDraftStep)[]): number {
+  return steps.reduce(
+    (deepest, step) =>
+      step.kind === 'if_else'
+        ? Math.max(deepest, 1 + Math.max(branchDepth(step.then), branchDepth(step.else)))
+        : deepest,
+    0,
+  );
+}
+
 function computeSequenceWidth(steps: readonly (FlowStep | FlowDraftStep)[]): number {
   let width = CARD_WIDTH;
   for (const step of steps) {
@@ -272,7 +282,7 @@ export function layoutFlow(
           depth,
           ...(pendingBranchLabel ? { branchLabel: pendingBranchLabel } : {}),
           label,
-          canAddIfElse: depth < AUTOMATION_MAX_BRANCH_DEPTH,
+          canAddIfElse: depth + 1 + branchDepth(steps.slice(index)) <= AUTOMATION_MAX_BRANCH_DEPTH,
           disabled: stepsLimitReached,
         },
       });

@@ -140,8 +140,7 @@ export function fillInValuesForLead(
   return options && options.propertyKeys.length > 0 ? { ...values, props } : values;
 }
 
-function samplePropertyValue(property: SiteProperty | undefined, key: string): string {
-  if (!property) return `Sample ${key}`;
+function samplePropertyValue(property: SiteProperty): string {
   switch (property.kind) {
     case 'money':
       return '$40.00';
@@ -186,8 +185,8 @@ export function sampleFillInValues(
   if (options) {
     for (const key of options.propertyKeys) {
       const property = options.catalog.get(key);
-      if (property && !readableBy(property, 'customer')) continue;
-      props[key] = samplePropertyValue(property, key);
+      if (!property || !readableBy(property, 'customer')) continue;
+      props[key] = samplePropertyValue(property);
     }
   }
   const values = {

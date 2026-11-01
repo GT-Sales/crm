@@ -351,6 +351,9 @@ export function reasonText(reason: AutomationReason, detail: string | null): str
 
 /** A flow issue in the same words (its `ref` as the detail). */
 export function issueText(issue: FlowIssue): string {
+  if (issue.code === 'definition_invalid' && issue.path !== 'definition') {
+    return 'Complete the marked fields before activating.';
+  }
   const reason = automationReasonSchema.parse(issue.code);
   return reasonText(reason, issue.code === 'definition_invalid' ? null : issue.ref);
 }

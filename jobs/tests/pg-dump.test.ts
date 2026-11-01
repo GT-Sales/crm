@@ -58,13 +58,13 @@ describe('PgDumpDatabaseExporter', () => {
     ]);
     expect(calls[0]?.args).toEqual([
       '--roles-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--no-role-passwords',
       '--no-comments',
     ]);
     expect(calls[1]?.args).toEqual([
       '--schema-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--strict-names',
       '--schema',
       'app',
@@ -75,7 +75,7 @@ describe('PgDumpDatabaseExporter', () => {
     ]);
     expect(calls[2]?.args).toEqual([
       '--data-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--enable-row-security',
       '--strict-names',
       '--schema',
@@ -89,7 +89,7 @@ describe('PgDumpDatabaseExporter', () => {
     // tables are their own dump, never added to the schema dump above.
     expect(calls[3]?.args).toEqual([
       '--data-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--enable-row-security',
       '--strict-names',
       '--table',
@@ -99,14 +99,14 @@ describe('PgDumpDatabaseExporter', () => {
     ]);
     expect(calls[4]?.args).toEqual([
       '--schema-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--strict-names',
       '--schema',
       'supabase_migrations',
     ]);
     expect(calls[5]?.args).toEqual([
       '--data-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--strict-names',
       '--schema',
       'supabase_migrations',
@@ -142,7 +142,7 @@ describe('PgDumpDatabaseExporter', () => {
     ]);
     expect(calls[2]?.args).toEqual([
       '--data-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--enable-row-security',
       '--strict-names',
       '--schema',

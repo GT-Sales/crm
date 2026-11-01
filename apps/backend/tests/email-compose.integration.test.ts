@@ -659,5 +659,16 @@ databaseTest('customer email composer and queue', () => {
       expect(outcome.payload).toMatchObject({ template: SITE_MADE, test: true });
       expect(outcome.payload.rendered.text).toContain('Size Small, deposit $40.00, insured Yes.');
     });
+
+    it('a staff test does not fill properties made private after the template was saved', async () => {
+      await reset();
+      await siteMade();
+      await setProperty('custom_size', { sensitive: true });
+      expect(await compose(SITE, SITE_MADE, { kind: 'staff_test', toAddress: STAFF })).toEqual({
+        kind: 'skipped',
+        reason: 'missing_fill_in',
+        missing: ['prop:custom_size'],
+      });
+    });
   });
 });

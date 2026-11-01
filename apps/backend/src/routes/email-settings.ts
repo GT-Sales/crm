@@ -435,8 +435,8 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
         return;
       }
       if (result.reason === 'missing_fill_in' && isSiteTemplateKey(template)) {
-        // The sample values have no property values: a site-made template that
-        // shows properties is tried on a real lead, not as a test.
+        // Samples cover usable properties. A property made private since the
+        // template was saved must still prevent a test send.
         sendDomainError(res, req.id, 'feature_not_ready', 409, { reason: 'property_fill_ins' });
         return;
       }

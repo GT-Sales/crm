@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { FlowRun } from '@gt-sales/contracts';
+import type { FlowDraft, FlowRun } from '@gt-sales/contracts';
 
 import { AutomationRuns } from './automation-runs';
 
@@ -72,6 +72,53 @@ const runs: FlowRun[] = [
 ];
 
 describe('AutomationRuns', () => {
+  it('uses the immutable run version rather than the current action with the same step id', async () => {
+    const oldDefinition: FlowDraft = {
+      schemaVersion: 1,
+      trigger: null,
+      steps: [{ id: 's_mail', kind: 'send_email', template: 'dispatched' }],
+    };
+    const currentDefinition: FlowDraft = {
+      ...oldDefinition,
+      steps: [{ id: 's_mail', kind: 'send_email', template: 'cancelled' }],
+    };
+    const first = runs[0]!;
+    const onLoadRun = vi.fn().mockResolvedValue({ run: first, definition: oldDefinition });
+    render(
+      <AutomationRuns
+        workspaceSlug="canadawide"
+        runs={[first]}
+        definition={currentDefinition}
+        definitionVersion={3}
+        onLoadRun={onLoadRun}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Steps for Ada Lovelace' }));
+    const stepList = screen.getByRole('list', { name: 'Step outcomes for Ada Lovelace' });
+    expect(await within(stepList).findByText(/Send the Dispatched email/)).toBeTruthy();
+    expect(within(stepList).queryByText(/Cancelled email/)).toBeNull();
+    expect(onLoadRun).toHaveBeenCalledWith(first);
+  });
+
+  it('does not invent historical actions when their version cannot be loaded', () => {
+    render(
+      <AutomationRuns
+        workspaceSlug="canadawide"
+        runs={[runs[0]!]}
+        definition={{
+          schemaVersion: 1,
+          trigger: null,
+          steps: [{ id: 's_mail', kind: 'send_email', template: 'cancelled' }],
+        }}
+        definitionVersion={3}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Steps for Ada Lovelace' }));
+    const stepList = screen.getByRole('list', { name: 'Step outcomes for Ada Lovelace' });
+    expect(within(stepList).getByText('Send email')).toBeTruthy();
+    expect(within(stepList).queryByText(/Cancelled email/)).toBeNull();
+  });
+
   it('lists each run with its lead, status in words, version and time', () => {
     render(<AutomationRuns workspaceSlug="canadawide" runs={runs} />);
     const items = within(screen.getByRole('list', { name: 'Recent runs' })).getAllByRole(

@@ -160,6 +160,9 @@ export function StepSidePanel({
   onUpdateTrigger,
   onUpdateStep,
   onRemoveStep,
+  onMoveStep,
+  canMoveUp = false,
+  canMoveDown = false,
   onClose,
 }: {
   workspaceSlug: string;
@@ -172,6 +175,9 @@ export function StepSidePanel({
   onUpdateTrigger(next: FlowDraftTrigger): void;
   onUpdateStep(stepId: string, updater: (current: FlowDraftStep) => FlowDraftStep): void;
   onRemoveStep(stepId: string): void;
+  onMoveStep?(stepId: string, direction: 'up' | 'down'): void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   onClose(): void;
 }): JSX.Element {
   const id = useId();
@@ -758,6 +764,32 @@ export function StepSidePanel({
 
           {!readOnly ? (
             <div className="border-t pt-3">
+              {onMoveStep ? (
+                <div
+                  className="mb-3 flex gap-2"
+                  role="group"
+                  aria-label="Move step within this path"
+                >
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!canMoveUp}
+                    onClick={() => onMoveStep(step.id, 'up')}
+                  >
+                    Move up
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!canMoveDown}
+                    onClick={() => onMoveStep(step.id, 'down')}
+                  >
+                    Move down
+                  </Button>
+                </div>
+              ) : null}
               {confirmingRemove ? (
                 <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
                   <p className="text-xs">
@@ -850,7 +882,7 @@ function UpdateLeadFields({
               onUpdate({
                 kind: 'property',
                 key: firstProp?.key ?? 'carrier',
-                value: '',
+                value: defaultPropertyValue(firstProp),
               });
             } else {
               const firstStage = availableStages[0]?.key ?? 'verified';
@@ -897,14 +929,7 @@ function UpdateLeadFields({
               onChange={(event) => {
                 const key = event.target.value;
                 const prop = editableProperties.find((entry) => entry.key === key);
-                const defaultValue =
-                  prop?.kind === 'yesNo'
-                    ? true
-                    : prop?.kind === 'number' || prop?.kind === 'money'
-                      ? 0
-                      : prop?.kind === 'choice'
-                        ? (prop.options?.[0]?.value ?? '')
-                        : '';
+                const defaultValue = defaultPropertyValue(prop);
                 onUpdate({ kind: 'property', key, value: defaultValue });
               }}
               className="h-9 rounded-md border bg-background px-2.5 text-sm"
@@ -917,35 +942,108 @@ function UpdateLeadFields({
             </select>
           </div>
 
-          <FormField id={`${id}-prop-value`} label="Value">
-            <Input
-              disabled={disabled}
-              value={step.change.value === null ? '' : String(step.change.value)}
-              onChange={(event) => {
-                const raw = event.target.value;
-                const prop = editableProperties.find(
-                  (entry) => step.change?.kind === 'property' && entry.key === step.change.key,
-                );
-                const parsedValue =
-                  raw === ''
-                    ? null
-                    : prop?.kind === 'number' || prop?.kind === 'money'
-                      ? Number(raw)
-                      : prop?.kind === 'yesNo'
-                        ? raw === 'true'
-                        : raw;
-                if (step.change?.kind === 'property') {
-                  onUpdate({
-                    kind: 'property',
-                    key: step.change.key,
-                    value: parsedValue,
-                  });
-                }
-              }}
-            />
-          </FormField>
+          <PropertyValueField
+            id={`${id}-prop-value`}
+            property={editableProperties.find(
+              (property) => step.change?.kind === 'property' && property.key === step.change.key,
+            )}
+            value={step.change.value}
+            disabled={disabled}
+            onChange={(value) => {
+              if (step.change?.kind === 'property') onUpdate({ ...step.change, value });
+            }}
+          />
         </>
       ) : null}
     </div>
+  );
+}
+
+function defaultPropertyValue(property: FlowCatalogResponse['properties'][number] | undefined) {
+  if (property?.kind === 'yesNo') return true;
+  if (property?.kind === 'number' || property?.kind === 'money') return 0;
+  if (property?.kind === 'choice') return property.options?.[0]?.value ?? null;
+  return null;
+}
+
+function PropertyValueField({
+  id,
+  property,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  property: FlowCatalogResponse['properties'][number] | undefined;
+  value: Extract<FlowLeadChange, { kind: 'property' }>['value'];
+  disabled: boolean;
+  onChange(value: Extract<FlowLeadChange, { kind: 'property' }>['value']): void;
+}): JSX.Element {
+  const numeric = property?.kind === 'number' || property?.kind === 'money';
+  return (
+    <FormField
+      id={id}
+      label="Value"
+      hint={property?.kind === 'money' ? 'Amount in Canadian cents.' : undefined}
+    >
+      {property?.kind === 'yesNo' ? (
+        <select
+          disabled={disabled}
+          value={value === null ? '' : String(value)}
+          onChange={(event) =>
+            onChange(event.target.value === '' ? null : event.target.value === 'true')
+          }
+          className="h-9 rounded-md border bg-background px-2.5 text-sm"
+        >
+          <option value="">Clear value</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      ) : property?.kind === 'choice' ? (
+        <select
+          disabled={disabled}
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => onChange(event.target.value || null)}
+          className="h-9 rounded-md border bg-background px-2.5 text-sm"
+        >
+          <option value="">Clear value</option>
+          {property.options?.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : property?.kind === 'longText' ? (
+        <Textarea
+          disabled={disabled}
+          value={value === null ? '' : String(value)}
+          onChange={(event) => onChange(event.target.value || null)}
+        />
+      ) : (
+        <Input
+          disabled={disabled}
+          type={
+            numeric
+              ? 'number'
+              : property?.kind === 'date'
+                ? 'date'
+                : property?.kind === 'email'
+                  ? 'email'
+                  : property?.kind === 'url'
+                    ? 'url'
+                    : property?.kind === 'phone'
+                      ? 'tel'
+                      : 'text'
+          }
+          step={property?.kind === 'money' ? 1 : 'any'}
+          value={value === null ? '' : String(value)}
+          onChange={(event) => {
+            const raw = event.target.value;
+            const next = raw === '' ? null : numeric ? Number(raw) : raw;
+            if (typeof next !== 'number' || Number.isFinite(next)) onChange(next);
+          }}
+        />
+      )}
+    </FormField>
   );
 }

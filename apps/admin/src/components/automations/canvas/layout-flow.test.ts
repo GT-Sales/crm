@@ -138,6 +138,13 @@ describe('layoutFlow', () => {
     const deepNo = result.nodes.find((node) => node.id === 's_deep_no')!;
     expect(deepYes.position.x).toBeLessThan(deepNo.position.x);
 
+    // Wrapping an existing depth-three subtree must also be refused.
+    expect(result.nodes.find((node) => node.id === 'add:steps.0')?.data).toMatchObject({
+      canAddIfElse: false,
+    });
+    expect(result.nodes.find((node) => node.id === 'add:steps.0.then.0')?.data).toMatchObject({
+      canAddIfElse: false,
+    });
     // At depth 3, nested add_step buttons disallow further if_else nesting
     const depth3Add = result.nodes.find((node) => node.id === 'add:steps.0.then.0.then.0.then.0')!;
     expect(depth3Add.data).toMatchObject({

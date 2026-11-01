@@ -366,7 +366,7 @@ function PropertyConditionFields({
   rowLabel: string;
   onChange(next: LeadPropertyFilter): void;
 }): JSX.Element {
-  const selected = properties.find((prop) => prop.key === filter.key) ?? properties[0];
+  const selected = properties.find((prop) => prop.key === filter.key);
   const operators = selected ? leadPropertyOperators(selected.kind) : (['eq', 'notEmpty'] as const);
 
   function buildFilterForOperator(
@@ -501,6 +501,7 @@ function PropertyConditionFields({
           />
         ) : (
           <Input
+            type={selected?.kind === 'date' ? 'date' : 'text'}
             aria-label={`${rowLabel} value`}
             disabled={disabled}
             value={typeof filter.value === 'string' ? filter.value : ''}

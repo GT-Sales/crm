@@ -6,6 +6,7 @@ import {
   automationKeySchema,
   flowDefinitionSchemaFor,
   flowDraftSchemaFor,
+  flowIssueSchema,
   walkDraftSteps,
   type AutomationKey,
   type FlowCatalogResponse,
@@ -30,6 +31,7 @@ import {
   DialogTitle,
 } from '@gt-sales/ui';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 
 import {
   BackendError,
@@ -38,6 +40,7 @@ import {
   discardAutomationDraft,
   getAutomation,
   getAutomationCatalog,
+  getAutomationRun,
   getAutomationVersion,
   listAutomationRuns,
   listAutomations,
@@ -55,9 +58,16 @@ import {
   findStepById,
   insertStepAt,
   removeStepById,
+  moveStepById,
+  stepMoveAvailability,
   updateStepById,
 } from './canvas/draft-mutations';
-import { FlowCanvas } from './canvas/flow-canvas';
+const FlowCanvas = dynamic(
+  () => import('./canvas/flow-canvas').then((module) => module.FlowCanvas),
+  {
+    ssr: false,
+  },
+);
 import { StepSidePanel } from './canvas/step-side-panel';
 import { FlowListView } from './flow-list-view';
 import { namesFromCatalog, namesFromCode, type FlowNames } from './flow-words';
@@ -188,6 +198,10 @@ function ArchiveControl({
   );
 }
 
+export function FlowPage(props: { workspaceSlug: string; flowKey: string }): JSX.Element {
+  return <FlowPageEditor key={`${props.workspaceSlug}:${props.flowKey}`} {...props} />;
+}
+
 /**
  * One automation flow's page (Step B): its visual canvas editor with a
  * right-hand side panel, an accessible "List view" toggle, version controls
@@ -195,7 +209,7 @@ function ArchiveControl({
  * historical version viewer), and the Runs tab with expandable step-by-step
  * outcomes.
  */
-export function FlowPage({
+function FlowPageEditor({
   workspaceSlug,
   flowKey,
 }: {
@@ -257,6 +271,7 @@ export function FlowPage({
   const [confirmingActivate, setConfirmingActivate] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [serverIssues, setServerIssues] = useState<FlowIssue[]>([]);
   const [viewingHistoryVersion, setViewingHistoryVersion] = useState<{
     version: number;
     definition: FlowDefinition | FlowDraft | null;
@@ -264,6 +279,13 @@ export function FlowPage({
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
 
   const revisionRef = useRef<number>(0);
+  // Save requests share a queue: every write uses the revision returned by
+  // its predecessor, and a response only marks the edit it saved as clean.
+  const saveQueueRef = useRef<Promise<FlowDetailResponse | undefined>>(Promise.resolve(undefined));
+  const editGenerationRef = useRef(0);
+  const actionBusyRef = useRef(false);
+  const historyRequestRef = useRef(0);
+  const saveConflictRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -286,6 +308,8 @@ export function FlowPage({
       revisionRef.current = detail.revision;
       mutate((current) => ({ ...current, detail }));
       if (resetLocal) {
+        saveConflictRef.current = false;
+        setServerIssues([]);
         setLocalDraft(initialDraftFromDetail(detail));
         setIsDirty(false);
       }
@@ -294,43 +318,77 @@ export function FlowPage({
   );
 
   const persistDraft = useCallback(
-    async (draftToSave: FlowDraft): Promise<FlowDetailResponse | undefined> => {
-      if (!accessToken || !workspaceId || !key || typeof saveAutomationDraft !== 'function') {
-        return undefined;
-      }
+    (draftToSave: FlowDraft): Promise<FlowDetailResponse | undefined> => {
+      if (!accessToken || !workspaceId || !key) return Promise.resolve(undefined);
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
       }
-      setSaveStatus('saving');
-      setSaveErrorText(undefined);
-      try {
-        const updated = await saveAutomationDraft(accessToken, workspaceId, key, {
-          expectedRevision: revisionRef.current,
-          definition: draftToSave,
-        });
-        revisionRef.current = updated.revision;
-        mutate((current) => ({ ...current, detail: updated }));
-        setIsDirty(false);
-        setSaveStatus('saved');
-        return updated;
-      } catch (caught) {
-        if (caught instanceof BackendError && caught.code === 'version_conflict') {
-          setSaveStatus('conflict');
-          setSaveErrorText(CONFLICT_RELOAD_MESSAGE);
+      const editGeneration = editGenerationRef.current;
+      const save = saveQueueRef.current.then(async () => {
+        if (saveConflictRef.current) return undefined;
+        setSaveStatus('saving');
+        setSaveErrorText(undefined);
+        try {
+          const updated = await saveAutomationDraft(accessToken, workspaceId, key, {
+            expectedRevision: revisionRef.current,
+            definition: draftToSave,
+          });
+          revisionRef.current = updated.revision;
+          mutate((current) => ({ ...current, detail: updated }));
+          if (editGeneration === editGenerationRef.current) {
+            setIsDirty(false);
+            setSaveStatus('saved');
+          } else {
+            setSaveStatus('unsaved');
+          }
+          return updated;
+        } catch (caught) {
+          if (caught instanceof BackendError && caught.code === 'revision_conflict') {
+            saveConflictRef.current = true;
+            setSaveStatus('conflict');
+            setSaveErrorText(CONFLICT_RELOAD_MESSAGE);
+            return undefined;
+          }
+          if (caught instanceof BackendError) {
+            const parsed = flowIssueSchema.array().safeParse(caught.details?.issues);
+            if (parsed.success) setServerIssues(parsed.data);
+          }
+          setSaveStatus('error');
+          setSaveErrorText(changeError(caught, 'The draft was not saved'));
           return undefined;
         }
-        setSaveStatus('error');
-        setSaveErrorText(changeError(caught, 'The draft was not saved'));
-        return undefined;
-      }
+      });
+      saveQueueRef.current = save;
+      return save;
     },
     [accessToken, workspaceId, key, mutate],
   );
 
+  function beginAction(): boolean {
+    if (actionBusyRef.current) return false;
+    actionBusyRef.current = true;
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    setActionBusy(true);
+    setActionError(undefined);
+    return true;
+  }
+
+  function endAction() {
+    actionBusyRef.current = false;
+    setActionBusy(false);
+  }
+
   function scheduleAutosave(nextDraft: FlowDraft) {
+    if (actionBusyRef.current) return;
+    editGenerationRef.current += 1;
+    setServerIssues([]);
     setLocalDraft(nextDraft);
     setIsDirty(true);
+    if (saveConflictRef.current) return;
     setSaveStatus('unsaved');
     setSaveErrorText(undefined);
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
@@ -348,24 +406,54 @@ export function FlowPage({
     }, 0);
   }
 
+  async function refreshWarnings() {
+    if (!accessToken || !workspaceId || !key) return;
+    try {
+      const list = await listAutomations(accessToken, workspaceId);
+      const warnings = list.warnings.filter((warning) =>
+        warning.flows.some((flow) => flow.key === key),
+      );
+      mutate((current) => ({ ...current, warnings }));
+    } catch {
+      // The mutation already succeeded. Keep the last known warnings if the
+      // optional list refresh fails; never report a successful write as failed.
+    }
+  }
+
   async function onToggle(_key: AutomationKey, enabled: boolean): Promise<string | undefined> {
     if (!accessToken || !workspaceId || !key) return SIGNED_OUT;
+    if (!beginAction()) return 'Wait for the current change to finish.';
     try {
+      await saveQueueRef.current;
       const { automation } = await updateAutomation(accessToken, workspaceId, key, { enabled });
       mutate((current) => ({ ...current, detail: { ...current.detail, automation } }));
+      await refreshWarnings();
       return undefined;
     } catch (caught) {
       return changeError(caught);
+    } finally {
+      endAction();
+      // The switch acts on the active version independently of draft validity.
+      // Resume a cancelled debounce without making the switch depend on it.
+      if (isDirty && localDraft && !saveConflictRef.current) void persistDraft(localDraft);
     }
   }
 
   async function onArchive(): Promise<string | undefined> {
     if (!accessToken || !workspaceId || !key) return SIGNED_OUT;
+    if (!beginAction()) return 'Wait for the current change to finish.';
     try {
+      await saveQueueRef.current;
+      if (isDirty && localDraft) {
+        const saved = await persistDraft(localDraft);
+        if (!saved) return 'The draft was not saved. Save or reload it before archiving.';
+      }
       replaceDetail(await archiveAutomation(accessToken, workspaceId, key), true);
       return undefined;
     } catch (caught) {
       return changeError(caught, 'The flow was not archived');
+    } finally {
+      endAction();
     }
   }
 
@@ -382,13 +470,12 @@ export function FlowPage({
   async function handleActivate(): Promise<void> {
     if (!accessToken || !workspaceId || !key || !data) return;
     const draftToActivate = localDraft ?? initialDraftFromDetail(data.detail);
-    setActionBusy(true);
-    setActionError(undefined);
+    if (!beginAction()) return;
     try {
+      await saveQueueRef.current;
       if ((isDirty || data.detail.draft === null) && typeof saveAutomationDraft === 'function') {
         const saved = await persistDraft(draftToActivate);
         if (!saved) {
-          setActionBusy(false);
           return;
         }
       }
@@ -396,16 +483,21 @@ export function FlowPage({
         expectedRevision: revisionRef.current,
       });
       replaceDetail(activated, true);
+      await refreshWarnings();
       setSaveStatus('saved');
       setConfirmingActivate(false);
     } catch (caught) {
-      if (caught instanceof BackendError && caught.code === 'version_conflict') {
+      if (caught instanceof BackendError && caught.code === 'revision_conflict') {
         setActionError(CONFLICT_RELOAD_MESSAGE);
       } else {
+        if (caught instanceof BackendError) {
+          const parsed = flowIssueSchema.array().safeParse(caught.details?.issues);
+          if (parsed.success) setServerIssues(parsed.data);
+        }
         setActionError(changeError(caught, 'The flow was not activated'));
       }
     } finally {
-      setActionBusy(false);
+      endAction();
     }
   }
 
@@ -415,10 +507,13 @@ export function FlowPage({
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
-    setActionBusy(true);
-    setActionError(undefined);
+    if (!beginAction()) return;
     try {
-      if (data.detail.draft !== null && typeof discardAutomationDraft === 'function') {
+      const lastSaved = await saveQueueRef.current;
+      if (
+        (lastSaved?.draft ?? data.detail.draft) !== null &&
+        typeof discardAutomationDraft === 'function'
+      ) {
         const updated = await discardAutomationDraft(accessToken, workspaceId, key);
         replaceDetail(updated, true);
       } else {
@@ -430,7 +525,7 @@ export function FlowPage({
     } catch (caught) {
       setActionError(changeError(caught, 'The draft was not discarded'));
     } finally {
-      setActionBusy(false);
+      endAction();
     }
   }
 
@@ -440,9 +535,9 @@ export function FlowPage({
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
-    setActionBusy(true);
-    setActionError(undefined);
+    if (!beginAction()) return;
     try {
+      await saveQueueRef.current;
       const updated = await resetAutomation(accessToken, workspaceId, key);
       replaceDetail(updated, true);
       setSaveStatus('saved');
@@ -450,11 +545,12 @@ export function FlowPage({
     } catch (caught) {
       setActionError(changeError(caught, 'The flow was not reset'));
     } finally {
-      setActionBusy(false);
+      endAction();
     }
   }
 
   async function handleSelectVersion(value: string): Promise<void> {
+    const request = ++historyRequestRef.current;
     if (value === 'editor' || !accessToken || !workspaceId || !key) {
       setViewingHistoryVersion(undefined);
       return;
@@ -463,6 +559,7 @@ export function FlowPage({
     if (!Number.isFinite(verNum)) return;
     try {
       const response = await getAutomationVersion(accessToken, workspaceId, key, verNum);
+      if (request !== historyRequestRef.current) return;
       const parsed = flowDraftSchemaFor('builtin').safeParse(response.version.definition);
       setViewingHistoryVersion({
         version: verNum,
@@ -470,8 +567,24 @@ export function FlowPage({
       });
       setSelectedNodeId(undefined);
     } catch (caught) {
-      setActionError(changeError(caught, 'The version could not be loaded'));
+      if (request === historyRequestRef.current) {
+        setActionError(changeError(caught, 'The version could not be loaded'));
+      }
     }
+  }
+
+  async function handleLoadRun(run: FlowRun) {
+    if (!accessToken || !workspaceId || !key) throw new Error('signed_out');
+    const [response, version] = await Promise.all([
+      getAutomationRun(accessToken, workspaceId, key, run.id),
+      run.version === null
+        ? Promise.resolve(null)
+        : getAutomationVersion(accessToken, workspaceId, key, run.version),
+    ]);
+    const parsed = flowDraftSchemaFor(data?.detail.automation.origin ?? 'custom').safeParse(
+      version?.version.definition,
+    );
+    return { run: response.run, definition: parsed.success ? parsed.data : null };
   }
 
   async function handleLoadMoreRuns(): Promise<void> {
@@ -537,26 +650,45 @@ export function FlowPage({
     ? viewingHistoryVersion.definition
     : canEdit
       ? workingDraft
-      : (detail.active?.definition ?? detail.draft?.definition ?? null);
+      : (detail.draft?.definition ?? detail.active?.definition ?? null);
 
+  const activationCheck = flowDefinitionSchemaFor(flow.origin).safeParse(workingDraft);
+  const localIssues: FlowIssue[] = activationCheck.success
+    ? []
+    : activationCheck.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        code: 'definition_invalid',
+        ref: issue.path.join('.'),
+      }));
   const currentIssues: readonly FlowIssue[] = viewingHistoryVersion
     ? []
-    : (detail.draft?.issues ?? (flow.needsAttention ? [flow.needsAttention] : []));
+    : [
+        ...(detail.draft?.issues ?? (flow.needsAttention ? [flow.needsAttention] : [])),
+        ...(canEdit ? localIssues : []),
+        ...serverIssues,
+      ];
 
-  const validForActivation = flowDefinitionSchemaFor(flow.origin).safeParse(workingDraft).success;
+  const validForActivation = activationCheck.success;
   const needsLeadsPermission = hasLeadChangingDraftStep(workingDraft.steps) && !canManageLeads;
   const hasSiteIssues = (detail.draft?.issues.length ?? 0) > 0 && !isDirty;
   const activateDisabled =
-    !canEdit || actionBusy || needsLeadsPermission || !validForActivation || hasSiteIssues;
+    !canEdit ||
+    actionBusy ||
+    saveStatus === 'conflict' ||
+    needsLeadsPermission ||
+    !validForActivation ||
+    hasSiteIssues;
   const activateDisabledReason = !detail.canManage
     ? NEEDS_INTEGRATIONS
-    : needsLeadsPermission
-      ? NEEDS_LEADS_FOR_ACTIVATION
-      : !validForActivation
-        ? 'Complete the trigger and every step before activating.'
-        : hasSiteIssues
-          ? 'Fix the items marked Needs attention before activating.'
-          : undefined;
+    : saveStatus === 'conflict'
+      ? CONFLICT_RELOAD_MESSAGE
+      : needsLeadsPermission
+        ? NEEDS_LEADS_FOR_ACTIVATION
+        : !validForActivation
+          ? 'Complete the trigger and every step before activating.'
+          : hasSiteIssues
+            ? 'Fix the items marked Needs attention before activating.'
+            : undefined;
 
   const selectedStepInfo =
     selectedNodeId && selectedNodeId !== 'trigger' && displayedDefinition
@@ -580,6 +712,26 @@ export function FlowPage({
               issue.path.startsWith(`${selectedStepInfo.path}.`),
           )
         : [];
+
+  function addStep(sequencePath: string, index: number, kind: FlowStepKind) {
+    if (!canEdit) return;
+    const inserted = insertStepAt(workingDraft, sequencePath, index, kind);
+    if (inserted.movedToYesCount > 0) {
+      setInfoNotice(
+        `Moved ${inserted.movedToYesCount} following step${
+          inserted.movedToYesCount === 1 ? '' : 's'
+        } into the Yes branch (If/else is always the last step of its path).`,
+      );
+    } else {
+      setInfoNotice(undefined);
+    }
+    scheduleAutosave(inserted.draft);
+    setSelectedNodeId(inserted.stepId);
+  }
+
+  const moveAvailability = selectedStepInfo
+    ? stepMoveAvailability(workingDraft.steps, selectedStepInfo.step.id)
+    : { up: false, down: false };
 
   const uncorruptedDefinition =
     detail.active === null ||
@@ -664,6 +816,7 @@ export function FlowPage({
               size="sm"
               variant="outline"
               onClick={() => {
+                saveConflictRef.current = false;
                 setIsDirty(false);
                 setSaveStatus('idle');
                 setSaveErrorText(undefined);
@@ -768,13 +921,13 @@ export function FlowPage({
               </select>
             ) : null}
 
-            {canEdit ? (
+            {!flow.archived && viewingHistoryVersion === undefined ? (
               <>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={saveStatus === 'saving' || actionBusy}
+                  disabled={!canEdit || saveStatus === 'saving' || actionBusy}
                   onClick={() => void persistDraft(workingDraft)}
                 >
                   Save draft
@@ -793,7 +946,7 @@ export function FlowPage({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    disabled={actionBusy}
+                    disabled={!canEdit || actionBusy}
                     onClick={() => void handleDiscardDraft()}
                   >
                     Discard draft
@@ -804,7 +957,7 @@ export function FlowPage({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    disabled={actionBusy}
+                    disabled={!canEdit || actionBusy}
                     onClick={() => void handleResetBuiltIn()}
                   >
                     Reset to default
@@ -816,7 +969,7 @@ export function FlowPage({
         ) : null}
       </div>
 
-      {activeTab === 'flow' && canEdit && activateDisabledReason ? (
+      {activeTab === 'flow' && activateDisabledReason ? (
         <p id={activateReasonId} className="text-xs text-muted-foreground">
           {activateDisabledReason}
         </p>
@@ -829,41 +982,33 @@ export function FlowPage({
           </h2>
           {!uncorruptedDefinition || displayedDefinition === null ? (
             <NoDefinition detail={detail} />
-          ) : viewMode === 'list' ? (
-            displayedDefinition.trigger === null && displayedDefinition.steps.length === 0 ? (
-              <NoDefinition detail={detail} />
-            ) : (
-              <FlowListView definition={displayedDefinition} names={names} />
-            )
           ) : (
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
               <div className="min-w-0 flex-1">
                 {displayedDefinition.trigger === null && displayedDefinition.steps.length === 0 ? (
                   <p className="mb-2 text-sm text-muted-foreground">No trigger yet.</p>
                 ) : null}
-                <FlowCanvas
-                  definition={displayedDefinition}
-                  issues={currentIssues}
-                  names={names}
-                  readOnly={!canEdit}
-                  selectedId={selectedNodeId}
-                  onSelectNode={(id) => setSelectedNodeId(id)}
-                  onAddStep={(sequencePath, index, kind: FlowStepKind) => {
-                    if (!canEdit) return;
-                    const inserted = insertStepAt(workingDraft, sequencePath, index, kind);
-                    if (inserted.movedToYesCount > 0) {
-                      setInfoNotice(
-                        `Moved ${inserted.movedToYesCount} following step${
-                          inserted.movedToYesCount === 1 ? '' : 's'
-                        } into the Yes branch (If/else is always the last step of its path).`,
-                      );
-                    } else {
-                      setInfoNotice(undefined);
-                    }
-                    scheduleAutosave(inserted.draft);
-                    setSelectedNodeId(inserted.stepId);
-                  }}
-                />
+                {viewMode === 'list' ? (
+                  <FlowListView
+                    definition={displayedDefinition}
+                    names={names}
+                    issues={currentIssues}
+                    readOnly={!canEdit || actionBusy}
+                    selectedId={selectedNodeId}
+                    onSelectNode={setSelectedNodeId}
+                    onAddStep={addStep}
+                  />
+                ) : (
+                  <FlowCanvas
+                    definition={displayedDefinition}
+                    issues={currentIssues}
+                    names={names}
+                    readOnly={!canEdit || actionBusy}
+                    selectedId={selectedNodeId}
+                    onSelectNode={(id) => setSelectedNodeId(id)}
+                    onAddStep={addStep}
+                  />
+                )}
               </div>
 
               {selectedNodeId && (selectedNodeId === 'trigger' || selectedStepInfo) ? (
@@ -874,7 +1019,7 @@ export function FlowPage({
                   step={selectedStepInfo?.step}
                   issues={selectedIssues}
                   catalog={data.catalog}
-                  readOnly={!canEdit}
+                  readOnly={!canEdit || actionBusy}
                   onUpdateTrigger={(nextTrigger: FlowDraftTrigger) => {
                     if (!canEdit) return;
                     scheduleAutosave({ ...workingDraft, trigger: nextTrigger });
@@ -882,6 +1027,12 @@ export function FlowPage({
                   onUpdateStep={(stepId, updater) => {
                     if (!canEdit) return;
                     scheduleAutosave(updateStepById(workingDraft, stepId, updater));
+                  }}
+                  canMoveUp={moveAvailability.up}
+                  canMoveDown={moveAvailability.down}
+                  onMoveStep={(stepId, direction) => {
+                    if (!canEdit) return;
+                    scheduleAutosave(moveStepById(workingDraft, stepId, direction));
                   }}
                   onRemoveStep={(stepId) => {
                     if (!canEdit) return;
@@ -905,6 +1056,8 @@ export function FlowPage({
           runs={data.runs}
           definition={detail.active?.definition ?? workingDraft}
           names={names}
+          definitionVersion={detail.active?.version}
+          onLoadRun={handleLoadRun}
           nextBefore={data.runsNextBefore}
           loadingMore={loadingMoreRuns}
           onLoadMore={handleLoadMoreRuns}

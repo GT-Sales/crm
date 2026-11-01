@@ -1252,7 +1252,14 @@ owner-approved; owner decisions O1 to O13). Phase 7 (Canadian Plans' move) was
 dropped by the owner the same day: Canadian Plans is out of scope; GT Sales
 only. Step B (the visual canvas editor, the Runs tab with expandable step
 outcomes and Settings → Email "New template" with sample property values for
-test sends) is built in `phase-8-step-b`.
+test sends) is built in `phase-8-step-b`. The 2026-11-01 review fixes draft
+save races, revision-conflict recovery, historical run descriptions, list-view
+editing, moving steps within a path, typed property inputs and branch-depth
+checks. Step B is not merged or deployed; the release still needs the owner's OK.
+Local review gate: 2,482 tests (211 files, none skipped), 47 tooling tests,
+lint/typecheck/format, unchanged generated OpenAPI, production admin build,
+and all 14 lead journeys normally and under UTC passed. Findings and screenshot:
+[Step B review](review/phase-8-step-b.md).
 
 1. **Flows.** Every automation is a flow: a trigger (`lead_submitted`,
    `stage_entered`, `time_in_stage`, `task_overdue`, `after_submitted`) and
@@ -1301,11 +1308,14 @@ test sends) is built in `phase-8-step-b`.
    branches, `flow-canvas.tsx` `@xyflow/react` board with `+` step menus,
    `step-side-panel.tsx` right-hand editor with task variable picker,
    `condition-builder.tsx` and `draft-mutations.ts`), an accessible "List view"
-   toggle (`flow-list-view.tsx`), debounced draft autosave with Save draft,
+   toggle with the same editing controls (`flow-list-view.tsx`), serialized
+   debounced draft autosave that preserves edits made during a request, with Save draft,
    Activate (with confirmation and `lead.manage` disabled-reason check),
    Discard draft, Reset to default for built-ins, historical version viewer,
    Archive and Restore for custom flows, and the Runs tab (`automation-runs.tsx`)
-   with expandable step-by-step outcomes in plain words (`flow-words.ts`).
+   with expandable step-by-step outcomes from the run's immutable version in
+   plain words (`flow-words.ts`). The canvas is dynamically loaded; the step
+   panel can move an action within its path without moving it past an If/else.
    Settings → Email (`apps/admin/src/components/email/`) has "New template",
    site-made template editing, "Used by" flow links, and Archive / Restore
    with archived templates listing.

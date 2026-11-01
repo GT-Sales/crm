@@ -155,6 +155,52 @@ export function removeStepById(draft: FlowDraft, stepId: string): FlowDraft {
   return { ...draft, steps: filterSequence(draft.steps) };
 }
 
+/** Moving never crosses a branch boundary or puts an action after a split. */
+export function stepMoveAvailability(
+  steps: readonly FlowDraftStep[],
+  stepId: string,
+): { up: boolean; down: boolean } {
+  const index = steps.findIndex((step) => step.id === stepId);
+  if (index >= 0) {
+    return {
+      up: index > 0 && steps[index]?.kind !== 'if_else',
+      down: index < steps.length - 1 && steps[index + 1]?.kind !== 'if_else',
+    };
+  }
+  for (const step of steps) {
+    if (step.kind !== 'if_else') continue;
+    if (findStepById(step.then, stepId)) return stepMoveAvailability(step.then, stepId);
+    if (findStepById(step.else, stepId)) return stepMoveAvailability(step.else, stepId);
+  }
+  return { up: false, down: false };
+}
+
+export function moveStepById(
+  draft: FlowDraft,
+  stepId: string,
+  direction: 'up' | 'down',
+): FlowDraft {
+  if (!stepMoveAvailability(draft.steps, stepId)[direction]) return draft;
+  const found = findStepById(draft.steps, stepId);
+  if (!found) return draft;
+  const parts = found.path.split('.').slice(1);
+  const index = Number(parts.pop());
+  return {
+    ...draft,
+    steps: updateSequenceAtPath(draft.steps, parts, (sequence) => {
+      const result = [...sequence];
+      const destination = index + (direction === 'up' ? -1 : 1);
+      const moving = result[index];
+      const adjacent = result[destination];
+      if (moving && adjacent) {
+        result[index] = adjacent;
+        result[destination] = moving;
+      }
+      return result;
+    }),
+  };
+}
+
 export function findStepById(
   steps: readonly (FlowStep | FlowDraftStep)[],
   stepId: string,

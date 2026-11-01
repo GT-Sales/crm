@@ -155,7 +155,8 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   editor (`src/components/automations/canvas/`: `layout-flow.ts` auto-layout,
   `flow-canvas.tsx` `@xyflow/react` board, `step-side-panel.tsx` right-hand
   step/trigger editor, `condition-builder.tsx` and `draft-mutations.ts`),
-  accessible `flow-list-view.tsx` toggle and expandable Runs tab in
+  accessible `flow-list-view.tsx` editor toggle (same add/edit controls, with
+  within-path movement in the step panel) and expandable Runs tab in
   `src/components/automations/` (`flow-words.ts` puts a flow and its step
   outcomes in words); API client
   `apps/admin/src/lib/api.ts`.

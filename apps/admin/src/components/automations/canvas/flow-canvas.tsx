@@ -351,10 +351,21 @@ export function FlowCanvas({
 }): JSX.Element {
   const [openMenuId, setOpenMenuId] = useState<string>();
 
-  const { nodes, edges } = useMemo(
-    () => layoutFlow(definition, { issues, readOnly, names }),
-    [definition, issues, readOnly, names],
-  );
+  const { nodes, edges } = useMemo(() => {
+    const layout = layoutFlow(definition, { issues, readOnly, names });
+    return {
+      ...layout,
+      // React Flow transforms each node into its own stacking context.
+      // Lift the open menu's node above later cards, not just its children.
+      nodes: layout.nodes.map((node): FlowCanvasNode => ({
+        ...node,
+        zIndex: node.id === openMenuId ? 1000 : 0,
+        // Fixed, non-selectable nodes still contain interactive buttons.
+        // React Flow otherwise disables pointer events on their wrappers.
+        style: { ...node.style, pointerEvents: 'all' },
+      })),
+    };
+  }, [definition, issues, readOnly, names, openMenuId]);
 
   const contextValue = useMemo<CanvasContextValue>(
     () => ({
@@ -386,6 +397,8 @@ export function FlowCanvas({
           onlyRenderVisibleElements={false}
           nodesDraggable={false}
           nodesConnectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
           elementsSelectable={false}
           zoomOnDoubleClick={false}
           fitView
@@ -396,7 +409,10 @@ export function FlowCanvas({
           onPaneClick={() => setOpenMenuId(undefined)}
         >
           <Background gap={16} size={1} />
-          <Controls showInteractive={false} />
+          <Controls
+            showInteractive={false}
+            className="[&>button]:!border-border [&>button]:!bg-card [&>button]:!text-foreground [&>button:hover]:!bg-accent"
+          />
         </ReactFlow>
       </div>
     </CanvasContext.Provider>
