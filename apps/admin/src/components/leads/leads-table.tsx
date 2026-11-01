@@ -12,6 +12,7 @@ import {
   type PropertyCatalog,
 } from '@gt-sales/contracts';
 import { Button, cn } from '@gt-sales/ui';
+import { UserRoundIcon } from 'lucide-react';
 
 import { getStaffLeads } from '../../lib/api';
 import {
@@ -33,12 +34,12 @@ const PAGE_SIZE = 50;
 
 // A roomy list: 14px text, the lead's name over its email or phone, a soft
 // rule between rows and no pinned column; wide tables scroll sideways whole.
-const HEAD_CELL = 'px-3 py-2 font-medium';
-const CELL = 'px-3 py-2';
+const HEAD_CELL = 'px-4 py-3 font-medium';
+const CELL = 'px-4 py-3';
 
 export const DUE_TONE_CLASS = {
-  overdue: 'text-rose-300',
-  today: 'text-amber-300',
+  overdue: 'text-rose-700 dark:text-rose-300',
+  today: 'text-amber-700 dark:text-amber-300',
   upcoming: 'text-muted-foreground',
 } as const;
 
@@ -367,6 +368,12 @@ export function LeadsTable({
                   >
                     <td className={cn(CELL, 'max-w-[260px]')}>
                       <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className="mr-1 flex size-8 shrink-0 items-center justify-center rounded-full border bg-muted/50"
+                          aria-hidden="true"
+                        >
+                          <UserRoundIcon className="size-3.5 text-muted-foreground" />
+                        </span>
                         <Link
                           href={leadHref(lead)}
                           data-lead-id={lead.id}

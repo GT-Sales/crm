@@ -8,8 +8,15 @@ import {
   leadTypeLabel,
   type LeadStatsResponse,
 } from '@gt-sales/contracts';
-import { Card, CardContent, NativeSelect, cn } from '@gt-sales/ui';
-import { BellRingIcon } from 'lucide-react';
+import { Button, Card, CardContent, NativeSelect, cn } from '@gt-sales/ui';
+import {
+  ArrowUpRightIcon,
+  BellRingIcon,
+  ChartColumnIcon,
+  CircleCheckIcon,
+  InboxIcon,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { getLeadsSummary, getLeadStats, listStaffTasks } from '../lib/api';
 import { dueTone, followUpLabel, todayDay } from '../lib/dates';
@@ -62,12 +69,22 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
   const stats = useResource(loadStats);
   const period = WINDOWS.find((entry) => entry.days === days)?.period ?? 'all time';
   const followUpsDue = types.find((entry) => entry.leadType === leadType)?.followUpsDue ?? 0;
+  const snapshot = stats.data;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">What needs doing on this site today.</p>
+    <div className="crm-dashboard flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Workspace overview</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">What needs doing on this site today.</p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href={`/w/${workspaceSlug}/leads`}>
+            Open leads
+            <ArrowUpRightIcon className="size-4" />
+          </Link>
+        </Button>
       </div>
 
       {leadType ? (
@@ -122,19 +139,18 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       ) : null}
 
-      <FollowUpsDue workspaceSlug={workspaceSlug} />
-
       {leadType && stats.data ? (
         <div
           className={cn(
-            'grid grid-cols-1 gap-4 md:grid-cols-7',
+            'grid grid-cols-1 gap-6 xl:grid-cols-3',
             stats.loading && 'opacity-60 transition-opacity',
           )}
         >
-          <Card className="md:col-span-4">
-            <CardContent className="flex flex-col gap-3">
+          <Card className="xl:col-span-2">
+            <CardContent className="flex flex-col gap-6">
               <div>
-                <h2 className="text-base font-semibold">
+                <h2 className="flex items-center gap-2 text-base font-semibold">
+                  <ChartColumnIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                   {leadTypeLabel(stats.data.leadType)} volume
                 </h2>
                 <p className="text-sm text-muted-foreground">
@@ -149,7 +165,50 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
               />
             </CardContent>
           </Card>
-          <Card className="md:col-span-3">
+          <FollowUpsDue workspaceSlug={workspaceSlug} />
+          {leadTypeEntry(stats.data.leadType)?.outcomes ? (
+            <Card className="xl:col-span-2">
+              <CardContent className="flex flex-col gap-5">
+                <div>
+                  <h2 className="text-base font-semibold">Pipeline overview</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Where {leadTypeLabel(stats.data.leadType).toLowerCase()} leads stand over{' '}
+                    {period}.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {snapshot?.stages.map((stage) => (
+                    <Link
+                      key={stage.stage}
+                      href={`/w/${workspaceSlug}/leads?type=${snapshot.leadType}&stage=${stage.stage}`}
+                      className="group rounded-lg border p-3 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="mb-2 flex items-center justify-between gap-3 text-sm">
+                        <span className="text-muted-foreground">
+                          {leadStageLabel(snapshot.leadType, stage.stage)}
+                        </span>
+                        <span className="font-semibold tabular-nums">
+                          {stage.total.toLocaleString('en-CA')}
+                        </span>
+                      </span>
+                      <span
+                        className="block h-1.5 overflow-hidden rounded-full bg-muted"
+                        aria-hidden="true"
+                      >
+                        <span
+                          className="block h-full rounded-full bg-foreground/75 group-hover:bg-primary"
+                          style={{
+                            width: `${snapshot.total > 0 ? (stage.total / snapshot.total) * 100 : 0}%`,
+                          }}
+                        />
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+          <Card>
             <CardContent className="flex flex-col gap-3">
               <div>
                 <h2 className="text-base font-semibold">Top partners</h2>
@@ -162,6 +221,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
           </Card>
         </div>
       ) : null}
+      {!leadType || !stats.data ? <FollowUpsDue workspaceSlug={workspaceSlug} /> : null}
     </div>
   );
 }
@@ -172,21 +232,26 @@ function Tile({
   value,
   hint,
   children,
+  icon: Icon = InboxIcon,
 }: {
   label: string;
   value: number;
   hint: string;
   children?: ReactNode;
+  icon?: LucideIcon;
 }) {
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">{label}</h2>
-        <p className="text-3xl font-semibold tracking-tight">{value.toLocaleString('en-CA')}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-        {children}
-      </CardContent>
-    </Card>
+    <div className="crm-stat flex flex-col gap-2 p-5 md:p-6">
+      <h2 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <Icon className="size-4" aria-hidden="true" />
+        {label}
+      </h2>
+      <p className="text-3xl font-semibold tracking-tight tabular-nums">
+        {value.toLocaleString('en-CA')}
+      </p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      {children}
+    </div>
   );
 }
 
@@ -218,9 +283,9 @@ function StatTiles({
   );
   if (!outcomes) {
     return (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <div className="crm-stat-grid grid grid-cols-1 overflow-hidden rounded-2xl border bg-card sm:grid-cols-2 lg:grid-cols-4">
         {received}
-        <Card className="md:col-span-3">
+        <Card className="sm:col-span-2 lg:col-span-3">
           <CardContent className="flex flex-col gap-2">
             <h2 className="text-sm font-medium">By stage</h2>
             <ul className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
@@ -241,20 +306,22 @@ function StatTiles({
   const lost = count(outcomes.lost.stages);
   const rate = stats.total > 0 ? (lost / stats.total) * 100 : 0;
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+    <div className="crm-stat-grid grid grid-cols-1 overflow-hidden rounded-2xl border bg-card sm:grid-cols-2 lg:grid-cols-4">
       {received}
       <Tile
+        icon={CircleCheckIcon}
         label={outcomes.done.label}
         value={count(outcomes.done.stages)}
         hint={outcomes.done.hint}
       />
       <Tile
+        icon={BellRingIcon}
         label={outcomes.waiting.label}
         value={count(outcomes.waiting.stages)}
         hint={outcomes.waiting.hint}
       >
         {followUpsDue > 0 ? (
-          <p className="text-xs font-medium text-amber-300">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
             {followUpsDue} follow-up{followUpsDue === 1 ? '' : 's'} due
           </p>
         ) : null}
@@ -299,7 +366,10 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-base font-semibold">
-              <BellRingIcon className="size-4 text-amber-400" aria-hidden="true" />
+              <BellRingIcon
+                className="size-4 text-amber-700 dark:text-amber-400"
+                aria-hidden="true"
+              />
               Follow-ups due
             </h2>
             <p className="text-sm text-muted-foreground">
@@ -308,7 +378,7 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
           </div>
           {due.data ? (
             <span
-              className="rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-sm text-amber-300 tabular-nums"
+              className="rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-sm text-amber-700 dark:text-amber-300 tabular-nums"
               aria-label={`${total} due`}
             >
               {total}
@@ -354,8 +424,8 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
                       className={cn(
                         'shrink-0 rounded-md border px-2 py-0.5 text-xs whitespace-nowrap',
                         dueTone(task.dueAt) === 'overdue'
-                          ? 'border-rose-500/30 bg-rose-500/15 text-rose-300'
-                          : 'border-amber-500/30 bg-amber-500/15 text-amber-300',
+                          ? 'border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                          : 'border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300',
                       )}
                     >
                       {followUpLabel(task.dueAt)}

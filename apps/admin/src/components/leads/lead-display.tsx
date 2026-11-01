@@ -11,28 +11,28 @@ import { initials } from '../../lib/people';
  */
 
 const STAGE_TONES: Record<string, string> = {
-  new: 'border-sky-500/30 bg-sky-500/15 text-sky-300',
-  contacted: 'border-amber-500/30 bg-amber-500/15 text-amber-300',
-  replied: 'border-amber-500/30 bg-amber-500/15 text-amber-300',
-  qualified: 'border-violet-500/30 bg-violet-500/15 text-violet-300',
-  existing_shaw: 'border-orange-500/30 bg-orange-500/15 text-orange-300',
-  non_serviceable_address: 'border-rose-500/30 bg-rose-500/15 text-rose-300',
-  old_due: 'border-yellow-500/30 bg-yellow-500/15 text-yellow-300',
-  installed: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-300',
-  activated: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300',
+  new: 'border-sky-500/30 bg-sky-500/15 text-sky-700 dark:text-sky-300',
+  contacted: 'border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  replied: 'border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  qualified: 'border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300',
+  existing_shaw: 'border-orange-500/30 bg-orange-500/15 text-orange-700 dark:text-orange-300',
+  non_serviceable_address: 'border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  old_due: 'border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300',
+  installed: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-700 dark:text-cyan-300',
+  activated: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   // A SIM order's stages (an order's lifecycle, its payment kept apart).
-  incomplete: 'border-gray-500/30 bg-gray-500/15 text-gray-300',
-  pending: 'border-amber-500/30 bg-amber-500/15 text-amber-300',
-  verified: 'border-blue-500/30 bg-blue-500/15 text-blue-300',
-  on_hold: 'border-slate-500/30 bg-slate-500/15 text-slate-300',
-  delivered: 'border-violet-500/30 bg-violet-500/15 text-violet-300',
-  completed: 'border-green-500/30 bg-green-500/15 text-green-300',
-  cancelled: 'border-rose-500/30 bg-rose-500/15 text-rose-300',
-  won: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300',
-  approved: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300',
-  lost: 'border-zinc-500/30 bg-zinc-500/15 text-zinc-300',
-  declined: 'border-zinc-500/30 bg-zinc-500/15 text-zinc-300',
-  closed: 'border-zinc-500/30 bg-zinc-500/15 text-zinc-300',
+  incomplete: 'border-gray-500/30 bg-gray-500/15 text-gray-700 dark:text-gray-300',
+  pending: 'border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  verified: 'border-blue-500/30 bg-blue-500/15 text-blue-700 dark:text-blue-300',
+  on_hold: 'border-slate-500/30 bg-slate-500/15 text-slate-700 dark:text-slate-300',
+  delivered: 'border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300',
+  completed: 'border-green-500/30 bg-green-500/15 text-green-700 dark:text-green-300',
+  cancelled: 'border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  won: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  approved: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  lost: 'border-zinc-500/30 bg-zinc-500/15 text-zinc-700 dark:text-zinc-300',
+  declined: 'border-zinc-500/30 bg-zinc-500/15 text-zinc-700 dark:text-zinc-300',
+  closed: 'border-zinc-500/30 bg-zinc-500/15 text-zinc-700 dark:text-zinc-300',
 };
 
 const STAGE_DOTS: Record<string, string> = {
@@ -64,8 +64,8 @@ export function stageDotClass(stage: string): string {
 }
 
 const COUNTDOWN_TONE_CLASS = {
-  today: 'text-rose-300',
-  soon: 'text-amber-300',
+  today: 'text-rose-700 dark:text-rose-300',
+  soon: 'text-amber-700 dark:text-amber-300',
   upcoming: 'text-muted-foreground',
 } as const;
 

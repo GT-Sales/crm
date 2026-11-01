@@ -134,7 +134,7 @@ describe('LeadsTable', () => {
     expect(name.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // No pinned name column and no cell grid.
     expect(cell?.className).not.toContain('sticky');
-    expect(cell?.className).toContain('py-2');
+    expect(cell?.className).toContain('py-3');
     expect(name.closest('table')?.className).not.toContain('border-separate');
     expect(name.closest('tr')?.className).toContain('border-b');
   });

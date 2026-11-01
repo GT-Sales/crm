@@ -1255,7 +1255,9 @@ outcomes and Settings → Email "New template" with sample property values for
 test sends) is built in `phase-8-step-b`. The 2026-11-01 review fixes draft
 save races, revision-conflict recovery, historical run descriptions, list-view
 editing, moving steps within a path, typed property inputs and branch-depth
-checks. Step B is not merged or deployed; the release still needs the owner's OK.
+checks. Step B merged with the owner's OK on 2026-11-01 (PR #13, merge
+`c29f1cd`); Railway and Vercel deployments succeeded, and backend health and
+the admin login both returned 200.
 Local review gate: 2,482 tests (211 files, none skipped), 47 tooling tests,
 lint/typecheck/format, unchanged generated OpenAPI, production admin build,
 and all 14 lead journeys normally and under UTC passed. Findings and screenshot:
@@ -1342,6 +1344,18 @@ and all 14 lead journeys normally and under UTC passed. Findings and screenshot:
    null, needs attention `definition_invalid`); the version guard refuses
    every move of an activated version but `active → retired`; the runs grant
    is five columns.
+
+### 3.11 2026-11-01: admin design refresh
+
+Owner-requested redesign based on the supplied Shadcnblocks admin kit, blocks
+and live reference. Built on `claude/shadcnblocks-admin-redesign`, pending
+review/release: light default with persisted dark mode; grouped sidebar,
+compact header and keyboard page finder; KPI strip, volume/partner charts and
+linked pipeline counts; refreshed lead tables, records, stage board and task
+groups; contextual settings navigation and a useful Documents entry page.
+The design mapping is in [the design notes](design/2026-11-01-admin-redesign.md).
+Styles are admin-scoped; existing permissions, data and actions still apply.
+No environment variables, dependencies, database or contract changes.
 
 ## 4. What is verified, and how
 

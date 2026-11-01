@@ -19,11 +19,16 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  // Admin is dark-only. Force the `.dark` palette on the root instead of
-  // wiring a theme toggle; the shared @gt-sales/ui tokens keep the light
-  // palette for storefronts that want it.
   return (
-    <html lang="en" className={`dark ${inter.variable}`}>
+    <html lang="en" className={`crm-ui ${inter.variable}`} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('gt-sales-theme');document.documentElement.classList.toggle('dark',t==='dark');document.documentElement.style.colorScheme=t==='dark'?'dark':'light'}catch(e){}",
+          }}
+        />
+      </head>
       <body>
         <SkipLink />
         <StaffSessionProvider>{children}</StaffSessionProvider>

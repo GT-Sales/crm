@@ -385,7 +385,11 @@ panel, the Runs tab with expandable step outcomes, and Settings → Email "New
 template" with sample property values for test sends) is built. The 2026-11-01
 review adds safe serialized draft saving, historical run version loading,
 accessible list editing and step movement, and property and nesting guards.
-Step B awaits the owner's merge approval and deployment. The CRM's own open items (the cross-site inbox, the
+Step B merged and deployed 2026-11-01 (PR #13, `c29f1cd`). The owner's next
+design request adapts Shadcnblocks to the staff app: light/dark themes,
+navigation, dashboard, lists/records, boards/tasks and settings (implementation
+and references: `docs/design/2026-11-01-admin-redesign.md`; pending review/release).
+The CRM's own open items (the cross-site inbox, the
 contact page and split/merge) move to a small phase 3b of their own (ruling of 2026-10-30); the cutover
 clean-up waits for staff to move to the CRM (docs/HANDOFF.md §5.1).
 

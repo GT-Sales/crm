@@ -1,5 +1,4 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gt-sales/ui';
-import Link from 'next/link';
 
 import { DisplayNameForm } from '../../../../components/display-name-form';
 import { ServiceCredentialsManager } from '../../../../components/service-credentials-manager';
@@ -15,30 +14,21 @@ export default async function SettingsPage({ params }: { params: Promise<{ works
           <h1>Settings</h1>
         </CardTitle>
         <CardDescription>
-          Workspace access is enforced by the backend on every request.
+          Manage your profile, team and website access for this site.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-10">
+      <CardContent className="crm-settings-sections flex flex-col gap-10">
         <DisplayNameForm workspaceSlug={workspace} />
         <TeamList workspaceSlug={workspace} />
-        <StaffInviteForm workspaceSlug={workspace} />
-        <nav aria-label="More settings" className="flex flex-col gap-2">
-          <Link
-            className="text-sm font-medium underline"
-            href={`/w/${workspace}/settings/properties`}
-          >
-            Properties and record layouts
-          </Link>
-          <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/plans`}>
-            Plans
-          </Link>
-          <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/email`}>
-            Email
-          </Link>
-          <Link className="text-sm font-medium underline" href={`/w/${workspace}/settings/jobs`}>
-            View background jobs
-          </Link>
-        </nav>
+        <section className="flex flex-col gap-4">
+          <div>
+            <h2 className="font-semibold">Invite a teammate</h2>
+            <p className="text-sm text-muted-foreground">
+              Choose the roles they need to work on this site.
+            </p>
+          </div>
+          <StaffInviteForm workspaceSlug={workspace} />
+        </section>
         <ServiceCredentialsManager workspaceSlug={workspace} />
       </CardContent>
     </Card>

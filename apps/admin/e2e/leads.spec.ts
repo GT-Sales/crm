@@ -418,7 +418,7 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   // Settings → Plans: the owner adds a SIM order plan beside the two seeded ones.
   await page.goto('/w/getcanadasim/settings');
   await page
-    .getByRole('navigation', { name: 'More settings' })
+    .getByRole('navigation', { name: 'Settings sections' })
     .getByRole('link', { name: 'Plans', exact: true })
     .click();
   await expect(page.getByRole('heading', { level: 1, name: 'Plans' })).toBeVisible();
@@ -631,7 +631,7 @@ test('a SIM order is approved, dispatched and activated by automations, and a te
   // Settings → Email: the Dispatched email is edited, previewed and saved as version 2.
   await page.goto('/w/getcanadasim/settings');
   await page
-    .getByRole('navigation', { name: 'More settings' })
+    .getByRole('navigation', { name: 'Settings sections' })
     .getByRole('link', { name: 'Email', exact: true })
     .click();
   const dispatchedEmail = page
@@ -908,5 +908,61 @@ test('a custom flow is built on the canvas with an if/else, activated, switched 
   const stepOutcomes = runs.first().getByRole('list', { name: 'Step outcomes for Omar Haddad' });
   await expect(stepOutcomes).toContainText('Done (No branch)');
   await expect(stepOutcomes).toContainText('Done');
+  expect(errors).toEqual([]);
+});
+
+test('the redesigned workspace supports page finding, persistent themes and narrow screens', async ({
+  page,
+}, testInfo) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/dashboard');
+  await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+  await page.keyboard.press('Control+k');
+  const finder = page.getByRole('dialog', { name: 'Go to a page' });
+  await finder.getByRole('textbox', { name: 'Find a page' }).fill('settings');
+  await finder.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
+  await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Switch to light mode' })).toBeVisible();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByRole('button', { name: 'Switch to light mode' }).click();
+
+  const pages: { route: string; title: string }[] = [
+    { route: 'dashboard', title: 'Dashboard' },
+    { route: 'leads?type=sim_order', title: 'Leads' },
+    { route: 'tasks', title: 'My tasks' },
+    { route: 'settings', title: 'Settings' },
+    { route: 'documents', title: 'Documents' },
+  ];
+  for (const { route, title } of pages) {
+    await page.goto(`/w/getcanadasim/${route}`);
+    await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible();
+    if (route === 'dashboard')
+      await expect(page.getByRole('heading', { name: 'Received', exact: true })).toBeVisible();
+    if (route.startsWith('leads'))
+      await expect(page.getByRole('link', { name: 'Omar Haddad', exact: true })).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`design-${title.toLowerCase().replaceAll(' ', '-')}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/w/getcanadasim/dashboard');
+  await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pipeline overview' })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(391);
+  await page.screenshot({
+    path: testInfo.outputPath('design-mobile-dashboard.png'),
+    fullPage: true,
+  });
+  await page.goto('/w/getcanadasim/settings');
+  await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(391);
   expect(errors).toEqual([]);
 });

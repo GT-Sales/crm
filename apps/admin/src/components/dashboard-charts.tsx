@@ -9,7 +9,7 @@ import { cn } from '@gt-sales/ui';
  * they came through. One series each, so one hue (validated against the
  * admin's dark card surface) and no legend: the card title names it.
  */
-const SERIES = '#3987e5';
+const SERIES = 'var(--chart-1)';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -115,7 +115,7 @@ export function VolumeChart({
           onFocus={() => setActive((current) => current ?? series.length - 1)}
           onBlur={() => setActive(undefined)}
           onPointerLeave={() => setActive(undefined)}
-          className="relative flex h-40 flex-1 items-end gap-[2px] border-b border-[#383835] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+          className="crm-chart-grid relative flex h-56 flex-1 items-end gap-[3px] border-b border-border focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
         >
           {series.map((entry, index) => (
             <div

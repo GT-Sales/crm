@@ -340,7 +340,7 @@ export function LeadsBoard({
   return (
     <div className="flex flex-col gap-3">
       {message ? (
-        <p role="alert" className="text-sm text-rose-300">
+        <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
           {message}
         </p>
       ) : null}
@@ -371,8 +371,8 @@ export function LeadsBoard({
               data-flip-id={`col:${column.stage}`}
               aria-label={`${leadStageLabel(query.type, column.stage)}, ${column.total} leads`}
               className={cn(
-                'flex shrink-0 snap-start flex-col gap-2 rounded-lg border bg-muted/20 p-2 transition-[width,background-color,border-color] duration-300 ease-out',
-                isCollapsed ? 'w-12 items-center self-start' : 'w-72',
+                'flex shrink-0 snap-start flex-col gap-3 rounded-2xl border bg-sidebar p-3 transition-[width,background-color,border-color] duration-300 ease-out',
+                isCollapsed ? 'w-12 items-center self-start' : 'w-80',
                 'group/col',
                 dropTarget === column.stage && 'border-primary/40 bg-muted/30',
                 columnDropTarget === column.stage && 'border-primary/60 border-dashed',

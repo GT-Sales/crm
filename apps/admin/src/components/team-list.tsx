@@ -69,7 +69,7 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
         </p>
       </div>
       {team.error ? (
-        <p role="alert" className="text-sm text-rose-300">
+        <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
           The team could not be loaded. Reason: {team.error}.
         </p>
       ) : !team.data ? (

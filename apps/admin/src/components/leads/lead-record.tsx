@@ -21,7 +21,14 @@ import {
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
 import { Button, Card, CardContent, cn, Input, NativeSelect } from '@gt-sales/ui';
-import { ArchiveIcon, ArrowLeftIcon, CopyIcon, PrinterIcon, RotateCcwIcon } from 'lucide-react';
+import {
+  ArchiveIcon,
+  ArrowLeftIcon,
+  CopyIcon,
+  PrinterIcon,
+  RotateCcwIcon,
+  UserRoundIcon,
+} from 'lucide-react';
 
 import {
   approveChangeRequest,
@@ -519,7 +526,9 @@ export function LeadRecord({
 
   return (
     <div className={cn('flex flex-col', inPanel ? 'gap-4' : 'gap-6')}>
-      <div className="flex flex-col gap-3">
+      <div
+        className={cn('flex flex-col gap-4', !inPanel && 'rounded-2xl border bg-card p-5 md:p-6')}
+      >
         {inPanel ? null : (
           <Link
             href={`/w/${workspaceSlug}/leads?type=${lead.leadType}`}
@@ -530,6 +539,14 @@ export function LeadRecord({
           </Link>
         )}
         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+          {!inPanel ? (
+            <span
+              className="flex size-12 items-center justify-center rounded-full border bg-muted/60"
+              aria-hidden="true"
+            >
+              <UserRoundIcon className="size-5 text-muted-foreground" />
+            </span>
+          ) : null}
           <div className="min-w-0 flex-1">
             <Title
               className={cn(

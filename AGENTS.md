@@ -147,6 +147,10 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
   dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus, side panel and
   page header in `src/components/crm/` (tokens in `src/app/crm-theme.css`);
+  the Shadcnblocks-inspired admin shell supports light/dark mode via
+  `theme-toggle.tsx`, Ctrl/Cmd K navigation via `quick-navigation.tsx`, and
+  contextual settings links via `settings-navigation.tsx`; design references
+  and the product mapping are in `docs/design/2026-11-01-admin-redesign.md`;
   property rendering, editing and the settings screens in
   `src/components/properties/`; Settings → Plans in `src/components/plans/`
   (`settings/plans`, with plan properties at `settings/plans/properties`);

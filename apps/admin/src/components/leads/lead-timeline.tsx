@@ -349,7 +349,7 @@ export function LeadTimeline({
             </Button>
             <span className="text-xs text-muted-foreground">Ctrl or ⌘ + Enter</span>
             {message ? (
-              <span role="alert" className="text-sm text-rose-300">
+              <span role="alert" className="text-sm text-rose-700 dark:text-rose-300">
                 {message}
               </span>
             ) : null}

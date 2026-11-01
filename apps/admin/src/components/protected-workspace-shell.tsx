@@ -49,9 +49,13 @@ export function ProtectedWorkspaceShell({
   return (
     <SidebarProvider>
       <AppSidebar workspace={workspace.slug} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="crm-workspace flex min-w-0 flex-1 flex-col bg-background">
         <TopBar workspace={workspace} workspaces={staff.workspaces} onSignOut={staff.signOut} />
-        <SidebarInset id="main-content" tabIndex={-1} className="flex-1 p-6 outline-none">
+        <SidebarInset
+          id="main-content"
+          tabIndex={-1}
+          className="crm-content flex-1 p-4 outline-none md:p-6 lg:p-8"
+        >
           {children}
         </SidebarInset>
       </div>
