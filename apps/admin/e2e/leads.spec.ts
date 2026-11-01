@@ -143,7 +143,9 @@ test("the source report counts CanadaWide's internet leads per source and opens 
 test('a card moved on the board stays moved', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet&layout=board');
-  await expect(page.getByRole('region', { name: 'New, 2 leads' })).toBeVisible();
+  // The board paints its columns from the first page of leads; a cold CI runner
+  // can take a few seconds before the New column exists.
+  await expect(page.getByRole('region', { name: 'New, 2 leads' })).toBeVisible({ timeout: 15_000 });
 
   await page
     .getByRole('link', { name: 'Avery Example' })
@@ -1003,8 +1005,30 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
       .toBeLessThanOrEqual(1);
     return scroller;
   }
-  async function checkDropdownContrast() {
-    const colors = await page.locator('select option, select optgroup').evaluateAll((options) => {
+  /**
+   * The design gives every native `<option>` an explicit colour pair so an OS
+   * popup default can never mix a light menu with dark text, and a disabled
+   * choice the muted token. A probe select measures that rule in the current
+   * theme, rather than whichever selects happen to be on screen: the invariant
+   * does not depend on an open panel, a theme switch settling, or a select the
+   * site happens to render. A disabled choice is exempt from the 4.5:1 text
+   * rule (WCAG), but it must still differ from its own background, which is how
+   * a half-themed popup looks.
+   */
+  async function checkDropdownContrast(): Promise<void> {
+    const colors = await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.style.position = 'absolute';
+      host.style.left = '-9999px';
+      host.style.top = '0';
+      const select = document.createElement('select');
+      const enabled = new Option('Enabled', 'enabled');
+      const disabled = new Option('Disabled', 'disabled');
+      disabled.disabled = true;
+      select.append(enabled, disabled);
+      host.append(select);
+      document.body.append(host);
+
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
       const context = canvas.getContext('2d');
@@ -1021,7 +1045,7 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
           const linear = value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
           return sum + linear * ([0.2126, 0.7152, 0.0722][index] ?? 0);
         }, 0);
-      return options.map((option) => {
+      const measure = (option: HTMLOptionElement) => {
         const style = getComputedStyle(option);
         const background = rgba(style.backgroundColor);
         const foreground = rgba(style.color);
@@ -1031,13 +1055,15 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
           alpha: background[3],
           ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
         };
-      });
+      };
+      const result = { enabled: measure(enabled), disabled: measure(disabled) };
+      host.remove();
+      return result;
     });
-    expect(colors.length).toBeGreaterThan(0);
-    for (const color of colors) {
-      expect(color.alpha).toBe(255);
-      expect(color.ratio).toBeGreaterThanOrEqual(4.5);
-    }
+    expect(colors.enabled.alpha).toBe(255);
+    expect(colors.disabled.alpha).toBe(255);
+    expect(colors.enabled.ratio).toBeGreaterThanOrEqual(4.5);
+    expect(colors.disabled.ratio).toBeGreaterThan(1);
   }
   await page.goto('/w/canadawide/leads?type=internet');
   await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
@@ -1053,6 +1079,8 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
   }
   await expect(page.getByLabel('Assignee', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await checkDropdownContrast();
   await page.screenshot({
     path: testInfo.outputPath('design-inbox-icon-toolbar.png'),
     fullPage: true,
@@ -1080,6 +1108,7 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
   await expect(page).not.toHaveURL(/layout=board/);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Switch to light mode' }).click();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
   await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
   const panel = page.getByRole('complementary', { name: 'Lead', exact: true });
   await expect(panel.getByRole('tab', { name: 'Home', exact: true })).toHaveAttribute(
