@@ -7,7 +7,7 @@ import type {
   UpdateEmailTemplateRequest,
 } from '@gt-sales/contracts';
 
-import { TemplateEditor, templateProblem } from './template-editor';
+import { type EditableEmailTemplate, TemplateEditor, templateProblem } from './template-editor';
 
 const mocks = vi.hoisted(() => {
   class FakeBackendError extends Error {
@@ -42,6 +42,15 @@ const cancelled: EmailTemplate = {
   updatedBy: null,
 };
 
+const siteMade: EditableEmailTemplate = {
+  key: 'tpl_abcdefghij012345',
+  subject: 'Your {prop:custom_size} order',
+  body: 'Hi {first name}, order {order number}.',
+  version: 1,
+  updatedAt: '2026-10-01T00:00:00.000Z',
+  updatedBy: '30000000-0000-4000-8000-000000000001',
+};
+
 function rendered(subject: string): PreviewEmailTemplateResponse {
   return {
     subject,
@@ -52,7 +61,7 @@ function rendered(subject: string): PreviewEmailTemplateResponse {
 }
 
 function setup(
-  template: EmailTemplate = dispatched,
+  template: EditableEmailTemplate = dispatched,
   overrides: {
     preview?: (input: PreviewEmailTemplateRequest) => Promise<PreviewEmailTemplateResponse>;
     onSave?: (input: UpdateEmailTemplateRequest) => Promise<string | undefined>;
@@ -101,6 +110,7 @@ describe('TemplateEditor fields', () => {
     expect(within(fillIns).getByText('{tracking link}')).toBeTruthy();
     expect(within(fillIns).queryByText('{courier}')).toBeNull();
     expect(within(fillIns).queryByText('{code}')).toBeNull();
+    expect(within(fillIns).queryByText('{prop:<key>}')).toBeNull();
     expect(screen.getByRole('region', { name: 'Formatting' })).toBeTruthy();
   });
 
@@ -109,6 +119,14 @@ describe('TemplateEditor fields', () => {
     const fillIns = screen.getByRole('region', { name: 'Fill-ins' });
     expect(within(fillIns).getByText('{courier}')).toBeTruthy();
     expect(within(fillIns).getByText('{tracking number}')).toBeTruthy();
+  });
+
+  it('offers property fill-ins to a site-made template', () => {
+    setup(siteMade);
+    const fillIns = screen.getByRole('region', { name: 'Fill-ins' });
+    expect(within(fillIns).getByText('{prop:<key>}')).toBeTruthy();
+    expect(within(fillIns).getByText('{courier}')).toBeTruthy();
+    expect(within(fillIns).queryByText('{code}')).toBeNull();
   });
 });
 

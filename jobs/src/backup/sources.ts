@@ -25,7 +25,7 @@ async function psqlQuery(
 }
 
 function outputLines(text: string): string[] {
-  return text.split('\n').filter((line) => line.trim() !== '');
+  return text.split(/\r?\n/).filter((line) => line.trim() !== '');
 }
 
 // --- Referenced-object manifest ----------------------------------------------

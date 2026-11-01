@@ -2,12 +2,19 @@
 
 import { useId, useState, type JSX } from 'react';
 import {
-  CUSTOMER_EMAIL_TEMPLATE_LABELS,
   DEFAULT_EMAIL_BRAND_COLOR,
+  EMAIL_TEMPLATE_MAX_SITE_MADE,
+  createEmailTemplateRequestSchema,
+  emailFillIns,
+  emailTemplateLabel,
+  fillInsForTemplate,
+  isSiteTemplateKey,
   updateEmailSettingsRequestSchema,
-  type CustomerEmailTemplate,
   type EmailSettingsResponse,
+  type EmailTemplateKey,
   type PreviewEmailTemplateRequest,
+  type SiteEmailTemplate,
+  type SiteTemplateKey,
   type UpdateEmailSettingsRequest,
   type UpdateEmailTemplateRequest,
 } from '@gt-sales/contracts';
@@ -25,7 +32,11 @@ import {
 
 import {
   BackendError,
+  archiveEmailTemplate,
+  createEmailTemplate,
+  listEmailTemplates,
   previewEmailTemplate,
+  restoreEmailTemplate,
   sendTestEmail,
   updateEmailSettings,
   updateEmailTemplate,
@@ -33,7 +44,9 @@ import {
 import { errorReason } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
 import {
+  BODY_MAX,
   INTEGRATIONS_PERMISSION_MESSAGE,
+  SUBJECT_MAX,
   TemplateEditor,
   templateProblem,
 } from './template-editor';
@@ -291,25 +304,154 @@ export function EmailSettings({
 const CONFLICT_MESSAGE =
   'Someone else saved this template. The latest version is loaded and your draft is kept. Check it, then save again.';
 
+const TEMPLATE_LIMIT_MESSAGE = `This site already has ${EMAIL_TEMPLATE_MAX_SITE_MADE} custom email templates. Archive one before adding another.`;
+
+function NewTemplateForm({
+  onCreate,
+  onCancel,
+}: {
+  onCreate(input: { name: string; subject: string; body: string }): Promise<string | undefined>;
+  onCancel(): void;
+}): JSX.Element {
+  const id = useId();
+  const [name, setName] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    subject?: string;
+    body?: string;
+  }>({});
+  const [problem, setProblem] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const allowed = fillInsForTemplate('tpl_aaaaaaaaaaaaaaaa');
+  const hints = emailFillIns.filter((fillIn) => allowed.includes(fillIn.key));
+
+  async function submit() {
+    setProblem(undefined);
+    const errors = {
+      ...(name.trim() === '' ? { name: 'Enter a name.' } : {}),
+      ...(subject.trim() === '' ? { subject: 'Enter a subject.' } : {}),
+      ...(body.trim() === '' ? { body: 'Enter a body.' } : {}),
+    };
+    setFieldErrors(errors);
+    if (errors.name || errors.subject || errors.body) return;
+    const parsed = createEmailTemplateRequestSchema.safeParse({ name, subject, body });
+    if (!parsed.success) {
+      setProblem('Check the name, subject and body and try again.');
+      return;
+    }
+    setBusy(true);
+    const reason = await onCreate(parsed.data);
+    setBusy(false);
+    if (reason) setProblem(reason);
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <fieldset disabled={busy} className="flex flex-col gap-4">
+        <legend className="sr-only">New email template</legend>
+        <FormField
+          id={`${id}-name`}
+          label="Name"
+          hint="How staff pick this email in an automation flow."
+          {...(fieldErrors.name ? { error: fieldErrors.name } : {})}
+        >
+          <Input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} />
+        </FormField>
+        <FormField
+          id={`${id}-subject`}
+          label="Subject"
+          {...(fieldErrors.subject ? { error: fieldErrors.subject } : {})}
+        >
+          <Input
+            value={subject}
+            maxLength={SUBJECT_MAX}
+            onChange={(event) => setSubject(event.target.value)}
+          />
+        </FormField>
+        <FormField
+          id={`${id}-body`}
+          label="Body"
+          hint="Fill-ins go in braces, such as {first name} or {prop:custom_size}."
+          {...(fieldErrors.body ? { error: fieldErrors.body } : {})}
+        >
+          <Textarea
+            rows={10}
+            value={body}
+            maxLength={BODY_MAX}
+            className="font-mono text-sm"
+            onChange={(event) => setBody(event.target.value)}
+          />
+        </FormField>
+      </fieldset>
+      {problem ? (
+        <p role="alert" className="text-sm text-destructive">
+          {problem}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" disabled={busy} onClick={() => void submit()}>
+          Create template
+        </Button>
+        <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+      <section aria-labelledby={`${id}-fill-ins`} className="flex flex-col gap-2">
+        <h3 id={`${id}-fill-ins`} className="text-sm font-semibold">
+          Fill-ins
+        </h3>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          {hints.map((fillIn) => (
+            <div key={fillIn.key} className="contents">
+              <dt>
+                <code className="font-mono">{`{${fillIn.key}}`}</code>
+              </dt>
+              <dd className="text-muted-foreground">{fillIn.hint}</dd>
+            </div>
+          ))}
+          <div className="contents">
+            <dt>
+              <code className="font-mono">{'{prop:<key>}'}</code>
+            </dt>
+            <dd className="text-muted-foreground">
+              A non-sensitive lead property, such as {'{prop:custom_size}'}
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
 /**
- * Settings → Email: the sender form, the nine emails and the editor of one
- * of them, opened from its Edit button or from `initialTemplate` (the
- * `?template=` the Automations page links with). Every call needs
- * `integration.manage` (the Integrations permission, which the owner has); a
- * refusal anywhere says so and turns the page read-only.
+ * Settings → Email: the sender form, the nine built-in emails plus the site's
+ * own templates (`tpl_…`), and the editor of one of them, opened from its Edit
+ * button or from `initialTemplate` (the `?template=` the Automations page
+ * links with). Every call needs `integration.manage` (the Integrations
+ * permission, which the owner has); a refusal anywhere says so and turns the
+ * page read-only.
  */
 export function EmailSettingsScreen({
   workspaceSlug,
   initialTemplate,
 }: {
   workspaceSlug: string;
-  initialTemplate?: CustomerEmailTemplate;
+  initialTemplate?: EmailTemplateKey;
 }): JSX.Element {
   const staff = useStaffSession();
   const workspaceId = staff.workspaces.find((item) => item.slug === workspaceSlug)?.id;
   const accessToken = staff.accessToken;
   const { settings, templates, forbidden, reload, error } = useEmailSettings(workspaceId);
-  const [editing, setEditing] = useState<CustomerEmailTemplate | undefined>(initialTemplate);
+  const [editing, setEditing] = useState<EmailTemplateKey | undefined>(initialTemplate);
+  const [creating, setCreating] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedTemplates, setArchivedTemplates] = useState<SiteEmailTemplate[]>([]);
+  const [archivedNextBefore, setArchivedNextBefore] = useState<string | null>(null);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [actionError, setActionError] = useState<string>();
   const [refused, setRefused] = useState(false);
   const readOnly = forbidden || refused;
 
@@ -328,6 +470,35 @@ export function EmailSettingsScreen({
     }
   }
 
+  async function loadArchived(before?: string): Promise<void> {
+    setArchivedLoading(true);
+    const outcome = await call((token, id) =>
+      listEmailTemplates(token, id, { archived: '1', ...(before ? { before } : {}) }),
+    );
+    setArchivedLoading(false);
+    if (!outcome.ok) {
+      if (!isForbidden(outcome.error)) {
+        setActionError(
+          `Archived templates could not be loaded. Reason: ${errorReason(outcome.error)}.`,
+        );
+      }
+      return;
+    }
+    setArchivedTemplates((current) =>
+      before ? [...current, ...outcome.value.templates] : outcome.value.templates,
+    );
+    setArchivedNextBefore(outcome.value.nextBefore);
+  }
+
+  async function toggleArchived(): Promise<void> {
+    if (showArchived) {
+      setShowArchived(false);
+      return;
+    }
+    setShowArchived(true);
+    await loadArchived();
+  }
+
   async function saveSettings(input: UpdateEmailSettingsRequest): Promise<string | undefined> {
     const outcome = await call((token, id) => updateEmailSettings(token, id, input));
     if (!outcome.ok) {
@@ -338,8 +509,31 @@ export function EmailSettingsScreen({
     return undefined;
   }
 
+  async function createNewTemplate(input: {
+    name: string;
+    subject: string;
+    body: string;
+  }): Promise<string | undefined> {
+    const outcome = await call((token, id) => createEmailTemplate(token, id, input));
+    if (!outcome.ok) {
+      if (
+        outcome.error instanceof BackendError &&
+        outcome.error.code === 'email_template_limit_reached'
+      ) {
+        return TEMPLATE_LIMIT_MESSAGE;
+      }
+      return (
+        templateProblem(outcome.error) ??
+        `The template was not created. Reason: ${errorReason(outcome.error)}.`
+      );
+    }
+    setCreating(false);
+    await reload();
+    return undefined;
+  }
+
   async function saveTemplate(
-    key: CustomerEmailTemplate,
+    key: EmailTemplateKey,
     input: UpdateEmailTemplateRequest,
   ): Promise<string | undefined> {
     const outcome = await call((token, id) => updateEmailTemplate(token, id, key, input));
@@ -359,13 +553,46 @@ export function EmailSettingsScreen({
     return undefined;
   }
 
-  async function preview(key: CustomerEmailTemplate, input: PreviewEmailTemplateRequest) {
+  async function archive(key: SiteTemplateKey): Promise<void> {
+    setActionError(undefined);
+    const outcome = await call((token, id) => archiveEmailTemplate(token, id, key));
+    if (!outcome.ok) {
+      if (!isForbidden(outcome.error)) {
+        setActionError(`The template was not archived. Reason: ${errorReason(outcome.error)}.`);
+      }
+      return;
+    }
+    await reload();
+    if (showArchived) await loadArchived();
+  }
+
+  async function restore(key: SiteTemplateKey): Promise<void> {
+    setActionError(undefined);
+    const outcome = await call((token, id) => restoreEmailTemplate(token, id, key));
+    if (!outcome.ok) {
+      if (
+        outcome.error instanceof BackendError &&
+        outcome.error.code === 'email_template_limit_reached'
+      ) {
+        setActionError(TEMPLATE_LIMIT_MESSAGE);
+        return;
+      }
+      if (!isForbidden(outcome.error)) {
+        setActionError(`The template was not restored. Reason: ${errorReason(outcome.error)}.`);
+      }
+      return;
+    }
+    await reload();
+    if (showArchived) await loadArchived();
+  }
+
+  async function preview(key: EmailTemplateKey, input: PreviewEmailTemplateRequest) {
     const outcome = await call((token, id) => previewEmailTemplate(token, id, key, input));
     if (!outcome.ok) throw outcome.error;
     return outcome.value;
   }
 
-  async function sendTest(key: CustomerEmailTemplate): Promise<string> {
+  async function sendTest(key: EmailTemplateKey): Promise<string> {
     const outcome = await call((token, id) => sendTestEmail(token, id, key));
     if (outcome.ok) {
       return outcome.value.queued
@@ -413,11 +640,23 @@ export function EmailSettingsScreen({
           The email settings could not be refreshed. Reason: {error}.
         </p>
       ) : null}
+      {actionError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {actionError}
+        </p>
+      ) : null}
       <EmailSettings initial={settings} onSave={saveSettings} readOnly={readOnly} />
       <section aria-labelledby="email-templates-heading" className="flex flex-col gap-3">
-        <h2 id="email-templates-heading" className="text-base font-semibold">
-          Emails
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="email-templates-heading" className="text-base font-semibold">
+            Emails
+          </h2>
+          {readOnly ? null : (
+            <Button type="button" size="sm" onClick={() => setCreating(true)}>
+              New template
+            </Button>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
           The words of each email the site sends its customers. Whether an email is sent is set on
           the Automations page.
@@ -426,15 +665,87 @@ export function EmailSettingsScreen({
           workspaceSlug={workspaceSlug}
           templates={templates}
           onEdit={setEditing}
+          onArchive={(key) => void archive(key)}
           readOnly={readOnly}
         />
+        <div className="flex flex-col gap-2 pt-1">
+          <div>
+            <Button type="button" size="sm" variant="ghost" onClick={() => void toggleArchived()}>
+              {showArchived ? 'Hide archived templates' : 'Archived templates'}
+            </Button>
+          </div>
+          {showArchived ? (
+            archivedLoading && archivedTemplates.length === 0 ? (
+              <p className="text-sm text-muted-foreground" aria-busy="true">
+                Loading archived templates…
+              </p>
+            ) : archivedTemplates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No archived templates.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <ul aria-label="Archived emails" className="divide-y rounded-md border">
+                  {archivedTemplates.map((entry) => {
+                    const siteKey = isSiteTemplateKey(entry.key) ? entry.key : undefined;
+                    return (
+                      <li
+                        key={entry.key}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2"
+                      >
+                        <div className="mr-auto flex min-w-0 flex-col gap-0.5">
+                          <h3 className="text-sm font-medium">{entry.name}</h3>
+                          <p className="text-xs text-muted-foreground">Version {entry.version}</p>
+                        </div>
+                        {!readOnly && siteKey ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Restore ${entry.name}`}
+                            onClick={() => void restore(siteKey)}
+                          >
+                            Restore
+                          </Button>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {archivedNextBefore ? (
+                  <div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={archivedLoading}
+                      onClick={() => void loadArchived(archivedNextBefore)}
+                    >
+                      Load more
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )
+          ) : null}
+        </div>
       </section>
+
+      <Dialog open={creating} onOpenChange={(open) => !open && setCreating(false)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>New template</DialogTitle>
+            <DialogDescription>
+              Create a customer email template that automation flows on this site can send.
+            </DialogDescription>
+          </DialogHeader>
+          <NewTemplateForm onCreate={createNewTemplate} onCancel={() => setCreating(false)} />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={template !== undefined} onOpenChange={(open) => !open && setEditing(undefined)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
           <DialogHeader>
             <DialogTitle>
-              {template ? CUSTOMER_EMAIL_TEMPLATE_LABELS[template.key] : 'Email'}
+              {template ? emailTemplateLabel(template.key, template.name) : 'Email'}
             </DialogTitle>
             <DialogDescription>
               Change the subject and the words of this email. The preview uses sample values.

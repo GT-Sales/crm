@@ -4,8 +4,9 @@ import { useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from
 import {
   emailFillIns,
   fillInsForTemplate,
+  isSiteTemplateKey,
   updateEmailTemplateRequestSchema,
-  type EmailTemplate,
+  type EmailTemplateKey,
   type PreviewEmailTemplateRequest,
   type PreviewEmailTemplateResponse,
   type UpdateEmailTemplateRequest,
@@ -22,8 +23,8 @@ export const PREVIEW_DELAY_MS = 400;
 export const INTEGRATIONS_PERMISSION_MESSAGE =
   'This needs the Integrations permission (the owner has it).';
 
-const SUBJECT_MAX = 150;
-const BODY_MAX = 5000;
+export const SUBJECT_MAX = 150;
+export const BODY_MAX = 5000;
 
 const MARKUP_PROBLEMS: Readonly<Record<string, string>> = {
   two_buttons: 'An email can have one button only.',
@@ -66,6 +67,15 @@ const PREVIEW_TABS: readonly { key: PreviewTab; label: string }[] = [
   { key: 'text', label: 'Text' },
 ];
 
+export interface EditableEmailTemplate {
+  key: EmailTemplateKey;
+  subject: string;
+  body: string;
+  version: number;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 /**
  * Edits one customer email's subject and body. A preview of the unsaved words
  * (rendered by the backend with sample values) follows the typing, asked for
@@ -82,7 +92,7 @@ export function TemplateEditor({
   onSendTest,
   readOnly = false,
 }: {
-  template: EmailTemplate;
+  template: EditableEmailTemplate;
   preview(input: PreviewEmailTemplateRequest): Promise<PreviewEmailTemplateResponse>;
   onSave(input: UpdateEmailTemplateRequest): Promise<string | undefined>;
   onSendTest(): Promise<string | undefined>;
@@ -182,6 +192,7 @@ export function TemplateEditor({
 
   const allowed = fillInsForTemplate(template.key);
   const hints = emailFillIns.filter((fillIn) => allowed.includes(fillIn.key));
+  const siteMade = isSiteTemplateKey(template.key);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -261,6 +272,16 @@ export function TemplateEditor({
                 <dd className="text-muted-foreground">{fillIn.hint}</dd>
               </div>
             ))}
+            {siteMade ? (
+              <div className="contents">
+                <dt>
+                  <code className="font-mono">{'{prop:<key>}'}</code>
+                </dt>
+                <dd className="text-muted-foreground">
+                  A non-sensitive lead property, such as {'{prop:custom_size}'}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </section>
 

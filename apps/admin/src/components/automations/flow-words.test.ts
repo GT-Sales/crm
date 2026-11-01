@@ -12,6 +12,7 @@ import {
   describeStep,
   describeTrigger,
   flowStatusChip,
+  issueText,
   namesFromCatalog,
   namesFromCode,
   reasonText,
@@ -19,6 +20,12 @@ import {
 } from './flow-words';
 
 const SAM = '20000000-0000-4000-8000-000000000001';
+
+it('describes unfinished draft fields as setup rather than an unreadable flow', () => {
+  expect(issueText({ path: 'trigger', code: 'definition_invalid', ref: 'trigger' })).toBe(
+    'Complete the marked fields before activating.',
+  );
+});
 const STUDENT = '40000000-0000-4000-8000-000000000001';
 const VISITOR = '40000000-0000-4000-8000-000000000002';
 

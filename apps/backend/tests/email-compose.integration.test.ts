@@ -649,5 +649,26 @@ databaseTest('customer email composer and queue', () => {
       expect(outcome.templateName).toBe('SIM number ready');
       expect(outcome.payload.template).toBe('sim_number_ready');
     });
+
+    it('a tpl_ template with {prop:...} fill-ins composes for a staff test with sample property values', async () => {
+      await reset();
+      await siteMade();
+      const outcome = await compose(SITE, SITE_MADE, { kind: 'staff_test', toAddress: STAFF });
+      if (outcome.kind !== 'ready') throw new Error(`not ready: ${JSON.stringify(outcome)}`);
+      expect(outcome.templateName).toBe('My note');
+      expect(outcome.payload).toMatchObject({ template: SITE_MADE, test: true });
+      expect(outcome.payload.rendered.text).toContain('Size Small, deposit $40.00, insured Yes.');
+    });
+
+    it('a staff test does not fill properties made private after the template was saved', async () => {
+      await reset();
+      await siteMade();
+      await setProperty('custom_size', { sensitive: true });
+      expect(await compose(SITE, SITE_MADE, { kind: 'staff_test', toAddress: STAFF })).toEqual({
+        kind: 'skipped',
+        reason: 'missing_fill_in',
+        missing: ['prop:custom_size'],
+      });
+    });
   });
 });

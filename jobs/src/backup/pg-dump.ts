@@ -113,7 +113,7 @@ type LineRule = [RegExp, string];
 const META_COMMAND: LineRule = [/^\\(un)?restrict .*$/, '-- $&'];
 
 function applyRules(sql: string, rules: LineRule[], dropComments: boolean): string[] {
-  const lines = sql.split('\n').map((line) => {
+  const lines = sql.split(/\r?\n/).map((line) => {
     let out = line;
     for (const [pattern, replacement] of rules) out = out.replace(pattern, replacement);
     return out;
@@ -271,7 +271,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
     const roles = filterRoles(
       await this.tool('pg_dumpall', [
         '--roles-only',
-        '--quote-all-identifier',
+        '--quote-all-identifiers',
         '--no-role-passwords',
         '--no-comments',
       ]),
@@ -279,7 +279,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
     const schema = filterSchema(
       await this.tool('pg_dump', [
         '--schema-only',
-        '--quote-all-identifier',
+        '--quote-all-identifiers',
         '--strict-names',
         ...schemaFlags(APP_SCHEMAS),
       ]),
@@ -287,7 +287,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
     );
     const dataArgs = [
       '--data-only',
-      '--quote-all-identifier',
+      '--quote-all-identifiers',
       '--enable-row-security',
       '--strict-names',
     ];
@@ -307,7 +307,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
     const historySchema = filterSchema(
       await this.tool('pg_dump', [
         '--schema-only',
-        '--quote-all-identifier',
+        '--quote-all-identifiers',
         '--strict-names',
         ...schemaFlags([HISTORY_SCHEMA]),
       ]),
@@ -316,7 +316,7 @@ export class PgDumpDatabaseExporter implements DatabaseExporter {
     const historyData = filterData(
       await this.tool('pg_dump', [
         '--data-only',
-        '--quote-all-identifier',
+        '--quote-all-identifiers',
         '--strict-names',
         ...schemaFlags([HISTORY_SCHEMA]),
       ]),

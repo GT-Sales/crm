@@ -52,7 +52,7 @@ function expectConnectionOnlyInEnv(call: RecordedCall | undefined) {
 describe('PsqlReferencedObjectManifestSource', () => {
   it('PsqlReferencedObjectManifestSource parses tab-separated rows and the exact query', async () => {
     const { run, calls } = recordingRun(
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\nw2\tdocuments\tleads/def.png\t${SUM_B}\t2048\n`,
+      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\r\nw2\tdocuments\tleads/def.png\t${SUM_B}\t2048\r\n`,
     );
     const objects = await new PsqlReferencedObjectManifestSource(
       DB_URL,

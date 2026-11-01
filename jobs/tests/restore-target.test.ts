@@ -1,7 +1,7 @@
 import { sha256Hex } from '@gt-sales/adapters';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import type { RunCommand, RunCommandInput, RunCommandResult } from '../src/archive/command.js';
@@ -113,7 +113,7 @@ function fileSequence(call: RecordedCall | undefined): string[] {
   const args = call?.args ?? [];
   return args.flatMap((arg, index) => {
     const next = args[index + 1];
-    if (arg === '--file' && next) return [`--file ${next.split('/').pop() ?? ''}`];
+    if (arg === '--file' && next) return [`--file ${basename(next)}`];
     if (arg === '--command' && next) return [`--command ${next}`];
     return [];
   });

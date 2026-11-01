@@ -649,7 +649,7 @@ describe('staff email settings routes', () => {
     expect(rendered.text).toContain('Order MS-1042');
   });
 
-  it('a test mail of a site-made template that is gone is 404, one with properties 409', async () => {
+  it('a test mail is refused for a missing template or a property no longer usable', async () => {
     compose.mockResolvedValueOnce({
       kind: 'skipped',
       reason: 'template_unavailable',

@@ -6,6 +6,10 @@ describe('countCopyRows', () => {
   it('counts rows per COPY block and ignores everything outside blocks', () => {
     const sql = `SET x;\nCOPY "app"."leads" ("id", "note") FROM stdin;\n1\tline one\\nstill row one\n2\tb\n\\.\n\nCOPY "app"."contacts" ("id") FROM stdin;\n\\.\n`;
     expect(countCopyRows(sql)).toEqual({ 'app.leads': 2, 'app.contacts': 0 });
+    expect(countCopyRows(sql.replaceAll('\n', '\r\n'))).toEqual({
+      'app.leads': 2,
+      'app.contacts': 0,
+    });
   });
 
   it('throws copy_block_unterminated when a block has no terminator', () => {

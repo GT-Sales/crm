@@ -715,11 +715,13 @@ test('a custom flow with an if/else and a wait is read on its page, switched on 
   await expect(row).toContainText('A SIM order moves to Verified');
   await expect(row.getByText(/Needs attention|Not activated|Draft changes/)).toHaveCount(0);
 
-  // Its page reads the flow top to bottom, the branches labelled Yes and No.
+  // Its page opens on the canvas and toggles to List view reading the flow top to bottom, the branches labelled Yes and No.
   await row.getByRole('link', { name: 'Verified follow-up', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Verified follow-up' })).toBeVisible();
   await expect(page.getByText('Active, version 1')).toBeVisible();
   const definition = page.getByRole('region', { name: 'What it does' });
+  await expect(definition.getByRole('region', { name: 'Automation flow canvas' })).toBeVisible();
+  await page.getByRole('button', { name: 'List view' }).click();
   await expect(definition.getByRole('list', { name: 'Yes' })).toBeVisible();
   const text = (await definition.textContent()) ?? '';
   let at = 0;
@@ -799,5 +801,112 @@ test('a rescued checkout is submitted and gets the Order received email', async 
   // Submitted now: the order received flow ran once for it.
   await page.goto('/w/getcanadasim/automations');
   await expect(flowRow(page, orderReceived).getByRole('cell').nth(4)).toHaveText('1');
+  expect(errors).toEqual([]);
+});
+
+test('a custom flow is built on the canvas with an if/else, activated, switched on and its run read step by step', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/automations');
+  await page.getByRole('button', { name: 'New flow' }).click();
+  const createDialog = page.getByRole('dialog', { name: 'New flow' });
+  await createDialog.getByLabel('Name').fill('Verified branch check');
+  await createDialog.getByRole('button', { name: 'Create' }).click();
+
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Verified branch check' }),
+  ).toBeVisible();
+  const canvas = page.getByRole('region', { name: 'Automation flow canvas' });
+  await expect(canvas).toBeVisible();
+
+  // Configure the trigger: when a SIM order enters Verified.
+  await canvas.getByRole('button', { name: 'Trigger: Choose when this flow runs' }).click();
+  const triggerPanel = page.getByRole('complementary', { name: 'Trigger' });
+  await triggerPanel.getByLabel('When', { exact: true }).selectOption('stage_entered');
+  await triggerPanel.getByLabel('Lead type', { exact: true }).selectOption('sim_order');
+  await triggerPanel.getByLabel('Stage').selectOption('verified');
+
+  // Add an If/else step on plan (Rogers 60GB).
+  await canvas.getByRole('button', { name: 'Add first step' }).click();
+  await page
+    .getByRole('menu', { name: 'Add step' })
+    .getByRole('menuitem', { name: 'If/else' })
+    .click();
+  const ifPanel = page.getByRole('complementary', { name: 'If/else' });
+  await ifPanel.getByRole('button', { name: 'Add condition' }).click();
+  await ifPanel.getByLabel('Condition 1 kind').selectOption('plan');
+  await ifPanel.getByRole('checkbox', { name: 'Rogers 60GB' }).check();
+
+  // The insertion menu must stay above the existing If/else card. Exercise
+  // insertion before a card, then remove that temporary step through its panel.
+  await canvas.getByRole('button', { name: 'Add first step' }).click();
+  await page
+    .getByRole('menu', { name: 'Add step' })
+    .getByRole('menuitem', { name: 'Wait' })
+    .click();
+  await page
+    .getByRole('complementary', { name: 'Wait' })
+    .getByRole('button', { name: 'Remove step' })
+    .click();
+
+  // In the Yes branch, send the Information needed email.
+  await canvas.getByRole('button', { name: 'Add step to Yes branch' }).click();
+  await page
+    .getByRole('menu', { name: 'Add step' })
+    .getByRole('menuitem', { name: 'Send email' })
+    .click();
+  const emailPanel = page.getByRole('complementary', { name: 'Send email' });
+  await emailPanel.getByLabel('Email template').selectOption('information_needed');
+
+  // In the No branch, create a task for the lead's owner.
+  await canvas.getByRole('button', { name: 'Add step to No branch' }).click();
+  await page
+    .getByRole('menu', { name: 'Add step' })
+    .getByRole('menuitem', { name: 'Create task' })
+    .click();
+  const taskPanel = page.getByRole('complementary', { name: 'Create task' });
+  await taskPanel.getByLabel('Task title').fill('Verify Fido SIM for {first name}');
+
+  // Save draft, activate and switch on.
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.getByText('Saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Activate' }).click();
+  const activateDialog = page.getByRole('dialog', { name: 'Activate Verified branch check?' });
+  await activateDialog.getByRole('button', { name: 'Activate' }).click();
+  await expect(page.getByText('Active, version 1')).toBeVisible();
+
+  const toggle = page.getByRole('switch', { name: 'Verified branch check' });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  const flowUrl = page.url();
+
+  // Omar Haddad (Fido 75GB plan, now on Pending) moves to Verified: the No branch runs.
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await page.getByRole('link', { name: 'Omar Haddad' }).click();
+  await page.getByRole('link', { name: 'Open full page' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Omar Haddad' })).toBeVisible();
+  const stage = page.getByLabel('Stage');
+  await expect(stage).toHaveValue('pending');
+  await stage.selectOption({ label: 'Verified' });
+  await expect(page.getByRole('region', { name: 'Timeline' })).toContainText(
+    'moved this from Pending to Verified',
+  );
+  await page.reload();
+  await expect(page.getByRole('region', { name: /^Tasks/ })).toContainText(
+    'Verify Fido SIM for Omar',
+  );
+
+  // On the Runs tab, the run for Omar Haddad is completed and shows each step's outcome.
+  await page.goto(flowUrl);
+  await page.getByRole('tab', { name: /^Runs/ }).click();
+  const runs = page.getByRole('list', { name: 'Recent runs' }).getByRole('listitem');
+  await expect(runs).toHaveCount(1);
+  await expect(runs.first().getByRole('link', { name: 'Omar Haddad' })).toBeVisible();
+  await expect(runs.first()).toContainText('Completed');
+  await runs.first().getByRole('button', { name: 'Steps for Omar Haddad' }).click();
+  const stepOutcomes = runs.first().getByRole('list', { name: 'Step outcomes for Omar Haddad' });
+  await expect(stepOutcomes).toContainText('Done (No branch)');
+  await expect(stepOutcomes).toContainText('Done');
   expect(errors).toEqual([]);
 });

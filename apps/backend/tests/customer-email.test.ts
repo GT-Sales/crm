@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { codePropertyCatalog } from '@gt-sales/contracts';
 
+import { sampleFillInValues } from '../src/email/fill-in-values.js';
 import { hashContact } from '../src/email/hash.js';
 import { customerEmailEnvironmentFromEnv, customerEmailFromEnv } from '../src/email/senders.js';
 
@@ -50,5 +52,16 @@ describe('customer mail environment', () => {
       hashContact('arjun@example.test', SECRET),
     );
     expect(() => customerEmailEnvironmentFromEnv({}).contactHash('a@example.test')).toThrow();
+  });
+
+  it('provides sample property values for a staff test send with property keys', () => {
+    const catalog = codePropertyCatalog;
+    const values = sampleFillInValues(
+      { siteName: 'Test Sim', siteUrl: 'https://test.example' },
+      { catalog, propertyKeys: ['firstName', 'custom_demo'] },
+    );
+    expect(values.props).toBeDefined();
+    expect(values.props?.['firstName']).toBe('Sample First name');
+    expect(values.props).not.toHaveProperty('custom_demo');
   });
 });

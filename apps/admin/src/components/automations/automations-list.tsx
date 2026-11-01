@@ -112,7 +112,7 @@ export function FlowSwitch({
   const enabled = saving ?? flow.enabled;
   // Switching off is always possible; on needs an active version.
   const blocked = flow.activeVersion === null && !flow.enabled;
-  const disabled = !canManage || blocked;
+  const disabled = !canManage || flow.archived || blocked;
 
   async function toggle() {
     if (disabled || pending) return;
@@ -132,7 +132,9 @@ export function FlowSwitch({
           role="switch"
           aria-checked={enabled}
           aria-label={flow.name}
-          aria-describedby={!canManage ? permissionNoteId : blocked ? activateNoteId : undefined}
+          aria-describedby={
+            !canManage ? permissionNoteId : !flow.archived && blocked ? activateNoteId : undefined
+          }
           aria-disabled={pending || undefined}
           disabled={disabled}
           onClick={() => void toggle()}
@@ -153,7 +155,7 @@ export function FlowSwitch({
           {enabled ? 'On' : 'Off'}
         </span>
       </div>
-      {canManage && blocked ? (
+      {canManage && !flow.archived && blocked ? (
         <p id={activateNoteId} className="text-xs text-muted-foreground">
           {ACTIVATE_FIRST}
         </p>
@@ -215,8 +217,7 @@ function NewFlow({
             <DialogHeader>
               <DialogTitle>New flow</DialogTitle>
               <DialogDescription>
-                Give the flow a name. It starts empty and off; the editor arrives in a later
-                release.
+                Give the flow a name. It starts empty and off until you activate it.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-2">

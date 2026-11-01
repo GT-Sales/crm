@@ -17,6 +17,7 @@
     "@gt-sales/types": "workspace:*",
     "@gt-sales/ui": "workspace:*",
     "@supabase/supabase-js": "2.116.0",
+    "@xyflow/react": "12.12.0",
     "lucide-react": "catalog:",
     "next": "16.3.8",
     "react": "19.3.1",

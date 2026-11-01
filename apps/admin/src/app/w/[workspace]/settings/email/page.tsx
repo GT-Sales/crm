@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gt-sales/ui';
-import { customerEmailTemplateSchema } from '@gt-sales/contracts';
+import { emailTemplateKeySchema } from '@gt-sales/contracts';
 
 import { EmailSettingsScreen } from '../../../../../components/email/email-settings';
 
@@ -12,7 +12,7 @@ export default async function EmailSettingsPage({
 }) {
   const { workspace } = await params;
   // `?template=<key>` (the Automations page links with it) opens that email's editor.
-  const template = customerEmailTemplateSchema.safeParse((await searchParams).template);
+  const template = emailTemplateKeySchema.safeParse((await searchParams).template);
   return (
     <Card>
       <CardHeader>
