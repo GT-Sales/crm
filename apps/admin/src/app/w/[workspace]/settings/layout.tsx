@@ -12,7 +12,7 @@ export default async function SettingsLayout({
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       <SettingsNavigation workspaceSlug={workspace} />
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="crm-settings-content min-w-0 flex-1">{children}</div>
     </div>
   );
 }

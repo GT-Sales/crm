@@ -23,12 +23,16 @@ export function TopBar({
   const section = pathname.split('/')[3] ?? 'leads';
 
   return (
-    <header className="crm-topbar flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
+    <header className="crm-topbar flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
       <SidebarTrigger />
       <div className="h-6 w-px bg-border" aria-hidden="true" />
-      <span className="hidden text-sm text-muted-foreground md:inline">
-        {NAV_ITEMS.find((item) => item.section === section)?.label ?? 'Workspace'}
-      </span>
+      {section === 'dashboard' ? (
+        <h1 className="min-w-0 truncate text-sm font-normal">Dashboard</h1>
+      ) : (
+        <span className="hidden text-sm text-foreground md:inline">
+          {NAV_ITEMS.find((item) => item.section === section)?.label ?? 'Workspace'}
+        </span>
+      )}
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <QuickNavigation workspaceSlug={workspace.slug} />
         <ThemeToggle />

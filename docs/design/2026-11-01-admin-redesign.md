@@ -38,8 +38,14 @@ changes, billing, AI tools and unrelated product modules are not CRM features.
 
 ## Implementation
 
-The admin defaults to light mode, retaining GT Sales red as the primary action
-accent. A browser-local `gt-sales-theme` preference supports dark mode and is
+The owner clarified that the live website's styling takes priority over the
+local template. The admin uses its neutral gray palette and monochrome primary
+controls, Inter typography, 32px navigation rows, 56px header and 24px desktop
+page padding. Outlined header icons, inset KPI separators, thin line/area
+charts and flat settings sections follow the live reference. Status colors
+retain their semantic meanings.
+
+The admin defaults to light mode. A browser-local `gt-sales-theme` preference supports dark mode and is
 applied before paint. Palette, table, card, chart-grid and responsive-shell
 styles live in `apps/admin/src/app/crm-theme.css`, scoped to `.crm-ui`.
 Shared UI tokens continue to serve other applications independently.

@@ -1348,7 +1348,9 @@ and all 14 lead journeys normally and under UTC passed. Findings and screenshot:
 ### 3.11 2026-11-01: admin design refresh
 
 Owner-requested redesign based on the supplied Shadcnblocks admin kit, blocks
-and live reference. Built on `claude/shadcnblocks-admin-redesign`, pending
+and live reference, with the website's styling prioritized on owner clarification:
+neutral monochrome controls, compact rows, outlined card headers and line charts.
+Built on `claude/shadcnblocks-admin-redesign`, pending
 review/release: light default with persisted dark mode; grouped sidebar,
 compact header and keyboard page finder; KPI strip, volume/partner charts and
 linked pipeline counts; refreshed lead tables, records, stage board and task

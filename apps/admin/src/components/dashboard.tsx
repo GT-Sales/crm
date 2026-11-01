@@ -73,20 +73,6 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <div className="crm-dashboard flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Workspace overview</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">What needs doing on this site today.</p>
-        </div>
-        <Button asChild variant="outline">
-          <Link href={`/w/${workspaceSlug}/leads`}>
-            Open leads
-            <ArrowUpRightIcon className="size-4" />
-          </Link>
-        </Button>
-      </div>
-
       {leadType ? (
         <div className="flex flex-wrap items-center gap-3">
           <div
@@ -125,6 +111,12 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
               </NativeSelect>
             </label>
           ) : null}
+          <Button asChild variant="outline" size="sm" className="ml-auto hidden sm:inline-flex">
+            <Link href={`/w/${workspaceSlug}/leads`}>
+              Open leads
+              <ArrowUpRightIcon className="size-4" />
+            </Link>
+          </Button>
         </div>
       ) : null}
 
@@ -142,17 +134,20 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
       {leadType && stats.data ? (
         <div
           className={cn(
-            'grid grid-cols-1 gap-6 xl:grid-cols-3',
+            'grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]',
             stats.loading && 'opacity-60 transition-opacity',
           )}
         >
-          <Card className="xl:col-span-2">
+          <Card>
+            <h2 className="crm-card-heading text-base font-medium">
+              <ChartColumnIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+              {leadTypeLabel(stats.data.leadType)} volume
+            </h2>
             <CardContent className="flex flex-col gap-6">
               <div>
-                <h2 className="flex items-center gap-2 text-base font-semibold">
-                  <ChartColumnIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-                  {leadTypeLabel(stats.data.leadType)} volume
-                </h2>
+                <p className="mb-1 text-3xl font-semibold tracking-tight tabular-nums">
+                  {stats.data.total.toLocaleString('en-CA')}
+                </p>
                 <p className="text-sm text-muted-foreground">
                   Received per day over {period}, cancellations aside (UTC days).
                 </p>
@@ -167,10 +162,13 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
           </Card>
           <FollowUpsDue workspaceSlug={workspaceSlug} />
           {leadTypeEntry(stats.data.leadType)?.outcomes ? (
-            <Card className="xl:col-span-2">
+            <Card>
+              <h2 className="crm-card-heading text-base font-medium">
+                <ChartColumnIcon className="text-muted-foreground" aria-hidden="true" />
+                Pipeline overview
+              </h2>
               <CardContent className="flex flex-col gap-5">
                 <div>
-                  <h2 className="text-base font-semibold">Pipeline overview</h2>
                   <p className="text-sm text-muted-foreground">
                     Where {leadTypeLabel(stats.data.leadType).toLowerCase()} leads stand over{' '}
                     {period}.
@@ -181,7 +179,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
                     <Link
                       key={stage.stage}
                       href={`/w/${workspaceSlug}/leads?type=${snapshot.leadType}&stage=${stage.stage}`}
-                      className="group rounded-lg border p-3 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+                      className="group rounded-lg p-1 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="mb-2 flex items-center justify-between gap-3 text-sm">
                         <span className="text-muted-foreground">
@@ -209,9 +207,12 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
             </Card>
           ) : null}
           <Card>
+            <h2 className="crm-card-heading text-base font-medium">
+              <ChartColumnIcon className="text-muted-foreground" aria-hidden="true" />
+              Top partners
+            </h2>
             <CardContent className="flex flex-col gap-3">
               <div>
-                <h2 className="text-base font-semibold">Top partners</h2>
                 <p className="text-sm text-muted-foreground">
                   The ten partners most came through over {period}.
                 </p>
@@ -241,15 +242,15 @@ function Tile({
   icon?: LucideIcon;
 }) {
   return (
-    <div className="crm-stat flex flex-col gap-2 p-5 md:p-6">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+    <div className="crm-stat flex min-h-[7.75rem] flex-col justify-center gap-3 px-6 py-3 md:py-0">
+      <h2 className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
         <Icon className="size-4" aria-hidden="true" />
         {label}
       </h2>
+      <p className="text-xs text-muted-foreground">{hint}</p>
       <p className="text-3xl font-semibold tracking-tight tabular-nums">
         {value.toLocaleString('en-CA')}
       </p>
-      <p className="text-xs text-muted-foreground">{hint}</p>
       {children}
     </div>
   );

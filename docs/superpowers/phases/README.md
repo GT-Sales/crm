@@ -130,8 +130,8 @@ Each is "decision: why (where recorded)".
     spec decision 5).
 15. **Admin copy in sentence case, every control labelled, keyboard-usable**;
     the owner-requested Shadcnblocks refresh (2026-11-01) replaces PR #5's
-    look: grouped sidebar, compact header, neutral cards and tables, GT Sales
-    red accents, light/dark themes. Tokens remain in
+    look: grouped sidebar, compact header, neutral cards and tables, monochrome
+    controls and light/dark themes matching the live website. Tokens remain in
     `apps/admin/src/app/crm-theme.css`; see `docs/design/2026-11-01-admin-redesign.md`.
 16. **Integration suites run on a database whose name ends in `_test`**, are
     re-runnable on a persistent local database, and use fixed UUIDs in a range

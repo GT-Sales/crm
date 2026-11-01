@@ -58,10 +58,10 @@ export function AppSidebar({ workspace }: { workspace: string }) {
   return (
     <Sidebar collapsible="icon" className="crm-sidebar">
       <SidebarHeader>
-        <div className="flex h-12 items-center gap-3 overflow-hidden whitespace-nowrap px-2 text-sm font-semibold group-data-[collapsible=icon]:px-0">
+        <div className="flex h-10 items-center gap-2 overflow-hidden whitespace-nowrap px-1 text-sm font-semibold group-data-[collapsible=icon]:px-0">
           <span
             aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-[11px] font-bold text-primary-foreground shadow-xs"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background text-[11px] font-semibold text-foreground"
           >
             GT
           </span>
@@ -94,7 +94,7 @@ export function AppSidebar({ workspace }: { workspace: string }) {
                         </p>
                       ) : null}
                       <SidebarMenuButton
-                        className="h-10"
+                        className="h-8"
                         asChild
                         isActive={isActive}
                         tooltip={label}
@@ -129,8 +129,8 @@ export function AppSidebar({ workspace }: { workspace: string }) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t p-3">
-        <div className="flex items-center gap-2.5 rounded-lg border bg-background p-2.5 group-data-[collapsible=icon]:hidden">
+      <SidebarFooter className="p-3">
+        <div className="flex items-center gap-2.5 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
           <Globe2Icon className="size-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate text-xs font-medium">
             {workspaceName}

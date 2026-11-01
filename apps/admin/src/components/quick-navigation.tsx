@@ -40,10 +40,7 @@ export function QuickNavigation({ workspaceSlug }: { workspaceSlug: string }) {
         aria-label="Find a page"
       >
         <SearchIcon className="size-4" />
-        <span className="hidden lg:inline">Find a page...</span>
-        <kbd className="hidden rounded border bg-muted px-1.5 text-[10px] sm:inline">
-          ⌘ / Ctrl K
-        </kbd>
+        <kbd className="hidden rounded border bg-muted px-1.5 text-[10px] sm:inline">⌘ K</kbd>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

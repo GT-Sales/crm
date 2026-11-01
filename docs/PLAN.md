@@ -386,7 +386,8 @@ template" with sample property values for test sends) is built. The 2026-11-01
 review adds safe serialized draft saving, historical run version loading,
 accessible list editing and step movement, and property and nesting guards.
 Step B merged and deployed 2026-11-01 (PR #13, `c29f1cd`). The owner's next
-design request adapts Shadcnblocks to the staff app: light/dark themes,
+design request adapts Shadcnblocks to the staff app, prioritizing the live
+website's monochrome palette and compact styling: light/dark themes,
 navigation, dashboard, lists/records, boards/tasks and settings (implementation
 and references: `docs/design/2026-11-01-admin-redesign.md`; pending review/release).
 The CRM's own open items (the cross-site inbox, the

@@ -1,6 +1,6 @@
 /**
- * CRM surface tokens for the admin: the header grey and the red-tinted chip
- * colours used by the page header, side panel and filter chips.
+ * CRM surfaces matched to the live Shadcnblocks reference: neutral colors,
+ * monochrome controls, fine borders and consistent component proportions.
  * The admin uses the light palette by default and keeps a browser-local dark
  * preference. Shadcnblocks-inspired surfaces are scoped to this app.
  */
@@ -31,41 +31,49 @@
 /* Admin-only palette: the shared storefront tokens remain independent. */
 .crm-ui {
   color-scheme: light;
-  --radius: 0.65rem;
+  --radius: 0.625rem;
   --background: oklch(1 0 0);
-  --foreground: oklch(0.19 0.005 285);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: var(--card);
   --popover-foreground: var(--foreground);
-  --muted: oklch(0.965 0.002 285);
-  --muted-foreground: oklch(0.49 0.012 285);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
   --accent: var(--muted);
   --accent-foreground: var(--foreground);
-  --border: oklch(0.91 0.003 285);
+  --border: oklch(0.922 0 0);
   --input: var(--border);
-  --sidebar: oklch(0.985 0.001 285);
+  --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: var(--foreground);
-  --sidebar-accent: oklch(0.95 0.003 285);
+  --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --crm-header: var(--card);
-  --chart-1: oklch(0.27 0.008 285);
+  --chart-1: oklch(0.205 0 0);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --crm-chip: var(--muted);
+  --crm-chip-border: var(--border);
+  --crm-chip-foreground: var(--foreground);
 }
 
 .crm-ui.dark {
   color-scheme: dark;
-  --background: oklch(0.155 0.004 285);
-  --foreground: oklch(0.96 0.002 285);
-  --card: oklch(0.185 0.004 285);
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.18 0 0);
   --card-foreground: var(--foreground);
-  --muted: oklch(0.245 0.006 285);
-  --muted-foreground: oklch(0.71 0.01 285);
-  --border: oklch(0.3 0.006 285);
-  --sidebar: oklch(0.17 0.004 285);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --sidebar: oklch(0.18 0 0);
   --sidebar-accent: var(--muted);
-  --primary: oklch(0.577 0.245 27.325);
-  --chart-1: oklch(0.82 0.005 285);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --chart-1: oklch(0.922 0 0);
 }
 
 .crm-content {
@@ -83,6 +91,18 @@
 .crm-content :where([data-slot='card']) {
   border-radius: 1rem;
   box-shadow: none;
+}
+.crm-content > [data-slot='card'],
+.crm-settings-content > [data-slot='card'] {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.crm-content > [data-slot='card'] > [data-slot='card-header'],
+.crm-content > [data-slot='card'] > [data-slot='card-content'],
+.crm-settings-content > [data-slot='card'] > [data-slot='card-header'],
+.crm-settings-content > [data-slot='card'] > [data-slot='card-content'] {
+  padding-inline: 0;
 }
 .crm-content :where([data-slot='table-container']) {
   border: 1px solid var(--border);
@@ -109,7 +129,44 @@
   padding-block: 0.65rem;
 }
 .crm-content :where(input, textarea, select) {
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.025);
+}
+.crm-ui :where(input[type='checkbox'], input[type='radio']) {
+  accent-color: var(--primary);
+}
+.crm-ui [data-slot='button'] {
+  border-radius: 0.5rem;
+}
+.crm-ui [data-slot='sidebar-menu-button'] {
+  font-weight: 400;
+}
+.crm-ui [data-slot='sidebar-group-label'] {
+  font-weight: 400;
+}
+.crm-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.25rem;
+}
+.crm-dashboard [data-slot='card']:has(> .crm-card-heading) {
+  padding-top: 0;
+  gap: 0;
+}
+.crm-card-heading + [data-slot='card-content'] {
+  padding-top: 1.5rem;
+}
+.crm-card-heading > svg {
+  width: 2rem;
+  height: 2rem;
+  padding: 0.4375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.crm-stat-grid {
+  padding: 1.5rem 0;
 }
 .crm-settings-sections > :not(:first-child) {
   border-top: 1px solid var(--border);
@@ -146,7 +203,7 @@
     padding-inline: 0.75rem;
   }
   .crm-topbar [aria-label='Switch site'] {
-    max-width: 7.5rem;
+    max-width: 6rem;
     padding-inline: 0.5rem;
   }
 }

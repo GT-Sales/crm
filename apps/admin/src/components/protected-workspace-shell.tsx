@@ -54,7 +54,7 @@ export function ProtectedWorkspaceShell({
         <SidebarInset
           id="main-content"
           tabIndex={-1}
-          className="crm-content flex-1 p-4 outline-none md:p-6 lg:p-8"
+          className="crm-content flex-1 p-4 outline-none md:p-6"
         >
           {children}
         </SidebarInset>
