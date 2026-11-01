@@ -52,6 +52,8 @@ import {
   flowRunResponseSchema,
   flowVersionResponseSchema,
   saveFlowDraftRequestSchema,
+  testFlowRequestSchema,
+  testFlowResponseSchema,
   updateFlowDetailsRequestSchema,
   type ActivateFlowRequest,
   type CreateFlowRequest,
@@ -60,6 +62,8 @@ import {
   type FlowRunResponse,
   type FlowVersionResponse,
   type SaveFlowDraftRequest,
+  type TestFlowRequest,
+  type TestFlowResponse,
   type UpdateFlowDetailsRequest,
 } from './automation-api';
 import {
@@ -585,6 +589,11 @@ export interface BackendClient {
       key: AutomationKey,
       runId: string,
     ): Promise<FlowRunResponse>;
+    testAutomation(
+      workspaceId: string,
+      key: AutomationKey,
+      body?: TestFlowRequest,
+    ): Promise<TestFlowResponse>;
     createEmailTemplate(
       workspaceId: string,
       body: CreateEmailTemplateRequest,
@@ -1298,6 +1307,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/runs/${encode(runId)}`,
           responseSchema: flowRunResponseSchema,
+        }),
+      testAutomation: (workspaceId, key, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/automations/${encode(key)}/test`,
+          body: testFlowRequestSchema.parse(body ?? {}),
+          responseSchema: testFlowResponseSchema,
         }),
       createEmailTemplate: (workspaceId, body) =>
         call({

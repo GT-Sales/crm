@@ -9,7 +9,7 @@ import { cn } from '@gt-sales/ui';
  * they came through. One series each, so one hue (validated against the
  * admin's dark card surface) and no legend: the card title names it.
  */
-const SERIES = '#3987e5';
+const SERIES = 'var(--chart-1)';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -66,9 +66,9 @@ export function niceCeiling(peak: number): number {
 }
 
 /**
- * Columns per day from one baseline, 4px rounded caps, at most 24px wide with
- * a 2px gap; the peak labelled on its cap. Hover, or focus and the arrow
- * keys, reads any day; the same numbers sit in a table for screen readers.
+ * A neutral line and light area show daily volume, with the peak labelled.
+ * Hover, or focus and the arrow keys, reads any day; the same numbers sit
+ * in a table for screen readers.
  */
 export function VolumeChart({
   daily,
@@ -87,6 +87,13 @@ export function VolumeChart({
   const top = niceCeiling(peak);
   const peakIndex = peak > 0 ? series.findIndex((entry) => entry.total === peak) : -1;
   const shown = active === undefined ? undefined : series[active];
+  const points = series.map((entry, index) => ({
+    x: series.length === 1 ? 300 : (index / (series.length - 1)) * 600,
+    y: 240 - (entry.total / top) * 240,
+  }));
+  const line = points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`)
+    .join(' ');
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -115,32 +122,59 @@ export function VolumeChart({
           onFocus={() => setActive((current) => current ?? series.length - 1)}
           onBlur={() => setActive(undefined)}
           onPointerLeave={() => setActive(undefined)}
-          className="relative flex h-40 flex-1 items-end gap-[2px] border-b border-[#383835] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+          className="crm-chart-grid relative flex h-60 flex-1 items-end border-b border-border focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
         >
+          <svg
+            viewBox="0 0 600 240"
+            preserveAspectRatio="none"
+            className="pointer-events-none absolute inset-0 size-full overflow-visible"
+            aria-hidden="true"
+          >
+            <path
+              d={`${line} L${points.at(-1)?.x ?? 600},240 L${points[0]?.x ?? 0},240 Z`}
+              fill={SERIES}
+              fillOpacity="0.05"
+            />
+            <path
+              d={line}
+              fill="none"
+              stroke={SERIES}
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {points.length <= 32
+              ? points.map((point, index) => (
+                  <circle
+                    key={series[index]?.day}
+                    cx={point.x}
+                    cy={point.y}
+                    r={active === index ? 3 : 2}
+                    fill={SERIES}
+                  />
+                ))
+              : null}
+          </svg>
           {series.map((entry, index) => (
             <div
               key={entry.day}
               className="relative flex h-full min-w-0 flex-1 items-end justify-center"
               onPointerEnter={() => setActive(index)}
-            >
-              {index === peakIndex && active === undefined ? (
-                <span
-                  className="absolute pb-1 text-[11px] text-muted-foreground tabular-nums"
-                  style={{ bottom: `${(entry.total / top) * 100}%` }}
-                >
-                  {entry.total}
-                </span>
-              ) : null}
-              <div
-                className="w-full max-w-6 rounded-t-[4px] transition-opacity"
-                style={{
-                  height: entry.total === 0 ? 0 : `max(2px, ${(entry.total / top) * 100}%)`,
-                  backgroundColor: SERIES,
-                  opacity: active === undefined || active === index ? 1 : 0.55,
-                }}
-              />
-            </div>
+            />
           ))}
+          {peakIndex >= 0 && active === undefined ? (
+            <span
+              className="pointer-events-none absolute pb-1 text-[11px] text-muted-foreground tabular-nums"
+              style={{
+                bottom: `${(peak / top) * 100}%`,
+                left: `${series.length === 1 ? 50 : (peakIndex / (series.length - 1)) * 100}%`,
+                transform: `translateX(-${series.length === 1 ? 50 : (peakIndex / (series.length - 1)) * 100}%)`,
+              }}
+            >
+              {peak}
+            </span>
+          ) : null}
           {shown ? (
             <div
               role="status"

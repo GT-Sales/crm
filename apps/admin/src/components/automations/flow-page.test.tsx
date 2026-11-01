@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
     getAutomationVersion: vi.fn(),
     archiveAutomation: vi.fn(),
     restoreAutomation: vi.fn(),
+    testAutomation: vi.fn(),
   };
 });
 
@@ -611,5 +612,59 @@ describe('FlowPage', () => {
     );
     expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(1);
     expect(mocks.archiveAutomation).not.toHaveBeenCalled();
+  });
+
+  it('asks for a test email address when the flow has an email step and shows test run outcomes', async () => {
+    mocks.testAutomation.mockResolvedValue({
+      status: 'completed',
+      reason: null,
+      detail: null,
+      emailsQueued: 1,
+      steps: [
+        {
+          stepId: 's_if',
+          stepKind: 'if_else',
+          outcome: 'done',
+          branch: 'no',
+          reason: null,
+          detail: null,
+          at: '2026-11-01T12:00:00.000Z',
+        },
+        {
+          stepId: 's_mail',
+          stepKind: 'send_email',
+          outcome: 'done',
+          branch: null,
+          reason: null,
+          detail: 'activated',
+          at: '2026-11-01T12:00:01.000Z',
+        },
+      ],
+      requestId: 'req_test_run',
+    });
+
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test run' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Test run Verified follow-up' });
+    const emailInput = within(dialog).getByLabelText('Test email address');
+    const runBtn = within(dialog).getByRole('button', { name: 'Run test' });
+    expect(runBtn.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(emailInput, { target: { value: 'tester@example.com' } });
+    fireEvent.click(runBtn);
+
+    await waitFor(() =>
+      expect(mocks.testAutomation).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        FLOW,
+        expect.objectContaining({ email: 'tester@example.com' }),
+      ),
+    );
+    expect(await within(dialog).findByText('Test run completed')).toBeTruthy();
+    expect(within(dialog).getByText('1 test email queued to tester@example.com')).toBeTruthy();
+    expect(within(dialog).getByText('Done (No branch)')).toBeTruthy();
   });
 });

@@ -1,11 +1,15 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarProvider } from '@gt-sales/ui';
 
 import { AppSidebar } from './app-sidebar.js';
 
 const usePathname = vi.fn();
-vi.mock('next/navigation', () => ({ usePathname: () => usePathname() }));
+const push = vi.fn();
+vi.mock('next/navigation', () => ({
+  usePathname: () => usePathname(),
+  useRouter: () => ({ push }),
+}));
 
 const getLeadsSummary = vi.fn();
 vi.mock('../lib/api', () => ({
@@ -15,7 +19,18 @@ vi.mock('./staff-session-provider', () => ({
   useStaffSession: () => ({
     accessToken: 'staff-token',
     workspaces: [
-      { id: '10000000-0000-4000-8000-000000000001', slug: 'getcanadasim', roles: ['owner'] },
+      {
+        id: '10000000-0000-4000-8000-000000000001',
+        slug: 'getcanadasim',
+        name: 'Get Canada Sim',
+        roles: ['owner'],
+      },
+      {
+        id: '10000000-0000-4000-8000-000000000002',
+        slug: 'canadawide',
+        name: 'CanadaWide',
+        roles: ['owner'],
+      },
     ],
   }),
 }));
@@ -30,6 +45,7 @@ function renderSidebar(workspace: string) {
 
 describe('AppSidebar', () => {
   beforeEach(() => {
+    push.mockReset();
     getLeadsSummary.mockReset();
     getLeadsSummary.mockResolvedValue({
       types: [],
@@ -37,6 +53,18 @@ describe('AppSidebar', () => {
       trash: 0,
       requestId: '00000000-0000-4000-8000-000000000001',
     });
+  });
+
+  it('replaces the brand with a site switcher that keeps the current section', async () => {
+    usePathname.mockReturnValue('/w/getcanadasim/tasks');
+    renderSidebar('getcanadasim');
+
+    expect(screen.queryByText('GT Sales CRM')).toBeNull();
+    const switcher = screen.getByRole('button', { name: 'Switch site' });
+    expect(switcher.textContent).toContain('Get Canada Sim');
+    fireEvent.pointerDown(switcher, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'CanadaWide' }));
+    expect(push).toHaveBeenCalledWith('/w/canadawide/tasks');
   });
 
   it('marks the current section as the active page', () => {

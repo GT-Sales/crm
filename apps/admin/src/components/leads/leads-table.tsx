@@ -26,6 +26,7 @@ import { assigneeName } from '../../lib/people';
 import { useResource } from '../../lib/use-resource';
 import { PropertyValueText } from '../properties/property-value';
 import type { InboxQuery } from './inbox-query';
+import { TableRowsSkeleton } from '../crm/loading-skeleton';
 import { CountdownLabel, leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
 import { propertyColumnLabel, propertyColumnProperty } from './lead-fields';
 
@@ -33,12 +34,12 @@ const PAGE_SIZE = 50;
 
 // A roomy list: 14px text, the lead's name over its email or phone, a soft
 // rule between rows and no pinned column; wide tables scroll sideways whole.
-const HEAD_CELL = 'px-3 py-2 font-medium';
-const CELL = 'px-3 py-2';
+const HEAD_CELL = 'px-3 py-3 text-left font-medium whitespace-nowrap';
+const CELL = 'px-3 py-3';
 
 export const DUE_TONE_CLASS = {
-  overdue: 'text-rose-300',
-  today: 'text-amber-300',
+  overdue: 'text-rose-700 dark:text-rose-300',
+  today: 'text-amber-700 dark:text-amber-300',
   upcoming: 'text-muted-foreground',
 } as const;
 
@@ -211,12 +212,27 @@ export function LeadsTable({
   const countdownField = countdownType ? leadCountdownField(countdownType) : undefined;
   const showCol = (key: LeadTableColumn) => !query.hide.includes(key);
   const showingCountdown = Boolean(countdownField && showCol('countdown'));
+  const initialLoading = !leads.data || Boolean(waiting);
   const propertyColumns = contactsAllowed
     ? (query.columns ?? []).filter((key) => !(showingCountdown && countdownField?.key === key))
     : [];
   const hasFilters = Boolean(
     query.q || query.stage || query.assignee || (query.where && query.where.length > 0),
   );
+  const optionalColumns: readonly LeadTableColumn[] = [
+    'stage',
+    'assignee',
+    'nextTask',
+    'source',
+    'created',
+    'activity',
+  ];
+  const columnCount =
+    1 +
+    Number(!query.type && showCol('type')) +
+    optionalColumns.filter(showCol).length +
+    Number(showingCountdown) +
+    propertyColumns.length;
 
   if (leads.error) {
     return (
@@ -231,8 +247,13 @@ export function LeadsTable({
 
   return (
     <div className="flex flex-col gap-3">
+      {initialLoading ? (
+        <span role="status" aria-label="Loading leads…" className="sr-only">
+          Loading leads…
+        </span>
+      ) : null}
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[880px] text-sm" aria-busy={leads.loading || waiting}>
+        <table className="w-full min-w-[880px] text-sm" aria-busy={initialLoading || leads.loading}>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
               <SortableHeader
@@ -313,15 +334,12 @@ export function LeadsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {initialLoading ? (
+              <TableRowsSkeleton columns={columnCount} />
+            ) : rows.length === 0 ? (
               <tr>
-                <td
-                  colSpan={9 + propertyColumns.length}
-                  className="px-3 py-10 text-center text-muted-foreground"
-                >
-                  {leads.loading || waiting ? (
-                    'Loading…'
-                  ) : query.archived ? (
+                <td colSpan={columnCount} className="px-3 py-10 text-center text-muted-foreground">
+                  {query.archived ? (
                     'The archive is empty.'
                   ) : query.due ? (
                     'No follow-ups due today or earlier.'
@@ -481,19 +499,19 @@ export function LeadsTable({
           type="button"
           variant="outline"
           size="sm"
-          disabled={leads.loading || page.page <= 1}
+          disabled={initialLoading || leads.loading || page.page <= 1}
           onClick={() => onPage(Math.max(1, page.page - 1))}
         >
           Previous
         </Button>
-        <span className="text-muted-foreground">
+        <span className={cn('text-muted-foreground', initialLoading && 'invisible')}>
           Page {page.page} of {pages} · {page.total} lead{page.total === 1 ? '' : 's'}
         </span>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          disabled={leads.loading || page.page >= pages}
+          disabled={initialLoading || leads.loading || page.page >= pages}
           onClick={() => onPage(page.page + 1)}
         >
           Next

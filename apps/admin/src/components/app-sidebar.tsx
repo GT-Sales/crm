@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Globe2Icon, ShieldCheckIcon } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -10,6 +11,7 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  SidebarFooter,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -19,6 +21,7 @@ import {
 import { getLeadsSummary } from '../lib/api';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 /**
  * Leads no one who works leads has opened yet, across the site's types,
@@ -48,25 +51,29 @@ function useUnopenedLeads(workspace: string, pathname: string): number | undefin
 
 export function AppSidebar({ workspace }: { workspace: string }) {
   const pathname = usePathname();
+  const { workspaces } = useStaffSession();
+  const currentWorkspace = workspaces.find((site) => site.slug === workspace);
+  const workspaceName = currentWorkspace?.name ?? workspace;
   const { isMobile, setOpenMobile } = useSidebar();
   const unopened = useUnopenedLeads(workspace, pathname);
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" className="crm-sidebar">
       <SidebarHeader>
-        <div className="flex h-8 items-center gap-2 overflow-hidden whitespace-nowrap px-2 text-sm font-semibold">
-          <span
-            aria-hidden="true"
-            className="flex size-5 shrink-0 items-center justify-center rounded bg-primary text-[9px] font-bold text-primary-foreground"
-          >
-            GT
-          </span>
-          <span className="group-data-[collapsible=icon]:sr-only">GT Sales CRM</span>
-        </div>
+        {currentWorkspace ? (
+          <WorkspaceSwitcher
+            currentWorkspace={currentWorkspace}
+            currentSection={pathname.split('/')[3] ?? 'leads'}
+            workspaces={workspaces}
+            onSelect={() => {
+              if (isMobile) setOpenMobile(false);
+            }}
+          />
+        ) : null}
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Site</SidebarGroupLabel>
+          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
             <nav aria-label="Site navigation">
               <SidebarMenu>
@@ -75,8 +82,21 @@ export function AppSidebar({ workspace }: { workspace: string }) {
                   const isActive = pathname === href || pathname.startsWith(`${href}/`);
 
                   return (
-                    <SidebarMenuItem key={section}>
-                      <SidebarMenuButton asChild isActive={isActive} tooltip={label}>
+                    <SidebarMenuItem
+                      key={section}
+                      className={section === 'reports' ? 'mt-6' : undefined}
+                    >
+                      {section === 'reports' ? (
+                        <p className="mb-2 px-2 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden">
+                          Manage
+                        </p>
+                      ) : null}
+                      <SidebarMenuButton
+                        className="h-8"
+                        asChild
+                        isActive={isActive}
+                        tooltip={label}
+                      >
                         <Link
                           href={href}
                           aria-label={
@@ -107,6 +127,21 @@ export function AppSidebar({ workspace }: { workspace: string }) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="p-3">
+        <div className="flex items-center gap-2.5 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
+          <Globe2Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-xs font-medium">
+            {workspaceName}
+            <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
+              Site workspace
+            </span>
+          </span>
+          <ShieldCheckIcon
+            className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden="true"
+          />
+        </div>
+      </SidebarFooter>
     </Sidebar>
   );
 }

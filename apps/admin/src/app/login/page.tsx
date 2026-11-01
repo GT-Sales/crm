@@ -16,6 +16,7 @@ import {
 
 import { destinationAfterPrimarySignIn } from '../../lib/auth-navigation';
 import { getStaffAuth, isStaffAuthConfigured } from '../../lib/supabase-auth';
+import { AuthFrame } from '../../components/auth-frame';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -64,11 +65,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="flex min-h-svh items-center justify-center p-6 outline-none"
-    >
+    <AuthFrame>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle asChild>
@@ -140,6 +137,6 @@ export default function LoginPage() {
           </div>
         </CardContent>
       </Card>
-    </main>
+    </AuthFrame>
   );
 }

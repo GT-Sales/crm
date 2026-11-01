@@ -21,10 +21,35 @@ type SessionStatus = 'loading' | 'signed_out' | 'signed_in' | 'configuration_mis
 interface StaffSessionState {
   status: SessionStatus;
   accessToken?: string;
+  email?: string;
   workspaces: readonly StaffWorkspace[];
   reason?: string;
   refreshWorkspaces(): Promise<void>;
   signOut(): Promise<void>;
+}
+
+function emailFromToken(token: string | undefined): string | undefined {
+  if (!token) return undefined;
+  const parts = token.split('.');
+  const payload = parts[1];
+  if (!payload || typeof atob !== 'function') return undefined;
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded: unknown = JSON.parse(atob(padded));
+    if (
+      typeof decoded === 'object' &&
+      decoded !== null &&
+      'email' in decoded &&
+      typeof decoded.email === 'string' &&
+      decoded.email.length > 0
+    ) {
+      return decoded.email;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 const StaffSessionContext = createContext<StaffSessionState | undefined>(undefined);
@@ -32,6 +57,7 @@ const StaffSessionContext = createContext<StaffSessionState | undefined>(undefin
 export function StaffSessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatusState] = useState<SessionStatus>('loading');
   const [accessToken, setAccessToken] = useState<string>();
+  const [email, setEmail] = useState<string>();
   const [workspaces, setWorkspaces] = useState<readonly StaffWorkspace[]>([]);
   const [reason, setReason] = useState<string>();
   const generation = useRef(0);
@@ -50,16 +76,18 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const load = useCallback(
-    async (token: string, userId?: string) => {
+    async (token: string, userId?: string, userEmail?: string) => {
       const requestGeneration = ++generation.current;
       signedInUser.current = undefined;
       setAccessToken(undefined);
+      setEmail(undefined);
       setWorkspaces([]);
       setStatus('loading');
       try {
         const result = await getStaffWorkspaces(token);
         if (requestGeneration !== generation.current) return;
         setAccessToken(token);
+        setEmail(userEmail ?? emailFromToken(token));
         setWorkspaces(result.workspaces);
         setReason(undefined);
         signedInUser.current = userId;
@@ -67,6 +95,7 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         if (requestGeneration !== generation.current) return;
         setAccessToken(undefined);
+        setEmail(undefined);
         setWorkspaces([]);
         setReason(error instanceof BackendError ? error.code : 'internal_error');
         setStatus('error');
@@ -91,8 +120,9 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
     const initialGeneration = generation.current;
     void auth.getSession().then(({ data }) => {
       if (!current || initialGeneration !== generation.current) return;
-      if (data.session) void load(data.session.access_token, data.session.user?.id);
-      else setStatus('signed_out');
+      if (data.session) {
+        void load(data.session.access_token, data.session.user?.id, data.session.user?.email);
+      } else setStatus('signed_out');
     });
     const listener = auth.onAuthStateChange((_event, nextSession) => {
       if (!current) return;
@@ -103,13 +133,16 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
       if (nextSession && sameUser) {
         // TOKEN_REFRESHED / tab refocus for the same person: keep the screen.
         setAccessToken(nextSession.access_token);
+        if (nextSession.user?.email) setEmail(nextSession.user.email);
         return;
       }
       ++generation.current;
-      if (nextSession) void load(nextSession.access_token, nextSession.user?.id);
-      else {
+      if (nextSession) {
+        void load(nextSession.access_token, nextSession.user?.id, nextSession.user?.email);
+      } else {
         signedInUser.current = undefined;
         setAccessToken(undefined);
+        setEmail(undefined);
         setWorkspaces([]);
         setReason(undefined);
         setStatus('signed_out');
@@ -123,20 +156,29 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
   }, [load, invalidate, setStatus]);
 
   const refreshWorkspaces = useCallback(async () => {
-    if (accessToken) await load(accessToken, signedInUser.current);
-  }, [accessToken, load]);
+    if (accessToken) await load(accessToken, signedInUser.current, email);
+  }, [accessToken, email, load]);
   const signOut = useCallback(async () => {
     ++generation.current;
     signedInUser.current = undefined;
     setAccessToken(undefined);
+    setEmail(undefined);
     setWorkspaces([]);
     setReason(undefined);
     setStatus('signed_out');
     if (isStaffAuthConfigured()) await getStaffAuth().signOut();
   }, [setStatus]);
   const value = useMemo<StaffSessionState>(
-    () => ({ status, accessToken, workspaces, reason, refreshWorkspaces, signOut }),
-    [status, accessToken, workspaces, reason, refreshWorkspaces, signOut],
+    () => ({
+      status,
+      accessToken,
+      ...(email !== undefined ? { email } : {}),
+      workspaces,
+      reason,
+      refreshWorkspaces,
+      signOut,
+    }),
+    [status, accessToken, email, workspaces, reason, refreshWorkspaces, signOut],
   );
 
   return <StaffSessionContext.Provider value={value}>{children}</StaffSessionContext.Provider>;

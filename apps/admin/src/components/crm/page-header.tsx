@@ -19,9 +19,11 @@ export function PageHeader({
   children?: ReactNode;
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-crm-header px-3">
-      <h1 className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-foreground">
-        <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+    <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b border-border bg-crm-header px-5 py-3">
+      <h1 className="flex min-w-0 items-center gap-3 text-lg font-semibold tracking-tight text-foreground">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background shadow-xs">
+          <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
+        </span>
         <span className="truncate">{title}</span>
         {count === undefined ? null : (
           <span className="font-normal text-muted-foreground">

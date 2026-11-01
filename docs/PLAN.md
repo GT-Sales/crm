@@ -385,7 +385,26 @@ panel, the Runs tab with expandable step outcomes, and Settings → Email "New
 template" with sample property values for test sends) is built. The 2026-11-01
 review adds safe serialized draft saving, historical run version loading,
 accessible list editing and step movement, and property and nesting guards.
-Step B awaits the owner's merge approval and deployment. The CRM's own open items (the cross-site inbox, the
+Step B merged and deployed 2026-11-01 (PR #13, `c29f1cd`). The owner's next
+design request adapts Shadcnblocks to the staff app, prioritizing the live
+website's monochrome palette and compact styling: light/dark themes,
+navigation, dashboard, lists/records, boards/tasks and settings, with a Twenty-style
+tabbed lead slide-out and Linear-inspired header icon menus for filters and
+view settings using the CRM's existing styling (implementation
+and references: `docs/design/2026-11-01-admin-redesign.md`; pending review/release).
+The lead slide-out and table resize together with slower opening/closing
+transitions, respecting reduced-motion preferences.
+Both table rows and board cards open the same lead slide-out.
+The slide-out resets its entry state on close, preserving motion on repeated opens.
+Board horizontal navigation stays fixed at the viewport bottom.
+All leads → Board defaults to SIM orders when available; selected types remain selected.
+The record header has clearer metadata and labeled controls; delivery-letter
+printing is temporarily hidden from the record UI.
+Initial data loads throughout the admin use skeleton layouts matching their
+screens, with accessible statuses and reduced-motion support.
+Settings groups profile under General, teammates/invitations under Team and
+website credentials under Integrations, reusing the existing permission checks.
+The CRM's own open items (the cross-site inbox, the
 contact page and split/merge) move to a small phase 3b of their own (ruling of 2026-10-30); the cutover
 clean-up waits for staff to move to the CRM (docs/HANDOFF.md §5.1).
 

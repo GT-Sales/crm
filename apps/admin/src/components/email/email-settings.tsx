@@ -19,6 +19,7 @@ import {
   type UpdateEmailTemplateRequest,
 } from '@gt-sales/contracts';
 import {
+  Badge,
   Button,
   Dialog,
   DialogContent,
@@ -52,6 +53,7 @@ import {
 } from './template-editor';
 import { TemplateList } from './template-list';
 import { isForbidden, useEmailSettings } from './use-email-settings';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
@@ -171,127 +173,145 @@ export function EmailSettings({
     <form
       noValidate
       aria-labelledby={`${id}-heading`}
-      className="flex flex-col gap-4"
+      className="overflow-hidden rounded-xl border border-border/80 bg-card/30"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
     >
-      <h2 id={`${id}-heading`} className="text-base font-semibold">
-        Sender
-      </h2>
-      {initial.settings === null ? (
-        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-          Not saved yet: this site sends no email until you save these settings.
-        </p>
-      ) : null}
-      <fieldset disabled={readOnly || busy} className="grid gap-4 md:grid-cols-2">
-        <legend className="sr-only">Sender settings</legend>
-        <FormField id={`${id}-from-name`} label="Sender name" {...errorProp('fromName')}>
-          <Input
-            value={values.fromName}
-            maxLength={80}
-            autoComplete="organization"
-            onChange={(event) => set('fromName', event.target.value)}
-          />
-        </FormField>
-        <FormField
-          id={`${id}-from-address`}
-          label="Sender address"
-          hint="Must be on a domain verified in Resend; send yourself a test to check."
-          {...errorProp('fromAddress')}
-        >
-          <Input
-            type="email"
-            value={values.fromAddress}
-            onChange={(event) => set('fromAddress', event.target.value)}
-          />
-        </FormField>
-        <FormField
-          id={`${id}-reply-to`}
-          label="Reply-to address"
-          hint="Where customers’ replies go. Leave it empty to use the sender address."
-          {...errorProp('replyTo')}
-        >
-          <Input
-            type="email"
-            value={values.replyTo}
-            onChange={(event) => set('replyTo', event.target.value)}
-          />
-        </FormField>
-        <FormField
-          id={`${id}-logo`}
-          label="Logo URL"
-          hint="An https:// link to the image shown at the top of each email."
-          {...errorProp('logoUrl')}
-        >
-          <Input
-            type="url"
-            value={values.logoUrl}
-            onChange={(event) => set('logoUrl', event.target.value)}
-          />
-        </FormField>
-        <div className="flex flex-col gap-2">
-          <FormField
-            id={`${id}-brand-color`}
-            label="Brand colour"
-            hint="The colour of the button and the top bar, as #rrggbb."
-            {...errorProp('brandColor')}
-          >
-            <Input
-              value={values.brandColor}
-              maxLength={7}
-              spellCheck={false}
-              onChange={(event) => set('brandColor', event.target.value)}
-            />
-          </FormField>
-          <input
-            type="color"
-            aria-label="Brand colour picker"
-            value={pickerValue}
-            className="h-9 w-16 cursor-pointer rounded-md border bg-transparent p-1 disabled:cursor-not-allowed disabled:opacity-50"
-            onChange={(event) => set('brandColor', event.target.value.toLowerCase())}
-          />
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 id={`${id}-heading`} className="text-sm font-medium text-foreground">
+              Sender
+            </h2>
+            <Badge
+              variant={initial.settings === null ? 'secondary' : 'outline'}
+              className="text-[11px] font-normal"
+            >
+              {initial.settings === null ? 'Not configured' : 'Configured'}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            From name, verified address, reply-to, and brand styling for outgoing customer emails.
+          </p>
         </div>
-        <FormField
-          id={`${id}-site-url`}
-          label="Site address"
-          hint="The website’s https:// address, linked from each email."
-          {...errorProp('siteUrl')}
-        >
-          <Input
-            type="url"
-            value={values.siteUrl}
-            onChange={(event) => set('siteUrl', event.target.value)}
-          />
-        </FormField>
-        <div className="md:col-span-2">
-          <FormField
-            id={`${id}-footer`}
-            label="Footer"
-            hint="Shown at the bottom of each email, such as the business name and address."
-            {...errorProp('footerText')}
-          >
-            <Textarea
-              rows={3}
-              value={values.footerText}
-              maxLength={500}
-              onChange={(event) => set('footerText', event.target.value)}
-            />
-          </FormField>
-        </div>
-      </fieldset>
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={readOnly || busy}>
+        <Button type="submit" size="sm" disabled={readOnly || busy}>
           Save settings
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-4 p-5">
+        {initial.settings === null ? (
+          <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 p-3 text-xs text-muted-foreground">
+            Not saved yet: this site sends no email until you save these settings.
+          </p>
+        ) : null}
+        <fieldset disabled={readOnly || busy} className="grid gap-4 md:grid-cols-2">
+          <legend className="sr-only">Sender settings</legend>
+          <FormField id={`${id}-from-name`} label="Sender name" {...errorProp('fromName')}>
+            <Input
+              value={values.fromName}
+              maxLength={80}
+              autoComplete="organization"
+              onChange={(event) => set('fromName', event.target.value)}
+            />
+          </FormField>
+          <FormField
+            id={`${id}-from-address`}
+            label="Sender address"
+            hint="Must be on a domain verified in Resend; send yourself a test to check."
+            {...errorProp('fromAddress')}
+          >
+            <Input
+              type="email"
+              value={values.fromAddress}
+              onChange={(event) => set('fromAddress', event.target.value)}
+            />
+          </FormField>
+          <FormField
+            id={`${id}-reply-to`}
+            label="Reply-to address"
+            hint="Where customers’ replies go. Leave it empty to use the sender address."
+            {...errorProp('replyTo')}
+          >
+            <Input
+              type="email"
+              value={values.replyTo}
+              onChange={(event) => set('replyTo', event.target.value)}
+            />
+          </FormField>
+          <FormField
+            id={`${id}-logo`}
+            label="Logo URL"
+            hint="An https:// link to the image shown at the top of each email."
+            {...errorProp('logoUrl')}
+          >
+            <Input
+              type="url"
+              value={values.logoUrl}
+              onChange={(event) => set('logoUrl', event.target.value)}
+            />
+          </FormField>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <FormField
+                id={`${id}-brand-color`}
+                label="Brand colour"
+                hint="The colour of the button and the top bar, as #rrggbb."
+                {...errorProp('brandColor')}
+              >
+                <Input
+                  value={values.brandColor}
+                  maxLength={7}
+                  spellCheck={false}
+                  onChange={(event) => set('brandColor', event.target.value)}
+                />
+              </FormField>
+            </div>
+            <input
+              type="color"
+              aria-label="Brand colour picker"
+              value={pickerValue}
+              className="mt-6 h-9 w-12 shrink-0 cursor-pointer rounded-md border bg-transparent p-1 disabled:cursor-not-allowed disabled:opacity-50"
+              onChange={(event) => set('brandColor', event.target.value.toLowerCase())}
+            />
+          </div>
+          <FormField
+            id={`${id}-site-url`}
+            label="Site address"
+            hint="The website’s https:// address, linked from each email."
+            {...errorProp('siteUrl')}
+          >
+            <Input
+              type="url"
+              value={values.siteUrl}
+              onChange={(event) => set('siteUrl', event.target.value)}
+            />
+          </FormField>
+          <div className="md:col-span-2">
+            <FormField
+              id={`${id}-footer`}
+              label="Footer"
+              hint="Shown at the bottom of each email, such as the business name and address."
+              {...errorProp('footerText')}
+            >
+              <Textarea
+                rows={3}
+                value={values.footerText}
+                maxLength={500}
+                onChange={(event) => set('footerText', event.target.value)}
+              />
+            </FormField>
+          </div>
+        </fieldset>
         {result ? (
           result.ok ? (
-            <p role="status" className="text-sm text-muted-foreground">
+            <p role="status" className="text-xs text-muted-foreground">
               {result.text}
             </p>
           ) : (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-xs text-destructive">
               {result.text}
             </p>
           )
@@ -619,9 +639,7 @@ export function EmailSettingsScreen({
         The email settings could not be loaded. Reason: {error}.
       </p>
     ) : (
-      <p className="text-sm text-muted-foreground" aria-busy="true">
-        Loading the email settings…
-      </p>
+      <LoadingSkeleton label="Loading the email settings…" variant="form" />
     );
   }
 
@@ -646,21 +664,31 @@ export function EmailSettingsScreen({
         </p>
       ) : null}
       <EmailSettings initial={settings} onSave={saveSettings} readOnly={readOnly} />
-      <section aria-labelledby="email-templates-heading" className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="email-templates-heading" className="text-base font-semibold">
-            Emails
-          </h2>
+      <section
+        aria-labelledby="email-templates-heading"
+        className="overflow-hidden rounded-xl border border-border/80 bg-card/30"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 id="email-templates-heading" className="text-sm font-medium text-foreground">
+                Emails
+              </h2>
+              <Badge variant="secondary" className="text-xs font-normal">
+                {templates.length}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The words of each email the site sends its customers. Whether an email is sent is set
+              on the Automations page.
+            </p>
+          </div>
           {readOnly ? null : (
             <Button type="button" size="sm" onClick={() => setCreating(true)}>
               New template
             </Button>
           )}
         </div>
-        <p className="text-sm text-muted-foreground">
-          The words of each email the site sends its customers. Whether an email is sent is set on
-          the Automations page.
-        </p>
         <TemplateList
           workspaceSlug={workspaceSlug}
           templates={templates}
@@ -668,7 +696,7 @@ export function EmailSettingsScreen({
           onArchive={(key) => void archive(key)}
           readOnly={readOnly}
         />
-        <div className="flex flex-col gap-2 pt-1">
+        <div className="flex flex-col gap-2 border-t border-border/70 bg-muted/10 px-5 py-3">
           <div>
             <Button type="button" size="sm" variant="ghost" onClick={() => void toggleArchived()}>
               {showArchived ? 'Hide archived templates' : 'Archived templates'}
@@ -676,20 +704,21 @@ export function EmailSettingsScreen({
           </div>
           {showArchived ? (
             archivedLoading && archivedTemplates.length === 0 ? (
-              <p className="text-sm text-muted-foreground" aria-busy="true">
-                Loading archived templates…
-              </p>
+              <LoadingSkeleton label="Loading archived templates…" variant="list" />
             ) : archivedTemplates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No archived templates.</p>
+              <p className="text-xs text-muted-foreground">No archived templates.</p>
             ) : (
               <div className="flex flex-col gap-2">
-                <ul aria-label="Archived emails" className="divide-y rounded-md border">
+                <ul
+                  aria-label="Archived emails"
+                  className="divide-y divide-border/70 rounded-lg border border-border/70 bg-background/50"
+                >
                   {archivedTemplates.map((entry) => {
                     const siteKey = isSiteTemplateKey(entry.key) ? entry.key : undefined;
                     return (
                       <li
                         key={entry.key}
-                        className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2"
+                        className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5"
                       >
                         <div className="mr-auto flex min-w-0 flex-col gap-0.5">
                           <h3 className="text-sm font-medium">{entry.name}</h3>

@@ -15,6 +15,7 @@ import {
   stepOutcomeText,
   type FlowNames,
 } from './flow-words';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 /**
  * A flow's latest runs as the backend lists them (newest first, at most 50 per
@@ -131,7 +132,9 @@ export function AutomationRuns({
                 ))}
               </div>
 
-              {isExpanded && loadingId === run.id ? <p role="status">Loading run…</p> : null}
+              {isExpanded && loadingId === run.id ? (
+                <LoadingSkeleton label="Loading run…" variant="list" />
+              ) : null}
               {isExpanded && loadErrorId === run.id ? (
                 <p role="alert">
                   The run details could not be loaded. Close and reopen the steps to retry.

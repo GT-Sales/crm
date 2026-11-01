@@ -27,6 +27,7 @@ import { useStaffSession } from '../staff-session-provider';
 import { PLAN_DOCUMENT_TYPES } from './document-types';
 import { BILLING_PERIOD_LABELS, PlanEditor } from './plan-editor';
 import { usePlans } from './use-plans';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 const price = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
 
@@ -141,9 +142,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
         The plans could not be loaded. Reason: {loadError}.
       </p>
     ) : (
-      <p className="text-sm text-muted-foreground" aria-busy="true">
-        Loading the plans…
-      </p>
+      <LoadingSkeleton label="Loading the plans…" variant="list" />
     );
   }
 
@@ -175,16 +174,25 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
       {orderLeadTypes.map((leadType) => {
         const label = leadTypeLabel(leadType);
         const ofType = activeFirst(plans.filter((plan) => plan.leadType === leadType));
+        const activeCount = ofType.filter((plan) => plan.active).length;
         return (
           <section
             key={leadType}
             aria-labelledby={`plans-heading-${leadType}`}
-            className="flex flex-col gap-2"
+            className="overflow-hidden rounded-xl border border-border/80 bg-card/30"
           >
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <h2 id={`plans-heading-${leadType}`} className="text-base font-semibold">
-                {label}
-              </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
+              <div className="flex items-center gap-2">
+                <h2
+                  id={`plans-heading-${leadType}`}
+                  className="text-sm font-medium text-foreground"
+                >
+                  {label}
+                </h2>
+                <Badge variant="secondary" className="text-xs font-normal">
+                  {activeCount} active
+                </Badge>
+              </div>
               {canWrite ? (
                 <Button
                   type="button"
@@ -202,23 +210,21 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
               ) : null}
             </div>
             {ofType.length === 0 ? (
-              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                No plans yet.
-              </p>
+              <p className="px-5 py-8 text-center text-sm text-muted-foreground">No plans yet.</p>
             ) : (
-              <ul aria-label={`${label} plans`} className="divide-y rounded-md border">
+              <ul aria-label={`${label} plans`} className="divide-y divide-border/70">
                 {ofType.map((plan) => (
                   <li
                     key={plan.id}
-                    className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 ${
+                    className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5 transition-colors hover:bg-muted/20 ${
                       plan.active ? '' : 'bg-muted/40 text-muted-foreground opacity-70'
                     }`}
                   >
                     <div className="mr-auto min-w-0">
-                      <p className="text-sm font-medium">
+                      <p className="text-sm font-medium text-foreground">
                         {plan.name}
                         {plan.active ? null : (
-                          <Badge variant="secondary" className="ml-2">
+                          <Badge variant="secondary" className="ml-2 text-[11px] font-normal">
                             Inactive
                           </Badge>
                         )}
@@ -231,7 +237,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
                     </div>
                     {canWrite ? (
                       <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground hover:text-foreground">
                           <Checkbox
                             aria-label={`Active ${plan.name}`}
                             checked={plan.active}

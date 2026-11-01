@@ -20,8 +20,30 @@ import {
   type UpdateWorkspaceLeadRequest,
   type UpdateWorkspaceLeadResponse,
 } from '@gt-sales/contracts';
-import { Button, Card, CardContent, cn, Input, NativeSelect } from '@gt-sales/ui';
-import { ArchiveIcon, ArrowLeftIcon, CopyIcon, PrinterIcon, RotateCcwIcon } from 'lucide-react';
+import {
+  Button,
+  Card,
+  CardContent,
+  cn,
+  Input,
+  NativeSelect,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from '@gt-sales/ui';
+import {
+  ArchiveIcon,
+  ArrowLeftIcon,
+  CopyIcon,
+  FilesIcon,
+  HistoryIcon,
+  HouseIcon,
+  ListTodoIcon,
+  StickyNoteIcon,
+  RotateCcwIcon,
+  UserRoundIcon,
+} from 'lucide-react';
 
 import {
   approveChangeRequest,
@@ -44,12 +66,13 @@ import { leadDisplayName, StageBadge } from './lead-display';
 import { IdentityCheck } from './identity-check';
 import { LeadDocuments, linkFailure } from './lead-documents';
 import type { PropertyEdits } from './lead-form-editor';
-import { deliveryLetterUrl, leadSummaryText } from './lead-summary';
+import { leadSummaryText } from './lead-summary';
 import { LeadTasks } from './lead-tasks';
 import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
 import { emailSkippedText, StageMoveDialog, stageMoveRefusal } from './stage-move-dialog';
 import { useLeadWorkspace } from './use-lead-workspace';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 const ATTRIBUTION_LABELS: Record<string, string> = {
   utmSource: 'UTM source',
@@ -142,7 +165,8 @@ function ContactEditor({
  * tasks and the timeline on the right. Roles that only read leads see the
  * stage and source without the customer's details. In the inbox's side panel
  * (`variant="panel"`) the same record goes without the page's chrome, in one
- * column.
+ * column, with Home, Tasks, Notes, Files and Activity tabs. Drafts stay mounted
+ * while switching sections.
  */
 export function LeadRecord({
   workspaceSlug,
@@ -198,6 +222,7 @@ export function LeadRecord({
   const [simEmail, setSimEmail] = useState<'ask' | 'sending' | 'sent'>();
   const [simEmailMessage, setSimEmailMessage] = useState<string>();
   const [editingContact, setEditingContact] = useState(false);
+  const [panelTab, setPanelTab] = useState('home');
   const [message, setMessage] = useState<string>();
   // The stage a move waits on details for (the dispatch or activation dialog).
   const [moveTo, setMoveTo] = useState<string>();
@@ -238,14 +263,16 @@ export function LeadRecord({
   }
   if (!record.data || !accessToken || !workspaceId) {
     return (
-      <p className="py-10 text-sm text-muted-foreground" aria-busy="true">
-        Loading the lead…
-      </p>
+      <LoadingSkeleton
+        label="Loading the lead…"
+        variant="record"
+        panel={inPanel}
+        className={inPanel ? 'p-4' : undefined}
+      />
     );
   }
 
   const { lead, activities, tasks, related, identities, documents, access } = record.data;
-  const letterUrl = access.contacts ? deliveryLetterUrl(record.data) : undefined;
   const waitingChange = pendingChangeRequest(activities);
   const shownRequest =
     record.data.changeRequest ?? (decided?.leadId === leadId ? decided.request : undefined);
@@ -517,426 +544,555 @@ export function LeadRecord({
     });
   }
 
-  return (
-    <div className={cn('flex flex-col', inPanel ? 'gap-4' : 'gap-6')}>
-      <div className="flex flex-col gap-3">
-        {inPanel ? null : (
-          <Link
-            href={`/w/${workspaceSlug}/leads?type=${lead.leadType}`}
-            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+  function noteAdded(activity: LeadActivity) {
+    addActivities([activity]);
+    changeRecord((current) => ({
+      ...current,
+      lead: { ...current.lead, updatedAt: activity.createdAt },
+    }));
+  }
+
+  const header = (
+    <div
+      className={cn('flex flex-col gap-4', !inPanel && 'rounded-2xl border bg-card p-5 md:p-6')}
+      data-slot="lead-record-header"
+    >
+      {inPanel ? null : (
+        <Link
+          href={`/w/${workspaceSlug}/leads?type=${lead.leadType}`}
+          className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" aria-hidden="true" /> {leadTypeLabel(lead.leadType)}{' '}
+          leads
+        </Link>
+      )}
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+        {!inPanel ? (
+          <span
+            className="flex size-12 items-center justify-center rounded-full border bg-muted/60"
+            aria-hidden="true"
           >
-            <ArrowLeftIcon className="size-4" aria-hidden="true" /> {leadTypeLabel(lead.leadType)}{' '}
-            leads
-          </Link>
-        )}
-        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-          <div className="min-w-0 flex-1">
-            <Title
-              className={cn(
-                'truncate font-semibold tracking-tight',
-                inPanel ? 'text-lg' : 'text-2xl',
-              )}
-            >
-              {leadDisplayName(lead.contact)}
-            </Title>
-            <p className="text-sm text-muted-foreground">
-              {leadTypeLabel(lead.leadType)} · received{' '}
+            <UserRoundIcon className="size-5 text-muted-foreground" />
+          </span>
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <Title
+            className={cn(
+              'break-words font-semibold tracking-tight',
+              inPanel ? 'text-xl leading-7' : 'text-2xl',
+            )}
+          >
+            {leadDisplayName(lead.contact)}
+          </Title>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded-md bg-muted/60 px-2 py-1 font-medium text-foreground">
+              {leadTypeLabel(lead.leadType)}
+            </span>
+            {lead.externalRef ? (
+              <span className="max-w-full break-words rounded-md border px-2 py-1 font-mono text-[11px]">
+                {lead.externalRef}
+              </span>
+            ) : null}
+            <span>
+              Received{' '}
               <time dateTime={lead.createdAt} title={dateTimeLabel(lead.createdAt)}>
                 {relativeTime(lead.createdAt)}
               </time>
-              {lead.externalRef ? ` · ${lead.externalRef}` : ''}
-            </p>
+            </span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canWrite ? (
-              <>
-                <label className="w-52">
-                  <span className="sr-only">Stage</span>
-                  <NativeSelect
-                    value={lead.stage}
-                    disabled={saving}
-                    onChange={(event) => changeStage(event.target.value)}
-                  >
-                    {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
-                    {stageChoices.map((entry) => (
-                      <option key={entry.key} value={entry.key}>
-                        {entry.label}
+        </div>
+        <div className={cn('grid w-full grid-cols-2 gap-3', !inPanel && 'sm:max-w-md')}>
+          {canWrite ? (
+            <>
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Stage</span>
+                <NativeSelect
+                  value={lead.stage}
+                  disabled={saving}
+                  onChange={(event) => changeStage(event.target.value)}
+                >
+                  {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
+                  {stageChoices.map((entry) => (
+                    <option key={entry.key} value={entry.key}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Assignee</span>
+                <NativeSelect
+                  value={lead.assignedActorId ?? ''}
+                  disabled={saving}
+                  onChange={(event) => void update({ assignedActorId: event.target.value || null })}
+                >
+                  <option value="">Unassigned</option>
+                  {self ? <option value={self.actorId}>{memberName(self)} (you)</option> : null}
+                  {members
+                    .filter((member) => !member.isSelf)
+                    .map((member) => (
+                      <option key={member.actorId} value={member.actorId}>
+                        {memberName(member)}
                       </option>
                     ))}
-                  </NativeSelect>
-                </label>
-                <label className="w-52">
-                  <span className="sr-only">Assignee</span>
-                  <NativeSelect
-                    value={lead.assignedActorId ?? ''}
-                    disabled={saving}
-                    onChange={(event) =>
-                      void update({ assignedActorId: event.target.value || null })
-                    }
-                  >
-                    <option value="">Unassigned</option>
-                    {self ? <option value={self.actorId}>{memberName(self)} (you)</option> : null}
-                    {members
-                      .filter((member) => !member.isSelf)
-                      .map((member) => (
-                        <option key={member.actorId} value={member.actorId}>
-                          {memberName(member)}
-                        </option>
-                      ))}
-                    {lead.assignedActorId &&
-                    !members.some((member) => member.actorId === lead.assignedActorId) ? (
-                      <option value={lead.assignedActorId}>Former teammate</option>
-                    ) : null}
-                  </NativeSelect>
-                </label>
-              </>
-            ) : (
-              <StageBadge leadType={lead.leadType} stage={lead.stage} />
-            )}
-            {access.contacts ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => void copySummary()}>
-                <CopyIcon className="size-4" aria-hidden="true" /> {copied ? 'Copied' : 'Copy info'}
-              </Button>
-            ) : null}
-            {letterUrl ? (
-              <Button asChild variant="outline" size="sm">
-                <a href={letterUrl} target="_blank" rel="noopener noreferrer">
-                  <PrinterIcon className="size-4" aria-hidden="true" /> Print delivery letter
-                </a>
-              </Button>
-            ) : null}
-            {access.manage ? (
-              lead.deletedAt === null ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => void setArchived(true)}
-                >
-                  <ArchiveIcon className="size-4" aria-hidden="true" /> Archive
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => void setArchived(false)}
-                >
-                  <RotateCcwIcon className="size-4" aria-hidden="true" /> Restore
-                </Button>
-              )
-            ) : null}
-          </div>
-        </div>
-        {lead.deletedAt ? (
-          <p
-            role="status"
-            className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm"
-          >
-            This lead is archived (since {dateTimeLabel(lead.deletedAt)}). Restore it to work on it
-            again.
-          </p>
-        ) : null}
-        {waitingChange ? (
-          <p
-            role="status"
-            className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
-          >
-            Waiting in the old admin: the customer{' '}
-            {changeRequestText(waitingChange, lead.leadType, catalog)}, received{' '}
-            <time dateTime={waitingChange.createdAt} title={dateTimeLabel(waitingChange.createdAt)}>
-              {relativeTime(waitingChange.createdAt)}
-            </time>
-            . Approve or reject it there until staff move to the CRM.
-          </p>
-        ) : null}
-        {!access.contacts ? (
-          <p role="status" className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-            Your role shows a lead’s stage and source, not the customer’s details, notes or tasks.
-          </p>
-        ) : null}
-        {message ? (
-          <p role="alert" className="text-sm text-destructive">
-            {message}
-          </p>
-        ) : null}
-        {record.error && !refreshDismissed ? (
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm">
-            <p role="alert" className="mr-auto">
-              Couldn't refresh this lead. Try again.
-            </p>
-            <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
-              Retry
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setRefreshDismissed(true)}
-            >
-              Dismiss
-            </Button>
-          </div>
-        ) : null}
-        {emailSkipped.length > 0 ? (
-          <div role="status">
-            <ul
-              aria-label="Emails not sent"
-              className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
-            >
-              {emailSkipped.map((skipped, index) => (
-                <li key={`${skipped.automation}:${index}`}>{emailSkippedText(skipped)}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {moveTo ? (
-          <StageMoveDialog
-            lead={lead}
-            to={moveTo}
-            gates={stageGates(lead.leadType, moveTo)}
-            canOverride={access.overrideDocuments === true}
-            onMove={moveWithDetails}
-            onDone={(result) => {
-              applyUpdate(result);
-              setMoveTo(undefined);
-            }}
-            onCancel={() => setMoveTo(undefined)}
-          />
-        ) : null}
-      </div>
-
-      <div
-        className={cn(
-          'grid',
-          inPanel ? 'gap-4' : 'gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]',
-        )}
-      >
-        <div className="flex flex-col gap-4">
-          {access.contacts ? (
-            <Card>
-              <CardContent className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold">Contact</h2>
-                  {canWrite && !editingContact ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEditingContact(true)}
-                    >
-                      Edit
-                    </Button>
+                  {lead.assignedActorId &&
+                  !members.some((member) => member.actorId === lead.assignedActorId) ? (
+                    <option value={lead.assignedActorId}>Former teammate</option>
                   ) : null}
-                </div>
-                {editingContact ? (
-                  <ContactEditor
-                    contact={lead.contact}
-                    saving={saving}
-                    onSave={(contact) => void update({ contact })}
-                    onCancel={() => setEditingContact(false)}
-                  />
-                ) : (
-                  <dl>
-                    <Field label="Name">{lead.contact.fullName ?? '—'}</Field>
-                    <Field label="Email">
-                      {lead.contact.email ? (
-                        <a
-                          className="underline-offset-2 hover:underline"
-                          href={`mailto:${lead.contact.email}`}
-                        >
-                          {lead.contact.email}
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                    </Field>
-                    <Field label="Phone">
-                      {lead.contact.phone ? (
-                        <a
-                          className="underline-offset-2 hover:underline"
-                          href={`tel:${lead.contact.phone}`}
-                        >
-                          {lead.contact.phone}
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                    </Field>
-                    {lead.contact.countryCode ? (
-                      <Field label="Country">{lead.contact.countryCode}</Field>
-                    ) : null}
-                  </dl>
-                )}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <IdentityCheck
-            accessToken={accessToken}
-            workspaceId={workspaceId}
-            leadId={lead.id}
-            identities={identities}
-            canReveal={access.revealSensitive === true}
-          />
-
-          <LeadDocuments
-            accessToken={accessToken}
-            workspaceId={workspaceId}
-            documents={documents}
-            canDownload={access.downloadDocuments === true}
-            canReview={access.reviewDocuments === true && lead.deletedAt === null}
-            onReviewed={reviewed}
-          />
-
-          <RelatedRequests workspaceSlug={workspaceSlug} related={related} />
-
-          {access.contacts ? (
-            <PropertySections
-              leadType={lead.leadType}
-              layout={layout}
-              catalog={catalog}
-              form={payload}
-              customValues={customValues}
-              order={lead.order}
-              canEdit={canWrite}
-              // Everyone who sees the customer's details sees these (the SIN keeps its own reveal).
-              canRevealSensitive={access.contacts}
-              onSave={saveProperties}
-            />
-          ) : null}
-
-          {access.contacts && offersSimEmail && canWrite && savedSimNumber ? (
-            <Card>
-              <CardContent className="flex flex-col gap-2">
-                {access.emailCustomer ? (
-                  simEmail === 'ask' ? (
-                    <div
-                      role="group"
-                      aria-label="Email the customer this number?"
-                      className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
-                    >
-                      <span className="mr-auto">Email the customer this number?</span>
-                      <Button type="button" size="sm" onClick={() => void emailSimNumber()}>
-                        Email the customer
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setSimEmail(undefined)}
-                      >
-                        Not now
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="mr-auto text-muted-foreground">
-                        SIM number {savedSimNumber}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={simEmail === 'sending'}
-                        onClick={() => void emailSimNumber()}
-                      >
-                        {simEmail === 'sending' ? 'Sending…' : 'Email it to the customer'}
-                      </Button>
-                      {simEmail === 'sent' ? (
-                        <span role="status" className="w-full text-muted-foreground">
-                          Queued: the customer gets it within a minute.
-                        </span>
-                      ) : null}
-                    </div>
-                  )
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Emailing the customer is not set up for this site yet.
-                  </p>
-                )}
-                {simEmailMessage ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {simEmailMessage}
-                  </p>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card>
-            <CardContent className="flex flex-col gap-2">
-              <h2 className="text-base font-semibold">Source</h2>
-              <dl>
-                <Field label="Source">
-                  <code className="text-xs">{lead.source}</code>
-                </Field>
-                {attribution.map(([key, value]) => (
-                  <Field key={key} label={ATTRIBUTION_LABELS[key] ?? key}>
-                    {String(value)}
-                  </Field>
-                ))}
-                {lead.consentVersion ? <Field label="Consent">{lead.consentVersion}</Field> : null}
-                <Field label="Received">{dateTimeLabel(lead.createdAt)}</Field>
-                <Field label="Last activity">{dateTimeLabel(lead.updatedAt)}</Field>
-              </dl>
-            </CardContent>
-          </Card>
+                </NativeSelect>
+              </label>
+            </>
+          ) : (
+            <StageBadge leadType={lead.leadType} stage={lead.stage} />
+          )}
         </div>
+        <div className="flex w-full flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+          {access.contacts ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => void copySummary()}>
+              <CopyIcon className="size-4" aria-hidden="true" /> {copied ? 'Copied' : 'Copy info'}
+            </Button>
+          ) : null}
+          {access.manage ? (
+            lead.deletedAt === null ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                disabled={saving}
+                onClick={() => void setArchived(true)}
+              >
+                <ArchiveIcon className="size-4" aria-hidden="true" /> Archive
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={saving}
+                onClick={() => void setArchived(false)}
+              >
+                <RotateCcwIcon className="size-4" aria-hidden="true" /> Restore
+              </Button>
+            )
+          ) : null}
+        </div>
+      </div>
+      {lead.deletedAt ? (
+        <p
+          role="status"
+          className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm"
+        >
+          This lead is archived (since {dateTimeLabel(lead.deletedAt)}). Restore it to work on it
+          again.
+        </p>
+      ) : null}
+      {waitingChange ? (
+        <p
+          role="status"
+          className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+        >
+          Waiting in the old admin: the customer{' '}
+          {changeRequestText(waitingChange, lead.leadType, catalog)}, received{' '}
+          <time dateTime={waitingChange.createdAt} title={dateTimeLabel(waitingChange.createdAt)}>
+            {relativeTime(waitingChange.createdAt)}
+          </time>
+          . Approve or reject it there until staff move to the CRM.
+        </p>
+      ) : null}
+      {!access.contacts ? (
+        <p role="status" className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+          Your role shows a lead’s stage and source, not the customer’s details, notes or tasks.
+        </p>
+      ) : null}
+      {message ? (
+        <p role="alert" className="text-sm text-destructive">
+          {message}
+        </p>
+      ) : null}
+      {record.error && !refreshDismissed ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm">
+          <p role="alert" className="mr-auto">
+            Couldn't refresh this lead. Try again.
+          </p>
+          <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
+            Retry
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setRefreshDismissed(true)}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
+      {emailSkipped.length > 0 ? (
+        <div role="status">
+          <ul
+            aria-label="Emails not sent"
+            className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+          >
+            {emailSkipped.map((skipped, index) => (
+              <li key={`${skipped.automation}:${index}`}>{emailSkippedText(skipped)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {moveTo ? (
+        <StageMoveDialog
+          lead={lead}
+          to={moveTo}
+          gates={stageGates(lead.leadType, moveTo)}
+          canOverride={access.overrideDocuments === true}
+          onMove={moveWithDetails}
+          onDone={(result) => {
+            applyUpdate(result);
+            setMoveTo(undefined);
+          }}
+          onCancel={() => setMoveTo(undefined)}
+        />
+      ) : null}
+    </div>
+  );
 
+  const contactSection = access.contacts ? (
+    <Card>
+      <CardContent className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Contact</h2>
+          {canWrite && !editingContact ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
+              Edit
+            </Button>
+          ) : null}
+        </div>
+        {editingContact ? (
+          <ContactEditor
+            contact={lead.contact}
+            saving={saving}
+            onSave={(contact) => void update({ contact })}
+            onCancel={() => setEditingContact(false)}
+          />
+        ) : (
+          <dl>
+            <Field label="Name">{lead.contact.fullName ?? '—'}</Field>
+            <Field label="Email">
+              {lead.contact.email ? (
+                <a
+                  className="underline-offset-2 hover:underline"
+                  href={`mailto:${lead.contact.email}`}
+                >
+                  {lead.contact.email}
+                </a>
+              ) : (
+                '—'
+              )}
+            </Field>
+            <Field label="Phone">
+              {lead.contact.phone ? (
+                <a
+                  className="underline-offset-2 hover:underline"
+                  href={`tel:${lead.contact.phone}`}
+                >
+                  {lead.contact.phone}
+                </a>
+              ) : (
+                '—'
+              )}
+            </Field>
+            {lead.contact.countryCode ? (
+              <Field label="Country">{lead.contact.countryCode}</Field>
+            ) : null}
+          </dl>
+        )}
+      </CardContent>
+    </Card>
+  ) : null;
+
+  const identitySection = (
+    <IdentityCheck
+      accessToken={accessToken}
+      workspaceId={workspaceId}
+      leadId={lead.id}
+      identities={identities}
+      canReveal={access.revealSensitive === true}
+    />
+  );
+
+  const documentsSection = (
+    <LeadDocuments
+      accessToken={accessToken}
+      workspaceId={workspaceId}
+      documents={documents}
+      canDownload={access.downloadDocuments === true}
+      canReview={access.reviewDocuments === true && lead.deletedAt === null}
+      onReviewed={reviewed}
+    />
+  );
+
+  const relatedSection = <RelatedRequests workspaceSlug={workspaceSlug} related={related} />;
+
+  const propertiesSection = access.contacts ? (
+    <PropertySections
+      leadType={lead.leadType}
+      layout={layout}
+      catalog={catalog}
+      form={payload}
+      customValues={customValues}
+      order={lead.order}
+      canEdit={canWrite}
+      // Everyone who sees the customer's details sees these (the SIN keeps its own reveal).
+      canRevealSensitive={access.contacts}
+      onSave={saveProperties}
+    />
+  ) : null;
+
+  const simEmailSection =
+    access.contacts && offersSimEmail && canWrite && savedSimNumber ? (
+      <Card>
+        <CardContent className="flex flex-col gap-2">
+          {access.emailCustomer ? (
+            simEmail === 'ask' ? (
+              <div
+                role="group"
+                aria-label="Email the customer this number?"
+                className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+              >
+                <span className="mr-auto">Email the customer this number?</span>
+                <Button type="button" size="sm" onClick={() => void emailSimNumber()}>
+                  Email the customer
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSimEmail(undefined)}
+                >
+                  Not now
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="mr-auto text-muted-foreground">SIM number {savedSimNumber}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={simEmail === 'sending'}
+                  onClick={() => void emailSimNumber()}
+                >
+                  {simEmail === 'sending' ? 'Sending…' : 'Email it to the customer'}
+                </Button>
+                {simEmail === 'sent' ? (
+                  <span role="status" className="w-full text-muted-foreground">
+                    Queued: the customer gets it within a minute.
+                  </span>
+                ) : null}
+              </div>
+            )
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Emailing the customer is not set up for this site yet.
+            </p>
+          )}
+          {simEmailMessage ? (
+            <p role="alert" className="text-sm text-destructive">
+              {simEmailMessage}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+    ) : null;
+
+  const sourceSection = (
+    <Card>
+      <CardContent className="flex flex-col gap-2">
+        <h2 className="text-base font-semibold">Source</h2>
+        <dl>
+          <Field label="Source">
+            <code className="text-xs">{lead.source}</code>
+          </Field>
+          {attribution.map(([key, value]) => (
+            <Field key={key} label={ATTRIBUTION_LABELS[key] ?? key}>
+              {String(value)}
+            </Field>
+          ))}
+          {lead.consentVersion ? <Field label="Consent">{lead.consentVersion}</Field> : null}
+          <Field label="Received">{dateTimeLabel(lead.createdAt)}</Field>
+          <Field label="Last activity">{dateTimeLabel(lead.updatedAt)}</Field>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+
+  const tasksSection = (
+    <Card>
+      <CardContent>
+        <LeadTasks
+          workspaceId={workspaceId}
+          leadId={lead.id}
+          tasks={tasks}
+          members={members}
+          canWrite={canWrite}
+          accessToken={accessToken}
+          onChange={upsertTask}
+        />
+      </CardContent>
+    </Card>
+  );
+
+  const changeRequestSection = shownRequest ? (
+    <ChangeRequestCard
+      // A new version (the customer replaced it, or staff reloaded) starts the card afresh.
+      key={`${shownRequest.id}:${shownRequest.version}`}
+      lead={lead}
+      changeRequest={shownRequest}
+      catalog={catalog}
+      canDecide={access.decideChanges === true}
+      canDownload={access.downloadDocuments === true}
+      onDecide={(decision, expectedVersion) =>
+        decideChange(shownRequest, decision, expectedVersion)
+      }
+      onDone={(result) => void changeDecided(shownRequest, result)}
+      openDocument={openRequestDocument}
+      onReload={() => void refresh()}
+    />
+  ) : null;
+
+  const timelineSection = (
+    <Card>
+      <CardContent>
+        <LeadTimeline
+          lead={lead}
+          activities={activities}
+          members={members}
+          canWrite={canWrite && !inPanel}
+          accessToken={accessToken}
+          workspaceSlug={workspaceSlug}
+          catalog={catalog}
+          onNoteAdded={noteAdded}
+        />
+      </CardContent>
+    </Card>
+  );
+
+  if (inPanel) {
+    const activeTab = !access.contacts && panelTab !== 'files' ? 'home' : panelTab;
+    return (
+      <Tabs value={activeTab} onValueChange={setPanelTab} className="min-w-0">
+        <TabsList
+          aria-label="Lead sections"
+          className="sticky top-0 z-10 overflow-x-auto bg-background px-2"
+        >
+          <TabsTrigger value="home" className="gap-1.5 px-2 text-xs">
+            <HouseIcon className="size-3.5" aria-hidden="true" />
+            Home
+          </TabsTrigger>
+          {access.contacts ? (
+            <>
+              <TabsTrigger value="tasks" className="gap-1.5 px-2 text-xs">
+                <ListTodoIcon className="size-3.5" aria-hidden="true" />
+                Tasks
+              </TabsTrigger>
+              <TabsTrigger value="notes" className="gap-1.5 px-2 text-xs">
+                <StickyNoteIcon className="size-3.5" aria-hidden="true" />
+                Notes
+              </TabsTrigger>
+            </>
+          ) : null}
+          <TabsTrigger value="files" className="gap-1.5 px-2 text-xs">
+            <FilesIcon className="size-3.5" aria-hidden="true" />
+            Files
+          </TabsTrigger>
+          {access.contacts ? (
+            <TabsTrigger value="activity" className="gap-1.5 px-2 text-xs">
+              <HistoryIcon className="size-3.5" aria-hidden="true" />
+              Activity
+            </TabsTrigger>
+          ) : null}
+        </TabsList>
+        <div className="border-b p-4">{header}</div>
+        <TabsContent
+          value="home"
+          hidden={activeTab !== 'home'}
+          forceMount
+          className="flex flex-col gap-4 p-4"
+        >
+          {contactSection}
+          {propertiesSection}
+          {simEmailSection}
+          {identitySection}
+          {relatedSection}
+          {access.contacts ? changeRequestSection : null}
+          {sourceSection}
+        </TabsContent>
+        {access.contacts ? (
+          <>
+            <TabsContent value="tasks" hidden={activeTab !== 'tasks'} forceMount className="p-4">
+              {tasksSection}
+            </TabsContent>
+            <TabsContent value="notes" hidden={activeTab !== 'notes'} forceMount className="p-4">
+              <Card>
+                <CardContent>
+                  <LeadTimeline
+                    mode="notes"
+                    lead={lead}
+                    activities={activities}
+                    members={members}
+                    canWrite={canWrite}
+                    accessToken={accessToken}
+                    workspaceSlug={workspaceSlug}
+                    catalog={catalog}
+                    onNoteAdded={noteAdded}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </>
+        ) : null}
+        <TabsContent value="files" hidden={activeTab !== 'files'} forceMount className="p-4">
+          {documents.length > 0 ? (
+            documentsSection
+          ) : (
+            <Card>
+              <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
+                <FilesIcon className="size-6 text-muted-foreground" aria-hidden="true" />
+                <h2 className="text-sm font-medium">No files yet</h2>
+                <p className="text-sm text-muted-foreground">
+                  Documents uploaded for this lead will appear here.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        {access.contacts ? (
+          <TabsContent
+            value="activity"
+            hidden={activeTab !== 'activity'}
+            forceMount
+            className="p-4"
+          >
+            {timelineSection}
+          </TabsContent>
+        ) : null}
+      </Tabs>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {header}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="flex flex-col gap-4">
+          {contactSection}
+          {identitySection}
+          {documentsSection}
+          {relatedSection}
+          {propertiesSection}
+          {simEmailSection}
+          {sourceSection}
+        </div>
         {access.contacts ? (
           <div className="flex flex-col gap-4">
-            <Card>
-              <CardContent>
-                <LeadTasks
-                  workspaceId={workspaceId}
-                  leadId={lead.id}
-                  tasks={tasks}
-                  members={members}
-                  canWrite={canWrite}
-                  accessToken={accessToken}
-                  onChange={upsertTask}
-                />
-              </CardContent>
-            </Card>
-            {shownRequest ? (
-              <ChangeRequestCard
-                // A new version (the customer replaced it, or staff reloaded) starts the card afresh.
-                key={`${shownRequest.id}:${shownRequest.version}`}
-                lead={lead}
-                changeRequest={shownRequest}
-                catalog={catalog}
-                canDecide={access.decideChanges === true}
-                canDownload={access.downloadDocuments === true}
-                onDecide={(decision, expectedVersion) =>
-                  decideChange(shownRequest, decision, expectedVersion)
-                }
-                onDone={(result) => void changeDecided(shownRequest, result)}
-                openDocument={openRequestDocument}
-                onReload={() => void refresh()}
-              />
-            ) : null}
-            <Card>
-              <CardContent>
-                <LeadTimeline
-                  lead={lead}
-                  activities={activities}
-                  members={members}
-                  canWrite={canWrite}
-                  accessToken={accessToken}
-                  workspaceSlug={workspaceSlug}
-                  catalog={catalog}
-                  onNoteAdded={(activity) => {
-                    addActivities([activity]);
-                    changeRecord((current) => ({
-                      ...current,
-                      lead: { ...current.lead, updatedAt: activity.createdAt },
-                    }));
-                  }}
-                />
-              </CardContent>
-            </Card>
+            {tasksSection}
+            {changeRequestSection}
+            {timelineSection}
           </div>
         ) : null}
       </div>

@@ -14,6 +14,7 @@ import {
 } from '@gt-sales/ui';
 
 import { getStaffAuth, isStaffAuthConfigured } from '../../lib/supabase-auth';
+import { AuthFrame } from '../../components/auth-frame';
 
 export default function RecoveryPage() {
   const [updateMode, setUpdateMode] = useState(false);
@@ -55,11 +56,7 @@ export default function RecoveryPage() {
   }
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="flex min-h-svh items-center justify-center p-6 outline-none"
-    >
+    <AuthFrame>
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle asChild>
@@ -115,6 +112,6 @@ export default function RecoveryPage() {
           </Button>
         </CardContent>
       </Card>
-    </main>
+    </AuthFrame>
   );
 }

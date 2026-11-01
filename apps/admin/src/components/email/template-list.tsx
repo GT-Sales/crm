@@ -12,7 +12,7 @@ import {
   type SiteEmailTemplate,
   type SiteTemplateKey,
 } from '@gt-sales/contracts';
-import { Button } from '@gt-sales/ui';
+import { Badge, Button } from '@gt-sales/ui';
 
 /** Who sends the emails no automation rule sends. */
 const SENT_BY_STAFF: Partial<Record<CustomerEmailTemplate, string>> = {
@@ -49,7 +49,7 @@ export function TemplateList({
   readOnly?: boolean;
 }): JSX.Element {
   return (
-    <ul aria-label="Emails" className="divide-y rounded-md border">
+    <ul aria-label="Emails" className="divide-y divide-border/70">
       {templates.map((template) => {
         const builtIn = customerEmailTemplateSchema.safeParse(template.key);
         const siteMade = isSiteTemplateKey(template.key) ? template.key : undefined;
@@ -62,16 +62,29 @@ export function TemplateList({
             : SENT_BY_STAFF[builtIn.data]
           : undefined;
         return (
-          <li key={template.key} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+          <li
+            key={template.key}
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5 transition-colors hover:bg-muted/20"
+          >
             <div className="mr-auto flex min-w-0 flex-col gap-0.5">
-              <h3 className="text-sm font-medium">{label}</h3>
-              <p className="text-xs text-muted-foreground">
-                {template.version === 0 ? 'Starter text' : `Version ${template.version}`}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium text-foreground">{label}</h3>
+                <Badge variant="secondary" className="text-[11px] font-normal">
+                  {template.version === 0 ? 'Starter text' : `Version ${template.version}`}
+                </Badge>
+                {siteMade ? (
+                  <Badge variant="outline" className="text-[11px] font-normal">
+                    Custom
+                  </Badge>
+                ) : null}
+              </div>
               {template.usedBy.map((flow) => (
                 <p key={flow.key} className="text-xs text-muted-foreground">
                   Used by:{' '}
-                  <Link className="underline" href={`/w/${workspaceSlug}/automations/${flow.key}`}>
+                  <Link
+                    className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+                    href={`/w/${workspaceSlug}/automations/${flow.key}`}
+                  >
                     {flow.name}
                   </Link>
                 </p>

@@ -41,6 +41,7 @@ import { errorReason } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
 import { describeTrigger, flowStatusChip, namesFromCode } from './flow-words';
 import { useAutomations } from './use-automations';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 export const NEEDS_INTEGRATIONS = 'This needs the Integrations permission (the owner has it).';
 export const ACTIVATE_FIRST = 'Activate the flow first.';
@@ -349,9 +350,7 @@ function ArchivedFlows({
               </ul>
             )}
             {state.status === 'loading' ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                Loading the archived flows…
-              </p>
+              <LoadingSkeleton label="Loading the archived flows…" variant="list" />
             ) : null}
             {state.status === 'failed' ? (
               <p role="alert" className="text-sm text-destructive">
@@ -544,9 +543,7 @@ export function SiteAutomations({ workspaceSlug }: { workspaceSlug: string }): J
         </Button>
       </div>
     ) : (
-      <p className="text-sm text-muted-foreground" aria-busy="true">
-        Loading the automations…
-      </p>
+      <LoadingSkeleton label="Loading the automations…" variant="list" />
     );
   }
 

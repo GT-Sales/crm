@@ -1609,6 +1609,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     createAutomationRoutes({
       store: dependencies.flowStore ?? unconfiguredFlowStore,
       customerEmail: dependencies.customerEmail,
+      withTenantTx: dependencies.withTenantTx ?? withTenantTx,
       decide,
       canSeeContacts,
       reportFailure,

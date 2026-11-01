@@ -11,6 +11,7 @@ import { errorReason, useResource } from '../../lib/use-resource';
 import { leadDisplayName } from './lead-display';
 import { TaskRow } from './lead-tasks';
 import { useLeadWorkspace } from './use-lead-workspace';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 type Scope = 'me' | 'none';
 
@@ -115,7 +116,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
       </div>
 
       {message ? (
-        <p role="alert" className="text-sm text-rose-300">
+        <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
           {message}
         </p>
       ) : null}
@@ -127,9 +128,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             : `Could not load tasks. Reason: ${tasks.error}.`}
         </p>
       ) : !tasks.data ? (
-        <p className="text-sm text-muted-foreground" aria-busy="true">
-          Loading tasks…
-        </p>
+        <LoadingSkeleton label="Loading tasks…" variant="list" />
       ) : list.length === 0 ? (
         <p className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
           {scope === 'me'
@@ -148,19 +147,19 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
               <section
                 key={group.key}
                 aria-labelledby={`tasks-${group.key}`}
-                className="rounded-lg border"
+                className="overflow-hidden rounded-xl border bg-card"
               >
                 <h2
                   id={`tasks-${group.key}`}
                   className={cn(
-                    'border-b px-4 py-2 text-sm font-semibold',
-                    group.key === 'overdue' && 'text-rose-300',
+                    'border-b bg-muted/30 px-5 py-3 text-sm font-semibold',
+                    group.key === 'overdue' && 'text-rose-700 dark:text-rose-300',
                   )}
                 >
                   {group.label}{' '}
                   <span className="font-normal text-muted-foreground">{entries.length}</span>
                 </h2>
-                <ul className="divide-y px-4">
+                <ul className="divide-y px-5">
                   {entries.map((task) => (
                     <TaskRow
                       key={task.id}

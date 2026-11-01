@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { staffAuthErrorCodeSchema, type StaffAuthErrorCode } from '@gt-sales/contracts';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gt-sales/ui';
+import { AuthFrame } from '../../components/auth-frame';
 
 const descriptions: Record<StaffAuthErrorCode, string> = {
   invalid_request: 'The requested staff action was invalid.',
@@ -25,11 +26,7 @@ export default async function DeniedPage({
   const reason = result.success ? result.data : 'permission_denied';
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="flex min-h-svh items-center justify-center p-6 outline-none"
-    >
+    <AuthFrame>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle asChild>
@@ -44,6 +41,6 @@ export default async function DeniedPage({
           </Button>
         </CardContent>
       </Card>
-    </main>
+    </AuthFrame>
   );
 }
