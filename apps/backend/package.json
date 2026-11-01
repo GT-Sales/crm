@@ -17,6 +17,7 @@
     "@gt-sales/jobs": "workspace:*",
     "@gt-sales/types": "workspace:*",
     "@supabase/supabase-js": "2.116.0",
+    "ai": "7.0.159",
     "drizzle-orm": "catalog:",
     "express": "5.3.0",
     "zod": "catalog:"

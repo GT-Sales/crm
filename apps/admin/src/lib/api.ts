@@ -1,6 +1,9 @@
 import {
   BackendError,
   createBackendClient,
+  type AiCapabilitiesResponse,
+  type AiChatRequest,
+  type AiStreamPart,
   type AutomationKey,
   type ActivateFlowRequest,
   type CreateEmailTemplateRequest,
@@ -207,6 +210,28 @@ export async function getSourceReport(
   query: SourceReportQuery,
 ): Promise<SourceReportResponse> {
   return client(accessToken).staff.sourceReport(workspaceId, query);
+}
+
+/** Ask AI: whether the assistant is available for this site and caller, and its limits. */
+export async function getAiCapabilities(
+  accessToken: string,
+  workspaceId: string,
+): Promise<AiCapabilitiesResponse> {
+  return client(accessToken).staff.aiCapabilities(workspaceId);
+}
+
+/**
+ * Ask AI: the answer streams back as typed parts. The caller owns cancellation
+ * through `options.signal`; a failure before the stream starts throws
+ * `BackendError`, and a failure after it arrives as an `error` part.
+ */
+export function askAiAssistant(
+  accessToken: string,
+  workspaceId: string,
+  body: AiChatRequest,
+  options?: { signal?: AbortSignal },
+): AsyncGenerator<AiStreamPart, void, undefined> {
+  return client(accessToken).staff.askAi(workspaceId, body, options);
 }
 
 export async function getLeadBoard(

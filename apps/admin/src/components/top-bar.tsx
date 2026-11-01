@@ -8,6 +8,7 @@ import { Button, SidebarTrigger } from '@gt-sales/ui';
 import { NAV_ITEMS } from './nav-items';
 import { ThemeToggle } from './theme-toggle';
 import { QuickNavigation } from './quick-navigation';
+import { AssistantTrigger } from './ai/assistant-trigger';
 
 export function TopBar({
   workspace,
@@ -40,6 +41,7 @@ export function TopBar({
         </span>
       )}
       <div className="ml-auto flex min-w-0 items-center gap-2">
+        <AssistantTrigger />
         <QuickNavigation workspaceSlug={workspace.slug} />
         <ThemeToggle />
         <Button variant="ghost" size="sm" onClick={() => void onSignOut()}>

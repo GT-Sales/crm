@@ -324,6 +324,13 @@ backup jobs (since ported back in phase 1 of the merge), Turnstile (optional: pr
 
 ## 7. Phases
 
+Proposed follow-up (2026-11-02): the owner requested a detailed implementation
+prompt for an admin AI assistant. See
+[AI assistant implementation prompt](AI-ASSISTANT-IMPLEMENTATION-PROMPT.md).
+It specifies a read-only, Site-scoped Vercel AI SDK/Gateway integration running
+through the existing backend, with gated implementation and verification.
+This is planning only; the assistant has not been implemented or enabled.
+
 | Phase                    | Work                                                                                                                                                                                                                                                                                                                                                | Done when                                                                                                           | Effort     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------- |
 | **0. Scaffold + deploy** | Copy and prune per §4; rename scope; fresh `0000`/`0001`; `contacts`, `lead_activities`, `lead_tasks` tables and lead-type/contact-merge intake; backend builds with auth, RBAC, credentials, documents, outbox, rate limits, audit; admin builds with shell, auth pages, switcher, settings; Supabase roles + Auth; Railway (US East) + Vercel; CI | Health check live on Railway; owner signs in; sees `getcanadasim` and `canadawide`; can create a site key; CI green | ~1 week    |
@@ -407,6 +414,40 @@ website credentials under Integrations, reusing the existing permission checks.
 The CRM's own open items (the cross-site inbox, the
 contact page and split/merge) move to a small phase 3b of their own (ruling of 2026-10-30); the cutover
 clean-up waits for staff to move to the CRM (docs/HANDOFF.md §5.1).
+
+### 7.1 Staff AI assistant ("Ask AI") — delivered version 1, read-only
+
+Owner request of 2026-11-02: a read-only assistant inside the staff admin that
+answers questions about a single site using the caller's own permissions. Its
+implementation prompt is `docs/AI-ASSISTANT-IMPLEMENTATION-PROMPT.md`; the design,
+trust boundaries and field matrix are `docs/design/ai-assistant.md`, and operation
+is `docs/RUNBOOKS/ai-assistant.md`.
+
+Delivered in this version:
+
+- An "Ask AI" panel in the admin top bar, with streaming answers, Stop/Retry/
+  Copy/New chat, an optional lead context sent as an id only, and "Sources
+  checked" cards built by the server.
+- `GET …/ai/capabilities` and `POST …/ai/chat` on the authenticated staff router,
+  the second streaming typed server-sent events; both described by the endpoint
+  registry and generated OpenAPI, and reachable through the one typed client.
+- Five read tools — site overview (counts by period and stage), lead search,
+  lead summary, open follow-ups, source performance — each with a strict input
+  schema, an explicit output projection and per-turn budgets. They reuse the
+  existing source report unchanged; the other reads are narrow parameterized
+  queries inside `withTenantTx`.
+- Access is `workspace.read` **and** one of `lead.manage`, `order.manage`,
+  `financial.read`, decided by the existing permission function, rechecked
+  before every tool and before the answer is released.
+- The assistant is off unless `AI_ASSISTANT_ENABLED=true`, a Gateway key and an
+  exact model id are set, and the site is in `AI_ASSISTANT_WORKSPACE_IDS`
+  (`docs/ENV.md`). No key is needed for tests: the model loop is exercised with
+  an injected deterministic fake.
+
+Explicitly deferred (documented, not built): write actions, persistent
+conversations, documents/knowledge retrieval, embeddings, automation/n8n
+triggers, attachments, voice, model selection in the UI, and any cross-site
+analysis. Live Gateway verification remains outstanding; see the design doc §11.
 
 ## 8. Verification
 

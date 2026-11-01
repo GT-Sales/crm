@@ -107,6 +107,27 @@ that has the `tracking` scope (docs/HANDOFF.md §2.6).
 
 The neutral answer's floor (500 ms) is fixed in code, not a variable.
 
+### Ask AI (staff assistant, read-only)
+
+Off by default and per site. A missing, partial or invalid configuration disables
+the assistant only — the rest of the CRM boots and behaves as before, and
+`GET /api/v1/staff/workspaces/:id/ai/capabilities` reports a bounded reason
+(`disabled`, `not_configured`, `site_not_enabled`). No value is ever returned to
+the browser, and the key must never be a `NEXT_PUBLIC_*` variable.
+
+| Variable                     | Purpose                                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_ASSISTANT_ENABLED`       | `true` (exactly) switches the feature on for the sites allowed below. Any other value, or unset, keeps it off.                                                                                                                                                                                             |
+| `AI_GATEWAY_API_KEY`         | Secret. The Vercel AI Gateway key the backend uses for the model request. Required when enabled; unset means `not_configured`. Use a dedicated key so it can be revoked and budgeted on its own.                                                                                                           |
+| `AI_GATEWAY_MODEL`           | The exact Gateway model id (for example a `vendor/model` string), required when enabled. Must support streaming and tool calls. There is no default and no fallback model, so an unset or wrong value fails closed with `not_configured` (or a provider error) rather than silently picking another model. |
+| `AI_ASSISTANT_WORKSPACE_IDS` | Comma-separated site ids allowed to use the assistant. Empty or unset means no site is enabled. Entries that are not uuids are ignored (a typo enables nothing). Only list a site after the operator has reviewed provider data handling; start with a synthetic/staging site.                             |
+
+The request limits (5 model steps, 6 tool calls, 50 records, 6 KiB per tool result,
+24 KiB per turn, 1,200 output tokens, 60 s per turn, 10 requests per actor per
+minute and 60 per site per minute) are product constants in
+`packages/contracts/src/ai-assistant.ts`, not environment knobs. Setup,
+model selection, spend budget and rollback are in `docs/RUNBOOKS/ai-assistant.md`.
+
 ### Optional
 
 | Variable                                                                             | Purpose                                                                                                                                                                                                                                                                                                                       |

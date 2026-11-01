@@ -1388,6 +1388,59 @@ UI Skeleton primitive with reduced-motion support. Initial loading keeps room
 for the content; table skeleton rows follow the visible columns and loading
 labels remain available to screen readers. Error and empty states stay distinct.
 
+### 3.12 2026-11-02: staff AI assistant ("Ask AI"), version 1
+
+Owner request: a read-only assistant inside the staff admin that answers
+questions about leads, stages, order summaries, assignments, follow-ups and
+source performance for the selected Site, using only the asking member's own
+access. Built on `claude/ai-chat-implementation`, pending review. Specification:
+`docs/AI-ASSISTANT-IMPLEMENTATION-PROMPT.md`. Design and field matrix:
+[docs/design/ai-assistant.md](design/ai-assistant.md). Operation:
+[docs/RUNBOOKS/ai-assistant.md](RUNBOOKS/ai-assistant.md).
+
+What exists:
+
+- `packages/contracts/src/ai-assistant.ts`: capability document, the one chat
+  request schema (strict — no actor, site, roles, model or provider settings),
+  source cards and the typed stream parts, plus the version-1 limits as product
+  constants. The endpoint registry gains a `stream` description (server-sent
+  events) beside the existing JSON operations; `docs/api/openapi.json` is
+  regenerated from it, and the typed client can consume the stream
+  (`staff.aiCapabilities`, `staff.askAi`).
+- `apps/backend/src/ai/`: validated configuration (off by default, invalid
+  configuration disables only the assistant), the site context read, the
+  permission gate (`workspace.read` plus one of `lead.manage`, `order.manage`,
+  `financial.read` through the existing decision function), the narrow read
+  service, explicit projections, the five tools with per-turn budgets, the source
+  registry, the versioned system prompt, an allowlisted turn log, the SDK model
+  loop (`ai@7.0.159` over the AI Gateway, one model, no fallback) and a
+  deterministic fake engine for tests.
+- `apps/backend/src/routes/ai-assistant.ts`: `GET …/ai/capabilities` and
+  `POST …/ai/chat` (typed server-sent events, distributed per-actor and per-site
+  rate limits through `app.rate_limit_hit`, whole-turn timeout, cancellation on
+  response close, access rechecked before every tool and before release).
+- No database change: version 1 keeps conversations in browser memory, and the
+  only writes a turn makes are rate-limit counters.
+- The admin entry point and panel (Phase D of the prompt) are part of the same
+  branch: an Ask AI button in the header, rendered only when the capability
+  document says available, and a right-hand sheet with streaming text, progress,
+  Stop/Retry/Copy/New chat, a lead-context chip and server-built source cards.
+- Verification: 404 contract tests, 734 backend unit/route tests, 515 admin
+  unit tests, 7 browser shell checks (`Ask AI never renders when
+unauthenticated`), lint, format, both builds, and `test:tooling` pass locally.
+  `apps/backend/tests/ai-reads.integration.test.ts` adds tenant-isolation,
+  count, task-date, statement-deadline and read-only cases that run in CI with a
+  disposable database (skipped here: no Postgres).
+
+Not yet verified (state plainly): no Gateway key or model was configured, so the
+real provider has never been exercised; the read SQL has not been run against a
+database here; Vercel-to-Railway streaming and cancellation timing were not
+measured on the deployed pair; the lead-journey browser suite
+(`pnpm --filter admin test:e2e:leads`) was not run. An independent adversarial
+review of this change found no blockers and 12 should-fix items, all fixed
+before this entry (recorded in the design doc §12). The offline test evidence is
+there too.
+
 ## 4. What is verified, and how
 
 | Claim                                       | Evidence                                                                                                                                                                                         |
@@ -1402,6 +1455,15 @@ labels remain available to screen readers. Error and empty states stay distinct.
 | Import complete and idempotent              | Reconciliation in RUNBOOKS/legacy-import.md: 0 legacy rows missing, 0 stage or trash mismatches, every new id a valid UUID; identical counts and fingerprints after a second run                 |
 
 ## 5. What comes next, in order
+
+AI assistant planning (2026-11-02): the owner requested a detailed prompt to
+hand to an implementing AI. The
+[implementation prompt](AI-ASSISTANT-IMPLEMENTATION-PROMPT.md) defines a read-only,
+Site-scoped assistant using Vercel AI SDK/Gateway in the existing backend,
+including permissions, streaming, UI, usage limits and verification gates.
+This is a proposed follow-up, not an implemented feature or deployment.
+Environment variables in that prompt are proposals; `ENV.md` still documents
+the current application.
 
 ### 5.0 The merge with Canadian Plans (approved 2026-10-28)
 

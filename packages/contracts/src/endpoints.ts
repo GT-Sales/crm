@@ -139,6 +139,11 @@ import {
 } from './uploads';
 import { sourceReportQuerySchema, sourceReportResponseSchema } from './reports';
 import {
+  aiCapabilitiesResponseSchema,
+  aiChatRequestSchema,
+  aiStreamPartSchema,
+} from './ai-assistant';
+import {
   leadBoardQuerySchema,
   leadBoardResponseSchema,
   leadsSummaryQuerySchema,
@@ -168,6 +173,21 @@ export interface EndpointHeader {
   readonly description: string;
 }
 
+/**
+ * A streaming success body, described beside the ordinary JSON error envelope.
+ * Only the staff AI chat uses one today: the response is server-sent events,
+ * each frame one `data:` JSON object matching `schema`. The registry still owns
+ * the shape, so OpenAPI and the typed client keep a single source of truth.
+ */
+export interface EndpointStream {
+  readonly contentType: 'text/event-stream';
+  /** The payload of one decoded frame. */
+  readonly schema: z.ZodType;
+  /** The SSE `event:` name every frame carries. */
+  readonly event: string;
+  readonly summary: string;
+}
+
 export interface EndpointDef {
   readonly operationId: string;
   readonly method: HttpMethod;
@@ -178,7 +198,10 @@ export interface EndpointDef {
   readonly successStatus: number;
   readonly request?: z.ZodType;
   readonly query?: z.ZodType;
-  readonly response: z.ZodType;
+  /** The JSON success body; omitted exactly when `stream` describes it instead. */
+  readonly response?: z.ZodType;
+  /** The streaming success body, when the operation answers with SSE. */
+  readonly stream?: EndpointStream;
   readonly headers?: readonly EndpointHeader[];
 }
 
@@ -869,6 +892,35 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     request: testFlowRequestSchema,
     response: testFlowResponseSchema,
+  },
+
+  // Staff — AI assistant ("Ask AI"). Read-only; the capability document is
+  // ordinary JSON, the chat answers as server-sent events.
+  {
+    operationId: 'getAiCapabilities',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/capabilities',
+    summary:
+      'Whether Ask AI is available for this site and caller, with the input limits the composer needs.',
+    auth: 'staff',
+    successStatus: 200,
+    response: aiCapabilitiesResponseSchema,
+  },
+  {
+    operationId: 'askAiAssistant',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/chat',
+    summary:
+      'Ask the read-only staff assistant a question; answers stream as typed server-sent events.',
+    auth: 'staff',
+    successStatus: 200,
+    request: aiChatRequestSchema,
+    stream: {
+      contentType: 'text/event-stream',
+      schema: aiStreamPartSchema,
+      event: 'part',
+      summary: 'One typed part: progress, text, sources, error or done.',
+    },
   },
 
   // Staff — outbox jobs

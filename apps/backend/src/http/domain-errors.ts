@@ -97,6 +97,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   email_template_builtin: 'A built-in email template cannot be archived.',
   email_template_limit_reached:
     'This site already has 50 email templates of its own. Archive one first.',
+  ai_unavailable: 'Ask AI is not available here.',
+  ai_rate_limited: 'Too many Ask AI questions just now. Try again shortly.',
 };
 
 export function sendDomainError(

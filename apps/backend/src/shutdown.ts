@@ -27,6 +27,12 @@ export interface ShutdownDependencies {
   server: ShutdownServer;
   scheduler?: ShutdownScheduler | undefined;
   closeDatabase: () => Promise<void>;
+  /**
+   * Cancels in-flight long-running work (the assistant's answer streams) before
+   * the server starts draining, so those sockets close instead of holding the
+   * process to its hard deadline.
+   */
+  abortInFlight?: (() => void) | undefined;
   /** Called exactly once, either on completion or when the hard timeout fires. */
   exit: (code: number) => void;
   /** Hard deadline after which a stuck handler is abandoned and the process exits. */
@@ -51,6 +57,10 @@ export function createShutdownHandler(dependencies: ShutdownDependencies): () =>
     started = true;
     const timer = setTimeout(() => finish(0), dependencies.timeoutMs ?? 25_000);
     try {
+      // Long-lived answer streams are cancelled first: they would otherwise keep
+      // their sockets open until the hard deadline, because a stream never idles
+      // out the way a keep-alive connection does.
+      dependencies.abortInFlight?.();
       // HTTP draining and scheduler draining are independent, so they run
       // concurrently. Node's `server.close()` resolves only once every keep-alive
       // connection has idled out (5s by default) and that must not eat into the

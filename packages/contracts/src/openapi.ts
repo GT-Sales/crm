@@ -137,15 +137,40 @@ function parametersFor(endpoint: EndpointDef): JsonObject[] {
 
 function operationFor(endpoint: EndpointDef): JsonObject {
   const responses: JsonObject = {
-    [String(endpoint.successStatus)]: {
-      description: 'Success.',
-      content: { 'application/json': { schema: jsonSchemaOf(endpoint.response) } },
-    },
     default: {
       description: 'Error envelope `{ error: { code, message, requestId, details? } }`.',
       content: { 'application/json': { schema: jsonSchemaOf(apiErrorResponseSchema) } },
     },
   };
+
+  if (endpoint.stream) {
+    // A stream's 200 body is not one JSON document, so the frame schema is
+    // published under the event-stream media type and the description spells
+    // out the framing the JSON-Schema dialect cannot express.
+    responses[String(endpoint.successStatus)] = {
+      description: endpoint.stream.summary,
+      headers: {
+        'cache-control': {
+          description: 'Always `no-store`: a chat answer is never cached.',
+          schema: { type: 'string' },
+        },
+      },
+      content: {
+        [endpoint.stream.contentType]: {
+          schema: jsonSchemaOf(endpoint.stream.schema),
+          description:
+            `Server-sent events. Each frame is \`event: ${endpoint.stream.event}\` plus one ` +
+            '`data:` line holding a JSON object of this schema; a final `done` frame ends it. ' +
+            'An error before the first frame is an ordinary JSON error response instead.',
+        },
+      },
+    };
+  } else if (endpoint.response) {
+    responses[String(endpoint.successStatus)] = {
+      description: 'Success.',
+      content: { 'application/json': { schema: jsonSchemaOf(endpoint.response) } },
+    };
+  }
 
   const operation: JsonObject = {
     operationId: endpoint.operationId,
