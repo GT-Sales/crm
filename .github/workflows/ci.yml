@@ -85,6 +85,11 @@ jobs:
             echo 'Supabase service-role usage is forbidden in application code.' >&2
             exit 1
           fi
+      - name: Fail on a high or critical advisory in production dependencies
+        # The packages the public surfaces ship: an advisory here is a known
+        # exploitable defect, not a preference. Bump it in the pull request that
+        # breaks the build; Dependabot keeps this quiet afterwards.
+        run: pnpm audit --prod --audit-level=high
       - name: Integration suites must not be skipped
         run: test -n "$TEST_MIGRATION_DATABASE_URL" && test "$DB_TEST_ALLOW_DESTRUCTIVE" = '1'
       - run: pnpm run test
