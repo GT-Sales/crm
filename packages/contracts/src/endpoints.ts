@@ -19,6 +19,8 @@ import {
   listFlowRunsQuerySchema,
   listFlowRunsResponseSchema,
   saveFlowDraftRequestSchema,
+  testFlowRequestSchema,
+  testFlowResponseSchema,
   toggleFlowRequestSchema,
   updateFlowDetailsRequestSchema,
 } from './automation-api';
@@ -856,6 +858,17 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'staff',
     successStatus: 200,
     response: flowRunResponseSchema,
+  },
+  {
+    operationId: 'testAutomation',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}/test',
+    summary:
+      'Run a test of a flow against sample lead data, sending any email steps to the given test address (integration management).',
+    auth: 'staff',
+    successStatus: 200,
+    request: testFlowRequestSchema,
+    response: testFlowResponseSchema,
   },
 
   // Staff — outbox jobs

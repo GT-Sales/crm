@@ -4,9 +4,11 @@ import {
   activateFlowRequestSchema,
   automationKeySchema,
   createFlowRequestSchema,
+  flowDefinitionSchemaFor,
   flowListQuerySchema,
   listFlowRunsQuerySchema,
   saveFlowDraftRequestSchema,
+  testFlowRequestSchema,
   toggleFlowRequestSchema,
   updateFlowDetailsRequestSchema,
   type ApiErrorCode,
@@ -16,6 +18,7 @@ import {
   type FlowListResponse,
   type FlowSummary,
 } from '@gt-sales/contracts';
+import { withTenantTx, type DatabaseClient } from '@gt-sales/db';
 import { z } from 'zod';
 
 import {
@@ -25,6 +28,7 @@ import {
   type FlowStoreOutcome,
   type StoredFlow,
 } from '../automations/flow-store.js';
+import { runFlowTest } from '../automations/test-run.js';
 import type { CustomerEmail } from '../email/senders.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
@@ -35,7 +39,9 @@ import type { PlanRouteDependencies } from './plans.js';
 export interface AutomationRouteDependencies {
   store: FlowStore;
   /** Absent (a deployment built without mail), no site has a sender. */
-  customerEmail: Pick<CustomerEmail, 'available'> | undefined;
+  customerEmail:
+    (Pick<CustomerEmail, 'available'> & Partial<Pick<CustomerEmail, 'environment'>>) | undefined;
+  withTenantTx?: DatabaseClient['withTenantTx'];
   decide: PlanRouteDependencies['decide'];
   reportFailure: PlanRouteDependencies['reportFailure'];
   /** Whether the caller may see a lead's name, email and phone. */
@@ -449,6 +455,48 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
         return;
       }
       res.json({ run, requestId: req.id });
+    } catch (error) {
+      failed(req, res, error);
+    }
+  });
+
+  router.post(`${base}/:key/test`, async (req, res) => {
+    const workspaceId = workspaceIdOf(req);
+    const body = testFlowRequestSchema.safeParse(req.body ?? {});
+    if (!workspaceId || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const caller = await allowed(req, res, workspaceId, 'integration.manage');
+      if (!caller) return;
+      const key = keyOf(req, res);
+      if (!key) return;
+      const detail = await store.detail(caller.scope, key);
+      if (!detail) {
+        sendDomainError(res, req.id, 'automation_not_found', 404);
+        return;
+      }
+      const candidate =
+        body.data.definition ?? detail.draft?.definition ?? detail.active?.definition ?? null;
+      const parsedDefinition = flowDefinitionSchemaFor(detail.flow.origin).safeParse(candidate);
+      if (!parsedDefinition.success) {
+        sendDomainError(res, req.id, 'flow_invalid', 400, {
+          problems: parsedDefinition.error.issues.map((issue) => issue.message),
+        });
+        return;
+      }
+      const runTenantTx = dependencies.withTenantTx ?? withTenantTx;
+      const result = await runTenantTx(caller.scope, (tx) =>
+        runFlowTest(tx, {
+          scope: caller.scope,
+          flowKey: key,
+          definition: parsedDefinition.data,
+          ...(body.data.email ? { email: body.data.email } : {}),
+          customerEmailEnvironment: dependencies.customerEmail?.environment,
+        }),
+      );
+      res.json({ ...result, requestId: req.id });
     } catch (error) {
       failed(req, res, error);
     }

@@ -219,6 +219,29 @@ export const flowRunResponseSchema = z.object({ run: flowRunSchema, requestId: r
 export type FlowRunResponse = z.infer<typeof flowRunResponseSchema>;
 
 /**
+ * `POST …/automations/:key/test`: runs the flow (or the provided draft
+ * definition) against sample lead data without modifying real leads, and
+ * queues any email step to `email` when provided.
+ */
+export const testFlowRequestSchema = z
+  .object({
+    email: z.email().trim().max(254).optional(),
+    definition: flowDefinitionSchemaFor('builtin').optional(),
+  })
+  .strict();
+export type TestFlowRequest = z.infer<typeof testFlowRequestSchema>;
+
+export const testFlowResponseSchema = z.object({
+  status: z.enum(AUTOMATION_RUN_STATUSES),
+  reason: automationReasonSchema.nullable(),
+  detail: z.string().max(200).nullable(),
+  emailsQueued: z.int().min(0),
+  steps: z.array(flowStepRunSchema).max(200),
+  requestId: requestIdSchema,
+});
+export type TestFlowResponse = z.infer<typeof testFlowResponseSchema>;
+
+/**
  * `GET …/automations/catalog`: what the editor's pickers offer. A property's
  * flags say where it may be used: in a condition, in Update lead, as a task
  * title variable, in a site-made email. A sensitive property is never listed.
