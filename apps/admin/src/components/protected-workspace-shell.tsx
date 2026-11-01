@@ -7,6 +7,7 @@ import { SidebarInset, SidebarProvider } from '@gt-sales/ui';
 import { AppSidebar } from './app-sidebar';
 import { useStaffSession } from './staff-session-provider';
 import { TopBar } from './top-bar';
+import { LoadingSkeleton } from './crm/loading-skeleton';
 
 export function ProtectedWorkspaceShell({
   children,
@@ -40,8 +41,8 @@ export function ProtectedWorkspaceShell({
   }
   if (staff.status !== 'signed_in' || !workspace) {
     return (
-      <main id="main-content" tabIndex={-1} className="p-6 outline-none" aria-busy="true">
-        <h1 className="text-2xl font-semibold">Checking workspace access</h1>
+      <main id="main-content" tabIndex={-1} className="outline-none" aria-busy="true">
+        <LoadingSkeleton label="Checking workspace access" variant="workspace" />
       </main>
     );
   }
@@ -50,7 +51,7 @@ export function ProtectedWorkspaceShell({
     <SidebarProvider>
       <AppSidebar workspace={workspace.slug} />
       <div className="crm-workspace flex min-w-0 flex-1 flex-col bg-background">
-        <TopBar workspace={workspace} workspaces={staff.workspaces} onSignOut={staff.signOut} />
+        <TopBar workspace={workspace} onSignOut={staff.signOut} />
         <SidebarInset
           id="main-content"
           tabIndex={-1}

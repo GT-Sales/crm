@@ -1,10 +1,17 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SidePanel } from './side-panel';
 
+// React's jsdom event detection can use the prefixed transition event.
+function finishAnimation(element: HTMLElement) {
+  fireEvent.transitionEnd(element);
+  fireEvent(element, new Event('webkitTransitionEnd', { bubbles: true }));
+}
+
 describe('SidePanel', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -42,7 +49,7 @@ describe('SidePanel', () => {
     }
   });
 
-  it('closes from its button and from the Escape key', () => {
+  it('finishes sliding out before closing and ignores repeated close requests', () => {
     const onClose = vi.fn();
     render(
       <SidePanel open title="Lead details" onClose={onClose}>
@@ -50,8 +57,11 @@ describe('SidePanel', () => {
       </SidePanel>,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('complementary').getAttribute('data-state')).toBe('closed');
     fireEvent.keyDown(screen.getByRole('complementary'), { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(2);
+    finishAnimation(screen.getByRole('complementary'));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('leaves an Escape that an inner control already handled alone', () => {
@@ -100,6 +110,60 @@ describe('SidePanel', () => {
 
     // Outside a field, Escape still closes.
     fireEvent.keyDown(screen.getByRole('button', { name: 'Save' }), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    finishAnimation(screen.getByRole('complementary'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('finishes closing even when the browser sends no animation-end event', () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <SidePanel open title="Lead" onClose={onClose}>
+        <p>Details</p>
+      </SidePanel>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    finishAnimation(screen.getByRole('complementary'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not close a different lead opened during the exit animation', () => {
+    const onClose = vi.fn();
+    const view = render(
+      <SidePanel open title="Lead" recordKey="first" onClose={onClose}>
+        <p>First</p>
+      </SidePanel>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+    view.rerender(
+      <SidePanel open title="Lead" recordKey="second" onClose={onClose}>
+        <p>Second</p>
+      </SidePanel>,
+    );
+    expect(screen.getByRole('complementary').getAttribute('data-state')).toBe('open');
+    finishAnimation(screen.getByRole('complementary'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes immediately when reduced motion is preferred', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    const onClose = vi.fn();
+    render(
+      <SidePanel open title="Lead" onClose={onClose}>
+        <p>Details</p>
+      </SidePanel>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

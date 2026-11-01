@@ -14,6 +14,7 @@ import { getLeadsSummary, getSourceReport } from '../../lib/api';
 import { WINDOWS, busiest, type StatsWindow } from '../../lib/stats-windows';
 import { useResource } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 const HEAD_CELL = 'px-3 py-2 font-medium';
 const CELL = 'px-3 py-2.5';
@@ -143,11 +144,7 @@ export function SourceReport({ workspaceSlug }: { workspaceSlug: string }) {
 }
 
 function Loading() {
-  return (
-    <p role="status" className="text-sm text-muted-foreground">
-      Loading the report…
-    </p>
-  );
+  return <LoadingSkeleton label="Loading the report…" variant="report" />;
 }
 
 function NoLeads() {

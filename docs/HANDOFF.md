@@ -639,11 +639,12 @@ CanadaWide's validation. Nothing was readable; volumes looked organic.
    run. In production on 2026-10-27: 121 files on 60 orders and partner
    applications, every one matching its original. Uploading or replacing a
    document in the CRM waits for moving day.
-8. **Copy info and Print delivery letter** in the lead page's header, as
+8. **Copy info** in the lead page's header, as
    in the old admin's row menu. Copy info puts the lead on the clipboard as
    plain text: its number, stage, customer, every answer and staff field as
    the page shows them, and which documents are on file. A SIM order's
-   Print delivery letter opens Get Canada Sim's own mailer
+   Print delivery letter action is temporarily hidden (owner request,
+   2026-11-01). Its retained helper targets Get Canada Sim's own mailer
    (`getcanadasim.com/delivery-letter.html`, the type's `deliveryLetterUrl`)
    filled from its query exactly as the old admin fills it; the page sends
    nothing anywhere, and the link carries no referrer.
@@ -1354,10 +1355,38 @@ Built on `claude/shadcnblocks-admin-redesign`, pending
 review/release: light default with persisted dark mode; grouped sidebar,
 compact header and keyboard page finder; KPI strip, volume/partner charts and
 linked pipeline counts; refreshed lead tables, records, stage board and task
-groups; contextual settings navigation and a useful Documents entry page.
+groups; contextual settings navigation and a useful Documents entry page. Owner
+refinements move the website switcher into the sidebar and give the lead slide-out
+Twenty-style Home, Tasks, Notes, Files and Activity tabs while retaining the CRM
+styling, permissions, draft edits and the full-page record layout.
+The record header has type/reference badges, labeled stage and assignee fields
+and a separate action row. The delivery-letter print action is hidden for now.
+The old inbox filter row is consolidated into header icon menus for Filters,
+View options and Saved views, inspired by the owner's Linear screenshots.
+Switching All leads to Board defaults to SIM orders when present, following the
+tab order; switching a specific type keeps that type.
+Settings → General contains the profile; Team (`settings/team`) contains the
+teammate list and invitation form; Integrations (`settings/integrations`)
+contains website service credentials. The forms keep their existing permissions.
+The lead slide-out uses 420 ms opening and 360 ms closing transitions; the
+desktop table resizes with the panel and gap. Closing retains content until the
+motion finishes, and reduced-motion preferences skip it.
+Its entry state resets while closed so every reopen animates, including after
+the first record was opened without a page reload.
+Board cards open the same slide-out and preserve the board's filters and layout;
+their stage-move controls and drag actions continue to work independently.
+Overflowing boards provide left/right arrows and a synchronized horizontal
+slider fixed to the viewport bottom, fitted to the board beside the lead panel.
 The design mapping is in [the design notes](design/2026-11-01-admin-redesign.md).
 Styles are admin-scoped; existing permissions, data and actions still apply.
 No environment variables, dependencies, database or contract changes.
+
+Layout-shaped loading skeletons cover the dashboard, leads table/board/record,
+tasks, reports, workspace access, team/jobs and settings/automation screens.
+Shared layouts are in `components/crm/loading-skeleton.tsx`, using the existing
+UI Skeleton primitive with reduced-motion support. Initial loading keeps room
+for the content; table skeleton rows follow the visible columns and loading
+labels remain available to screen readers. Error and empty states stay distinct.
 
 ## 4. What is verified, and how
 
@@ -1499,7 +1528,7 @@ owner's steps, in order:
    ([RUNBOOKS/database.md](RUNBOOKS/database.md#0015_order_numbers)).
    Status: **done** 2026-10-30 (all six verification selects as expected).
 2. **Create the Get Canada Sim site key** in the admin
-   (`/w/getcanadasim/settings`), scopes `leads:write` and `uploads:customer`
+   (`/w/getcanadasim/settings/integrations`), scopes `leads:write` and `uploads:customer`
    (and `tracking`, so one key serves step B too; step B step 5); it goes
    into Get Canada Sim's Vercel project as `CRM_SITE_KEY` with `CRM_API_URL`,
    leaving `CRM_ORDERS` unset. Status: to do.
@@ -1563,7 +1592,7 @@ Settings → Email for Get Canada Sim (step 3), the Railway tracking variables
 4. **Remove `EMAIL_SENDERS_JSON` from Railway** after that deploy: nothing
    reads it any more. Status: to do.
 5. **The Get Canada Sim site key gets the `tracking` scope**: create a new key
-   in the admin (`/w/getcanadasim/settings`) with `leads:write`,
+   in the admin (`/w/getcanadasim/settings/integrations`) with `leads:write`,
    `uploads:customer` and `tracking` ("Order tracking", not preselected) and
    put it into Get Canada Sim's Vercel project as `CRM_SITE_KEY`, or the
    website's tracking calls answer `403 scope_denied`. Status: to do.
@@ -1778,7 +1807,7 @@ Then the CRM's own owner items:
 5. ~~Supabase Storage S3 keys in Railway~~: done; the `R2_*` variables are
    set, and the ID step's smoke test and the Get Canada Sim document copies
    ran through them.
-6. Names and roles of the other admins; invite them from the admin (after 4).
+6. Names and roles of the other admins; invite them from Settings → Team (after 4).
    One invitation is out (2026-10-27, owner of CanadaWide only); it waits for
    the invitee to create their account with "I have a staff invitation".
    Each sets their own name under Settings → Your name (the owner too: until

@@ -16,6 +16,8 @@ import {
   type ListFlowRunsQuery,
   type ListFlowRunsResponse,
   type SaveFlowDraftRequest,
+  type TestFlowRequest,
+  type TestFlowResponse,
   type ToggleFlowRequest,
   type UpdateFlowDetailsRequest,
   type CreateDownloadLinkResponse,
@@ -544,6 +546,15 @@ export async function getAutomationRun(
   runId: string,
 ): Promise<FlowRunResponse> {
   return client(accessToken).staff.getAutomationRun(workspaceId, key, runId);
+}
+
+export async function testAutomation(
+  accessToken: string,
+  workspaceId: string,
+  key: AutomationKey,
+  body?: TestFlowRequest,
+): Promise<TestFlowResponse> {
+  return client(accessToken).staff.testAutomation(workspaceId, key, body);
 }
 
 // ---- Settings → Email: the site's sender and its nine templates. Every

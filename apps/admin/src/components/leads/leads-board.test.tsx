@@ -140,6 +140,44 @@ describe('LeadsBoard', () => {
     expect(link.closest('li')?.getAttribute('draggable')).toBe('true');
   });
 
+  it('opens the panel from a card or its name while leaving move controls and modifier clicks alone', async () => {
+    mocks.getLeadBoard.mockResolvedValue(board(true));
+    const onOpen = vi.fn();
+    render(
+      <LeadsBoard
+        workspaceSlug="canadawide"
+        workspaceId={WORKSPACE}
+        accessToken="staff-token"
+        members={[]}
+        query={{
+          type: 'internet',
+          archived: false,
+          due: false,
+          layout: 'board',
+          hide: [],
+          page: 1,
+        }}
+        panel={{
+          openId: card.id,
+          href: (id) => `/w/canadawide/leads?type=internet&layout=board&lead=${id}`,
+          onOpen,
+        }}
+      />,
+    );
+    const link = await screen.findByRole('link', { name: 'Avery Example' });
+    expect(link.getAttribute('href')).toContain(`layout=board&lead=${card.id}`);
+    expect(link.closest('li')?.getAttribute('aria-current')).toBe('true');
+    fireEvent.click(screen.getByText('403 555 0101'));
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith(card.id);
+    onOpen.mockClear();
+    fireEvent.click(link);
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith(card.id);
+    onOpen.mockClear();
+    fireEvent.click(link, { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Move Avery Example to another stage' }));
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it('moves a card at once and keeps it there when the backend agrees', async () => {
     mocks.getLeadBoard.mockResolvedValue(board(true));
     mocks.updateStaffLead.mockResolvedValue({

@@ -32,15 +32,18 @@ export function QuickNavigation({ workspaceSlug }: { workspaceSlug: string }) {
       <Button
         type="button"
         variant="outline"
-        className="h-8 gap-2 text-muted-foreground shadow-none"
+        className="h-9 w-10 justify-start gap-2 text-muted-foreground shadow-none sm:w-48 lg:w-56"
         onClick={() => {
           setQuery('');
           setOpen(true);
         }}
         aria-label="Find a page"
       >
-        <SearchIcon className="size-4" />
-        <kbd className="hidden rounded border bg-muted px-1.5 text-[10px] sm:inline">⌘ K</kbd>
+        <SearchIcon className="size-4 shrink-0" />
+        <span className="hidden min-w-0 truncate text-xs sm:inline">Search pages...</span>
+        <kbd className="ml-auto hidden shrink-0 rounded border bg-muted px-1.5 text-[10px] sm:inline">
+          ⌘ K
+        </kbd>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

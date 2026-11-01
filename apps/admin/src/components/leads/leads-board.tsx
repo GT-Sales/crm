@@ -1,7 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from 'react';
 import {
   allowedStageMoves,
   leadStageLabel,
@@ -42,6 +50,7 @@ import { CountdownDay, leadDisplayName, NewBadge, PersonChip, stageDotClass } fr
 import { DUE_TONE_CLASS } from './leads-table';
 import { emailSkippedText, stageMoveRefusal } from './stage-move-dialog';
 import { useStoredList } from './view-preferences';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 const PER_STAGE = 50;
 const DRAG_TYPE = 'application/x-gt-lead';
@@ -169,6 +178,8 @@ export function LeadsBoard({
   members,
   query,
   waiting,
+  panel,
+  onReady,
 }: {
   workspaceSlug: string;
   workspaceId: string;
@@ -177,6 +188,13 @@ export function LeadsBoard({
   query: InboxQuery & { type: string };
   /** Hold the load while the site's catalogue is still needed to read the filters. */
   waiting?: boolean;
+  /** A freshly loaded board can restore focus to the card that opened a panel. */
+  onReady?(): void;
+  panel?: {
+    openId?: string;
+    href(leadId: string): string;
+    onOpen(leadId: string): void;
+  };
 }) {
   const load = useMemo(
     () =>
@@ -193,6 +211,9 @@ export function LeadsBoard({
     [waiting, accessToken, workspaceId, query.type, query.assignee, query.q, query.where],
   );
   const board = useResource(load);
+  useEffect(() => {
+    if (board.data) onReady?.();
+  }, [board.data, onReady]);
   const [dropTarget, setDropTarget] = useState<string>();
   const [columnDropTarget, setColumnDropTarget] = useState<string>();
   const [activeDragLead, setActiveDragLead] = useState<ActiveDragLead>();
@@ -206,7 +227,66 @@ export function LeadsBoard({
   // What the last move did about customer mail.
   const [mailNotes, setMailNotes] = useState<readonly string[]>([]);
   const boardRef = useRef<HTMLDivElement>(null);
+  const boardId = useId();
+  const [scrollPosition, setScrollPosition] = useState({
+    left: 0,
+    width: 0,
+    value: 0,
+    max: 0,
+    visible: false,
+  });
   const previousRectsRef = useRef<Map<string, DOMRect>>(new Map());
+
+  useEffect(() => {
+    const element = boardRef.current;
+    if (!element) return;
+    function measure() {
+      const element = boardRef.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      const left = Math.max(16, rect.left + 24);
+      const right = Math.min(window.innerWidth - 16, rect.right - 24);
+      const next = {
+        left,
+        width: Math.max(0, right - left),
+        value: element.scrollLeft,
+        max: Math.max(0, element.scrollWidth - element.clientWidth),
+        visible: rect.bottom > 0 && rect.top < window.innerHeight - 80,
+      };
+      setScrollPosition((current) =>
+        current.left === next.left &&
+        current.width === next.width &&
+        current.value === next.value &&
+        current.max === next.max &&
+        current.visible === next.visible
+          ? current
+          : next,
+      );
+    }
+    measure();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    for (const child of element.children) observer?.observe(child);
+    element.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+    };
+  }, [board.data, order, collapsed, hidden]);
+
+  function scrollBoard(direction: number) {
+    const element = boardRef.current;
+    if (!element) return;
+    element.scrollBy({
+      left: direction * Math.max(332, element.clientWidth * 0.8),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+  }
 
   function snapshotBoardPositions() {
     const container = boardRef.current;
@@ -326,11 +406,7 @@ export function LeadsBoard({
     );
   }
   if (!board.data) {
-    return (
-      <p className="py-10 text-center text-sm text-muted-foreground" aria-busy="true">
-        Loading the board…
-      </p>
-    );
+    return <LoadingSkeleton label="Loading the board…" variant="board" />;
   }
 
   const orderedColumns = orderColumns(board.data.columns, order);
@@ -338,7 +414,7 @@ export function LeadsBoard({
   const hiddenColumns = orderedColumns.filter((column) => hidden.includes(column.stage));
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 pb-20">
       {message ? (
         <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
           {message}
@@ -358,6 +434,7 @@ export function LeadsBoard({
       ) : null}
       <div
         ref={boardRef}
+        id={boardId}
         className="-mx-6 flex snap-x scroll-px-6 gap-3 overflow-x-auto px-6 pb-4"
         aria-label={`${query.type} board`}
         role="region"
@@ -515,6 +592,19 @@ export function LeadsBoard({
                         <li
                           key={lead.id}
                           data-flip-id={`lead:${lead.id}`}
+                          aria-current={panel?.openId === lead.id ? 'true' : undefined}
+                          onClick={(event) => {
+                            if (!panel || activeDragLead || event.defaultPrevented) return;
+                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+                              return;
+                            if (
+                              event.target instanceof Element &&
+                              event.target.closest('a, button, [role="menuitem"]')
+                            )
+                              return;
+                            if (window.getSelection()?.toString()) return;
+                            panel.onOpen(lead.id);
+                          }}
                           draggable={canMove}
                           onDragStart={(event) => {
                             event.dataTransfer.setData(DRAG_TYPE, `${lead.id} ${lead.stage}`);
@@ -555,7 +645,8 @@ export function LeadsBoard({
                             isDraggingThis ? { minHeight: `${activeDragLead.height}px` } : undefined
                           }
                           className={cn(
-                            'group rounded-md border bg-card p-3 text-sm shadow-xs transition-colors hover:border-primary/40',
+                            'group rounded-md border bg-card p-3 text-sm shadow-xs transition-colors hover:border-primary/40 aria-[current=true]:border-primary/50 dark:bg-background',
+                            panel && 'cursor-pointer',
                             canMove && 'cursor-grab active:cursor-grabbing',
                             isDraggingThis &&
                               'border-dashed border-border/60 bg-muted/40 shadow-none *:invisible',
@@ -566,8 +657,21 @@ export function LeadsBoard({
                                 would be the drag source, and onDragStart hiding the card's
                                 contents would make Chromium cancel that drag at once. */}
                             <Link
-                              href={`/w/${workspaceSlug}/leads/${lead.id}`}
+                              href={panel?.href(lead.id) ?? `/w/${workspaceSlug}/leads/${lead.id}`}
+                              data-lead-id={lead.id}
                               draggable={false}
+                              onClick={(event) => {
+                                if (!panel || event.button !== 0) return;
+                                if (
+                                  event.metaKey ||
+                                  event.ctrlKey ||
+                                  event.shiftKey ||
+                                  event.altKey
+                                )
+                                  return;
+                                event.preventDefault();
+                                panel.onOpen(lead.id);
+                              }}
                               className="min-w-0 flex-1 truncate font-medium hover:underline"
                             >
                               {leadDisplayName(lead.contact)}
@@ -702,6 +806,50 @@ export function LeadsBoard({
           </DropdownMenu>
         ) : null}
       </div>
+      {scrollPosition.visible && scrollPosition.max > 1 && scrollPosition.width > 0 ? (
+        <div
+          role="group"
+          aria-label="Board horizontal navigation"
+          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex items-center gap-3 rounded-xl border bg-background/95 p-2 shadow-lg backdrop-blur-sm"
+          style={{ left: scrollPosition.left, width: scrollPosition.width }}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Scroll board left"
+            aria-controls={boardId}
+            disabled={scrollPosition.value <= 1}
+            onClick={() => scrollBoard(-1)}
+          >
+            <ArrowLeftIcon aria-hidden="true" className="size-4" />
+          </Button>
+          <input
+            type="range"
+            aria-label="Scroll board horizontally"
+            aria-controls={boardId}
+            min={0}
+            max={scrollPosition.max}
+            value={scrollPosition.value}
+            step="any"
+            onChange={(event) =>
+              boardRef.current?.scrollTo({ left: Number(event.target.value), behavior: 'auto' })
+            }
+            className="h-6 min-w-0 flex-1 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Scroll board right"
+            aria-controls={boardId}
+            disabled={scrollPosition.value >= scrollPosition.max - 1}
+            onClick={() => scrollBoard(1)}
+          >
+            <ArrowRightIcon aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
+      ) : null}
       {activeDragLead ? (
         <div
           aria-hidden="true"
@@ -710,7 +858,7 @@ export function LeadsBoard({
             top: `${activeDragLead.y - activeDragLead.offsetY}px`,
             width: `${activeDragLead.width}px`,
           }}
-          className="pointer-events-none fixed z-50 rounded-md border border-primary/80 bg-card p-3 text-sm shadow-2xl ring-2 ring-primary/30"
+          className="pointer-events-none fixed z-50 rounded-md border border-primary/80 bg-card p-3 text-sm shadow-2xl ring-2 ring-primary/30 dark:bg-background"
         >
           <div className="flex items-start gap-2">
             <span className="min-w-0 flex-1 truncate font-medium">

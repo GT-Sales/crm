@@ -25,6 +25,7 @@ import { useResource } from '../lib/use-resource';
 import { TopPartners, VolumeChart } from './dashboard-charts';
 import { leadDisplayName } from './leads/lead-display';
 import { useStaffSession } from './staff-session-provider';
+import { LoadingSkeleton } from './crm/loading-skeleton';
 
 /** As many follow-ups as Get Canada Sim's dashboard lists before "View all". */
 const SHOWN = 6;
@@ -71,8 +72,21 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
   const followUpsDue = types.find((entry) => entry.leadType === leadType)?.followUpsDue ?? 0;
   const snapshot = stats.data;
 
+  if ((!summary.data && !summary.error) || (leadType && !stats.data && !stats.error)) {
+    return (
+      <LoadingSkeleton label="Loading the dashboard…" variant="dashboard">
+        <FollowUpsDue workspaceSlug={workspaceSlug} />
+      </LoadingSkeleton>
+    );
+  }
+
   return (
     <div className="crm-dashboard flex flex-col gap-6">
+      {summary.error ? (
+        <p role="alert" className="text-sm text-muted-foreground">
+          Could not load the dashboard. Reason: {summary.error}.
+        </p>
+      ) : null}
       {leadType ? (
         <div className="flex flex-wrap items-center gap-3">
           <div
@@ -394,9 +408,7 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
               : `Could not load the follow-ups. Reason: ${due.error}.`}
           </p>
         ) : !due.data ? (
-          <p className="text-sm text-muted-foreground" aria-busy="true">
-            Loading follow-ups…
-          </p>
+          <LoadingSkeleton label="Loading follow-ups…" rows={4} />
         ) : tasks.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing due. A task shows up here on the day it is due.

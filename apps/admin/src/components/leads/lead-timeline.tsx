@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
   emailTemplateLabel,
   LEGACY_IMPORT_ACTOR_ID,
@@ -274,11 +274,19 @@ function describeEntry(
   }
 }
 
+function TimelineMarker() {
+  return (
+    <span aria-hidden="true" className="relative flex w-3 shrink-0 justify-center">
+      <span className="absolute top-2 -bottom-9 left-1/2 w-px -translate-x-1/2 bg-border group-last/timeline:hidden" />
+      <span className="relative mt-0.5 size-3 rounded-full border-2 border-muted-foreground/50 bg-card" />
+    </span>
+  );
+}
+
 /**
- * The lead's history, newest first: notes, stage changes, assignments,
- * corrections, document reviews, customer emails (by hand or by an
- * automation) and the archive, ending with the submission itself. Staff who
- * manage leads write notes at the top.
+ * The lead's history, newest first, with connected markers and dates above
+ * each event. Staff who manage leads write notes at the top; the panel's
+ * Notes tab keeps its separate note list and composer.
  */
 export function LeadTimeline({
   lead,
@@ -289,6 +297,7 @@ export function LeadTimeline({
   workspaceSlug,
   catalog,
   onNoteAdded,
+  mode = 'timeline',
 }: {
   lead: LeadDetail;
   activities: readonly LeadActivity[];
@@ -300,7 +309,10 @@ export function LeadTimeline({
   /** The site's catalogue, so a correction names custom properties by label. */
   catalog?: PropertyCatalog;
   onNoteAdded(activity: LeadActivity): void;
+  /** Notes alone for the panel's Notes tab; the full page keeps the complete history. */
+  mode?: 'timeline' | 'notes';
 }) {
+  const id = useId();
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -323,17 +335,17 @@ export function LeadTimeline({
   }
 
   return (
-    <section aria-labelledby="timeline-heading" className="flex flex-col gap-4">
-      <h2 id="timeline-heading" className="text-base font-semibold">
-        Timeline
+    <section aria-labelledby={`${id}-heading`} className="flex flex-col gap-4">
+      <h2 id={`${id}-heading`} className="text-base font-semibold">
+        {mode === 'notes' ? 'Notes' : 'Timeline'}
       </h2>
       {canWrite ? (
         <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-2">
-          <label htmlFor="lead-note" className="sr-only">
+          <label htmlFor={`${id}-note`} className="sr-only">
             Add a note
           </label>
           <Textarea
-            id="lead-note"
+            id={`${id}-note`}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -360,6 +372,7 @@ export function LeadTimeline({
       <ol className="flex flex-col">
         {/* An open carried over from the old admin tells staff nothing. */}
         {activities
+          .filter((activity) => mode === 'timeline' || activity.kind === 'note')
           .filter(
             (activity) =>
               !(
@@ -379,14 +392,38 @@ export function LeadTimeline({
             // A data migration (the 0012 stage clean-up) says in words what it changed.
             const body = activity.kind === 'system' ? activity.body : undefined;
             return (
-              <li key={activity.id} className="relative flex gap-3 pb-5 last:pb-0">
-                <span
-                  aria-hidden="true"
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
+              <li
+                key={activity.id}
+                className={
+                  mode === 'timeline'
+                    ? 'group/timeline relative flex gap-4 pb-7 last:pb-0'
+                    : 'relative flex gap-3 pb-5 last:pb-0'
+                }
+              >
+                {mode === 'timeline' ? (
+                  <TimelineMarker />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
+                  >
+                    {icon}
+                  </span>
+                )}
+                <div
+                  className={
+                    mode === 'timeline' ? 'min-w-0 flex-1 text-sm' : 'min-w-0 flex-1 pt-1 text-sm'
+                  }
                 >
-                  {icon}
-                </span>
-                <div className="min-w-0 flex-1 pt-1 text-sm">
+                  {mode === 'timeline' ? (
+                    <time
+                      dateTime={activity.createdAt}
+                      title={dateTimeLabel(activity.createdAt)}
+                      className="mb-1 block text-xs text-muted-foreground"
+                    >
+                      {dateTimeLabel(activity.createdAt)} · {relativeTime(activity.createdAt)}
+                    </time>
+                  ) : null}
                   <p className={actor === null ? 'first-letter:uppercase' : undefined}>
                     {actor === null ? null : (
                       <>
@@ -399,13 +436,15 @@ export function LeadTimeline({
                       </>
                     )}
                     <span className="text-muted-foreground">{text}</span>{' '}
-                    <time
-                      dateTime={activity.createdAt}
-                      title={dateTimeLabel(activity.createdAt)}
-                      className="text-xs text-muted-foreground"
-                    >
-                      · {relativeTime(activity.createdAt)}
-                    </time>
+                    {mode === 'notes' ? (
+                      <time
+                        dateTime={activity.createdAt}
+                        title={dateTimeLabel(activity.createdAt)}
+                        className="text-xs text-muted-foreground"
+                      >
+                        · {relativeTime(activity.createdAt)}
+                      </time>
+                    ) : null}
                   </p>
                   {activity.kind === 'note' ? (
                     <p className="mt-2 rounded-md border bg-card px-3 py-2 whitespace-pre-wrap">
@@ -417,28 +456,30 @@ export function LeadTimeline({
               </li>
             );
           })}
-        <li className="flex gap-3">
-          <span
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
-          >
-            <InboxIcon />
-          </span>
-          <p className="pt-1 text-sm">
-            <span className="font-medium">Website</span>{' '}
-            <span className="text-muted-foreground">
-              sent this {lead.status === 'submitted' ? 'lead' : 'draft'}
-            </span>{' '}
-            <time
-              dateTime={lead.createdAt}
-              title={dateTimeLabel(lead.createdAt)}
-              className="text-xs text-muted-foreground"
-            >
-              · {relativeTime(lead.createdAt)}
-            </time>
-          </p>
-        </li>
+        {mode === 'notes' ? null : (
+          <li className="group/timeline relative flex gap-4">
+            <TimelineMarker />
+            <div className="min-w-0 flex-1 text-sm">
+              <time
+                dateTime={lead.createdAt}
+                title={dateTimeLabel(lead.createdAt)}
+                className="mb-1 block text-xs text-muted-foreground"
+              >
+                {dateTimeLabel(lead.createdAt)} · {relativeTime(lead.createdAt)}
+              </time>
+              <p>
+                <span className="font-medium">Website</span>{' '}
+                <span className="text-muted-foreground">
+                  sent this {lead.status === 'submitted' ? 'lead' : 'draft'}
+                </span>{' '}
+              </p>
+            </div>
+          </li>
+        )}
       </ol>
+      {mode === 'notes' && !activities.some((activity) => activity.kind === 'note') ? (
+        <p className="text-sm text-muted-foreground">No notes yet.</p>
+      ) : null}
     </section>
   );
 }

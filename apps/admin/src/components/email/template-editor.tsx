@@ -15,6 +15,7 @@ import { Button, FormField, Input, Textarea } from '@gt-sales/ui';
 
 import { BackendError } from '../../lib/api';
 import { errorReason } from '../../lib/use-resource';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 /** How long the editor waits after the last keystroke before it asks for a preview. */
 export const PREVIEW_DELAY_MS = 400;
@@ -370,13 +371,10 @@ export function TemplateEditor({
                 </pre>
               )}
             </>
+          ) : previewProblem ? (
+            <p className="text-sm text-muted-foreground">No preview yet.</p>
           ) : (
-            <p
-              className="text-sm text-muted-foreground"
-              aria-busy={previewProblem ? undefined : true}
-            >
-              {previewProblem ? 'No preview yet.' : 'Making the preview…'}
-            </p>
+            <LoadingSkeleton label="Making the preview…" variant="preview" />
           )}
         </div>
       </section>

@@ -21,6 +21,7 @@ import {
 import { getLeadsSummary } from '../lib/api';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 /**
  * Leads no one who works leads has opened yet, across the site's types,
@@ -51,27 +52,24 @@ function useUnopenedLeads(workspace: string, pathname: string): number | undefin
 export function AppSidebar({ workspace }: { workspace: string }) {
   const pathname = usePathname();
   const { workspaces } = useStaffSession();
-  const workspaceName = workspaces.find((site) => site.slug === workspace)?.name ?? workspace;
+  const currentWorkspace = workspaces.find((site) => site.slug === workspace);
+  const workspaceName = currentWorkspace?.name ?? workspace;
   const { isMobile, setOpenMobile } = useSidebar();
   const unopened = useUnopenedLeads(workspace, pathname);
 
   return (
     <Sidebar collapsible="icon" className="crm-sidebar">
       <SidebarHeader>
-        <div className="flex h-10 items-center gap-2 overflow-hidden whitespace-nowrap px-1 text-sm font-semibold group-data-[collapsible=icon]:px-0">
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background text-[11px] font-semibold text-foreground"
-          >
-            GT
-          </span>
-          <span className="group-data-[collapsible=icon]:sr-only">
-            GT Sales CRM
-            <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-              Your sales workspace
-            </span>
-          </span>
-        </div>
+        {currentWorkspace ? (
+          <WorkspaceSwitcher
+            currentWorkspace={currentWorkspace}
+            currentSection={pathname.split('/')[3] ?? 'leads'}
+            workspaces={workspaces}
+            onSelect={() => {
+              if (isMobile) setOpenMobile(false);
+            }}
+          />
+        ) : null}
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

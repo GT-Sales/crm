@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { websiteScopeNames, type WebsiteScopeName } from '@gt-sales/types';
 import type { ServiceCredentialSummary } from '@gt-sales/contracts';
 import {
+  Badge,
   Button,
   Dialog,
   DialogContent,
@@ -106,44 +107,75 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
     }
   }
 
-  return (
-    <section className="flex max-w-2xl flex-col gap-6">
-      <div>
-        <h2 className="text-base font-semibold">Website service credentials</h2>
-        <p className="text-sm text-muted-foreground">
-          A storefront authenticates to the backend with a scoped, revocable credential. The
-          workspace is derived from the credential, never from the request.
-        </p>
-      </div>
+  const activeCount = credentials.filter((c) => !c.revokedAt).length;
 
-      <form onSubmit={create} className="flex flex-col gap-4">
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Scopes</legend>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {websiteScopeNames.map((scope) => (
-              <label key={scope} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedScopes.includes(scope)}
-                  onChange={() => toggleScope(scope)}
-                />
-                {SCOPE_LABELS[scope] ? <span>{SCOPE_LABELS[scope]}</span> : null}
-                <code>{scope}</code>
-              </label>
-            ))}
+  return (
+    <section className="flex flex-col gap-6">
+      <form
+        onSubmit={create}
+        className="overflow-hidden rounded-xl border border-border/80 bg-card/30"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
+          <div>
+            <h2 className="text-sm font-medium text-foreground">Website service credentials</h2>
+            <p className="text-xs text-muted-foreground">
+              A storefront authenticates to the backend with a scoped, revocable credential. The
+              workspace is derived from the credential, never from the request.
+            </p>
           </div>
-        </fieldset>
-        <Button type="submit" disabled={busy || selectedScopes.length === 0}>
-          {busy ? 'Working…' : 'Issue credential'}
-        </Button>
+          <Button type="submit" size="sm" disabled={busy || selectedScopes.length === 0}>
+            {busy ? 'Working…' : 'Issue credential'}
+          </Button>
+        </div>
+
+        <div className="p-5">
+          <fieldset className="space-y-2.5">
+            <legend className="text-xs font-medium text-muted-foreground">Scopes</legend>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+              {websiteScopeNames.map((scope) => {
+                const checked = selectedScopes.includes(scope);
+                return (
+                  <label
+                    key={scope}
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-xs transition-colors ${
+                      checked
+                        ? 'border-foreground/30 bg-muted/60 text-foreground'
+                        : 'border-border/70 bg-background/40 text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-3.5 rounded border-border accent-primary"
+                      checked={checked}
+                      onChange={() => toggleScope(scope)}
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      {SCOPE_LABELS[scope] ? (
+                        <span className="font-medium text-foreground">{SCOPE_LABELS[scope]}</span>
+                      ) : null}
+                      <code className="font-mono text-[11px]">{scope}</code>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        </div>
       </form>
 
       {issuedSecret ? (
-        <div className="flex flex-col gap-2 rounded-md border border-destructive/50 p-4">
-          <Label htmlFor="issued-secret">New credential secret (shown once)</Label>
+        <div className="flex flex-col gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="issued-secret" className="text-xs font-semibold text-foreground">
+              New credential secret (shown once)
+            </Label>
+            <Badge variant="outline" className="text-[11px]">
+              One-time secret
+            </Badge>
+          </div>
           <code
             id="issued-secret"
-            className="block break-all rounded bg-muted p-2 text-sm"
+            className="block break-all rounded-lg border border-border/70 bg-background/80 p-3 font-mono text-xs text-foreground"
             data-testid="issued-secret"
           >
             {issuedSecret}
@@ -151,31 +183,57 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">Existing credentials</h3>
+      {message ? (
+        <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
+          {message}
+        </p>
+      ) : null}
+
+      <div className="overflow-hidden rounded-xl border border-border/80 bg-card/30">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-foreground">Existing credentials</h3>
+            <Badge variant="secondary" className="text-xs font-normal">
+              {activeCount} active
+            </Badge>
+          </div>
+          <span className="text-xs text-muted-foreground">{credentials.length} total</span>
+        </div>
+
         {credentials.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No credentials issued yet.</p>
+          <p className="px-5 py-8 text-center text-sm text-muted-foreground">
+            No credentials issued yet.
+          </p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="divide-y divide-border/70">
             {credentials.map((credential) => (
               <li
                 key={credential.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
+                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 text-sm transition-colors hover:bg-muted/20"
               >
-                <span className="flex flex-col gap-1">
-                  <code className="text-xs text-muted-foreground">{credential.id}</code>
-                  <span>{credential.scopes.join(', ')}</span>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <code className="font-mono text-xs text-foreground">{credential.id}</code>
+                    <Badge
+                      variant={credential.revokedAt ? 'secondary' : 'outline'}
+                      className="text-[11px] font-normal"
+                    >
+                      {credential.revokedAt ? 'revoked' : 'active'}
+                    </Badge>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {credential.scopes.join(', ')}
+                  </span>
                   {credential.revokedAt ? (
                     <span className="text-xs text-muted-foreground">
                       Revoked {new Date(credential.revokedAt).toISOString()}
                     </span>
                   ) : null}
                 </span>
-                {credential.revokedAt ? (
-                  <span className="text-xs text-muted-foreground">revoked</span>
-                ) : (
+                {credential.revokedAt ? null : (
                   <Button
                     type="button"
+                    size="sm"
                     variant="outline"
                     disabled={busy}
                     onClick={() => setRevokeTarget(credential)}
@@ -188,12 +246,6 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
           </ul>
         )}
       </div>
-
-      {message ? (
-        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-          {message}
-        </p>
-      ) : null}
 
       <Dialog
         open={revokeTarget !== undefined}

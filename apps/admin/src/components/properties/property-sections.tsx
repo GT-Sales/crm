@@ -148,15 +148,9 @@ function PropertySection({
   const orderValues: Readonly<Record<string, unknown>> = order ?? {};
   const valueOf = (property: SiteProperty) =>
     storedValue(property, form, customValues, orderValues);
-  // An unanswered question from the website's form is left out; what staff
-  // keep (staff-only, custom and order properties) shows even while empty.
-  const rows = properties.filter(
-    (property) =>
-      property.staffOnly ||
-      property.origin === 'custom' ||
-      property.storage === 'order' ||
-      !isEmpty(valueOf(property)),
-  );
+  // Read mode shows populated fields; Edit keeps every permitted property,
+  // including unanswered fields. Zero and false are populated values.
+  const rows = properties.filter((property) => !isEmpty(valueOf(property)));
   const frozenPlan = order ? <FrozenPlan plan={order.plan} /> : null;
   if (rows.length === 0 && extras.length === 0 && editable.length === 0) return null;
 

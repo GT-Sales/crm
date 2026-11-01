@@ -8,14 +8,18 @@ import {
   MailIcon,
   LayersIcon,
   ActivityIcon,
+  UsersIcon,
+  PlugIcon,
 } from 'lucide-react';
 import { cn } from '@gt-sales/ui';
 
 const sections = [
   { path: '', label: 'General', icon: SlidersHorizontalIcon },
+  { path: '/team', label: 'Team', icon: UsersIcon },
   { path: '/properties', label: 'Properties and record layouts', icon: ShapesIcon },
   { path: '/plans', label: 'Plans', icon: LayersIcon },
   { path: '/email', label: 'Email', icon: MailIcon },
+  { path: '/integrations', label: 'Integrations', icon: PlugIcon },
   { path: '/jobs', label: 'Background jobs', icon: ActivityIcon },
 ];
 

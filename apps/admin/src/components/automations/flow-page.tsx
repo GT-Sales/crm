@@ -19,6 +19,7 @@ import {
   type FlowOverlapWarning,
   type FlowRun,
   type FlowStepKind,
+  type TestFlowResponse,
 } from '@gt-sales/contracts';
 import {
   Badge,
@@ -29,6 +30,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Input,
+  Label,
 } from '@gt-sales/ui';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -47,6 +50,7 @@ import {
   resetAutomation,
   restoreAutomation,
   saveAutomationDraft,
+  testAutomation,
   updateAutomation,
 } from '../../lib/api';
 import { useResource } from '../../lib/use-resource';
@@ -70,7 +74,15 @@ const FlowCanvas = dynamic(
 );
 import { StepSidePanel } from './canvas/step-side-panel';
 import { FlowListView } from './flow-list-view';
-import { namesFromCatalog, namesFromCode, type FlowNames } from './flow-words';
+import {
+  namesFromCatalog,
+  namesFromCode,
+  reasonText,
+  stepKindLabel,
+  stepOutcomeText,
+  type FlowNames,
+} from './flow-words';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 const SIGNED_OUT = 'You are signed out. Sign in again to continue.';
 const AUTOSAVE_DELAY_MS = 600;
@@ -93,6 +105,16 @@ function hasLeadChangingDraftStep(steps: readonly FlowDraftStep[]): boolean {
   let found = false;
   walkDraftSteps(steps, (step) => {
     if (step.kind === 'assign_lead' || step.kind === 'update_lead' || step.kind === 'create_task') {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function hasEmailDraftStep(steps: readonly FlowDraftStep[]): boolean {
+  let found = false;
+  walkDraftSteps(steps, (step) => {
+    if (step.kind === 'send_email' || step.kind === 'notify_staff') {
       found = true;
     }
   });
@@ -225,6 +247,7 @@ function FlowPageEditor({
 
   const permissionNoteId = useId();
   const activateReasonId = useId();
+  const testEmailInputId = useId();
   const parsedKey = automationKeySchema.safeParse(flowKey);
   const key: AutomationKey | undefined = parsedKey.success ? parsedKey.data : undefined;
 
@@ -277,6 +300,11 @@ function FlowPageEditor({
     definition: FlowDefinition | FlowDraft | null;
   }>();
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [testBusy, setTestBusy] = useState(false);
+  const [testError, setTestError] = useState<string>();
+  const [testResult, setTestResult] = useState<TestFlowResponse>();
 
   const revisionRef = useRef<number>(0);
   // Save requests share a queue: every write uses the revision returned by
@@ -635,9 +663,7 @@ function FlowPageEditor({
         </Button>
       </div>
     ) : (
-      <p className="text-sm text-muted-foreground" aria-busy="true">
-        Loading the automation…
-      </p>
+      <LoadingSkeleton label="Loading the automation…" variant="flow" />
     );
   }
 
@@ -669,7 +695,42 @@ function FlowPageEditor({
       ];
 
   const validForActivation = activationCheck.success;
+  const hasEmailStep = hasEmailDraftStep(workingDraft.steps);
   const needsLeadsPermission = hasLeadChangingDraftStep(workingDraft.steps) && !canManageLeads;
+
+  async function handleRunTest(emailOverride?: string): Promise<void> {
+    if (!accessToken || !workspaceId || !key || !activationCheck.success) return;
+    const trimmedEmail = (emailOverride ?? testEmail).trim();
+    if (hasEmailStep && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setTestError('Enter a valid email address to receive the test email.');
+      return;
+    }
+    setTestBusy(true);
+    setTestError(undefined);
+    try {
+      const response = await testAutomation(accessToken, workspaceId, key, {
+        ...(hasEmailStep && trimmedEmail ? { email: trimmedEmail } : {}),
+        definition: activationCheck.data,
+      });
+      setTestResult(response);
+    } catch (caught) {
+      setTestError(changeError(caught, 'The test run could not be completed'));
+    } finally {
+      setTestBusy(false);
+    }
+  }
+
+  function handleOpenTestDialog(): void {
+    setTestError(undefined);
+    setTestResult(undefined);
+    if (!testEmail && staff.email) {
+      setTestEmail(staff.email);
+    }
+    setTestDialogOpen(true);
+    if (!hasEmailStep) {
+      void handleRunTest('');
+    }
+  }
   const hasSiteIssues = (detail.draft?.issues.length ?? 0) > 0 && !isDirty;
   const activateDisabled =
     !canEdit ||
@@ -927,6 +988,15 @@ function FlowPageEditor({
                   type="button"
                   size="sm"
                   variant="outline"
+                  disabled={!canEdit || !validForActivation || actionBusy || testBusy}
+                  onClick={handleOpenTestDialog}
+                >
+                  Test run
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
                   disabled={!canEdit || saveStatus === 'saving' || actionBusy}
                   onClick={() => void persistDraft(workingDraft)}
                 >
@@ -1095,6 +1165,106 @@ function FlowPageEditor({
             </Button>
             <Button type="button" disabled={actionBusy} onClick={() => void handleActivate()}>
               {actionBusy ? 'Activating…' : 'Activate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={testDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !testBusy) setTestDialogOpen(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Test run {flow.name}</DialogTitle>
+            <DialogDescription>
+              {hasEmailStep
+                ? 'Runs this flow against sample lead data without changing real leads. Enter the email address you want to use for any email steps in this test.'
+                : 'Runs this flow against sample lead data without changing real leads.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {hasEmailStep ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={testEmailInputId}>Test email address</Label>
+              <Input
+                id={testEmailInputId}
+                type="email"
+                placeholder="you@example.com"
+                value={testEmail}
+                disabled={testBusy}
+                onChange={(event) => {
+                  setTestEmail(event.target.value);
+                  if (testError) setTestError(undefined);
+                }}
+              />
+            </div>
+          ) : null}
+
+          {testError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {testError}
+            </p>
+          ) : null}
+
+          {testResult ? (
+            <div
+              role="region"
+              aria-label="Test run results"
+              className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 font-medium">
+                <span>
+                  {testResult.status === 'completed'
+                    ? 'Test run completed'
+                    : `Skipped${
+                        testResult.reason
+                          ? `: ${reasonText(testResult.reason, testResult.detail)}`
+                          : ''
+                      }`}
+                </span>
+                {testResult.emailsQueued > 0 ? (
+                  <Badge variant="secondary">
+                    {testResult.emailsQueued} test email
+                    {testResult.emailsQueued === 1 ? '' : 's'} queued to {testEmail.trim()}
+                  </Badge>
+                ) : null}
+              </div>
+              {testResult.steps.length > 0 ? (
+                <ol className="flex flex-col gap-1.5 border-t pt-2 text-xs">
+                  {testResult.steps.map((step, index) => (
+                    <li
+                      key={`${step.stepId}:${index}`}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <span className="font-medium">{stepKindLabel(step.stepKind)}</span>
+                      <span className="text-muted-foreground">{stepOutcomeText(step)}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-xs text-muted-foreground">No steps ran.</p>
+              )}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={testBusy}
+              onClick={() => setTestDialogOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              disabled={testBusy || (hasEmailStep && testEmail.trim().length === 0)}
+              onClick={() => void handleRunTest()}
+            >
+              {testBusy ? 'Running test…' : testResult ? 'Run test again' : 'Run test'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { AssignableMember, LeadTask, LeadTaskStatus } from '@gt-sales/contracts';
 import { Button, cn, Input, NativeSelect } from '@gt-sales/ui';
-import { XIcon } from 'lucide-react';
+import { ListTodoIcon, PlusIcon, XIcon } from 'lucide-react';
 
 import { createLeadTask, updateLeadTask } from '../../lib/api';
 import { dueAtFromDay, dueSentence, dueTone } from '../../lib/dates';
@@ -155,13 +155,16 @@ export function LeadTasks({
   }
 
   return (
-    <section aria-labelledby="tasks-heading" className="flex flex-col gap-2">
-      <h2 id="tasks-heading" className="text-base font-semibold">
-        Tasks{' '}
-        <span className="text-sm font-normal text-muted-foreground">
-          {open.length === 0 ? 'none open' : `${open.length} open`}
+    <section aria-labelledby="tasks-heading" className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="tasks-heading" className="flex items-center gap-2 text-base font-semibold">
+          <ListTodoIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+          Tasks
+        </h2>
+        <span className="rounded-full border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground tabular-nums">
+          {open.length} open
         </span>
-      </h2>
+      </div>
       {open.length > 0 ? (
         <ul className="divide-y">
           {open.map((task) => (
@@ -178,37 +181,53 @@ export function LeadTasks({
       ) : null}
 
       {canWrite ? (
-        <form onSubmit={(event) => void add(event)} className="flex flex-wrap items-end gap-2">
-          <label className="min-w-0 flex-[2_1_14rem]">
-            <span className="sr-only">New task</span>
+        <form onSubmit={(event) => void add(event)} className="grid gap-4">
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+            <span>New task</span>
             <Input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Add a task, e.g. Call back about the install date"
+              placeholder="What needs to be done?"
+              className="h-10"
               maxLength={200}
             />
           </label>
-          <label className="flex-[1_1_9rem]">
-            <span className="sr-only">Due date</span>
-            <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
-          </label>
-          <label className="flex-[1_1_9rem]">
-            <span className="sr-only">Assign the task to</span>
-            <NativeSelect value={assignee} onChange={(event) => setAssignee(event.target.value)}>
-              <option value="self">Me</option>
-              <option value="none">Unassigned</option>
-              {members
-                .filter((member) => !member.isSelf)
-                .map((member) => (
-                  <option key={member.actorId} value={member.actorId}>
-                    {memberName(member)}
-                  </option>
-                ))}
-            </NativeSelect>
-          </label>
-          <Button type="submit" size="sm" disabled={saving || title.trim() === ''}>
-            {saving ? 'Adding…' : 'Add task'}
-          </Button>
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+              <span className="flex flex-wrap items-center gap-x-1.5">
+                Due date{' '}
+                <span aria-hidden="true" className="font-normal text-muted-foreground">
+                  Optional
+                </span>
+              </span>
+              <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+              <span>Assign the task to</span>
+              <NativeSelect value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+                <option value="self">Me</option>
+                <option value="none">Unassigned</option>
+                {members
+                  .filter((member) => !member.isSelf)
+                  .map((member) => (
+                    <option key={member.actorId} value={member.actorId}>
+                      {memberName(member)}
+                    </option>
+                  ))}
+              </NativeSelect>
+            </label>
+          </div>
+          <div className="flex justify-end border-t pt-3">
+            <Button
+              type="submit"
+              size="sm"
+              className="h-9"
+              disabled={saving || title.trim() === ''}
+            >
+              <PlusIcon className="size-4" aria-hidden="true" />
+              {saving ? 'Adding…' : 'Add task'}
+            </Button>
+          </div>
         </form>
       ) : null}
 

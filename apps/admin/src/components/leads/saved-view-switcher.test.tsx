@@ -45,6 +45,16 @@ function openMenu(name: string | RegExp) {
 }
 
 describe('SavedViewSwitcher', () => {
+  it('puts the saved-view selector and saving actions behind an icon in compact mode', async () => {
+    setup({ compact: true, dirty: true });
+    expect(screen.queryByRole('button', { name: 'All leads' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save as new view' })).toBeNull();
+    openMenu('Saved views');
+    expect(await screen.findByRole('button', { name: 'Ready to call' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save as new view' }));
+    expect(await screen.findByRole('dialog', { name: 'Save as new view' })).toBeTruthy();
+  });
+
   it('shows All leads when no view is active and lists the saved views', async () => {
     setup();
     openMenu('All leads');

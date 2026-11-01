@@ -14,7 +14,7 @@ import {
   Popover,
   PopoverTrigger,
 } from '@gt-sales/ui';
-import { ChevronDownIcon, PencilIcon, Trash2Icon } from 'lucide-react';
+import { BookmarkIcon, ChevronDownIcon, PencilIcon, Trash2Icon } from 'lucide-react';
 
 import { BarButton, MenuItem, MenuLabel, MenuPanel, MenuSeparator } from '../crm/menu';
 
@@ -23,6 +23,8 @@ import { BarButton, MenuItem, MenuLabel, MenuPanel, MenuSeparator } from '../crm
  * turns the backend's error into words) or to `undefined` on success.
  */
 export interface SavedViewSwitcherProps {
+  /** Icon trigger with saving actions inside its menu, for the compact inbox header. */
+  compact?: boolean;
   views: readonly SavedView[];
   /** The view the list was opened from; `undefined` is "All leads", the unsaved default. */
   activeViewId: string | undefined;
@@ -163,6 +165,7 @@ function DeleteDialog({
  * a dirty dot with "Save" (the view itself) and "Save as new view".
  */
 export function SavedViewSwitcher({
+  compact = false,
   views,
   activeViewId,
   dirty,
@@ -198,27 +201,57 @@ export function SavedViewSwitcher({
     setMessage(failure);
   }
 
+  const saveControls = dirty ? (
+    <>
+      {active ? (
+        <BarButton disabled={saving} onClick={save}>
+          Save
+        </BarButton>
+      ) : null}
+      <BarButton onClick={() => openDialog({ kind: 'saveAs' })}>Save as new view</BarButton>
+    </>
+  ) : null;
+
   return (
     <div className="flex items-center gap-1">
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger asChild>
-          <BarButton className="text-foreground">
-            <span className="max-w-48 truncate">{active?.name ?? 'All leads'}</span>
+          <BarButton
+            aria-label={compact ? 'Saved views' : undefined}
+            title={compact ? `Saved views: ${active?.name ?? 'All leads'}` : undefined}
+            className={
+              compact
+                ? 'relative size-8 justify-center rounded-full border p-0 text-muted-foreground'
+                : 'text-foreground'
+            }
+          >
+            {compact ? (
+              <BookmarkIcon aria-hidden="true" />
+            ) : (
+              <span className="max-w-48 truncate">{active?.name ?? 'All leads'}</span>
+            )}
             {dirty ? (
               <>
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                <span
+                  aria-hidden="true"
+                  className={
+                    compact
+                      ? 'absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-background'
+                      : 'size-1.5 rounded-full bg-primary'
+                  }
+                />
                 <span className="sr-only">Unsaved changes</span>
               </>
             ) : null}
-            {total !== undefined ? (
+            {!compact && total !== undefined ? (
               <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
                 {total}
               </span>
             ) : null}
-            <ChevronDownIcon aria-hidden="true" />
+            {compact ? null : <ChevronDownIcon aria-hidden="true" />}
           </BarButton>
         </PopoverTrigger>
-        <MenuPanel align="end" className="max-h-96 w-64 overflow-y-auto">
+        <MenuPanel align="end" aria-label="Saved views" className="max-h-96 w-64 overflow-y-auto">
           <MenuItem selected={active === undefined} onClick={() => choose(undefined)}>
             All leads
           </MenuItem>
@@ -255,20 +288,19 @@ export function SavedViewSwitcher({
               </button>
             </div>
           ))}
+          {compact && saveControls ? (
+            <div className="mt-1 flex flex-col items-start gap-1 border-t pt-1">{saveControls}</div>
+          ) : null}
+          {compact && message ? (
+            <p role="alert" className="px-2 py-1 text-xs text-destructive">
+              {message}
+            </p>
+          ) : null}
         </MenuPanel>
       </Popover>
 
-      {dirty ? (
-        <>
-          {active ? (
-            <BarButton disabled={saving} onClick={save}>
-              Save
-            </BarButton>
-          ) : null}
-          <BarButton onClick={() => openDialog({ kind: 'saveAs' })}>Save as new view</BarButton>
-        </>
-      ) : null}
-      {message ? (
+      {compact ? null : saveControls}
+      {!compact && message ? (
         <span role="alert" className="text-[12px] text-destructive">
           {message}
         </span>

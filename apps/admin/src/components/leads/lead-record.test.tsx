@@ -676,7 +676,7 @@ describe('LeadRecord order details', () => {
     mocks.getStaffLead.mockResolvedValue(response({ lead: order }));
   });
 
-  it('copies the order as text, and links its delivery letter', async () => {
+  it('copies the order as text and keeps the delivery letter action hidden', async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -686,12 +686,7 @@ describe('LeadRecord order details', () => {
       expect.stringContaining('Plan (as submitted): Unlimited Data · $40, Rogers'),
     );
 
-    const letter = screen.getByRole('link', { name: 'Print delivery letter' });
-    expect(letter.getAttribute('target')).toBe('_blank');
-    expect(letter.getAttribute('rel')).toContain('noreferrer');
-    expect(letter.getAttribute('href')).toMatch(
-      /^https:\/\/getcanadasim\.com\/delivery-letter\.html\?first_name=Avery&/,
-    );
+    expect(screen.queryByRole('link', { name: 'Print delivery letter' })).toBeNull();
   });
 
   it('shows the customer’s change requests, and says where a waiting one is decided', async () => {
@@ -971,8 +966,10 @@ describe('LeadRecord order details', () => {
     expect(await screen.findByText('Unlimited Data · $40, Rogers')).toBeTruthy();
     expect(screen.getByText('eSIM')).toBeTruthy();
     expect(screen.getByText('Call after 6pm')).toBeTruthy();
-    const staff = screen.getByRole('heading', { name: 'Staff details' }).closest('div');
-    expect(staff?.parentElement?.textContent).toContain('SIM number');
+    const staff = screen.getByRole('region', { name: 'Staff details' });
+    expect(within(staff).queryByText('SIM number')).toBeNull();
+    fireEvent.click(within(staff).getByRole('button', { name: 'Edit' }));
+    expect(within(staff).getByLabelText('SIM number')).toBeTruthy();
   });
 
   it('corrects only the changed order fields', async () => {
@@ -1686,7 +1683,68 @@ describe('LeadRecord from the site layout', () => {
     expect(screen.queryByRole('link', { name: /Internet leads/ })).toBeNull();
     expect(screen.getByLabelText('Stage')).toBeTruthy();
     expect(screen.getByText('12 Example Street')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Home' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('region', { name: 'Timeline' })).toBeNull();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Activity' }), { button: 0 });
     expect(screen.getByRole('region', { name: 'Timeline' })).toBeTruthy();
+  });
+
+  it('keeps note and contact drafts when switching panel tabs and shares saved notes with Activity', async () => {
+    mocks.getPropertyModel.mockResolvedValue(model());
+    mocks.getStaffLead.mockResolvedValue(response());
+    mocks.addLeadNote.mockResolvedValue({
+      activity: {
+        id: '92000000-0000-4000-8000-000000000001',
+        actorId: SELF,
+        createdAt: NOW,
+        kind: 'note',
+        body: 'Call tomorrow',
+      },
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+    await screen.findByRole('tablist', { name: 'Lead sections' });
+    const contact = screen.getByRole('heading', { name: 'Contact' }).parentElement;
+    if (!contact) throw new Error('The contact section is missing');
+    fireEvent.click(within(contact).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), {
+      target: { value: 'Draft name' },
+    });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Notes' }), { button: 0 });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Add a note' }), {
+      target: { value: 'Call tomorrow' },
+    });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Home' }), { button: 0 });
+    expect(screen.getByRole('textbox', { name: 'Name' }).getAttribute('value')).toBe('Draft name');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Notes' }), { button: 0 });
+    expect(screen.getByRole('textbox', { name: 'Add a note' }).textContent).toBe('Call tomorrow');
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    await waitFor(() =>
+      expect(mocks.addLeadNote).toHaveBeenCalledWith(
+        'staff-token',
+        WORKSPACE,
+        LEAD,
+        'Call tomorrow',
+      ),
+    );
+    expect(
+      await within(screen.getByRole('region', { name: 'Notes' })).findByText('Call tomorrow'),
+    ).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Activity' }), { button: 0 });
+    expect(
+      within(screen.getByRole('region', { name: 'Timeline' })).getByText('Call tomorrow'),
+    ).toBeTruthy();
+  });
+
+  it('keeps contact-only panel sections unavailable without contact access', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ access: { contacts: false, manage: false } }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+    await screen.findByRole('tablist', { name: 'Lead sections' });
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Home', 'Files']);
+    expect(screen.queryByRole('heading', { name: 'Contact' })).toBeNull();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Files' }), { button: 0 });
+    expect(screen.getByRole('heading', { name: 'No files yet' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Add a note' })).toBeNull();
   });
 });
 
@@ -1740,6 +1798,45 @@ describe('PropertySections', () => {
     expect(within(identity).getByText('X1234567')).toBeTruthy();
     expect(within(identity).getByText('Jan 31, 1990')).toBeTruthy();
     expect(within(identity).queryByText('••••')).toBeNull();
+  });
+
+  it('keeps zero and No visible while blank custom fields remain available only in Edit', () => {
+    const count: SiteProperty = {
+      ...passport,
+      key: 'custom_count',
+      label: 'Count',
+      kind: 'number',
+      sensitive: false,
+    };
+    const confirmed: SiteProperty = {
+      ...passport,
+      key: 'custom_confirmed',
+      label: 'Confirmed',
+      kind: 'yesNo',
+      sensitive: false,
+    };
+    render(
+      <PropertySections
+        leadType="internet"
+        layout={{
+          sections: [
+            { id: 'custom', label: 'Custom', keys: [passport.key, count.key, confirmed.key] },
+          ],
+        }}
+        catalog={catalogFromModel([...codePropertyCatalog.all, passport, count, confirmed])}
+        form={{}}
+        customValues={{ [passport.key]: '  ', [count.key]: 0, [confirmed.key]: false }}
+        canEdit
+        canRevealSensitive
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+    const section = screen.getByRole('region', { name: 'Custom' });
+    expect(within(section).queryByText('Passport number')).toBeNull();
+    expect(within(section).getByText('0')).toBeTruthy();
+    expect(within(section).getByText('No')).toBeTruthy();
+    fireEvent.click(within(section).getByRole('button', { name: 'Edit' }));
+    expect(within(section).getByLabelText('Passport number')).toBeTruthy();
   });
 });
 
@@ -1802,18 +1899,7 @@ describe('LeadRecord order section', () => {
     const order = await screen.findByRole('region', { name: 'Order' });
     await within(order).findByText('Legacy 10');
     const rows = Array.from(order.querySelectorAll('dt')).map((term) => term.textContent);
-    expect(rows).toEqual([
-      'Plan',
-      'Quantity',
-      'Payment status',
-      'Carrier commission',
-      'Courier',
-      'Tracking number',
-      'Dispatched on',
-      'Activated on',
-      'Activation number',
-      'Activation account',
-    ]);
+    expect(rows).toEqual(['Plan', 'Quantity', 'Payment status', 'Carrier commission']);
     expect(within(order).getByText('2')).toBeTruthy();
     expect(within(order).getByText('Pending')).toBeTruthy();
     expect(within(order).getByText('Not yet')).toBeTruthy();
@@ -1821,13 +1907,31 @@ describe('LeadRecord order section', () => {
     expect(frozen.textContent).toMatch(/^Frozen Oct 20, 2026: Legacy 10, \$25\.00 \/ Monthly$/);
   });
 
-  it('says when no plan is frozen yet', async () => {
+  it('hides empty order fields until Edit, keeping every order control available', async () => {
     mocks.getStaffLead.mockResolvedValue(
       response({ lead: simOrder({ ...frozenOrder, planId: null, plan: null }) }),
     );
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     const order = await screen.findByRole('region', { name: 'Order' });
-    expect(await within(order).findByText('No plan frozen yet')).toBeTruthy();
+    expect(within(order).queryByText('No plan frozen yet')).toBeNull();
+    expect(Array.from(order.querySelectorAll('dt')).map((term) => term.textContent)).toEqual([
+      'Quantity',
+      'Payment status',
+      'Carrier commission',
+    ]);
+    fireEvent.click(within(order).getByRole('button', { name: 'Edit' }));
+    for (const label of [
+      'Plan',
+      'Courier',
+      'Tracking number',
+      'Dispatched on',
+      'Activated on',
+      'Activation number',
+      'Activation account',
+    ]) {
+      expect(within(order).getByLabelText(label)).toBeTruthy();
+    }
+    expect(within(order).getByText('No plan frozen yet')).toBeTruthy();
   });
 
   it('offers the active plans, marks the current inactive one, and sends order edits', async () => {

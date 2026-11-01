@@ -11,6 +11,7 @@ import { errorReason, useResource } from '../../lib/use-resource';
 import { leadDisplayName } from './lead-display';
 import { TaskRow } from './lead-tasks';
 import { useLeadWorkspace } from './use-lead-workspace';
+import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 type Scope = 'me' | 'none';
 
@@ -127,9 +128,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             : `Could not load tasks. Reason: ${tasks.error}.`}
         </p>
       ) : !tasks.data ? (
-        <p className="text-sm text-muted-foreground" aria-busy="true">
-          Loading tasks…
-        </p>
+        <LoadingSkeleton label="Loading tasks…" variant="list" />
       ) : list.length === 0 ? (
         <p className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
           {scope === 'me'

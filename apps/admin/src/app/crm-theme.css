@@ -134,8 +134,20 @@
 .crm-ui :where(input[type='checkbox'], input[type='radio']) {
   accent-color: var(--primary);
 }
+/* Native popup menus can use an OS background rather than the select's
+   transparent surface. Give every option an explicit, matching color pair. */
+.crm-ui :where(select option, select optgroup) {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+}
+.crm-ui :where(select option:disabled, select optgroup:disabled, select optgroup:disabled option) {
+  color: var(--muted-foreground);
+}
 .crm-ui [data-slot='button'] {
   border-radius: 0.5rem;
+}
+.crm-ui [data-slot='button'].rounded-full {
+  border-radius: 9999px;
 }
 .crm-ui [data-slot='sidebar-menu-button'] {
   font-weight: 400;
@@ -179,11 +191,6 @@
   background-image: linear-gradient(to top, var(--border) 1px, transparent 1px);
   background-size: 100% 25%;
 }
-.crm-topbar [aria-label='Switch site'] {
-  height: 2rem;
-  max-width: 12rem;
-  box-shadow: none;
-}
 @media (min-width: 640px) {
   .crm-stat-grid .crm-stat + .crm-stat {
     border-top: 0;
@@ -202,10 +209,36 @@
     gap: 0.375rem;
     padding-inline: 0.75rem;
   }
-  .crm-topbar [aria-label='Switch site'] {
-    max-width: 6rem;
-    padding-inline: 0.5rem;
-  }
+}
+.crm-lead-panel-slot {
+  position: relative;
+  flex-shrink: 0;
+  width: min(560px, 50vw);
+  height: 100%;
+  margin-left: 1rem;
+  overflow: hidden;
+}
+.crm-lead-panel-slot,
+.crm-lead-panel {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+.crm-lead-panel-slot {
+  transition-property: width, margin-left;
+}
+.crm-lead-panel {
+  opacity: 1;
+  transform: translateX(0);
+  transition-property: transform, opacity;
+}
+.crm-lead-panel-slot[data-entered='false'],
+.crm-lead-panel-slot[data-state='closed'] {
+  width: 0;
+  margin-left: 0;
+}
+.crm-lead-panel-slot[data-entered='false'] .crm-lead-panel,
+.crm-lead-panel[data-state='closed'] {
+  opacity: 0;
+  transform: translateX(100%);
 }
 @media (prefers-reduced-motion: reduce) {
   .crm-ui *,

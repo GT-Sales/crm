@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /**
  * Staff working leads in a real browser against the real backend (see
@@ -37,6 +37,12 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
+/** Icon menus retain their contents while a setting changes. */
+async function openInboxMenu(page: Page, name: 'Filters' | 'View options' | 'Saved views') {
+  const button = page.getByRole('button', { name, exact: true });
+  if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
+}
+
 test('the inbox shows each lead type with counts and searches as you type', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads');
@@ -45,6 +51,7 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   await expect(page.getByRole('tab', { name: /Mobility\s*1/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Ellis Mobile' })).toBeVisible();
 
+  await page.getByRole('button', { name: 'Search leads' }).click();
   await page.getByRole('searchbox', { name: 'Search leads' }).fill('blake');
   await expect(page).toHaveURL(/q=blake/);
   await expect(page.getByRole('link', { name: 'Blake Sample' })).toBeVisible();
@@ -77,6 +84,7 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
 
   await page.getByRole('link', { name: 'Open the follow-ups in Leads' }).click();
   await expect(page).toHaveURL(/\/leads\?due=1$/);
+  await openInboxMenu(page, 'Filters');
   const toggle = page.getByRole('button', { name: /Follow-ups due\s*1/ });
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('link', { name: 'Casey Demo' })).toBeVisible();
@@ -188,6 +196,7 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
   // The lead's own task list agrees after a fresh load.
   await page.goto('/w/canadawide/leads?type=internet');
   await page.getByRole('link', { name: 'Avery Example' }).click();
+  await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Show 1 closed task' })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -223,7 +232,7 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Marco Rossi' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  await openInboxMenu(page, 'Filters');
   await page.getByLabel('Property').selectOption('permitType');
   await page.getByLabel('Operator').selectOption('eq');
   await page.getByLabel('Value').selectOption('student');
@@ -237,7 +246,7 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await expect(page.getByRole('link', { name: 'Arjun Patel' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Priya Sharma' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Columns' }).click();
+  await openInboxMenu(page, 'View options');
   // The box mirrors the URL, which router.replace updates a moment after the
   // click, so check() (which reads the box straight after clicking) cannot be used.
   const arrivalColumn = page.getByRole('checkbox', { name: 'Arrival in Canada' });
@@ -316,13 +325,13 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   await expect(page).not.toHaveURL(/lead=/);
 
   // City is still offered as a column before it is hidden.
-  await page.getByRole('button', { name: 'Columns' }).click();
+  await openInboxMenu(page, 'View options');
   await expect(page.getByRole('checkbox', { name: 'City', exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Referral code', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
 
   // Filter on the custom property: one row.
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  await openInboxMenu(page, 'Filters');
   await page.getByLabel('Property').selectOption({ label: 'Referral code' });
   await page.getByLabel('Operator').selectOption('contains');
   await page.getByLabel('Value').fill('R-1');
@@ -340,16 +349,20 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   await expect(leadHeader).toHaveAttribute('aria-sort', 'ascending');
 
   // Save as new view, then reload: the view is selected with its chip and row.
+  await openInboxMenu(page, 'Saved views');
   await page.getByRole('button', { name: 'Save as new view' }).click();
   const saveDialog = page.getByRole('dialog', { name: 'Save as new view' });
   await saveDialog.getByLabel('View name').fill('Referrals');
   await saveDialog.getByRole('button', { name: 'Save view' }).click();
   await expect(saveDialog).toHaveCount(0);
   await expect(page).toHaveURL(/view=/);
-  await expect(page.getByRole('button', { name: 'Referrals', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Saved views' })).toHaveAttribute(
+    'title',
+    'Saved views: Referrals',
+  );
 
   await page.reload();
-  const switcher = page.getByRole('button', { name: 'Referrals', exact: true });
+  const switcher = page.getByRole('button', { name: 'Saved views', exact: true });
   await expect(switcher).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save as new view' })).toHaveCount(0);
   await expect(page.getByText('contains R-1')).toBeVisible();
@@ -375,14 +388,14 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
   await builtins.getByRole('button', { name: 'Hide City' }).click();
   await expect(builtins.getByRole('button', { name: 'Show City' })).toBeVisible();
   await page.goto('/w/canadawide/leads?type=internet');
-  await page.getByRole('button', { name: 'Columns' }).click();
+  await openInboxMenu(page, 'View options');
   await expect(page.getByRole('checkbox', { name: 'Referral code', exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'City', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
   // Clean up: the view, the value, the property and City's visibility as they were.
   // Off a saved view the switcher reads "All leads", with the unsaved-changes dot.
-  await page.getByRole('button', { name: /^All leads/ }).click();
+  await openInboxMenu(page, 'Saved views');
   await page.getByRole('dialog').getByRole('button', { name: 'Delete Referrals' }).click();
   await page
     .getByRole('dialog', { name: 'Delete view' })
@@ -465,7 +478,7 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   await expect(panel).toHaveCount(0);
 
   // Filter on Payment status = Paid: the one order.
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  await openInboxMenu(page, 'Filters');
   await page.getByLabel('Property').selectOption('paymentStatus');
   await page.getByLabel('Operator').selectOption('eq');
   await page.getByLabel('Value').selectOption({ label: 'Paid' });
@@ -961,6 +974,546 @@ test('the redesigned workspace supports page finding, persistent themes and narr
   });
   await page.goto('/w/getcanadasim/settings');
   await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(391);
+  expect(errors).toEqual([]);
+});
+
+test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
+  page,
+}, testInfo) => {
+  const errors = trackErrors(page);
+  async function checkScrolledTabs(surface: Locator) {
+    const tabs = surface.getByRole('tablist', { name: 'Lead sections' });
+    const scroller = surface.locator('[data-slot="tabs"]').locator('..');
+    await scroller.evaluate((element) => {
+      element.scrollTop = 300;
+    });
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect
+      .poll(async () => {
+        const header = await surface
+          .getByRole('button', { name: 'Close panel' })
+          .locator('..')
+          .boundingBox();
+        const strip = await tabs.boundingBox();
+        return header && strip ? Math.abs(strip.y - header.y - header.height) : Infinity;
+      })
+      .toBeLessThanOrEqual(1);
+    return scroller;
+  }
+  async function checkDropdownContrast() {
+    const colors = await page.locator('select option, select optgroup').evaluateAll((options) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('A canvas is needed to measure dropdown contrast');
+      const rgba = (color: string) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return Array.from(context.getImageData(0, 0, 1, 1).data);
+      };
+      const luminance = (color: number[]) =>
+        color.slice(0, 3).reduce((sum, channel, index) => {
+          const value = channel / 255;
+          const linear = value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+          return sum + linear * ([0.2126, 0.7152, 0.0722][index] ?? 0);
+        }, 0);
+      return options.map((option) => {
+        const style = getComputedStyle(option);
+        const background = rgba(style.backgroundColor);
+        const foreground = rgba(style.color);
+        const first = luminance(background);
+        const second = luminance(foreground);
+        return {
+          alpha: background[3],
+          ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
+        };
+      });
+    });
+    expect(colors.length).toBeGreaterThan(0);
+    for (const color of colors) {
+      expect(color.alpha).toBe(255);
+      expect(color.ratio).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  await page.goto('/w/canadawide/leads?type=internet');
+  await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Saved views', exact: true })).toBeVisible();
+  for (const name of ['Filters', 'View options', 'Saved views']) {
+    const dimensions = await page.getByRole('button', { name, exact: true }).evaluate((button) => ({
+      width: button.getBoundingClientRect().width,
+      height: button.getBoundingClientRect().height,
+      radius: Number.parseFloat(getComputedStyle(button).borderRadius),
+    }));
+    expect(dimensions.width).toBe(dimensions.height);
+    expect(dimensions.radius).toBeGreaterThanOrEqual(dimensions.width / 2);
+  }
+  await expect(page.getByLabel('Assignee', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+  await page.screenshot({
+    path: testInfo.outputPath('design-inbox-icon-toolbar.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await openInboxMenu(page, 'Filters');
+  await page
+    .getByRole('dialog', { name: 'Filters', exact: true })
+    .screenshot({ path: testInfo.outputPath('design-inbox-filters.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await openInboxMenu(page, 'View options');
+  const displayMenu = page.getByRole('dialog', { name: 'View options', exact: true });
+  await displayMenu.screenshot({
+    path: testInfo.outputPath('design-inbox-table-options.png'),
+    animations: 'disabled',
+  });
+  await displayMenu.getByRole('button', { name: 'Board', exact: true }).click();
+  await expect(page).toHaveURL(/layout=board/);
+  await expect(displayMenu.getByText('Board columns', { exact: true })).toBeVisible();
+  await displayMenu.screenshot({
+    path: testInfo.outputPath('design-inbox-board-options.png'),
+    animations: 'disabled',
+  });
+  await displayMenu.getByRole('button', { name: 'Table', exact: true }).click();
+  await expect(page).not.toHaveURL(/layout=board/);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Switch to light mode' }).click();
+  await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: 'Lead', exact: true });
+  await expect(panel.getByRole('tab', { name: 'Home', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(panel.getByRole('heading', { name: 'Contact', exact: true })).toBeVisible();
+  const recordHeader = panel.locator('[data-slot="lead-record-header"]');
+  await expect(recordHeader.getByText('Stage', { exact: true })).toBeVisible();
+  await expect(recordHeader.getByText('Assignee', { exact: true })).toBeVisible();
+  await expect(recordHeader.getByRole('button', { name: 'Copy info' })).toBeVisible();
+  await expect(recordHeader.getByRole('button', { name: 'Archive', exact: true })).toBeVisible();
+  await expect(recordHeader.getByRole('link', { name: 'Print delivery letter' })).toHaveCount(0);
+  await checkDropdownContrast();
+  await panel.getByRole('tab', { name: 'Notes', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'Add a note' }).fill('Call about the installation date');
+  await panel.getByRole('tab', { name: 'Tasks', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'New task' }).fill('Confirm installation date');
+  await panel.getByRole('tab', { name: 'Files', exact: true }).click();
+  await expect(panel.getByRole('heading', { name: 'No files yet' })).toBeVisible();
+  await panel.getByRole('tab', { name: 'Tasks', exact: true }).click();
+  await expect(panel.getByRole('textbox', { name: 'New task' })).toHaveValue(
+    'Confirm installation date',
+  );
+  await panel.getByRole('textbox', { name: 'New task' }).fill('');
+  await panel.getByRole('tab', { name: 'Notes', exact: true }).click();
+  await expect(panel.getByRole('textbox', { name: 'Add a note' })).toHaveValue(
+    'Call about the installation date',
+  );
+  await panel.getByRole('button', { name: 'Add note', exact: true }).click();
+  await expect(panel.getByRole('region', { name: 'Notes' })).toContainText(
+    'Call about the installation date',
+  );
+  await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+  await expect(panel.getByRole('region', { name: 'Timeline' })).toContainText(
+    'Call about the installation date',
+  );
+  await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+  await checkDropdownContrast();
+  await panel.screenshot({
+    path: testInfo.outputPath('design-lead-panel-timeline.png'),
+    animations: 'disabled',
+  });
+  const home = panel.getByRole('tab', { name: 'Home', exact: true });
+  await home.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(panel.getByRole('tab', { name: 'Tasks', exact: true })).toBeFocused();
+  await expect(panel.getByRole('tab', { name: 'Tasks', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await panel.getByRole('heading', { name: 'Tasks', exact: true }).click();
+  await panel
+    .getByRole('region', { name: 'Tasks', exact: true })
+    .locator('..')
+    .locator('..')
+    .screenshot({
+      path: testInfo.outputPath('design-lead-tasks.png'),
+      animations: 'disabled',
+    });
+  await home.click();
+  await panel.screenshot({
+    path: testInfo.outputPath('design-lead-panel-home.png'),
+    animations: 'disabled',
+  });
+  const desktopScroll = await checkScrolledTabs(panel);
+  await panel.screenshot({
+    path: testInfo.outputPath('design-lead-panel-scrolled.png'),
+    animations: 'disabled',
+  });
+  await desktopScroll.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await panel.getByRole('tab', { name: 'Notes', exact: true }).click();
+  await panel.screenshot({
+    path: testInfo.outputPath('design-lead-panel-notes.png'),
+    animations: 'disabled',
+  });
+  await panel.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page).not.toHaveURL(/lead=/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: 'Lead', exact: true });
+  await expect(sheet.getByRole('tab', { name: 'Home', exact: true })).toBeVisible();
+  const mobileScroll = await checkScrolledTabs(sheet);
+  await mobileScroll.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await sheet.getByRole('tab', { name: 'Notes', exact: true }).click();
+  await expect(sheet.getByRole('tab', { selected: true })).toHaveCount(1);
+  await expect(sheet.getByRole('region', { name: 'Notes' })).toContainText(
+    'Call about the installation date',
+  );
+  await sheet.screenshot({
+    path: testInfo.outputPath('design-lead-panel-mobile.png'),
+    animations: 'disabled',
+  });
+  await sheet.getByRole('tab', { name: 'Tasks', exact: true }).click();
+  await expect(sheet.getByRole('textbox', { name: 'New task' })).toBeVisible();
+  const mobileTasks = sheet
+    .getByRole('region', { name: 'Tasks', exact: true })
+    .locator('..')
+    .locator('..');
+  await expect
+    .poll(() => mobileTasks.evaluate((element) => element.scrollWidth - element.clientWidth))
+    .toBeLessThanOrEqual(1);
+  await mobileTasks.screenshot({
+    path: testInfo.outputPath('design-lead-tasks-mobile.png'),
+    animations: 'disabled',
+  });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(391);
+  await sheet.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Search leads', exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(391);
+
+  expect(errors).toEqual([]);
+});
+for (const layout of ['table', 'board']) {
+  test(`the lead slider and table resize smoothly in both directions (${layout})`, async ({
+    page,
+  }) => {
+    const errors = trackErrors(page);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto(`/w/canadawide/leads?type=internet&layout=${layout}`);
+    const list = page.locator('[data-slot="lead-list"]');
+    await expect(page.getByRole('link', { name: 'Avery Example', exact: true })).toBeVisible();
+    const initialWidth = await list.evaluate((element) => element.getBoundingClientRect().width);
+
+    async function sampleResize(slot: Locator) {
+      return slot.evaluate(async (element) => {
+        const listElement = document.querySelector('[data-slot="lead-list"]');
+        if (!listElement) throw new Error('The lead list is missing');
+        const getMotion = () =>
+          element.getAnimations({ subtree: true }).filter((animation) => {
+            if (!(animation.effect instanceof KeyframeEffect)) return false;
+            const target = animation.effect.target;
+            return (
+              animation.playState !== 'finished' &&
+              (target === element ||
+                (target instanceof Element && target.classList.contains('crm-lead-panel')))
+            );
+          });
+        let motions = getMotion();
+        for (let frame = 0; motions.length === 0 && frame < 20; frame += 1) {
+          await new Promise(requestAnimationFrame);
+          motions = getMotion();
+        }
+        if (motions.length === 0) throw new Error('The panel has no resize transition');
+        for (const motion of motions) motion.pause();
+        const durations = motions.map((motion) => Number(motion.effect?.getTiming().duration));
+        const widths = [0, 0.5, 1].map((fraction) => {
+          motions.forEach((motion, index) => {
+            motion.currentTime = (durations[index] ?? 0) * fraction;
+          });
+          return listElement.getBoundingClientRect().width;
+        });
+        for (const motion of motions) motion.finish();
+        return { durations, widths };
+      });
+    }
+
+    const slot = page.locator('.crm-lead-panel-slot');
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+      const opening = await sampleResize(slot);
+      expect(opening.durations.length, `Opening ${cycle + 1} has transitions`).toBeGreaterThan(0);
+      expect(opening.durations.every((duration) => duration >= 350)).toBe(true);
+      expect(opening.widths[0], `Opening ${cycle + 1} narrows the table`).toBeGreaterThan(
+        opening.widths[1] ?? 0,
+      );
+      expect(opening.widths[1]).toBeGreaterThan(opening.widths[2] ?? 0);
+      expect(opening.widths[0]).toBeCloseTo(initialWidth, 0);
+      await expect(page.getByRole('heading', { name: 'Avery Example', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Close panel' }).click();
+      const closing = await sampleResize(slot);
+      expect(closing.durations.every((duration) => duration >= 300)).toBe(true);
+      expect(closing.widths[0]).toBeLessThan(closing.widths[1] ?? Infinity);
+      expect(closing.widths[1]).toBeLessThan(closing.widths[2] ?? Infinity);
+      await expect(page).not.toHaveURL(/lead=/);
+      await expect(slot).toHaveCount(0);
+      expect(await list.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(
+        initialWidth,
+        0,
+      );
+    }
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+    await expect
+      .poll(() => slot.evaluate((element) => getComputedStyle(element).transitionDuration))
+      .toBe('0s');
+    await page.getByRole('button', { name: 'Close panel' }).click();
+    await expect(page).not.toHaveURL(/lead=/);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('board cards open the lead slider on desktop and mobile', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/leads?type=internet&layout=board');
+  const name = page.getByRole('link', { name: 'Avery Example', exact: true });
+  await expect(name).toBeVisible();
+  await page.getByText('403 555 0101', { exact: true }).click();
+  await expect(page).toHaveURL(/layout=board/);
+  await expect(page).toHaveURL(/lead=/);
+  const panel = page.getByRole('complementary', { name: 'Lead', exact: true });
+  await expect(panel.getByRole('heading', { name: 'Avery Example', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: /^New,/ })).toBeVisible();
+  await expect(name).toHaveAttribute('data-lead-id');
+  await panel.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page).not.toHaveURL(/lead=/);
+  await expect(page).toHaveURL(/layout=board/);
+  await expect(name).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await name.click();
+  const sheet = page.getByRole('dialog', { name: 'Lead', exact: true });
+  await expect(sheet.getByRole('heading', { name: 'Avery Example', exact: true })).toBeVisible();
+  await expect(sheet.getByRole('tab', { name: 'Home', exact: true })).toBeVisible();
+  await sheet.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page).not.toHaveURL(/lead=/);
+  await expect(page).toHaveURL(/layout=board/);
+  await expect(name).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('board horizontal navigation stays at the bottom of the viewport', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await page.goto('/w/canadawide/leads?type=internet&layout=board');
+  const board = page.getByRole('region', { name: 'internet board', exact: true });
+  const controls = page.getByRole('group', { name: 'Board horizontal navigation' });
+  const slider = page.getByRole('slider', { name: 'Scroll board horizontally' });
+  const left = page.getByRole('button', { name: 'Scroll board left' });
+  const right = page.getByRole('button', { name: 'Scroll board right' });
+  await expect(controls).toBeVisible();
+  await expect(left).toBeDisabled();
+  await right.click();
+  await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(200);
+  await expect(left).toBeEnabled();
+  await slider.focus();
+  await slider.press('End');
+  await expect(right).toBeDisabled();
+  await slider.press('Home');
+  await expect(left).toBeDisabled();
+
+  // Simulate a column with many cards to exercise page scrolling independently
+  // of the fixed horizontal controls.
+  await page.addStyleTag({
+    content: '[aria-label="internet board"] > section:first-child { min-height: 1600px; }',
+  });
+  const before = await controls.boundingBox();
+  await page.evaluate(() => window.scrollTo(0, 500));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(400);
+  const after = await controls.boundingBox();
+  expect(before).not.toBeNull();
+  expect(after).not.toBeNull();
+  expect(after?.y).toBeCloseTo(before?.y ?? 0, 0);
+  expect((after?.y ?? 0) + (after?.height ?? 0)).toBeCloseTo(684, 0);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: 'Lead', exact: true });
+  await expect(panel.getByRole('heading', { name: 'Avery Example', exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const dock = await controls.boundingBox();
+      const record = await panel.boundingBox();
+      return (dock?.x ?? 0) + (dock?.width ?? Infinity) - (record?.x ?? 0);
+    })
+    .toBeLessThanOrEqual(0);
+  await panel.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page).not.toHaveURL(/lead=/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(controls).toBeVisible();
+  await expect
+    .poll(async () => {
+      const dock = await controls.boundingBox();
+      return (dock?.x ?? 0) + (dock?.width ?? Infinity);
+    })
+    .toBeLessThanOrEqual(374);
+  await expect(right).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test('loading screens show layout skeletons until their data arrives', async ({
+  page,
+}, testInfo) => {
+  const errors = trackErrors(page);
+  async function holdRequests(pattern: RegExp, check: () => Promise<void>) {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending: Promise<void>[] = [];
+    await page.route(pattern, (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const resume = gate.then(() => route.continue());
+      pending.push(resume);
+      return resume;
+    });
+    try {
+      await check();
+    } finally {
+      release();
+      await Promise.all(pending);
+      await page.unroute(pattern);
+    }
+  }
+  async function checkSkeleton(label: string) {
+    const status = page.getByRole('status', { name: label, exact: true });
+    await expect(status).toBeVisible();
+    await expect(status.locator('[data-slot="skeleton"]').first()).toBeVisible();
+    await expect(status.getByRole('button')).toHaveCount(0);
+    return status;
+  }
+  await holdRequests(/\/leads\/stats(?:\?|$)/, async () => {
+    await page.goto('/w/canadawide/dashboard');
+    const status = await checkSkeleton('Loading the dashboard…');
+    await expect(status.locator('[data-slot="skeleton"]').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+    await page.screenshot({
+      path: testInfo.outputPath('design-loading-dashboard.png'),
+      animations: 'disabled',
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(391);
+    await page.screenshot({
+      path: testInfo.outputPath('design-loading-dashboard-mobile.png'),
+      animations: 'disabled',
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+  await expect(
+    page.getByRole('status', { name: 'Loading the dashboard…', exact: true }),
+  ).toHaveCount(0);
+  await holdRequests(/\/workspaces\/[^/]+\/leads(?:\?|$)/, async () => {
+    await page.goto('/w/canadawide/leads?type=internet');
+    await expect(page.getByRole('status', { name: 'Loading leads…', exact: true })).toBeAttached();
+    const table = page.getByRole('table');
+    await expect(table).toHaveAttribute('aria-busy', 'true');
+    await expect(table.locator('tbody tr')).toHaveCount(7);
+    expect(await table.locator('thead th').count()).toBe(
+      await table.locator('tbody tr').first().locator('td').count(),
+    );
+    await expect(page.getByText(/Page 1 of 1 · 0 leads/)).not.toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath('design-loading-leads.png'),
+      animations: 'disabled',
+    });
+  });
+  const name = page.getByRole('link', { name: 'Avery Example', exact: true });
+  await expect(name).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await holdRequests(/\/leads\/[a-f0-9-]{36}(?:\?|$)/, async () => {
+    await name.click();
+    const status = await checkSkeleton('Loading the lead…');
+    await expect
+      .poll(() =>
+        status
+          .locator('[data-slot="skeleton"]')
+          .first()
+          .evaluate((element) => getComputedStyle(element).animationName),
+      )
+      .toBe('none');
+    await page
+      .getByRole('complementary', { name: 'Lead', exact: true })
+      .screenshot({ path: testInfo.outputPath('design-loading-record.png') });
+  });
+  await expect(page.getByRole('heading', { name: 'Avery Example', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await expect(page).not.toHaveURL(/lead=/);
+  await holdRequests(/\/leads\/board(?:\?|$)/, async () => {
+    await page.goto('/w/canadawide/leads?type=internet&layout=board');
+    await checkSkeleton('Loading the board…');
+    await page.screenshot({ path: testInfo.outputPath('design-loading-board.png') });
+  });
+  await expect(name).toBeVisible();
+  await holdRequests(/\/email\/settings(?:\?|$)/, async () => {
+    await page.goto('/w/getcanadasim/settings/email');
+    await checkSkeleton('Loading the email settings…');
+    await page.screenshot({ path: testInfo.outputPath('design-loading-settings.png') });
+  });
+  await expect(
+    page.getByRole('status', { name: 'Loading the email settings…', exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('settings separates profile, team invitations and website integrations', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/settings');
+  const navigation = page.getByRole('navigation', { name: 'Settings sections' });
+  await expect(page.getByRole('heading', { level: 1, name: 'General settings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Invite a teammate', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('button', { name: 'Issue credential' })).toHaveCount(0);
+  await navigation.getByRole('link', { name: 'Team', exact: true }).click();
+  await expect(page).toHaveURL('/w/getcanadasim/settings/team');
+  await expect(navigation.getByRole('link', { name: 'Team', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByRole('list', { name: 'Team', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Staff email')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create invitation' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Issue credential' })).toHaveCount(0);
+  await navigation.getByRole('link', { name: 'Integrations', exact: true }).click();
+  await expect(page).toHaveURL('/w/getcanadasim/settings/integrations');
+  await expect(navigation.getByRole('link', { name: 'Integrations', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Website service credentials', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Issue credential' })).toBeVisible();
+  await expect(page.getByLabel('Staff email')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Issue credential' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(391);
+  await navigation.getByRole('link', { name: 'Team', exact: true }).click();
+  await expect(page.getByLabel('Staff email')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(391);
