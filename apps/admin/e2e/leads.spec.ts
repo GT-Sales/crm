@@ -946,7 +946,7 @@ test('the redesigned workspace supports page finding, persistent themes and narr
     { route: 'dashboard', title: 'Dashboard' },
     { route: 'leads?type=sim_order', title: 'Leads' },
     { route: 'tasks', title: 'My tasks' },
-    { route: 'settings', title: 'Settings' },
+    { route: 'settings', title: 'General settings' },
     { route: 'documents', title: 'Documents' },
   ];
   for (const { route, title } of pages) {
