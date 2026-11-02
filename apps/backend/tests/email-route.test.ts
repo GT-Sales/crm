@@ -195,13 +195,14 @@ describe('email routes', () => {
       const headers = signed(body);
       if (mode === 'missing') headers['svix-signature'] = '';
       if (mode === 'wrong-key') headers['svix-signature'] = 'v1,d3Jvbmc=';
+      // Keep invalid timestamps clear of the 300-second boundary during real HTTP I/O.
       if (mode === 'stale' || mode === 'future')
         Object.assign(
           headers,
           signed(
             body,
             'evt-1',
-            String(Math.floor(Date.now() / 1000) + (mode === 'stale' ? -301 : 301)),
+            String(Math.floor(Date.now() / 1000) + (mode === 'stale' ? -600 : 600)),
           ),
         );
       if (mode === 'malformed-timestamp') headers['svix-timestamp'] += 'garbage';
