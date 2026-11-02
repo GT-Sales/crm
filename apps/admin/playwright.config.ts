@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: './e2e',
   // The lead journeys need the backend harness and the e2e build; they run
   // from playwright.leads.config.ts (pnpm --filter admin test:e2e:leads).
-  testIgnore: ['leads.spec.ts'],
+  testIgnore: ['leads.spec.ts', 'ai-assistant.spec.ts'],
   workers: 1,
   use: {
     ...basePlaywrightConfig.use,

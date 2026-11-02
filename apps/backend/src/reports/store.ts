@@ -44,7 +44,9 @@ export interface SourceGroupRow {
 }
 
 export interface ReportStore {
-  sourceReport(input: Scope & { leadType: string; days?: number }): Promise<SourceReport>;
+  sourceReport(
+    input: Scope & { leadType: string; days?: number; asOf?: Date; queryTimeoutMs?: number },
+  ): Promise<SourceReport>;
 }
 
 type ReportDatabase = Pick<DatabaseClient, 'withTenantTx'>;
@@ -180,11 +182,13 @@ export function shapeSourceReport(groups: readonly SourceGroupRow[]): SourceRepo
 export class DatabaseReportStore implements ReportStore {
   constructor(private readonly database: ReportDatabase = { withTenantTx }) {}
 
-  sourceReport(input: Scope & { leadType: string; days?: number }): Promise<SourceReport> {
+  sourceReport(
+    input: Scope & { leadType: string; days?: number; asOf?: Date; queryTimeoutMs?: number },
+  ): Promise<SourceReport> {
     const since =
       input.days === undefined
         ? sql`true`
-        : sql`l.created_at >= now() - make_interval(days => ${input.days})`;
+        : sql`l.created_at >= ${(input.asOf ?? new Date()).toISOString()}::timestamptz - make_interval(days => ${input.days})`;
     const madeIt = sql.join(
       SOURCE_REPORT_SUCCESS_STAGES.map((stage) => sql`${stage}`),
       sql`, `,
@@ -194,6 +198,11 @@ export class DatabaseReportStore implements ReportStore {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
+        if (input.queryTimeoutMs !== undefined) {
+          await tx.execute(
+            sql`select set_config('statement_timeout', ${String(input.queryTimeoutMs)}, true)`,
+          );
+        }
         // Grouped in the outer query over the CTE's columns: a bind parameter
         // repeated in `select` and `group by` renders as two placeholders,
         // which Postgres refuses as "must appear in the GROUP BY clause".
@@ -213,6 +222,7 @@ export class DatabaseReportStore implements ReportStore {
               and l.deleted_at is null
               and l.customer_data_restricted_at is null
               and ${since}
+              and (${input.asOf?.toISOString() ?? null}::timestamptz is null or l.created_at < ${input.asOf?.toISOString() ?? null})
           )
           select
             (

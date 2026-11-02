@@ -10,6 +10,7 @@ import {
   type Scheduler,
 } from './scheduler.js';
 import { createShutdownHandler, registerShutdownHandlers } from './shutdown.js';
+import { abortActiveAssistantTurns } from './routes/ai-assistant.js';
 
 const port = Number(process.env['PORT'] ?? 4000);
 
@@ -51,6 +52,7 @@ const shutdown = createShutdownHandler({
   server,
   scheduler,
   closeDatabase,
+  abortInFlight: abortActiveAssistantTurns,
   exit: (code) => process.exit(code),
 });
 registerShutdownHandlers(shutdown);

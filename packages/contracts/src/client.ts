@@ -3,6 +3,15 @@ import type { z } from 'zod';
 import type { ErrorDetails } from './common';
 
 import {
+  aiCapabilitiesResponseSchema,
+  aiChatRequestSchema,
+  aiStreamPartSchema,
+  aiWirePartSchema,
+  type AiCapabilitiesResponse,
+  type AiChatRequest,
+  type AiStreamPart,
+} from './ai-assistant';
+import {
   createDownloadLinkRequestSchema,
   createDownloadLinkResponseSchema,
   reviewFileRequestSchema,
@@ -305,6 +314,11 @@ export interface BackendClientOptions {
   readonly fetch?: typeof fetch;
   /** Per-request timeout in milliseconds. Defaults to 10s. */
   readonly timeoutMs?: number;
+  /**
+   * Whole-turn timeout for a streamed assistant answer, in milliseconds.
+   * Defaults to 90s: the backend's own 60s budget plus room for the transport.
+   */
+  readonly chatTimeoutMs?: number;
   /** Server-owned visitor digest; never a raw browser forwarding header. */
   readonly websiteVisitorId?: () => string | undefined | Promise<string | undefined>;
 }
@@ -320,6 +334,46 @@ interface CallConfig<TResponse> {
   readonly query?: QueryMap;
   readonly headers?: HeaderMap;
   readonly signal?: AbortSignal;
+}
+
+/**
+ * Yields the payload of each `data:` frame of a server-sent event body.
+ * Comment lines (keep-alives), `event:` and `id:` fields are ignored, and a
+ * frame split across transport chunks is reassembled before it is yielded.
+ */
+async function* readServerSentEvents(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<string, void, undefined> {
+  const decoder = new TextDecoder();
+  const reader = body.getReader();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (;;) {
+        const boundary = /\r?\n\r?\n/.exec(buffer);
+        if (!boundary) break;
+        const frame = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        const payload = frame
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice('data:'.length).trimStart())
+          .join('\n');
+        if (payload.length > 0) yield payload;
+      }
+    }
+    const tail = buffer.trim();
+    if (tail.startsWith('data:')) {
+      const payload = tail.slice('data:'.length).trimStart();
+      if (payload.length > 0) yield payload;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }
 
 function assertApiPath(url: URL, origin: string): void {
@@ -637,14 +691,25 @@ export interface BackendClient {
       leadId: string,
       changeRequestId: string,
       body: ResolveChangeRequestRequest,
-    ): Promise<ResolveChangeRequestResponse>;
-    /** Turn down the customer's pending change request. */
+    ): Promise<ResolveChangeRequestResponse>; /** Turn down the customer's pending change request. */
     rejectChangeRequest(
       workspaceId: string,
       leadId: string,
       changeRequestId: string,
       body: ResolveChangeRequestRequest,
     ): Promise<ResolveChangeRequestResponse>;
+    /** Whether Ask AI is available for this site and this caller, plus the composer's limits. */
+    aiCapabilities(workspaceId: string): Promise<AiCapabilitiesResponse>;
+    /**
+     * Ask the read-only assistant. Yields each validated stream part in order;
+     * the caller aborts through `options.signal`. A rejected promise means the
+     * request failed before its stream began (an ordinary JSON API error).
+     */
+    askAi(
+      workspaceId: string,
+      body: AiChatRequest,
+      options?: { signal?: AbortSignal },
+    ): AsyncGenerator<AiStreamPart, void, undefined>;
   };
 }
 
@@ -654,6 +719,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
   const origin = new URL(options.baseUrl).origin;
   const doFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 10_000;
+  const chatTimeoutMs = options.chatTimeoutMs ?? 90_000;
 
   async function call<TResponse>(config: CallConfig<TResponse>): Promise<TResponse> {
     const url = new URL(config.path, origin);
@@ -737,6 +803,75 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           ? undefined
           : idempotencyKeySchema.parse(option.idempotencyKey),
     };
+  }
+
+  /**
+   * The one streaming call. A failure before the first frame is an ordinary
+   * JSON error envelope and is thrown as `BackendError`, exactly as `call`
+   * does; while streaming, everything is a validated typed part and an unknown
+   * part is skipped rather than rendered.
+   */
+  async function* streamAiChat(
+    path: string,
+    body: AiChatRequest,
+    streamOptions?: { signal?: AbortSignal },
+  ): AsyncGenerator<AiStreamPart, void, undefined> {
+    const url = new URL(path, origin);
+    assertApiPath(url, origin);
+    const requestId = globalThis.crypto.randomUUID();
+    const signals: AbortSignal[] = [AbortSignal.timeout(chatTimeoutMs)];
+    if (streamOptions?.signal) signals.push(streamOptions.signal);
+
+    const response = await doFetch(url, {
+      method: 'POST',
+      headers: new Headers({
+        authorization: `Bearer ${options.credential}`,
+        accept: 'text/event-stream',
+        'content-type': 'application/json',
+        'x-request-id': requestId,
+      }),
+      body: JSON.stringify(aiChatRequestSchema.parse(body)),
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.any(signals),
+    });
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!response.ok || !contentType.startsWith('text/event-stream') || !response.body) {
+      const text = await response.text();
+      let payload: unknown;
+      try {
+        payload = text.length === 0 ? undefined : JSON.parse(text);
+      } catch {
+        payload = undefined;
+      }
+      const parsed = apiErrorResponseSchema.safeParse(payload);
+      if (parsed.success) {
+        throw new BackendError(
+          parsed.data.error.code,
+          response.status,
+          parsed.data.error.requestId,
+          parsed.data.error.details,
+        );
+      }
+      throw new BackendError('internal_error', response.status, requestId);
+    }
+
+    for await (const frame of readServerSentEvents(response.body)) {
+      // `frame` is the raw `data:` text of the event, which is one JSON object
+      // of the part schema; anything else (a malformed frame, a future part
+      // kind) is skipped rather than thrown or rendered.
+      let payload: unknown;
+      try {
+        payload = JSON.parse(frame);
+      } catch {
+        continue;
+      }
+      const wire = aiWirePartSchema.safeParse(payload);
+      // Accept the previous release while frontend/backend roll independently.
+      const parsed = aiStreamPartSchema.safeParse(wire.success ? wire.data.data : payload);
+      if (parsed.success) yield parsed.data;
+    }
   }
 
   return {
@@ -1400,6 +1535,18 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: resolveChangeRequestRequestSchema.parse(body),
           responseSchema: resolveChangeRequestResponseSchema,
         }),
+      aiCapabilities: (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/capabilities`,
+          responseSchema: aiCapabilitiesResponseSchema,
+        }),
+      askAi: (workspaceId, body, streamOptions) =>
+        streamAiChat(
+          `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/chat`,
+          body,
+          streamOptions,
+        ),
     },
   };
 }

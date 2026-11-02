@@ -183,7 +183,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -403,7 +405,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -588,7 +592,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -836,7 +842,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1027,7 +1035,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1255,7 +1265,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1482,7 +1494,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1704,7 +1718,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1922,7 +1938,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2140,7 +2158,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2613,7 +2633,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2852,7 +2874,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3122,7 +3146,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3422,7 +3448,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3859,7 +3887,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5207,7 +5237,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6252,7 +6284,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7370,7 +7404,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8389,7 +8425,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9365,7 +9403,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10322,7 +10362,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -10510,7 +10552,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11116,7 +11160,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12073,7 +12119,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12640,7 +12688,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13220,7 +13270,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13494,7 +13546,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13790,7 +13844,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14209,7 +14265,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14586,7 +14644,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14866,7 +14926,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15208,7 +15270,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15448,7 +15512,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15692,7 +15758,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16072,7 +16140,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16392,7 +16462,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16822,7 +16894,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17122,7 +17196,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17405,7 +17481,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17666,7 +17744,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17976,7 +18056,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18268,7 +18350,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18515,7 +18599,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18865,7 +18951,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19137,7 +19225,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19429,7 +19519,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19639,7 +19731,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19842,7 +19936,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20117,7 +20213,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20392,7 +20490,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22733,7 +22833,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -30336,7 +30438,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -32524,7 +32628,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -40141,7 +40247,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -47745,7 +47853,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -48197,7 +48307,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -48596,7 +48708,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -56202,7 +56316,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -66309,7 +66425,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -73915,7 +74033,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -81540,7 +81660,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -89146,7 +89268,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -96752,7 +96876,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -96976,7 +97102,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -97382,7 +97510,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -97706,7 +97836,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100096,6 +100228,572 @@
         }
       }
     },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/capabilities": {
+      "get": {
+        "operationId": "getAiCapabilities",
+        "summary": "Whether Ask AI is available for this site and caller, with the input limits the composer needs.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": { "type": "boolean" },
+                    "reason": {
+                      "type": "string",
+                      "enum": ["disabled", "not_configured", "site_not_enabled"]
+                    },
+                    "site": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "slug": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 160 }
+                      },
+                      "required": ["id", "slug", "name"],
+                      "additionalProperties": false
+                    },
+                    "leadTypes": {
+                      "maxItems": 32,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9_]+$"
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "maxMessageChars": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "maxHistoryMessages": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "maxConversationChars": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["maxMessageChars", "maxHistoryMessages", "maxConversationChars"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["available", "site", "leadTypes", "limits", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/chat": {
+      "post": {
+        "operationId": "askAiAssistant",
+        "summary": "Ask the read-only staff assistant a question; answers stream as typed server-sent events.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "One typed part: progress, text, sources, error or done.",
+            "headers": {
+              "cache-control": {
+                "description": "Always `no-store`: a chat answer is never cached.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "data-assistant" },
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "progress" },
+                            "label": { "type": "string", "minLength": 1, "maxLength": 80 }
+                          },
+                          "required": ["type", "label"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "text" },
+                            "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+                          },
+                          "required": ["type", "text"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "sources" },
+                            "sources": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": ["lead", "report", "tasks", "overview"]
+                                  },
+                                  "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                  "href": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 400,
+                                    "pattern": "^\\/(?!\\/)"
+                                  },
+                                  "asOf": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  },
+                                  "scope": { "type": "string", "minLength": 1, "maxLength": 300 }
+                                },
+                                "required": ["id", "kind", "label", "href", "asOf", "scope"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["type", "sources"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "error" },
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "provider_unavailable",
+                                "rate_limited",
+                                "timeout",
+                                "cancelled",
+                                "access_lost",
+                                "budget_exceeded",
+                                "tool_unavailable",
+                                "internal_error"
+                              ]
+                            },
+                            "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+                          },
+                          "required": ["type", "code", "message"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": { "type": { "type": "string", "const": "done" } },
+                          "required": ["type"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "transient": { "type": "boolean", "const": true }
+                  },
+                  "required": ["type", "data", "transient"],
+                  "additionalProperties": false
+                },
+                "description": "Server-sent events. Each frame is `event: part` plus one `data:` line holding a JSON object of this schema; a final `done` frame ends it. An error before the first frame is an ordinary JSON error response instead."
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "message": { "type": "string", "minLength": 1, "maxLength": 8000 },
+                  "history": {
+                    "maxItems": 12,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": { "type": "string", "enum": ["user", "assistant"] },
+                        "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+                      },
+                      "required": ["role", "text"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "context": {
+                    "type": "object",
+                    "properties": {
+                      "leadId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "required": ["leadId"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["requestId", "message", "history"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/staff/workspaces/{workspaceId}/jobs": {
       "get": {
         "operationId": "listWorkspaceJobs",
@@ -100316,7 +101014,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100508,7 +101208,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100700,7 +101402,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100927,7 +101631,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -101255,7 +101961,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -101462,7 +102170,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -101729,7 +102439,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102041,7 +102753,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102371,7 +103085,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102627,7 +103343,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -102843,7 +103561,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103079,7 +103799,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103338,7 +104060,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103641,7 +104365,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103867,7 +104593,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -104066,7 +104794,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -104296,7 +105026,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -104737,7 +105469,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -105001,7 +105735,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -105270,7 +106006,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },
@@ -105555,7 +106293,9 @@
                             "automation_archived",
                             "email_template_not_found",
                             "email_template_builtin",
-                            "email_template_limit_reached"
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
                           ]
                         },
                         "message": { "type": "string" },

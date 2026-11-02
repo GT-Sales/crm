@@ -28,7 +28,14 @@ import {
   type LeadListItem,
   type PropertyCatalog,
 } from '@gt-sales/contracts';
-import { rateLimitHit, withTenantTx, type DatabaseClient, type TenantContext } from '@gt-sales/db';
+import {
+  rateLimitHit,
+  withTenantTx,
+  type DatabaseClient,
+  type RateLimitInput,
+  type RateLimitResult,
+  type TenantContext,
+} from '@gt-sales/db';
 import { z } from 'zod';
 
 import { createDocumentServiceFromEnv } from '../documents/factory.js';
@@ -79,10 +86,15 @@ import {
 } from '../website/store.js';
 
 import { createAutomationRoutes } from './automations.js';
+import { createAiAssistantRoutes } from './ai-assistant.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 import { createReportRoutes } from './reports.js';
+import { loadAiAssistantConfig, type AiAssistantConfig } from '../ai/config.js';
+import { createGatewayEngine, type AssistantEngine } from '../ai/engine.js';
+import { DatabaseAiReadService, type AiReadService } from '../ai/read-service.js';
+import { DatabaseAiSiteContextStore, type AiSiteContextStore } from '../ai/site-context.js';
 
 export interface StaffRouteDependencies {
   sessionVerifier: StaffSessionVerifier;
@@ -123,9 +135,24 @@ export interface StaffRouteDependencies {
   withTenantTx?: DatabaseClient['withTenantTx'];
   /** Decides customers' change requests; `createApp` supplies the tracking one when omitted. */
   changeRequests?: Pick<ChangeRequestService, 'approve' | 'reject'>;
+  /**
+   * Ask AI: its validated configuration, the site lookup the panel header
+   * needs, the reads behind its tools, the model adapter and the distributed
+   * limiter. `createApp` supplies all of them; tests inject fakes so a
+   * disabled, enabled or failing assistant can be exercised offline.
+   */
+  ai?: {
+    config: AiAssistantConfig;
+    siteContext: AiSiteContextStore;
+    reads?: AiReadService;
+    engine?: AssistantEngine;
+    rateLimit?: (input: RateLimitInput) => Promise<RateLimitResult>;
+    now?: () => Date;
+  };
 }
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
+  const aiConfig = loadAiAssistantConfig();
   return {
     sessionVerifier: defaultStaffSessionVerifier(),
     rateLimit: rateLimitHit,
@@ -143,9 +170,24 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     flowStore: new DatabaseFlowStore(),
     emailSettingsStore: new DatabaseEmailSettingsStore(),
     errorTracker: createErrorTrackerFromEnv(),
+    ai: {
+      config: aiConfig,
+      siteContext: new DatabaseAiSiteContextStore(),
+      reads: new DatabaseAiReadService(),
+      // Only a fully configured deployment builds a provider; otherwise the
+      // chat route reports the feature unavailable and never calls a model.
+      ...(aiConfig.enabled && aiConfig.apiKey !== undefined && aiConfig.modelId !== undefined
+        ? {
+            engine: createGatewayEngine({
+              apiKey: aiConfig.apiKey,
+              modelId: aiConfig.modelId,
+            }),
+          }
+        : {}),
+      rateLimit: rateLimitHit,
+    },
   };
 }
-
 function identityStoreFromEnv(): IdentityStore | undefined {
   const secret = sensitiveFieldsKey();
   return secret ? new DatabaseIdentityStore(secret) : undefined;
@@ -1622,6 +1664,25 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       loadCatalog: dependencies.loadPropertyCatalog ?? unconfiguredCatalog,
       decide,
       canSeeContacts,
+      reportFailure,
+    }),
+  );
+
+  const ai = dependencies.ai ?? {
+    config: loadAiAssistantConfig(),
+    siteContext: new DatabaseAiSiteContextStore(),
+  };
+  router.use(
+    createAiAssistantRoutes({
+      config: ai.config,
+      loadAccess: (actorId, workspaceId) =>
+        dependencies.store.loadStaffAccess(actorId, workspaceId),
+      siteContext: ai.siteContext,
+      reads: ai.reads ?? new DatabaseAiReadService(),
+      reports: dependencies.reportStore ?? unconfiguredReportStore,
+      ...(ai.engine === undefined ? {} : { engine: ai.engine }),
+      rateLimit: ai.rateLimit ?? rateLimitHit,
+      ...(ai.now === undefined ? {} : { now: ai.now }),
       reportFailure,
     }),
   );

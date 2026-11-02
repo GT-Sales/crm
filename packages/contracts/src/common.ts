@@ -145,6 +145,12 @@ export const domainErrorCodeSchema = z.enum([
   'email_template_not_found',
   'email_template_builtin',
   'email_template_limit_reached',
+  // The staff AI assistant. `ai_unavailable` covers the owner's switch, a
+  // deployment without its key or model, and a site outside the allowlist, so a
+  // disabled feature tells a caller who may know nothing about the cause.
+  // `ai_rate_limited` is the per-actor or per-site request budget.
+  'ai_unavailable',
+  'ai_rate_limited',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

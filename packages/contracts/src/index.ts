@@ -707,6 +707,7 @@ export {
   type EndpointAuth,
   type EndpointDef,
   type EndpointHeader,
+  type EndpointStream,
   type HttpMethod,
 } from './endpoints';
 
@@ -727,3 +728,27 @@ export {
   type WebsiteBotAction,
   type WebsiteBotProof,
 } from './website-bot';
+
+// Staff AI assistant (Ask AI): capability document, chat request, stream parts
+export {
+  AI_ASSISTANT_LIMITS,
+  AI_STREAM_EVENT,
+  aiCapabilitiesResponseSchema,
+  aiChatRequestSchema,
+  aiHistoryMessageSchema,
+  aiPeriodSchema,
+  aiSourceSchema,
+  aiStreamErrorCodeSchema,
+  aiStreamPartSchema,
+  aiWirePartSchema,
+  aiUnavailableReasonSchema,
+  type AiAssistantLimits,
+  type AiCapabilitiesResponse,
+  type AiChatRequest,
+  type AiHistoryMessage,
+  type AiPeriod,
+  type AiSource,
+  type AiStreamErrorCode,
+  type AiStreamPart,
+  type AiUnavailableReason,
+} from './ai-assistant';

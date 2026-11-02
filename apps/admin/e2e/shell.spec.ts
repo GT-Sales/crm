@@ -31,6 +31,9 @@ test('an unconfigured or unauthenticated deployment never renders a workspace sh
   );
   await expect(page.getByRole('heading', { name: 'Leads' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Switch site' })).toHaveCount(0);
+  // Ask AI is capability-gated: with no session and no capability answer, the
+  // trigger must not exist at all — never an enabled button that fails later.
+  await expect(page.getByRole('button', { name: 'Ask AI' })).toHaveCount(0);
 });
 
 test('invitation acceptance and recovery entry points stay usable', async ({ page }) => {

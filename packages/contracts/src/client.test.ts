@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { BackendError, createBackendClient, type BackendClient } from './index';
+import {
+  aiChatRequestSchema,
+  BackendError,
+  createBackendClient,
+  type AiChatRequest,
+  type AiStreamPart,
+  type BackendClient,
+} from './index';
 
 const UUID = '00000000-0000-4000-8000-000000000001';
 
@@ -887,5 +894,248 @@ describe('createBackendClient automation flows and site-made templates', () => {
       expect(calls[0]?.url).toBe(`${base}${path}`);
       expect(calls[0]?.body === undefined ? undefined : JSON.parse(calls[0].body)).toEqual(body);
     }
+  });
+});
+
+describe('createBackendClient Ask AI stream', () => {
+  const SSE_HEADERS = { 'content-type': 'text/event-stream' };
+  const encoder = new TextEncoder();
+
+  /** One SSE frame, exactly as the backend writes it. */
+  function frame(part: unknown): string {
+    return `event: part\ndata: ${JSON.stringify(part)}\n\n`;
+  }
+
+  /** A response body the client reads one transport chunk at a time. */
+  function byteStream(parts: readonly string[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(encoder.encode(part));
+        controller.close();
+      },
+    });
+  }
+
+  function sseStream(frames: readonly string[]): Response {
+    return new Response(byteStream(frames), { headers: SSE_HEADERS });
+  }
+
+  interface StreamCall {
+    url: string;
+    method: string;
+    headers: Headers;
+    body: string | undefined;
+    signal: AbortSignal | undefined;
+  }
+
+  /** A client whose fetch records the request and answers with a test response. */
+  function streamClient(respond: (signal: AbortSignal | undefined) => Response): {
+    client: BackendClient;
+    calls: StreamCall[];
+  } {
+    const calls: StreamCall[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      calls.push({
+        url: String(input),
+        method: init?.method ?? 'GET',
+        headers: new Headers(init?.headers),
+        body: typeof init?.body === 'string' ? init.body : undefined,
+        signal: init?.signal ?? undefined,
+      });
+      return respond(init?.signal ?? undefined);
+    };
+    const client = createBackendClient({
+      baseUrl: 'https://api.example.test',
+      credential: 'gtsk_test',
+      fetch: fetchImpl,
+    });
+    return { client, calls };
+  }
+
+  async function collect(
+    stream: AsyncGenerator<AiStreamPart, void, undefined>,
+  ): Promise<AiStreamPart[]> {
+    const parts: AiStreamPart[] = [];
+    for await (const part of stream) parts.push(part);
+    return parts;
+  }
+
+  /** Fails loudly if the client calls `response.json()` on a body it must read as text. */
+  class StreamErrorResponse extends Response {
+    override json(): Promise<unknown> {
+      throw new Error('response.json() must not be called while reading a stream');
+    }
+  }
+
+  const requestId = '00000000-0000-4000-8000-000000000002';
+  const UUID_PATTERN = /^[0-9a-f-]{36}$/i;
+  const chatUrl = `https://api.example.test/api/v1/staff/workspaces/${UUID}/ai/chat`;
+
+  const progress: AiStreamPart = { type: 'progress', label: 'Reading leads' };
+  const answer: AiStreamPart = { type: 'text', text: 'Two leads came in today.' };
+  const sources: AiStreamPart = {
+    type: 'sources',
+    sources: [
+      {
+        id: 'lead-1',
+        kind: 'lead',
+        label: 'MS-153',
+        href: `/w/get-canada-sim/leads/${UUID}`,
+        asOf: '2026-11-01T12:00:00.000Z',
+        scope: 'today',
+      },
+    ],
+  };
+  const errorPart: AiStreamPart = {
+    type: 'error',
+    code: 'rate_limited',
+    message: 'Too many questions, try again shortly.',
+  };
+  const done: AiStreamPart = { type: 'done' };
+  const request: AiChatRequest = {
+    requestId,
+    message: 'How many leads came in today?',
+    history: [{ role: 'user', text: 'Hello' }],
+  };
+
+  it('yields each validated part in order and skips unknown or invalid frames', async () => {
+    const { client } = streamClient(() =>
+      sseStream([
+        frame(progress),
+        // Unknown part type: never rendered.
+        frame({ type: 'tool_call', name: 'search_leads' }),
+        // Not JSON at all.
+        'event: part\ndata: {"type":"text"\n\n',
+        frame(answer),
+        // Known type, invalid payload (empty text).
+        frame({ type: 'text', text: '' }),
+        frame(sources),
+        frame(errorPart),
+        frame(done),
+      ]),
+    );
+
+    const parts = await collect(client.staff.askAi(UUID, request));
+
+    expect(parts).toEqual([progress, answer, sources, errorPart, done]);
+    expect(parts.at(-1)).toEqual(done);
+  });
+
+  it('reassembles a split frame, accepts CRLF separators and ignores keep-alive comments', async () => {
+    const { client } = streamClient(() =>
+      sseStream([
+        ': ping\n\n',
+        'event: part\r\ndata: {"type":"pro',
+        'gress","label":"Reading leads"}\r\n\r\n: ping\r\n\r\nevent: part\ndata: {"type":"do',
+        'ne"}\n\n',
+      ]),
+    );
+
+    expect(await collect(client.staff.askAi(UUID, request))).toEqual([progress, done]);
+  });
+
+  it('throws a pre-stream JSON error as BackendError and consumes the body as text', async () => {
+    let answered: Response | undefined;
+    const { client } = streamClient(() => {
+      answered = new StreamErrorResponse(
+        byteStream([
+          JSON.stringify({
+            error: {
+              code: 'ai_rate_limited',
+              message: 'Too many assistant requests.',
+              requestId: UUID,
+            },
+          }),
+        ]),
+        { status: 429, headers: { 'content-type': 'application/json' } },
+      );
+      return answered;
+    });
+
+    const thrown: unknown = await client.staff
+      .askAi(UUID, request)
+      .next()
+      .catch((cause: unknown) => cause);
+
+    expect(thrown).toBeInstanceOf(BackendError);
+    expect(thrown).toMatchObject({ code: 'ai_rate_limited', status: 429, requestId: UUID });
+    expect(answered?.bodyUsed).toBe(true);
+  });
+
+  it('rejects a 200 response whose content type is not an event stream', async () => {
+    const { client } = streamClient(
+      () =>
+        new Response(JSON.stringify({ parts: [] }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+
+    const thrown: unknown = await client.staff
+      .askAi(UUID, request)
+      .next()
+      .catch((cause: unknown) => cause);
+
+    expect(thrown).toBeInstanceOf(BackendError);
+    expect(thrown).toMatchObject({
+      code: 'internal_error',
+      status: 200,
+      requestId: expect.stringMatching(UUID_PATTERN),
+    });
+  });
+
+  it('posts the validated request with stream headers and forwards the caller signal', async () => {
+    const abort = new AbortController();
+    const { client, calls } = streamClient(() => sseStream([frame(done)]));
+
+    expect(await collect(client.staff.askAi(UUID, request, { signal: abort.signal }))).toEqual([
+      done,
+    ]);
+
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    expect(call?.method).toBe('POST');
+    expect(call?.url).toBe(chatUrl);
+    expect(call?.headers.get('accept')).toBe('text/event-stream');
+    expect(call?.headers.get('content-type')).toBe('application/json');
+    expect(call?.headers.get('authorization')).toBe('Bearer gtsk_test');
+    expect(call?.headers.get('x-request-id')).toMatch(UUID_PATTERN);
+    expect(JSON.parse(call?.body ?? 'null')).toEqual(aiChatRequestSchema.parse(request));
+    expect(call?.signal?.aborted).toBe(false);
+
+    abort.abort();
+    expect(call?.signal?.aborted).toBe(true);
+  });
+
+  it('surfaces an aborted stream as a rejected iteration, never a clean done', async () => {
+    const abort = new AbortController();
+    const { client, calls } = streamClient((signal) => {
+      if (!signal) throw new Error('the client must pass an abort signal to fetch');
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(frame(answer)));
+        },
+        pull(controller) {
+          // The caller's abort reaches the transport while the next read waits.
+          abort.abort();
+          controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+        },
+      });
+      return new Response(body, { headers: SSE_HEADERS });
+    });
+
+    const parts: AiStreamPart[] = [];
+    let thrown: unknown;
+    try {
+      for await (const part of client.staff.askAi(UUID, request, { signal: abort.signal })) {
+        parts.push(part);
+      }
+    } catch (cause: unknown) {
+      thrown = cause;
+    }
+
+    expect(parts.some((part) => part.type === 'done')).toBe(false);
+    expect(thrown).toBeInstanceOf(DOMException);
+    expect(thrown).toMatchObject({ name: 'AbortError' });
+    expect(calls[0]?.signal?.aborted).toBe(true);
   });
 });
