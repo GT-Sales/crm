@@ -23,10 +23,10 @@ Progress (phase gates from `docs/AI-ASSISTANT-IMPLEMENTATION-PROMPT.md`):
 | ------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | SDK                | `ai@7.0.159` (backend dependency)                            | `apps/backend/package.json`; the installed package's `dist/index.d.ts` exports `streamText`, `tool`, `stepCountIs`, `createGateway` |
 | Gateway provider   | bundled as `ai`'s own dependency (`@ai-sdk/gateway` 4.0.132) | `node_modules/.pnpm/ai@7.0.159_*/node_modules/ai/package.json`                                                                      |
-| React hook package | **not installed** — see §9 deviation 1                       | —                                                                                                                                   |
+| React hook package | **not installed** — existing typed React state; see §9       | —                                                                                                                                   |
 | Node               | 22.19 (repo engines `>=22 <23`)                              | `package.json`                                                                                                                      |
 | Zod                | v4 (catalog)                                                 | `pnpm-workspace.yaml` catalog; schemas use `z.uuid()`, `z.int()`, `z.toJSONSchema`                                                  |
-| Transport          | server-sent events, one JSON part per frame                  | `packages/contracts/src/ai-assistant.ts`, `apps/backend/src/routes/ai-assistant.ts`                                                 |
+| Transport          | AI SDK v7 UI-message SSE, typed transient data parts         | `packages/contracts/src/ai-assistant.ts`, `apps/backend/src/routes/ai-assistant.ts`                                                 |
 
 The Gateway call is `createGateway({ apiKey })(modelId)`; the model id comes only
 from `AI_GATEWAY_MODEL`, with no hard-coded fallback, so a deployment cannot
@@ -68,13 +68,13 @@ on `access_lost`.
 
 ## 3. Reused reads, new queries, and side effects
 
-| Tool                   | Source                                                                                                                                               | Side effects                                                                     |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `getSiteOverview`      | New narrow parameterized counts in `ai/read-service.ts` over `app.leads` (type, window, `deleted_at is null`, `customer_data_restricted_at is null`) | none                                                                             |
-| `findLeads`            | New narrow list in `ai/read-service.ts` (name/reference ILIKE, type, stage, assignee, archive, page) with `count(*) over ()` as the exact total      | none                                                                             |
-| `getLeadSummary`       | New narrow read of one lead + up to 10 open tasks + up to 10 activity rows                                                                           | none — deliberately **not** the staff lead page's getters, which record "opened" |
-| `listOpenTasks`        | New narrow list in `ai/read-service.ts`; due-day filters reuse the `dueCutoff` rule from `leads/staff-queries.ts`                                    | none                                                                             |
-| `getSourcePerformance` | The existing `DatabaseReportStore.sourceReport` (`reports/store.ts`), unchanged                                                                      | none                                                                             |
+| Tool                   | Source                                                                                                                                                      | Side effects                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `getSiteOverview`      | New narrow parameterized counts in `ai/read-service.ts` over `app.leads` (type, window, `deleted_at is null`, `customer_data_restricted_at is null`)        | none                                                                             |
+| `findLeads`            | New narrow list in `ai/read-service.ts` (name/reference/email/phone ILIKE, type, stage, assignee, archive, page) with `count(*) over ()` as the exact total | none                                                                             |
+| `getLeadSummary`       | New narrow read of one lead + up to 10 open tasks + up to 10 activity rows                                                                                  | none — deliberately **not** the staff lead page's getters, which record "opened" |
+| `listOpenTasks`        | New narrow list in `ai/read-service.ts`; due-day filters reuse the `dueCutoff` rule from `leads/staff-queries.ts`                                           | none                                                                             |
+| `getSourcePerformance` | The existing `DatabaseReportStore.sourceReport` (`reports/store.ts`), unchanged                                                                             | none                                                                             |
 
 No getter that marks a lead opened, seeds automations, writes a timeline entry or
 queues a job is called. The only writes a turn makes are the existing
@@ -83,9 +83,10 @@ queues a job is called. The only writes a turn makes are the existing
 ## 4. Transport
 
 - `GET  …/ai/capabilities` — ordinary JSON; `cache-control: no-store`.
-- `POST …/ai/chat` — `text/event-stream`, `event: part`, one
-  `aiStreamPartSchema` object per `data:` line: `progress`, `text`, `sources`,
-  `error`, `done`.
+- `POST …/ai/chat` — SDK `createUIMessageStream` and
+  `pipeUIMessageStreamToResponse`, protocol header `v1`, typed transient
+  `data-assistant` parts carrying `progress`, `text`, `sources`, `error`, `done`,
+  followed by the SDK `[DONE]` terminator. `aiWirePartSchema` describes the wire.
 - Errors before the first frame are the normal JSON error envelope
   (`ai_unavailable` 503, `ai_rate_limited` 429, `permission_denied` 403,
   `invalid_request` 400). After the first frame, only typed `error` parts.
@@ -134,11 +135,11 @@ a note excerpt (≤500 characters, at most 5) **only** when the caller asked for
 notes.
 
 Never sent: email, phone, address, country, SIN, passport or visa content,
-document ids or signed URLs, custom values, order details, money amounts,
-payment/commission state, the access snapshot, property catalogue, headers and
-environment. The financial gate (`financial.read`) exists in the policy but v1
-projects no monetary field at all, so an owner sees no more than a Finance
-member.
+document ids or signed URLs, custom values, activation numbers/accounts, documents overrides, the access snapshot, property catalogue, headers and
+environment. Order summaries now include the frozen plan name, quantity, dispatch and
+activation dates. Price in integer CAD cents, payment and commission state
+require effective `financial.read`. The live property catalogue excludes hidden
+or sensitive order fields; no raw order JSON reaches the model.
 
 ## 7. Limits (constants in `AI_ASSISTANT_LIMITS`)
 
@@ -157,18 +158,19 @@ and must be reviewed by the owner before real data is used.
 
 ## 9. Decisions and deviations (for review)
 
-1. **Own SSE protocol, not the AI SDK UI-message protocol.** The SDK supplies the
-   model/tool loop (`streamText`), but the wire format is our own typed parts so
-   the endpoint registry, generated OpenAPI, client validation and error
-   mapping keep one source of truth, and so no client-supplied tool result or
-   message part can ever reach the model. Consequence: `@ai-sdk/react`'s
-   `useChat` is not used; the admin consumes the typed parts directly. If the
-   team prefers the SDK protocol, the swap is confined to
-   `packages/contracts/src/client.ts` and `apps/admin/src/lib/ai-transport.ts`.
+1. **SDK wire protocol; existing React state retained.** The review replaced
+   the custom SSE framing with AI SDK v7's supported UI-message stream and
+   typed `data-assistant` parts. The shared client validates those parts; it
+   temporarily accepts old frames for staggered backend/frontend deployment.
+   `@ai-sdk/react` / `useChat` is still not installed: the small existing provider
+   keeps cancellation, capability errors and actor/Site lifecycle in one place.
+   This is a documented departure from the prompt's requested hook package,
+   not a claim that it was installed. No SDK UI arrays or client tool results
+   are forwarded to the model.
 2. **No new tables or migrations.** History lives in React memory only; a
    durable conversation is explicitly a later phase.
-3. **Search** covers name and reference number only in v1; it deliberately does
-   not search contact values, so those never appear in tool output or logs.
+3. **Search** matches name, reference, email and phone within the selected
+   Site; results and source labels never echo contact search values.
 4. **Per-statement timeout**: each read opens its own tenant transaction and sets
    `statement_timeout = 5000` locally before the query, so the 5 s deadline is the
    database's, not a promise from the application.
@@ -181,7 +183,7 @@ Implemented in the same branch:
 | File                                   | Role                                                                                                                                                                                                                                                                                                    |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/admin/src/lib/ai-transport.ts`   | Builds the one accepted request (oldest whole turns dropped until the char/byte limits fit, `trimmed` reported) and maps every failure to `unavailable / session_expired / denied / rate_limited / failed / cancelled`                                                                                  |
-| `components/ai/assistant-provider.tsx` | Capabilities, in-memory conversation, abort controller, generation counter, lead context; clears synchronously on site, token or sign-out change                                                                                                                                                        |
+| `components/ai/assistant-provider.tsx` | Capabilities, in-memory conversation, abort controller, generation counter, lead context; clears on Site/member/sign-out or denied access; same-member token refresh retains completed history                                                                                                          |
 | `components/ai/assistant-trigger.tsx`  | The header button; rendered only when capabilities are `ready` and `available` (never while loading, never after a failed load)                                                                                                                                                                         |
 | `components/ai/assistant-panel.tsx`    | Desktop 440 px sheet and mobile full-width sheet; header with site name, New chat and Close; suggestions filtered by the site's lead types; Enter/Shift+Enter/IME; Stop; autoscroll only near the bottom with "Jump to latest"; one polite `role="status"` region (the log itself is `aria-live="off"`) |
 | `components/ai/assistant-message.tsx`  | Answer text as escaped plain text (`whitespace-pre-wrap`); no HTML, no Markdown images, no clickable model-authored URLs; Copy/Retry states                                                                                                                                                             |
@@ -200,17 +202,16 @@ Known limitations to state plainly:
 
 - The Gateway engine has never run against a real provider here (no key); the
   offline tests exercise the fake engine, the tools and the transport.
-- The SQL in `ai/read-service.ts` is typechecked but was **not** executed against
-  a database in this environment (no local Postgres, no disposable `_test`
-  database available). Integration cases for it exist in
-  `apps/backend/tests/ai-reads.integration.test.ts` and run in CI, not here.
+- The review executed the SQL against disposable local Postgres 17 as
+  `app_runtime`, found and fixed runtime table-access and Date-binding failures.
 - Synthetic notes containing instructions are covered by the prompt and by the
   projection (notes only on request); there is no automated "model ignores the
   injection" test, because that requires a real model.
-- The admin panel's real-browser layout at 375 px, real clipboard and
-  screen-reader behaviour are reasoned and unit-tested, not visually reviewed.
+- Real Chromium journeys now cover 375 px and desktop, both themes, focus,
+  cancellation, sources and nested lead sheets. Physical on-screen keyboards,
+  assistive technology and deployed clipboard behavior still need device checks.
 
-## 12. Checks run (offline)
+## 12. Original implementation evidence (historical; superseded by §13)
 
 Recorded after the final run of each command, on the branch
 `claude/ai-chat-implementation`:
@@ -248,3 +249,28 @@ and transport tests for frame parsing and end-of-stream).
 Not run / not available here: database integration suites (no Postgres), the
 lead browser journeys against a real backend, `pnpm run test` as a whole, and any
 live Gateway call.
+
+## 13. Branch review and fixes, 2026-11-02
+
+The original branch was not complete against the plan. In particular, production
+`app_runtime` could not read `app.workspaces` in the capability query, and bound
+JavaScript Dates failed in the real SQL driver. The review now uses the existing
+`app.list_staff_workspaces()` function and ISO timestamptz parameters; no grants
+or migrations were added.
+
+Also fixed: contact lookup and safe order projections; member-filter validation;
+submitted-only counts; archived-summary opt-in; final output schema validation;
+actual serialized byte/record accounting, including nested notes/tasks and Other;
+source report deadline and as-of boundary; source scope identities; fail-closed
+limiter fallback; selected lead ID in the prompt; SDK error-log suppression;
+stream reader cancellation; whole-request abort/deadline cleanup; revoked-chat
+clearing; token refresh; context removal and trimmed-history notice; Unicode
+limits; mobile focus and Ask AI access from the mobile lead sheet.
+
+See [the review report](../review/ai-assistant.md) for current validation results.
+The real SDK loop is tested with `MockLanguageModelV4`; browser journeys use a
+synthetic engine over real HTTP, database authorization and reads. Neither is
+reported as live-provider quality. The opt-in synthetic Gateway smoke is
+`apps/backend/scripts/ai-live-smoke.ts`; its guard was checked, but no paid/live
+provider request was made. Evaluation prompts and expectations are in
+`apps/backend/tests/fixtures/ai-evaluation.json`.

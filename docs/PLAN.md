@@ -329,7 +329,9 @@ prompt for an admin AI assistant. See
 [AI assistant implementation prompt](AI-ASSISTANT-IMPLEMENTATION-PROMPT.md).
 It specifies a read-only, Site-scoped Vercel AI SDK/Gateway integration running
 through the existing backend, with gated implementation and verification.
-This is planning only; the assistant has not been implemented or enabled.
+The implementation and review fixes are on `claude/ai-chat-implementation`;
+see §7.1 and `docs/review/ai-assistant.md`. It has not been enabled or deployed
+as part of that review.
 
 | Phase                    | Work                                                                                                                                                                                                                                                                                                                                                | Done when                                                                                                           | Effort     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------- |
@@ -434,7 +436,7 @@ Delivered in this version:
 - Five read tools — site overview (counts by period and stage), lead search,
   lead summary, open follow-ups, source performance — each with a strict input
   schema, an explicit output projection and per-turn budgets. They reuse the
-  existing source report unchanged; the other reads are narrow parameterized
+  existing source report semantics (with an internal AI deadline/as-of option); the other reads are narrow parameterized
   queries inside `withTenantTx`.
 - Access is `workspace.read` **and** one of `lead.manage`, `order.manage`,
   `financial.read`, decided by the existing permission function, rechecked
@@ -448,6 +450,11 @@ Explicitly deferred (documented, not built): write actions, persistent
 conversations, documents/knowledge retrieval, embeddings, automation/n8n
 triggers, attachments, voice, model selection in the UI, and any cross-site
 analysis. Live Gateway verification remains outstanding; see the design doc §11.
+
+Review corrections and validation are recorded in `docs/review/ai-assistant.md`.
+The SDK wire protocol is now used. One deliberate implementation departure
+remains: typed React state and the shared client are retained instead of adding
+`useChat`; the plan’s conversation and cancellation behavior is browser-tested.
 
 ## 8. Verification
 

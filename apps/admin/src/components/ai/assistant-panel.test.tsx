@@ -305,7 +305,7 @@ describe('Ask AI panel', () => {
 
     rerender(<Harness accessToken="other-token" />);
     expect(screen.queryByText('Two leads are due today.')).toBeNull();
-    expect(screen.getByRole('button', { name: 'New chat' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull();
     await waitFor(() =>
       expect(mocks.getAiCapabilities).toHaveBeenCalledWith('other-token', WORKSPACE_ID),
     );
@@ -353,5 +353,31 @@ describe('Ask AI panel', () => {
       vi.stubGlobal('matchMedia', realMatchMedia);
       vi.stubGlobal('innerWidth', realWidth);
     }
+  });
+  it('removes all private messages and disables the trigger on access_lost', async () => {
+    mocks.askAiAssistant.mockImplementation(() =>
+      streamOf([
+        { type: 'text', text: 'Private fixture answer' },
+        { type: 'error', code: 'access_lost', message: 'Access changed' },
+        { type: 'text', text: 'Late private data' },
+      ]),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Private fixture question');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull());
+    expect(screen.queryByText('Private fixture answer')).toBeNull();
+    expect(screen.queryByText('Private fixture question')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ask AI' })).toBeNull();
+  });
+
+  it('removes the visible lead context before sending the next question', async () => {
+    mocks.askAiAssistant.mockImplementation(() => streamOf([{ type: 'done' }]));
+    render(<Harness activeLeadId={LEAD_ID} />);
+    await openPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove lead context' }));
+    ask('Count leads');
+    await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalled());
+    expect(mocks.askAiAssistant.mock.calls[0]?.[2].context).toBeUndefined();
   });
 });

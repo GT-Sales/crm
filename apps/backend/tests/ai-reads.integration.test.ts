@@ -639,6 +639,13 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
     // Four of the seven seeded leads are inside the window and visible.
     expect(week.received).toBe(4);
     expect(week.submitted).toBe(3);
+    const submittedOnly = await reads.overview(overviewScope, {
+      leadType: 'sim_order',
+      window: WEEK,
+      status: 'submitted',
+    });
+    expect(submittedOnly.received).toBe(3);
+    expect(submittedOnly.byStage.some((entry) => entry.stage === 'incomplete')).toBe(false);
     expect(week.byStage.map((entry) => [entry.stage, entry.count])).toEqual([
       ['pending', 2],
       ['incomplete', 1],
@@ -990,16 +997,16 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
             // A deliberately slow statement in the same read transaction is
             // cancelled at the deadline instead of hanging; the savepoint keeps
             // the transaction usable for its commit.
-            await tx.execute(sql`savepoint ai_reads_deadline`);
             const started = Date.now();
             try {
               // One second past the deadline the service set.
-              await tx.execute(sql`select pg_sleep(${STATEMENT_DEADLINE_MS / 1_000 + 1})`);
+              await tx.transaction(async (nested) => {
+                await nested.execute(sql`select pg_sleep(${STATEMENT_DEADLINE_MS / 1_000 + 1})`);
+              });
             } catch {
               slowStatementCancelled = true;
             }
             slowStatementMs = Date.now() - started;
-            await tx.execute(sql`rollback to savepoint ai_reads_deadline`);
             return result;
           });
         },
@@ -1096,7 +1103,9 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
     expect(overview.total).toBe(2);
     expect(found.total).toBe(1);
     expect(summary.total).toBe(1);
-    expect(summary.sources[0]?.href).toBe(`/w/ai-reads-readonly/leads/${roLead}`);
+    expect(summary.sources.find((source) => source.kind === 'lead')?.href).toBe(
+      `/w/ai-reads-readonly/leads/${roLead}`,
+    );
     const summaryData = leadSummaryDataSchema.parse(summary.data);
     expect(summaryData.lead.leadId).toBe(roLead);
     expect(summaryData.openTasks).toHaveLength(1);
@@ -1107,5 +1116,45 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
     expect(sources.total).toBe(1);
 
     expect(await snapshot()).toEqual(before);
+  });
+  test('contact lookup is scoped and never projects the matching email or phone', async () => {
+    const matches = await reads.findLeads(scopeA, {
+      search: 'dana.duplicate@example.test',
+      limit: 10,
+      offset: 0,
+    });
+    expect(matches.rows.map((row) => row.id)).toEqual([dupA]);
+    expect(JSON.stringify(matches)).not.toContain('dana.duplicate@example.test');
+    expect(
+      (await reads.findLeads(scopeA, { search: '403 555 0101', limit: 10, offset: 0 })).total,
+    ).toBe(1);
+    expect(await reads.isActiveMember(scopeA, COLLEAGUE)).toBe(true);
+    expect(await reads.isActiveMember(scopeA, 'b3000000-0000-4000-8000-0000000000b3')).toBe(false);
+  });
+
+  test('order projections omit identity fields and require financial permission for money', async () => {
+    await admin`update app.leads set order_details = ${admin.json({
+      quantity: 2,
+      plan: { name: 'Synthetic plan', priceMinor: 4000, currency: 'CAD' },
+      paymentStatus: 'paid',
+      carrierCommission: 'received',
+      dispatchedAt: '2026-11-01',
+      activationNumber: 'PRIVATE NUMBER',
+      activationAccount: 'PRIVATE ACCOUNT',
+    })} where id = ${summaryLead}`;
+    const ordinary = await reads.leadSummary(summaryScope, { leadId: summaryLead });
+    expect(ordinary?.order).toMatchObject({ planName: 'Synthetic plan', quantity: 2 });
+    expect(ordinary?.order).not.toHaveProperty('priceMinor');
+    expect(ordinary?.order).not.toHaveProperty('paymentStatus');
+    expect(JSON.stringify(ordinary)).not.toContain('PRIVATE');
+    const finance = await reads.leadSummary(summaryScope, {
+      leadId: summaryLead,
+      includeFinancial: true,
+    });
+    expect(finance?.order).toMatchObject({
+      priceMinor: 4000,
+      currency: 'CAD',
+      paymentStatus: 'paid',
+    });
   });
 });

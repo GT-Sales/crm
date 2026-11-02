@@ -50,36 +50,23 @@ export class TurnBudget {
    * serialized result as it would be handed to the model.
    */
   acceptResult(proposed: { bytes: number; records: number }): AcceptedResult {
-    const byteRoom = AI_ASSISTANT_LIMITS.maxToolDataBytes - this.dataBytes;
-    const recordRoom = AI_ASSISTANT_LIMITS.maxRecordsPerTurn - this.records;
-    if (byteRoom <= 0 || recordRoom <= 0) {
+    if (proposed.bytes > this.remainingBytes || proposed.records > this.remainingRecords) {
       return { allowedRecords: 0, truncated: true, rejected: true };
     }
-    if (proposed.bytes <= Math.min(byteRoom, AI_ASSISTANT_LIMITS.maxToolResultBytes)) {
-      const allowedRecords = Math.min(proposed.records, recordRoom);
-      this.dataBytes += proposed.bytes;
-      this.records += allowedRecords;
-      return {
-        allowedRecords,
-        truncated: allowedRecords < proposed.records,
-        rejected: false,
-      };
-    }
+    this.dataBytes += proposed.bytes;
+    this.records += proposed.records;
+    return { allowedRecords: proposed.records, truncated: false, rejected: false };
+  }
 
-    // The result does not fit: keep a proportional share of whole records so
-    // the model still gets a bounded sample with an explicit truncation note.
-    const ratio = byteRoom / proposed.bytes;
-    const allowedRecords = Math.max(
-      0,
-      Math.min(proposed.records, recordRoom, Math.floor(proposed.records * ratio)),
+  get remainingBytes(): number {
+    return Math.min(
+      AI_ASSISTANT_LIMITS.maxToolResultBytes,
+      AI_ASSISTANT_LIMITS.maxToolDataBytes - this.dataBytes,
     );
-    if (allowedRecords === 0) {
-      return { allowedRecords: 0, truncated: true, rejected: true };
-    }
-    const acceptedBytes = Math.ceil(proposed.bytes * (allowedRecords / proposed.records));
-    this.dataBytes += acceptedBytes;
-    this.records += allowedRecords;
-    return { allowedRecords, truncated: true, rejected: false };
+  }
+
+  get remainingRecords(): number {
+    return AI_ASSISTANT_LIMITS.maxRecordsPerTurn - this.records;
   }
 
   get usage(): TurnUsage {

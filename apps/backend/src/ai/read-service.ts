@@ -8,10 +8,13 @@ import { AI_ASSISTANT_LIMITS } from '@gt-sales/contracts';
 import { sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { loadPropertyCatalog } from '../properties/catalog.js';
 import type { Scope } from '../tenant-scope.js';
 import {
   leadRowSchema,
   taskRowSchema,
+  orderProjectionSchema,
+  type OrderProjection,
   type LeadRow,
   type OverviewStageCount,
   type TaskRow,
@@ -33,6 +36,7 @@ import type { ResolvedWindow, TaskDueWindow } from './windows.js';
 export interface OverviewQuery {
   readonly leadType: string | null;
   readonly window: ResolvedWindow;
+  readonly status?: 'submitted';
 }
 
 export interface OverviewTotals {
@@ -60,6 +64,8 @@ export interface LeadSummaryQuery {
   readonly leadId: string;
   /** Read the five most recent notes in their own bounded query. */
   readonly includeNotes?: boolean;
+  readonly includeArchived?: boolean;
+  readonly includeFinancial?: boolean;
 }
 
 export interface ActivityRow {
@@ -70,6 +76,8 @@ export interface ActivityRow {
 
 export interface LeadSummaryRows {
   readonly lead: LeadRow;
+  readonly order?: OrderProjection;
+  readonly truncated?: boolean;
   readonly openTasks: readonly TaskRow[];
   readonly activity: readonly ActivityRow[];
   /** The most recent notes, only when the caller asked for the notes section. */
@@ -89,6 +97,7 @@ export interface TaskPage {
 }
 
 export interface AiReadService {
+  isActiveMember(scope: Scope, actorId: string): Promise<boolean>;
   overview(scope: Scope, query: OverviewQuery): Promise<OverviewTotals>;
   findLeads(scope: Scope, query: FindLeadsQuery): Promise<LeadPage>;
   leadSummary(scope: Scope, query: LeadSummaryQuery): Promise<LeadSummaryRows | undefined>;
@@ -158,8 +167,7 @@ async function countLeads(tx: TenantTransaction, conditions: SQL[]): Promise<num
     from app.leads l
     where ${sql.join(conditions, sql` and `)}
   `);
-  const parsed = countRowSchema.safeParse(row);
-  return parsed.success ? parsed.data.total : 0;
+  return countRowSchema.parse(row).total;
 }
 
 export class DatabaseAiReadService implements AiReadService {
@@ -180,6 +188,15 @@ export class DatabaseAiReadService implements AiReadService {
     });
   }
 
+  isActiveMember(scope: Scope, actorId: string): Promise<boolean> {
+    return this.read(scope, async (tx) => {
+      const rows = await tx.execute(
+        sql`select id from app.memberships where workspace_id = ${contextWorkspaceId} and user_id = ${actorId} and status = 'active' and membership_type = 'staff' limit 1`,
+      );
+      return rows.length === 1;
+    });
+  }
+
   overview(scope: Scope, query: OverviewQuery): Promise<OverviewTotals> {
     const leadType = query.leadType;
     const { start, end } = query.window;
@@ -192,8 +209,9 @@ export class DatabaseAiReadService implements AiReadService {
             and l.deleted_at is null
             and l.customer_data_restricted_at is null
             and (${leadType}::text is null or l.lead_type = ${leadType})
-            and l.created_at >= ${start}
-            and l.created_at < ${end}
+            and (${query.status ?? null}::text is null or l.status = ${query.status ?? null})
+            and l.created_at >= ${start.toISOString()}::timestamptz
+            and l.created_at < ${end.toISOString()}::timestamptz
         )
         select
           (select count(*)::int from cohort) as received,
@@ -229,7 +247,9 @@ export class DatabaseAiReadService implements AiReadService {
     if (query.stage !== undefined) conditions.push(sql`l.stage = ${query.stage}`);
     if (query.search !== undefined) {
       const pattern = likePattern(query.search);
-      conditions.push(sql`(l.full_name ilike ${pattern} or l.external_ref ilike ${pattern})`);
+      conditions.push(
+        sql`(l.full_name ilike ${pattern} or l.external_ref ilike ${pattern} or l.email ilike ${pattern} or l.phone ilike ${pattern})`,
+      );
     }
     if (query.assignee === 'me') {
       conditions.push(sql`l.assigned_actor_id = ${scope.actorId}`);
@@ -268,16 +288,52 @@ export class DatabaseAiReadService implements AiReadService {
         select
           l.id, l.lead_type, l.stage, l.status, l.external_ref, l.full_name,
           m.display_name as assignee_name,
-          l.created_at, l.updated_at, l.deleted_at
+          l.created_at, l.updated_at, l.deleted_at,
+          jsonb_strip_nulls(jsonb_build_object(
+            'planName', l.order_details -> 'plan' -> 'name',
+            'quantity', l.order_details -> 'quantity',
+            'dispatchedAt', l.order_details -> 'dispatchedAt',
+            'activatedAt', l.order_details -> 'activatedAt',
+            'priceMinor', case when ${query.includeFinancial === true} then l.order_details -> 'plan' -> 'priceMinor' end,
+            'currency', case when ${query.includeFinancial === true} then l.order_details -> 'plan' -> 'currency' end,
+            'paymentStatus', case when ${query.includeFinancial === true} then l.order_details -> 'paymentStatus' end,
+            'carrierCommission', case when ${query.includeFinancial === true} then l.order_details -> 'carrierCommission' end
+          )) as safe_order
         from app.leads l
         ${assigneeJoin()}
         where l.workspace_id = ${contextWorkspaceId}
           and l.id = ${query.leadId}
+          and (${query.includeArchived === true} or l.deleted_at is null)
           and l.customer_data_restricted_at is null
         limit 1
       `);
       if (!leadRow) return undefined;
 
+      const catalog = await loadPropertyCatalog(tx, 'lead', {});
+      const order = orderProjectionSchema.parse(leadRow['safe_order']);
+      const orderKeys = {
+        planName: 'plan',
+        quantity: 'quantity',
+        dispatchedAt: 'dispatchedAt',
+        activatedAt: 'activatedAt',
+        priceMinor: 'plan',
+        currency: 'plan',
+        paymentStatus: 'paymentStatus',
+        carrierCommission: 'carrierCommission',
+      } as const;
+      for (const key of [
+        'planName',
+        'quantity',
+        'dispatchedAt',
+        'activatedAt',
+        'priceMinor',
+        'currency',
+        'paymentStatus',
+        'carrierCommission',
+      ] as const) {
+        const property = catalog.get(orderKeys[key]);
+        if (!property || property.hidden || property.sensitive) delete order[key];
+      }
       const taskRows = await tx.execute<{ [key: string]: unknown }>(sql`
         select
           t.id, t.lead_id, l.external_ref as lead_ref, l.full_name as lead_name,
@@ -291,7 +347,7 @@ export class DatabaseAiReadService implements AiReadService {
           and t.status = 'open'
           and l.deleted_at is null
         order by t.due_at asc nulls last, t.id
-        limit ${SUMMARY_TASKS}
+        limit ${SUMMARY_TASKS + 1}
       `);
 
       const activityRows = await tx.execute<{ [key: string]: unknown }>(sql`
@@ -300,7 +356,7 @@ export class DatabaseAiReadService implements AiReadService {
         where a.workspace_id = ${contextWorkspaceId}
           and a.lead_id = ${query.leadId}
         order by a.created_at desc, a.id
-        limit ${SUMMARY_ACTIVITY}
+        limit ${SUMMARY_ACTIVITY + 1}
       `);
 
       // Notes are read separately: asking for them must not depend on whether
@@ -314,15 +370,22 @@ export class DatabaseAiReadService implements AiReadService {
               and a.kind = 'note'
               and a.body is not null
             order by a.created_at desc, a.id
-            limit ${SUMMARY_NOTES}
+            limit ${SUMMARY_NOTES + 1}
           `)
         : [];
 
       return {
         lead: leadRowSchema.parse(leadRow),
-        openTasks: taskRows.map((row) => taskRowSchema.parse(row)),
-        activity: activityRows.map((row) => activityRowSchema.parse(row)),
-        notes: noteRows.map((row) => activityRowSchema.parse(row)),
+        ...(Object.keys(order).length === 0 ? {} : { order }),
+        truncated:
+          taskRows.length > SUMMARY_TASKS ||
+          activityRows.length > SUMMARY_ACTIVITY ||
+          noteRows.length > SUMMARY_NOTES,
+        openTasks: taskRows.slice(0, SUMMARY_TASKS).map((row) => taskRowSchema.parse(row)),
+        activity: activityRows
+          .slice(0, SUMMARY_ACTIVITY)
+          .map((row) => activityRowSchema.parse(row)),
+        notes: noteRows.slice(0, SUMMARY_NOTES).map((row) => activityRowSchema.parse(row)),
       };
     });
   }
@@ -341,8 +404,10 @@ export class DatabaseAiReadService implements AiReadService {
     } else if (query.assignee !== 'all') {
       conditions.push(sql`t.assigned_actor_id = ${query.assignee}`);
     }
-    if (query.due.from !== undefined) conditions.push(sql`t.due_at >= ${query.due.from}`);
-    if (query.due.before !== undefined) conditions.push(sql`t.due_at < ${query.due.before}`);
+    if (query.due.from !== undefined)
+      conditions.push(sql`t.due_at >= ${query.due.from.toISOString()}::timestamptz`);
+    if (query.due.before !== undefined)
+      conditions.push(sql`t.due_at < ${query.due.before.toISOString()}::timestamptz`);
 
     return this.read(scope, async (tx) => {
       const rows = await tx.execute<{ [key: string]: unknown }>(sql`
@@ -368,8 +433,7 @@ export class DatabaseAiReadService implements AiReadService {
         join app.leads l on l.id = t.lead_id and l.workspace_id = t.workspace_id
         where ${sql.join(conditions, sql` and `)}
       `);
-      const parsed = countRowSchema.safeParse(counted);
-      return { rows: [], total: parsed.success ? parsed.data.total : 0 };
+      return { rows: [], total: countRowSchema.parse(counted).total };
     });
   }
 

@@ -63,6 +63,8 @@ export function AssistantPanel() {
     activeLeadId,
     siteName,
     maxMessageChars,
+    historyTrimmed,
+    removeLeadContext,
     close,
     send,
     stop,
@@ -265,13 +267,21 @@ export function AssistantPanel() {
   );
 
   const footer = (
-    <div className="shrink-0 border-t border-border bg-background p-3">
+    <div className="shrink-0 border-t border-border bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {activeLeadId === undefined ? null : (
         <p className="mb-2 inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
           <SparklesIcon aria-hidden="true" className="size-3" />
           Asking about the open lead
+          <button type="button" aria-label="Remove lead context" onClick={removeLeadContext}>
+            <XIcon aria-hidden="true" className="size-3" />
+          </button>
         </p>
       )}
+      {historyTrimmed ? (
+        <p className="mb-2 text-xs text-muted-foreground">
+          Older messages were omitted from this answer’s context.
+        </p>
+      ) : null}
       <label htmlFor={composerId} className="sr-only">
         Ask a question
       </label>
@@ -280,11 +290,13 @@ export function AssistantPanel() {
         ref={composerRef}
         value={draft}
         rows={3}
-        maxLength={maxMessageChars}
+        maxLength={maxMessageChars * 2}
         placeholder="Ask about this site’s leads..."
         disabled={!available || streaming}
         className="max-h-40 min-h-16 resize-none"
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) =>
+          setDraft(Array.from(event.target.value).slice(0, maxMessageChars).join(''))
+        }
         onKeyDown={handleComposerKeyDown}
         onCompositionStart={() => {
           composingRef.current = true;
@@ -355,7 +367,12 @@ export function AssistantPanel() {
           side="right"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="h-full w-full max-w-full gap-0 p-0 sm:max-w-full"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            composerRef.current?.focus();
+          }}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          className="h-dvh w-full max-w-full gap-0 p-0 sm:max-w-full"
         >
           <SheetTitle className="sr-only">Ask AI</SheetTitle>
           {body}

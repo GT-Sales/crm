@@ -740,6 +740,7 @@ export {
   aiSourceSchema,
   aiStreamErrorCodeSchema,
   aiStreamPartSchema,
+  aiWirePartSchema,
   aiUnavailableReasonSchema,
   type AiAssistantLimits,
   type AiCapabilitiesResponse,

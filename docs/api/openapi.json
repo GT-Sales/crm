@@ -100487,96 +100487,105 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "oneOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "progress" },
-                        "label": { "type": "string", "minLength": 1, "maxLength": 80 }
-                      },
-                      "required": ["type", "label"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "text" },
-                        "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
-                      },
-                      "required": ["type", "text"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "sources" },
-                        "sources": {
-                          "maxItems": 20,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 64,
-                                "pattern": "^[a-z0-9][a-z0-9_-]*$"
-                              },
-                              "kind": {
-                                "type": "string",
-                                "enum": ["lead", "report", "tasks", "overview"]
-                              },
-                              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
-                              "href": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 400,
-                                "pattern": "^\\/(?!\\/)"
-                              },
-                              "asOf": {
-                                "type": "string",
-                                "format": "date-time",
-                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                              },
-                              "scope": { "type": "string", "minLength": 1, "maxLength": 300 }
-                            },
-                            "required": ["id", "kind", "label", "href", "asOf", "scope"],
-                            "additionalProperties": false
-                          }
-                        }
-                      },
-                      "required": ["type", "sources"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "error" },
-                        "code": {
-                          "type": "string",
-                          "enum": [
-                            "provider_unavailable",
-                            "rate_limited",
-                            "timeout",
-                            "cancelled",
-                            "access_lost",
-                            "budget_exceeded",
-                            "tool_unavailable",
-                            "internal_error"
-                          ]
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "data-assistant" },
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "progress" },
+                            "label": { "type": "string", "minLength": 1, "maxLength": 80 }
+                          },
+                          "required": ["type", "label"],
+                          "additionalProperties": false
                         },
-                        "message": { "type": "string", "minLength": 1, "maxLength": 300 }
-                      },
-                      "required": ["type", "code", "message"],
-                      "additionalProperties": false
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "text" },
+                            "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+                          },
+                          "required": ["type", "text"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "sources" },
+                            "sources": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": ["lead", "report", "tasks", "overview"]
+                                  },
+                                  "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                  "href": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 400,
+                                    "pattern": "^\\/(?!\\/)"
+                                  },
+                                  "asOf": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  },
+                                  "scope": { "type": "string", "minLength": 1, "maxLength": 300 }
+                                },
+                                "required": ["id", "kind", "label", "href", "asOf", "scope"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["type", "sources"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "error" },
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "provider_unavailable",
+                                "rate_limited",
+                                "timeout",
+                                "cancelled",
+                                "access_lost",
+                                "budget_exceeded",
+                                "tool_unavailable",
+                                "internal_error"
+                              ]
+                            },
+                            "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+                          },
+                          "required": ["type", "code", "message"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": { "type": { "type": "string", "const": "done" } },
+                          "required": ["type"],
+                          "additionalProperties": false
+                        }
+                      ]
                     },
-                    {
-                      "type": "object",
-                      "properties": { "type": { "type": "string", "const": "done" } },
-                      "required": ["type"],
-                      "additionalProperties": false
-                    }
-                  ]
+                    "transient": { "type": "boolean", "const": true }
+                  },
+                  "required": ["type", "data", "transient"],
+                  "additionalProperties": false
                 },
                 "description": "Server-sent events. Each frame is `event: part` plus one `data:` line holding a JSON object of this schema; a final `done` frame ends it. An error before the first frame is an ordinary JSON error response instead."
               }
@@ -100750,7 +100759,7 @@
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
-                  "message": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                  "message": { "type": "string", "minLength": 1, "maxLength": 8000 },
                   "history": {
                     "maxItems": 12,
                     "type": "array",
@@ -100758,7 +100767,7 @@
                       "type": "object",
                       "properties": {
                         "role": { "type": "string", "enum": ["user", "assistant"] },
-                        "text": { "type": "string", "minLength": 1, "maxLength": 4000 }
+                        "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
                       },
                       "required": ["role", "text"],
                       "additionalProperties": false

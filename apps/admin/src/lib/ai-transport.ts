@@ -87,9 +87,9 @@ function groupTurns(history: readonly AiHistoryEntry[]): AiHistoryEntry[][] {
 }
 
 function clipped(entry: AiHistoryEntry, maxChars: number): AiHistoryEntry {
-  return entry.text.length <= maxChars
+  return Array.from(entry.text).length <= maxChars
     ? entry
-    : { role: entry.role, text: entry.text.slice(0, maxChars) };
+    : { role: entry.role, text: Array.from(entry.text).slice(0, maxChars).join('') };
 }
 
 /**
@@ -105,9 +105,9 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
     AI_ASSISTANT_LIMITS.maxMessageChars,
   );
   const message =
-    input.message.length <= maxMessageChars
+    Array.from(input.message).length <= maxMessageChars
       ? input.message
-      : input.message.slice(0, maxMessageChars);
+      : Array.from(input.message).slice(0, maxMessageChars).join('');
   let trimmed = message.length !== input.message.length;
 
   const history: AiHistoryEntry[] = [];
@@ -120,11 +120,11 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
   const turns = groupTurns(history);
   const kept: AiHistoryEntry[][] = [];
   let keptMessages = 0;
-  let keptChars = message.length;
+  let keptChars = Array.from(message).length;
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];
     if (turn === undefined) continue;
-    const turnChars = turn.reduce((total, entry) => total + entry.text.length, 0);
+    const turnChars = turn.reduce((total, entry) => total + Array.from(entry.text).length, 0);
     if (keptMessages + turn.length > input.limits.maxHistoryMessages) break;
     if (keptChars + turnChars > input.limits.maxConversationChars) break;
     kept.unshift([...turn]);

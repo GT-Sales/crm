@@ -1681,7 +1681,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       reads: ai.reads ?? new DatabaseAiReadService(),
       reports: dependencies.reportStore ?? unconfiguredReportStore,
       ...(ai.engine === undefined ? {} : { engine: ai.engine }),
-      rateLimit: ai.rateLimit ?? (async () => ({ allowed: true, retryAfterSeconds: 0 })),
+      rateLimit: ai.rateLimit ?? rateLimitHit,
       ...(ai.now === undefined ? {} : { now: ai.now }),
       reportFailure,
     }),

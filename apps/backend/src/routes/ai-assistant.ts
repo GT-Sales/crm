@@ -1,7 +1,8 @@
+import { createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { AssistantProviderError } from '../ai/engine.js';
 import { Router, type Response } from 'express';
 import {
   AI_ASSISTANT_LIMITS,
-  AI_STREAM_EVENT,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
@@ -142,27 +143,6 @@ function capabilityDocument(
   });
 }
 
-/** One SSE frame; `data` is always one JSON object of `aiStreamPartSchema`. */
-function writePart(res: Response, part: AiStreamPart): void {
-  if (res.writableEnded) return;
-  // The registry caps and truncates what a tool may register, so this should
-  // never fail; validating here means a bug becomes a missing card, never a
-  // frame the client rejects wholesale.
-  const parsed = aiStreamPartSchema.safeParse(part);
-  if (!parsed.success) return;
-  res.write(`event: ${AI_STREAM_EVENT}\ndata: ${JSON.stringify(parsed.data)}\n\n`);
-}
-
-function openStream(res: Response): void {
-  res.status(200);
-  res.setHeader('content-type', 'text/event-stream; charset=utf-8');
-  res.setHeader('cache-control', 'no-store');
-  res.setHeader('connection', 'keep-alive');
-  // Railway's edge must not buffer an event stream.
-  res.setHeader('x-accel-buffering', 'no');
-  res.flushHeaders?.();
-}
-
 /**
  * Request-size guards the schema cannot express: total conversation characters
  * and the serialized byte ceiling of the whole body (the global JSON limit stays
@@ -170,7 +150,8 @@ function openStream(res: Response): void {
  */
 function withinRequestLimits(body: AiChatRequest): boolean {
   const characters =
-    body.message.length + body.history.reduce((total, message) => total + message.text.length, 0);
+    Array.from(body.message).length +
+    body.history.reduce((total, message) => total + Array.from(message.text).length, 0);
   return (
     characters <= AI_ASSISTANT_LIMITS.maxConversationChars &&
     serializedBytes(body) <= AI_ASSISTANT_LIMITS.maxRequestBytes
@@ -188,6 +169,21 @@ const activeTurns = new Set<AbortController>();
 /** Aborts every in-flight assistant turn; called by the shutdown handler. */
 export function abortActiveAssistantTurns(): void {
   for (const controller of activeTurns) controller.abort();
+}
+
+/** Ends waiting promptly; database statements retain their own server deadline. */
+async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw new AssistantProviderError('cancelled');
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new AssistantProviderError('cancelled'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([work, aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependencies): Router {
@@ -261,9 +257,26 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     }
     const body = parsed.data;
     const startedAt = Date.now();
+    const controller = new AbortController();
+    activeTurns.add(controller);
+    let timedOut = false;
+    let clientGone = false;
+    let revoked = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, AI_ASSISTANT_LIMITS.requestTimeoutMs);
+    const onClose = () => {
+      if (!res.writableEnded) {
+        clientGone = true;
+        controller.abort();
+      }
+    };
+    res.on('close', onClose);
+    const wait = <T>(work: Promise<T>) => abortable(work, controller.signal);
 
     try {
-      const access = await dependencies.loadAccess(actor.actorId, workspaceId.data);
+      const access = await wait(dependencies.loadAccess(actor.actorId, workspaceId.data));
       const decision = decideAiAccess(access);
       if (!decision.allowed) {
         sendRefusal(res, req.id, decision.reason);
@@ -278,10 +291,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
 
-      const site = await dependencies.siteContext.siteContext({
-        workspaceId: workspaceId.data,
-        actorId: actor.actorId,
-      });
+      const site = await wait(
+        dependencies.siteContext.siteContext({
+          workspaceId: workspaceId.data,
+          actorId: actor.actorId,
+        }),
+      );
       if (!site) {
         sendStaffAuthError(res, req.id, 'workspace_not_found', 404);
         return;
@@ -292,16 +307,20 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       let actorLimit: RateLimitResult;
       let siteLimit: RateLimitResult;
       try {
-        actorLimit = await dependencies.rateLimit({
-          bucketKey: `ai_actor:${actor.actorId}:${workspaceId.data}`,
-          windowSeconds: 60,
-          maxCount: AI_ASSISTANT_LIMITS.perActorPerMinute,
-        });
-        siteLimit = await dependencies.rateLimit({
-          bucketKey: `ai_site:${workspaceId.data}`,
-          windowSeconds: 60,
-          maxCount: AI_ASSISTANT_LIMITS.perSitePerMinute,
-        });
+        actorLimit = await wait(
+          dependencies.rateLimit({
+            bucketKey: `ai_actor:${actor.actorId}:${workspaceId.data}`,
+            windowSeconds: 60,
+            maxCount: AI_ASSISTANT_LIMITS.perActorPerMinute,
+          }),
+        );
+        siteLimit = await wait(
+          dependencies.rateLimit({
+            bucketKey: `ai_site:${workspaceId.data}`,
+            windowSeconds: 60,
+            maxCount: AI_ASSISTANT_LIMITS.perSitePerMinute,
+          }),
+        );
       } catch (error) {
         dependencies.reportFailure(req, error);
         await refuseDisabled(res, req.id);
@@ -329,15 +348,6 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         asOf: turnStarted,
       });
 
-      // The controller exists before the tools, so a tool that finds the
-      // membership gone can abort the model loop at once instead of letting it
-      // finish an answer the caller may no longer receive.
-      const controller = new AbortController();
-      activeTurns.add(controller);
-      let timedOut = false;
-      let clientGone = false;
-      let revoked = false;
-
       let toolset: AssistantToolset;
       try {
         toolset = createAssistantTools({
@@ -348,7 +358,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           sources,
           reads: dependencies.reads,
           reports: dependencies.reports,
-          loadAccess: () => dependencies.loadAccess(actor.actorId, workspaceId.data),
+          loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
+          signal: controller.signal,
           onAccessRevoked: () => {
             revoked = true;
             controller.abort();
@@ -360,167 +371,186 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
 
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, AI_ASSISTANT_LIMITS.requestTimeoutMs);
-      // Response completion, not the request body's `end` event: an Express
-      // request stream finishes long before the answer does. Attached before
-      // the first byte so a disconnect in that window is not missed.
-      res.on('close', () => {
-        if (!res.writableEnded) {
-          clientGone = true;
-          controller.abort();
-        }
-      });
-
-      openStream(res);
-      writePart(res, { type: 'progress', label: 'Getting ready' });
-
-      const leadHint =
-        body.context === undefined
-          ? undefined
-          : await dependencies.reads.leadHint(scope, body.context.leadId).catch(() => undefined);
-      const system = buildSystemPrompt({
-        siteName: site.name,
-        leadTypes: site.leadTypes,
-        today: businessDayLabel(turnStarted, AI_BUSINESS_TIME_ZONE),
-        timeZone: AI_BUSINESS_TIME_ZONE,
-        ...(leadHint === undefined
-          ? {}
-          : {
-              openLead: {
-                reference: leadHint.reference,
-                name: leadHint.name,
-                stageLabel: leadHint.stage,
-                leadType: leadHint.leadType,
-              },
-            }),
-      });
-      const messages = [
-        ...body.history.map((message) => ({ role: message.role, text: message.text })),
-        { role: 'user' as const, text: body.message },
-      ];
-
-      let outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost' = 'completed';
-      let outputTokens: number | undefined;
-
-      try {
-        for await (const event of dependencies.engine.stream({
-          system,
-          messages,
-          tools: toolset.definitions,
-          signal: controller.signal,
-          executeTool: (name, input) =>
-            isToolName(name)
-              ? toolset.execute(name, input)
-              : Promise.reject(new Error('unknown assistant tool')),
-        })) {
-          if (controller.signal.aborted) break;
-          switch (event.type) {
-            case 'text':
-              writePart(res, { type: 'text', text: event.text });
-              break;
-            case 'tool-start':
-              writePart(res, {
-                type: 'progress',
-                label: isToolName(event.toolName)
-                  ? PROGRESS_LABELS[event.toolName]
-                  : 'Checking the CRM',
-              });
-              break;
-            case 'finish':
-              outputTokens = event.outputTokens;
-              break;
-            default:
-              break;
-          }
-        }
-
-        if (revoked) {
-          outcome = 'access_lost';
-          writePart(res, {
-            type: 'error',
-            code: 'access_lost',
-            message: 'Your access to this site changed. Close Ask AI and sign in again.',
-          });
-          return;
-        }
-        if (timedOut) {
-          outcome = 'failed';
-          writePart(res, {
-            type: 'error',
-            code: 'timeout',
-            message: 'That took too long. Try a narrower question.',
-          });
-          return;
-        }
-
-        if (!controller.signal.aborted) {
-          // Access is rechecked before any answer is released: a role removed
-          // while the model was writing must not receive the rest of the turn.
-          const finalAccess = await dependencies.loadAccess(actor.actorId, workspaceId.data);
-          if (!decideAiAccess(finalAccess).allowed) {
-            outcome = 'access_lost';
-            writePart(res, {
-              type: 'error',
-              code: 'access_lost',
-              message: 'Your access to this site changed. Close Ask AI and sign in again.',
+      const engine = dependencies.engine;
+      const stream = createUIMessageStream({
+        execute: async ({ writer }) => {
+          const writePart = (part: AiStreamPart) => {
+            writer.write({
+              type: 'data-assistant',
+              data: aiStreamPartSchema.parse(part),
+              transient: true,
             });
-            return;
+          };
+          writePart({ type: 'progress', label: 'Getting ready' });
+
+          const leadHint =
+            body.context === undefined
+              ? undefined
+              : await wait(dependencies.reads.leadHint(scope, body.context.leadId)).catch(
+                  () => undefined,
+                );
+          const system = buildSystemPrompt({
+            siteName: site.name,
+            leadTypes: site.leadTypes,
+            today: businessDayLabel(turnStarted, AI_BUSINESS_TIME_ZONE),
+            timeZone: AI_BUSINESS_TIME_ZONE,
+            ...(leadHint === undefined
+              ? {}
+              : {
+                  openLead: {
+                    leadId: leadHint.leadId,
+                    reference: leadHint.reference,
+                    name: leadHint.name,
+                    stageLabel: leadHint.stage,
+                    leadType: leadHint.leadType,
+                  },
+                }),
+          });
+          const messages = [
+            ...body.history.map((message) => ({ role: message.role, text: message.text })),
+            { role: 'user' as const, text: body.message },
+          ];
+
+          let outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost' = 'completed';
+          let outputTokens: number | undefined;
+
+          try {
+            for await (const event of engine.stream({
+              system,
+              messages,
+              tools: toolset.definitions,
+              signal: controller.signal,
+              executeTool: (name, input) =>
+                isToolName(name)
+                  ? toolset.execute(name, input)
+                  : Promise.reject(new Error('unknown assistant tool')),
+            })) {
+              if (controller.signal.aborted) break;
+              switch (event.type) {
+                case 'text':
+                  writePart({ type: 'text', text: event.text });
+                  break;
+                case 'tool-start':
+                  writePart({
+                    type: 'progress',
+                    label: isToolName(event.toolName)
+                      ? PROGRESS_LABELS[event.toolName]
+                      : 'Checking the CRM',
+                  });
+                  break;
+                case 'finish':
+                  outputTokens = event.outputTokens;
+                  break;
+                default:
+                  break;
+              }
+            }
+
+            if (revoked) {
+              outcome = 'access_lost';
+              writePart({
+                type: 'error',
+                code: 'access_lost',
+                message: 'Your access to this site changed. Close Ask AI and sign in again.',
+              });
+              return;
+            }
+            if (timedOut) {
+              outcome = 'failed';
+              writePart({
+                type: 'error',
+                code: 'timeout',
+                message: 'That took too long. Try a narrower question.',
+              });
+              return;
+            }
+
+            if (!controller.signal.aborted) {
+              // Access is rechecked before any answer is released: a role removed
+              // while the model was writing must not receive the rest of the turn.
+              const finalAccess = await wait(
+                dependencies.loadAccess(actor.actorId, workspaceId.data),
+              );
+              if (!decideAiAccess(finalAccess).allowed) {
+                outcome = 'access_lost';
+                writePart({
+                  type: 'error',
+                  code: 'access_lost',
+                  message: 'Your access to this site changed. Close Ask AI and sign in again.',
+                });
+                return;
+              }
+              const cards = sources.list();
+              if (cards.length > 0) writePart({ type: 'sources', sources: cards });
+              writePart({ type: 'done' });
+            }
+          } catch (error) {
+            if (revoked || error instanceof AssistantAccessRevokedError) {
+              outcome = 'access_lost';
+              writePart({
+                type: 'error',
+                code: 'access_lost',
+                message: 'Your access to this site changed. Close Ask AI and sign in again.',
+              });
+            } else if (timedOut) {
+              outcome = 'failed';
+              writePart({
+                type: 'error',
+                code: 'timeout',
+                message: 'That took too long. Try a narrower question.',
+              });
+            } else if (clientGone || controller.signal.aborted) {
+              outcome = 'cancelled';
+            } else {
+              outcome = 'failed';
+              // The tracker gets a fixed code, not the provider's own error body.
+              dependencies.reportFailure(req, new Error('assistant_provider_error'));
+              writePart({
+                type: 'error',
+                code: error instanceof AssistantProviderError ? error.code : 'provider_unavailable',
+                message: 'Ask AI could not answer just now. Nothing was changed.',
+              });
+            }
+          } finally {
+            activeTurns.delete(controller);
+            clearTimeout(timer);
+            logAiTurn({
+              requestId: req.id,
+              workspaceId: workspaceId.data,
+              actorId: actor.actorId,
+              engine: engine.kind,
+              modelId: dependencies.config.modelId,
+              promptVersion: AI_PROMPT_VERSION,
+              outcome,
+              durationMs: Date.now() - startedAt,
+              ...(outputTokens === undefined ? {} : { outputTokens }),
+              ...budget.usage,
+            });
           }
-          const cards = sources.list();
-          if (cards.length > 0) writePart(res, { type: 'sources', sources: cards });
-          writePart(res, { type: 'done' });
-        }
-      } catch (error) {
-        if (revoked || error instanceof AssistantAccessRevokedError) {
-          outcome = 'access_lost';
-          writePart(res, {
-            type: 'error',
-            code: 'access_lost',
-            message: 'Your access to this site changed. Close Ask AI and sign in again.',
-          });
-        } else if (timedOut) {
-          outcome = 'failed';
-          writePart(res, {
-            type: 'error',
-            code: 'timeout',
-            message: 'That took too long. Try a narrower question.',
-          });
-        } else if (clientGone || controller.signal.aborted) {
-          outcome = 'cancelled';
-        } else {
-          outcome = 'failed';
-          // The tracker gets a fixed code, not the provider's own error body.
-          dependencies.reportFailure(req, new Error('assistant_provider_error'));
-          writePart(res, {
-            type: 'error',
-            code: 'provider_unavailable',
-            message: 'Ask AI could not answer just now. Nothing was changed.',
-          });
-        }
+        },
+        onError: () => 'Ask AI could not answer just now.',
+      });
+      try {
+        await pipeUIMessageStreamToResponse({
+          response: res,
+          stream,
+          headers: { 'cache-control': 'no-store' },
+        });
       } finally {
+        controller.abort();
         activeTurns.delete(controller);
         clearTimeout(timer);
-        if (!res.writableEnded) res.end();
-        logAiTurn({
-          requestId: req.id,
-          workspaceId: workspaceId.data,
-          actorId: actor.actorId,
-          engine: dependencies.engine.kind,
-          modelId: dependencies.config.modelId,
-          promptVersion: AI_PROMPT_VERSION,
-          outcome,
-          durationMs: Date.now() - startedAt,
-          ...(outputTokens === undefined ? {} : { outputTokens }),
-          ...budget.usage,
-        });
+        res.off('close', onClose);
       }
-    } catch (error) {
-      dependencies.reportFailure(req, error);
-      if (!res.headersSent) sendStaffAuthError(res, req.id, 'internal_error', 500);
+    } catch {
+      dependencies.reportFailure(req, new Error('assistant_request_failed'));
+      if (!res.headersSent) sendStaffAuthError(res, req.id, 'internal_error', 503);
       else if (!res.writableEnded) res.end();
+    } finally {
+      controller.abort();
+      activeTurns.delete(controller);
+      clearTimeout(timer);
+      res.off('close', onClose);
     }
   });
 

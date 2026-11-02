@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AiSource } from '@gt-sales/contracts';
 
 /**
@@ -46,7 +47,7 @@ export class SourceRegistry {
       id: `lead-${leadId}`,
       kind: 'lead',
       label,
-      href: `/w/${this.context.workspaceSlug}/leads/${leadId}`,
+      href: `/w/${encodeURIComponent(this.context.workspaceSlug)}/leads/${leadId}`,
       scope,
     });
   }
@@ -54,10 +55,10 @@ export class SourceRegistry {
   /** Reports → Sources: the report page never claims to reproduce an AI filter. */
   sourceReport(label: string, scope: string): AiSource {
     return this.add({
-      id: 'report-sources',
+      id: `report-sources-${createHash('sha256').update(scope).digest('hex').slice(0, 8)}`,
       kind: 'report',
-      label,
-      href: `/w/${this.context.workspaceSlug}/reports/sources`,
+      label: `Open report · ${label}`,
+      href: `/w/${encodeURIComponent(this.context.workspaceSlug)}/reports/sources`,
       scope,
     });
   }
@@ -65,10 +66,10 @@ export class SourceRegistry {
   /** The leads inbox, filtered only as far as its URL can actually reproduce. */
   leadsInbox(scope: string): AiSource {
     return this.add({
-      id: 'overview-leads',
+      id: `overview-leads-${createHash('sha256').update(scope).digest('hex').slice(0, 8)}`,
       kind: 'overview',
       label: 'Leads inbox',
-      href: `/w/${this.context.workspaceSlug}/leads`,
+      href: `/w/${encodeURIComponent(this.context.workspaceSlug)}/leads`,
       scope,
     });
   }
@@ -76,10 +77,10 @@ export class SourceRegistry {
   /** Follow-ups, shown on the tasks page. */
   tasks(scope: string): AiSource {
     return this.add({
-      id: 'tasks',
+      id: `tasks-${createHash('sha256').update(scope).digest('hex').slice(0, 8)}`,
       kind: 'tasks',
       label: 'Follow-ups',
-      href: `/w/${this.context.workspaceSlug}/tasks`,
+      href: `/w/${encodeURIComponent(this.context.workspaceSlug)}/tasks`,
       scope,
     });
   }

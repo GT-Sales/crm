@@ -19,6 +19,10 @@ const chat = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('aiChatRequestSchema', () => {
+  it('counts Unicode code points rather than UTF-16 units', () => {
+    expect(aiChatRequestSchema.safeParse(chat({ message: '😀'.repeat(4000) })).success).toBe(true);
+    expect(aiChatRequestSchema.safeParse(chat({ message: '😀'.repeat(4001) })).success).toBe(false);
+  });
   it('accepts the documented request and a lead context', () => {
     expect(aiChatRequestSchema.safeParse(chat({ context: { leadId: LEAD_ID } })).success).toBe(
       true,

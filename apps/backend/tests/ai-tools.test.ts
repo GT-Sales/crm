@@ -76,6 +76,7 @@ function fakeReads(overrides: Partial<AiReadService> = {}): AiReadService {
     findLeads: vi.fn(async () => emptyPage),
     leadSummary: vi.fn(async () => undefined),
     openTasks: vi.fn(async () => emptyTasks),
+    isActiveMember: async () => true,
     leadHint: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -389,7 +390,7 @@ describe('turn budgets and access', () => {
     expect(String(seventh['message'])).toContain('tool budget');
   });
 
-  it('serves an identical repeat inside one turn without spending the budget', async () => {
+  it('serves an identical repeat inside one turn without a second database read', async () => {
     const reads = fakeReads();
     const toolset = createAssistantTools(context({ reads }));
     await toolset.execute('findLeads', { search: 'Ada' });
@@ -421,7 +422,7 @@ describe('turn budgets and access', () => {
       }),
     );
     const result = parse(await toolset.execute('getSiteOverview', { leadType: 'sim_order' }));
-    expect(result['status']).toBe('not_available');
+    expect(result['status']).toBe('temporary_failure');
     expect(result['data']).toBeUndefined();
   });
 
@@ -436,5 +437,61 @@ describe('turn budgets and access', () => {
     for (let page = 0; page < 5; page += 1) await toolset.execute('findLeads', { page: page + 1 });
     expect(budget.usage.records).toBeGreaterThanOrEqual(30);
     expect(budget.usage.records).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('review regressions', () => {
+  it('validates the assignee against the selected site before searching', async () => {
+    const reads = fakeReads({ isActiveMember: async () => false });
+    const tools = createAssistantTools(context({ reads }));
+    expect(parse(await tools.execute('findLeads', { assignee: ACTOR }))['status']).toBe(
+      'invalid_filter',
+    );
+    expect(reads.findLeads).not.toHaveBeenCalled();
+  });
+
+  it('rejects prototype property names as lead types', async () => {
+    const tools = createAssistantTools(context());
+    expect(
+      parse(await tools.execute('getSiteOverview', { leadType: 'constructor' }))['status'],
+    ).toBe('invalid_filter');
+  });
+
+  it('never sends a single oversized row beyond the per-result budget', async () => {
+    const tools = createAssistantTools(
+      context({
+        reads: fakeReads({
+          findLeads: async () => ({ rows: [leadRow({ full_name: 'x'.repeat(20000) })], total: 1 }),
+        }),
+      }),
+    );
+    const result = await tools.execute('findLeads', {});
+    expect(Buffer.byteLength(result)).toBeLessThanOrEqual(6 * 1024);
+    expect(parse(result)['truncated']).toBe(true);
+    expect(parse(result)['total']).toBe(1);
+  });
+
+  it('bounds nested summary records and serializes only what it charges', async () => {
+    const budget = new TurnBudget();
+    const tools = createAssistantTools(
+      context({
+        budget,
+        reads: fakeReads({
+          leadSummary: async () => ({
+            lead: leadRow(),
+            openTasks: [],
+            activity: [],
+            notes: Array.from({ length: 5 }, () => ({
+              kind: 'note',
+              at: NOW,
+              body: '😀'.repeat(500),
+            })),
+          }),
+        }),
+      }),
+    );
+    const result = await tools.execute('getLeadSummary', { leadId: LEAD, sections: ['notes'] });
+    expect(Buffer.byteLength(result)).toBeLessThanOrEqual(6 * 1024);
+    expect(budget.usage.dataBytes).toBe(Buffer.byteLength(result));
   });
 });

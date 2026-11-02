@@ -1432,14 +1432,12 @@ unauthenticated`), lint, format, both builds, and `test:tooling` pass locally.
   count, task-date, statement-deadline and read-only cases that run in CI with a
   disposable database (skipped here: no Postgres).
 
-Not yet verified (state plainly): no Gateway key or model was configured, so the
-real provider has never been exercised; the read SQL has not been run against a
-database here; Vercel-to-Railway streaming and cancellation timing were not
-measured on the deployed pair; the lead-journey browser suite
-(`pnpm --filter admin test:e2e:leads`) was not run. An independent adversarial
-review of this change found no blockers and 12 should-fix items, all fixed
-before this entry (recorded in the design doc §12). The offline test evidence is
-there too.
+Review update (2026-11-02): the earlier offline-only evidence above is historical.
+The review ran local Postgres integration and real-backend browser journeys,
+fixed runtime table privileges/date bindings, and repaired chat lifecycle,
+projection/budget and SDK streaming/logging behavior. Details and current check
+results: [review/ai-assistant.md](review/ai-assistant.md). Gateway credentials,
+model/provider validation, deployed streaming and rollout remain owner steps.
 
 ## 4. What is verified, and how
 
@@ -1456,14 +1454,10 @@ there too.
 
 ## 5. What comes next, in order
 
-AI assistant planning (2026-11-02): the owner requested a detailed prompt to
-hand to an implementing AI. The
-[implementation prompt](AI-ASSISTANT-IMPLEMENTATION-PROMPT.md) defines a read-only,
-Site-scoped assistant using Vercel AI SDK/Gateway in the existing backend,
-including permissions, streaming, UI, usage limits and verification gates.
-This is a proposed follow-up, not an implemented feature or deployment.
-Environment variables in that prompt are proposals; `ENV.md` still documents
-the current application.
+AI assistant review (2026-11-02): the read-only implementation is on
+`claude/ai-chat-implementation`. The branch review found and fixed production
+SQL blockers and plan gaps; see [review/ai-assistant.md](review/ai-assistant.md)
+for the current evidence. No deployment or real Gateway call was performed.
 
 ### 5.0 The merge with Canadian Plans (approved 2026-10-28)
 

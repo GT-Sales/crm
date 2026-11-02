@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  aiStreamPartSchema,
+  aiWirePartSchema,
   apiErrorResponseSchema,
   type AiStreamPart,
   type StaffWorkspace,
@@ -10,7 +10,7 @@ import {
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { AiAssistantConfig } from '../src/ai/config.js';
-import { createFakeEngine, type FakeTurn } from '../src/ai/engine.js';
+import { createFakeEngine, type FakeTurn, type AssistantEngine } from '../src/ai/engine.js';
 import type { LeadRow } from '../src/ai/projections.js';
 import type { AiReadService } from '../src/ai/read-service.js';
 import type { AiSiteContextStore } from '../src/ai/site-context.js';
@@ -118,6 +118,7 @@ const reads: AiReadService = {
   findLeads: async () => ({ rows: [lead], total: 1 }),
   leadSummary: async () => undefined,
   openTasks: async () => ({ rows: [], total: 0 }),
+  isActiveMember: async () => true,
   leadHint: async () => undefined,
 };
 
@@ -146,6 +147,7 @@ let staff: MemoryStaffStore;
 function appWith(
   options: {
     config?: AiAssistantConfig;
+    engine?: AssistantEngine;
     turns?: readonly FakeTurn[];
     rateLimit?: () => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
     loadAccess?: () => Promise<StaffAccessSnapshot | undefined>;
@@ -164,7 +166,9 @@ function appWith(
         config: options.config ?? config(),
         siteContext,
         reads,
-        engine: createFakeEngine(options.turns ?? [{ chunks: ['You received ', '1 SIM order.'] }]),
+        engine:
+          options.engine ??
+          createFakeEngine(options.turns ?? [{ chunks: ['You received ', '1 SIM order.'] }]),
         rateLimit: options.rateLimit ?? (async () => ({ allowed: true, retryAfterSeconds: 0 })),
         now: () => NOW,
       },
@@ -212,7 +216,8 @@ async function readParts(response: Response): Promise<AiStreamPart[]> {
         .filter((line) => line.startsWith('data:'))
         .map((line) => line.slice(5).trim())
         .join('\n');
-      if (payload.length > 0) parts.push(aiStreamPartSchema.parse(JSON.parse(payload)));
+      if (payload.length > 0 && payload !== '[DONE]')
+        parts.push(aiWirePartSchema.parse(JSON.parse(payload)).data);
       boundary = buffer.indexOf('\n\n');
     }
   }
@@ -446,5 +451,49 @@ describe('POST /workspaces/:id/ai/chat', () => {
       body: JSON.stringify(body()),
     });
     expect(response.status).toBe(401);
+  });
+  it('delivers two text frames while the HTTP response is still open', async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await start(
+      appWith({
+        engine: {
+          kind: 'fake',
+          async *stream() {
+            yield { type: 'text', text: 'First chunk' };
+            yield { type: 'text', text: 'Second chunk' };
+            await held;
+            yield { type: 'finish' };
+          },
+        },
+      }),
+    );
+    try {
+      const response = await fetch(chatUrl(), {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify(body()),
+        signal: AbortSignal.timeout(3000),
+      });
+      expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let received = '';
+      while (!received.includes('Second chunk')) {
+        const chunk = await reader.read();
+        expect(chunk.done).toBe(false);
+        received += decoder.decode(chunk.value);
+      }
+      expect(received).toContain('First chunk');
+      expect(received).not.toContain('[DONE]');
+      release();
+      while (!(await reader.read()).done) {
+        /* drain */
+      }
+    } finally {
+      release();
+    }
   });
 });

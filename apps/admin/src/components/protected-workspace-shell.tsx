@@ -73,6 +73,8 @@ export function ProtectedWorkspaceShell({
   return (
     <SidebarProvider>
       <AssistantProvider
+        key={`${workspace.id}:${workspace.membershipId}`}
+        actorIdentity={workspace.membershipId}
         workspace={workspace}
         accessToken={staff.accessToken ?? ''}
         activeLeadId={activeLeadId(pathname, searchParams)}

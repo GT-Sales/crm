@@ -1,4 +1,5 @@
 import { contextWorkspaceId, withTenantTx, type DatabaseClient } from '@gt-sales/db';
+import { AI_ASSISTANT_LIMITS } from '@gt-sales/contracts';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -36,10 +37,13 @@ export class DatabaseAiSiteContextStore implements AiSiteContextStore {
 
   siteContext(scope: Scope): Promise<AiSiteContext | undefined> {
     return this.database.withTenantTx(scope, async (tx) => {
+      await tx.execute(
+        sql`select set_config('statement_timeout', ${String(AI_ASSISTANT_LIMITS.toolQueryTimeoutMs)}, true)`,
+      );
       const [row] = await tx.execute<{ [key: string]: unknown }>(sql`
         select
-          w.slug,
-          w.name,
+          w.workspace_slug as slug,
+          w.workspace_name as name,
           (
             select coalesce(json_agg(t.lead_type order by t.lead_type), '[]'::json)
             from (
@@ -48,8 +52,8 @@ export class DatabaseAiSiteContextStore implements AiSiteContextStore {
               where l.workspace_id = ${contextWorkspaceId}
             ) t
           ) as lead_types
-        from app.workspaces w
-        where w.id = ${contextWorkspaceId}
+        from app.list_staff_workspaces() w
+        where w.workspace_id = ${contextWorkspaceId}
         limit 1
       `);
       const parsed = rowSchema.safeParse(row);

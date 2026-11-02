@@ -11,7 +11,13 @@ import { dateTimeLabel } from '../../lib/dates';
  * shown as plain text instead.
  */
 export function safeInternalHref(href: string): string | undefined {
-  if (!href.startsWith('/') || href.startsWith('//') || href.includes('\\')) return undefined;
+  if (
+    !href.startsWith('/') ||
+    href.startsWith('//') ||
+    href.includes('\\') ||
+    Array.from(href).some((character) => character.charCodeAt(0) <= 32)
+  )
+    return undefined;
   return href;
 }
 

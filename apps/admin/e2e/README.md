@@ -38,3 +38,11 @@ The seam is compiled out of every normal build (CI greps for it), and
 Postgres on `localhost:5432` with a `gt_sales_crm_e2e_test` database
 (`createdb gt_sales_crm_e2e_test`). A journey with real Supabase sign-in still
 belongs in a staging run.
+
+## AI assistant (`ai-assistant.spec.ts`)
+
+Included in `test:e2e:leads`, using that suite's real backend and disposable
+database. Only the model is synthetic. Covers both themes at 375/1440 px,
+streaming and sources, Stop/New chat, repeated focus restoration, and preserving
+an unsaved note behind desktop/mobile lead panels. The normal shell config
+excludes this authenticated suite. No Gateway key or live model is needed.

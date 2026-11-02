@@ -19,7 +19,7 @@ import {
 
 import { buildAiChatRequest, streamAnswer, uiErrorForStreamCode } from '../../lib/ai-transport';
 import type { AiRequestLimits, AiUiError, AiHistoryEntry } from '../../lib/ai-transport';
-import { getAiCapabilities } from '../../lib/api';
+import { getAiCapabilities, BackendError } from '../../lib/api';
 
 /**
  * Ask AI's client state. The conversation lives in memory only: no storage,
@@ -76,6 +76,8 @@ export interface AssistantContextValue {
   /** The selected Site's name, always available even before capabilities load. */
   siteName: string;
   maxMessageChars: number;
+  historyTrimmed: boolean;
+  removeLeadContext(): void;
   open(returnFocusTo?: HTMLElement): void;
   close(): void;
   newChat(): void;
@@ -123,19 +125,24 @@ function randomUuid(): string {
 export function AssistantProvider({
   workspace,
   accessToken,
+  actorIdentity,
   activeLeadId,
   children,
 }: {
   workspace: AssistantWorkspace;
   accessToken: string;
+  actorIdentity?: string;
   activeLeadId?: string;
   children: ReactNode;
 }) {
   // The credential and the site together own the conversation. Comparing this
   // key during render clears it before a stale turn can paint; the abort and
   // the generation bump make every part already in flight a no-op.
-  const sessionKey = `${workspace.id}:${workspace.slug}:${accessToken}`;
+  const sessionKey = `${workspace.id}:${workspace.slug}:${actorIdentity ?? accessToken}`;
 
+  const [removedLead, setRemovedLead] = useState<string>();
+  const [historyTrimmed, setHistoryTrimmed] = useState(false);
+  const contextLeadId = activeLeadId === removedLead ? undefined : activeLeadId;
   const [isOpen, setIsOpen] = useState(false);
   const [session, setSession] = useState<SessionState>(() => emptySession(sessionKey));
   const sessionRef = useRef(session);
@@ -155,6 +162,9 @@ export function AssistantProvider({
     const reset = emptySession(sessionKey);
     sessionRef.current = reset;
     setSession(reset);
+    setIsOpen(false);
+    setRemovedLead(undefined);
+    setHistoryTrimmed(false);
   }
 
   const activeSession = useMemo<SessionState>(
@@ -178,9 +188,26 @@ export function AssistantProvider({
         if (!current || capabilitiesGenerationRef.current !== requestGeneration) return;
         setCapabilitiesState({ key: sessionKey, value: { status: 'ready', data } });
       },
-      () => {
+      (error: unknown) => {
         if (!current || capabilitiesGenerationRef.current !== requestGeneration) return;
         setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+        if (
+          error instanceof BackendError &&
+          [
+            'permission_denied',
+            'membership_revoked',
+            'membership_missing',
+            'membership_pending',
+            'invalid_session',
+          ].includes(error.code)
+        ) {
+          generationRef.current += 1;
+          abortRef.current?.abort();
+          const reset = emptySession(sessionKey);
+          sessionRef.current = reset;
+          setSession(reset);
+          setIsOpen(false);
+        }
       },
     );
     return () => {
@@ -274,8 +301,9 @@ export function AssistantProvider({
         history: toHistory(base),
         limits,
         requestId: randomUuid(),
-        ...(activeLeadId === undefined ? {} : { leadId: activeLeadId }),
+        ...(contextLeadId === undefined ? {} : { leadId: contextLeadId }),
       });
+      setHistoryTrimmed(built.trimmed);
       void (async () => {
         const result = await streamAnswer({
           accessToken,
@@ -284,15 +312,31 @@ export function AssistantProvider({
           signal: controller.signal,
           onPart(part) {
             if (generationRef.current !== run) return;
+            if (part.type === 'error' && part.code === 'access_lost') {
+              generationRef.current += 1;
+              controller.abort();
+              commitSession(emptySession(sessionKey));
+              setIsOpen(false);
+              setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+              return;
+            }
             applyPart(assistant.id, part);
           },
         });
         if (generationRef.current !== run) return;
         if (abortRef.current === controller) abortRef.current = null;
+        if (result === 'denied' || result === 'session_expired') {
+          generationRef.current += 1;
+          controller.abort();
+          commitSession(emptySession(sessionKey));
+          setIsOpen(false);
+          setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+          return;
+        }
         finalize(assistant.id, result);
       })();
     },
-    [accessToken, activeLeadId, applyPart, commitSession, finalize, sessionKey, workspace.id],
+    [accessToken, contextLeadId, applyPart, commitSession, finalize, sessionKey, workspace.id],
   );
 
   const open = useCallback((returnFocusTo?: HTMLElement) => {
@@ -322,7 +366,12 @@ export function AssistantProvider({
     const target = returnFocusRef.current;
     returnFocusRef.current = null;
     setIsOpen(false);
-    if (target?.isConnected === true) target.focus();
+    if (target?.isConnected === true) {
+      target.focus();
+      requestAnimationFrame(() => {
+        if (target.isConnected) target.focus();
+      });
+    }
   }, [commitSession]);
 
   const newChat = useCallback(() => {
@@ -330,6 +379,7 @@ export function AssistantProvider({
     abortRef.current?.abort();
     abortRef.current = null;
     commitSession(emptySession(sessionKey));
+    setHistoryTrimmed(false);
   }, [commitSession, sessionKey]);
 
   const stop = useCallback(() => {
@@ -351,7 +401,9 @@ export function AssistantProvider({
       const current = sessionRef.current;
       if (current.streaming || capabilities.status !== 'ready') return;
       if (!capabilities.data.available) return;
-      const text = raw.trim().slice(0, capabilities.data.limits.maxMessageChars);
+      const text = Array.from(raw.trim())
+        .slice(0, capabilities.data.limits.maxMessageChars)
+        .join('');
       if (text.length === 0) return;
       startTurn(
         text,
@@ -382,7 +434,9 @@ export function AssistantProvider({
       messages: activeSession.messages,
       streaming: activeSession.streaming,
       isOpen,
-      ...(activeLeadId === undefined ? {} : { activeLeadId }),
+      ...(contextLeadId === undefined ? {} : { activeLeadId: contextLeadId }),
+      historyTrimmed,
+      removeLeadContext: () => setRemovedLead(activeLeadId),
       siteName: capabilities.status === 'ready' ? capabilities.data.site.name : workspace.name,
       maxMessageChars:
         capabilities.status === 'ready'
@@ -397,6 +451,8 @@ export function AssistantProvider({
     }),
     [
       activeLeadId,
+      contextLeadId,
+      historyTrimmed,
       activeSession,
       capabilities,
       close,
@@ -417,4 +473,8 @@ export function useAssistant(): AssistantContextValue {
   const value = useContext(AssistantContext);
   if (!value) throw new Error('useAssistant must be used inside AssistantProvider');
   return value;
+}
+
+export function useOptionalAssistant(): AssistantContextValue | undefined {
+  return useContext(AssistantContext);
 }

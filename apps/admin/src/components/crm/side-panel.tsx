@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { XIcon } from 'lucide-react';
+import { AssistantTrigger } from '../ai/assistant-trigger';
 import { cn, Sheet, SheetContent, SheetTitle, useIsMobile } from '@gt-sales/ui';
 
 /** A field where Escape may be part of typing: the panel must not close (and drop a draft) from it. */
@@ -127,6 +128,7 @@ export function SidePanel({
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-crm-header px-3">
       <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{title}</h2>
       {actions}
+      {isMobile ? <AssistantTrigger /> : null}
       <button
         type="button"
         aria-label="Close panel"

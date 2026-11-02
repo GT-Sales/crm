@@ -1,5 +1,13 @@
 import { AI_ASSISTANT_LIMITS, type AiStreamErrorCode } from '@gt-sales/contracts';
-import { createGateway, stepCountIs, streamText, type ModelMessage, type ToolSet } from 'ai';
+import {
+  APICallError,
+  createGateway,
+  stepCountIs,
+  streamText,
+  type ModelMessage,
+  type ToolSet,
+  type LanguageModel,
+} from 'ai';
 
 /**
  * The model adapter: one interface, two implementations.
@@ -60,13 +68,16 @@ function toModelMessages(
  * No fallback model, no fabrication: a provider failure raises and the route
  * turns it into a typed, sanitized stream error.
  */
-export function createGatewayEngine(options: { apiKey: string; modelId: string }): AssistantEngine {
+export function createGatewayEngine(
+  options: { apiKey: string; modelId: string },
+  modelForTest?: LanguageModel,
+): AssistantEngine {
   return {
     kind: 'gateway',
     async *stream(input) {
       const gateway = createGateway({ apiKey: options.apiKey });
       const result = streamText({
-        model: gateway(options.modelId),
+        model: modelForTest ?? gateway(options.modelId),
         system: input.system,
         messages: toModelMessages(input.messages),
         tools: input.tools,
@@ -77,6 +88,9 @@ export function createGatewayEngine(options: { apiKey: string; modelId: string }
         // route never retries a partially streamed answer.
         maxRetries: 1,
         abortSignal: input.signal,
+        // SDK defaults log raw provider errors (potentially prompts and bodies).
+        // The route records only its fixed error code.
+        onError: () => {},
       });
 
       try {
@@ -95,10 +109,20 @@ export function createGatewayEngine(options: { apiKey: string; modelId: string }
               yield { type: 'tool-end', toolName: part.toolName, ok: false };
               break;
             case 'error':
-              throw new AssistantProviderError('provider_unavailable');
+              throw new AssistantProviderError(
+                APICallError.isInstance(part.error) && part.error.statusCode === 429
+                  ? 'rate_limited'
+                  : 'provider_unavailable',
+              );
             case 'abort':
               throw new AssistantProviderError('cancelled');
             case 'finish':
+              if (
+                part.finishReason === 'error' ||
+                part.finishReason === 'length' ||
+                part.finishReason === 'tool-calls'
+              )
+                throw new AssistantProviderError('budget_exceeded');
               yield {
                 type: 'finish',
                 ...(part.totalUsage.outputTokens === undefined
@@ -144,15 +168,16 @@ export function createFakeEngine(turns: readonly FakeTurn[]): AssistantEngine {
 
       if (turn.hangMs !== undefined) {
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, turn.hangMs);
-          input.signal.addEventListener(
-            'abort',
-            () => {
-              clearTimeout(timer);
-              reject(new AssistantProviderError('cancelled'));
-            },
-            { once: true },
-          );
+          const onAbort = () => {
+            clearTimeout(timer);
+            reject(new AssistantProviderError('cancelled'));
+          };
+          const timer = setTimeout(() => {
+            input.signal.removeEventListener('abort', onAbort);
+            resolve();
+          }, turn.hangMs);
+          input.signal.addEventListener('abort', onAbort, { once: true });
+          if (input.signal.aborted) onAbort();
         });
       }
 

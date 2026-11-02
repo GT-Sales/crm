@@ -141,7 +141,7 @@ import { sourceReportQuerySchema, sourceReportResponseSchema } from './reports';
 import {
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
-  aiStreamPartSchema,
+  aiWirePartSchema,
 } from './ai-assistant';
 import {
   leadBoardQuerySchema,
@@ -917,7 +917,7 @@ export const endpoints: readonly EndpointDef[] = [
     request: aiChatRequestSchema,
     stream: {
       contentType: 'text/event-stream',
-      schema: aiStreamPartSchema,
+      schema: aiWirePartSchema,
       event: 'part',
       summary: 'One typed part: progress, text, sources, error or done.',
     },

@@ -3,7 +3,7 @@
 import { SparklesIcon } from 'lucide-react';
 import { Button } from '@gt-sales/ui';
 
-import { useAssistant } from './assistant-provider';
+import { useOptionalAssistant } from './assistant-provider';
 
 /**
  * The top bar's entry point. It stays out of the DOM until the capability call
@@ -11,7 +11,9 @@ import { useAssistant } from './assistant-provider';
  * can never flash an enabled button.
  */
 export function AssistantTrigger() {
-  const { capabilities, isOpen, open } = useAssistant();
+  const assistant = useOptionalAssistant();
+  if (!assistant) return null;
+  const { capabilities, isOpen, open } = assistant;
   if (capabilities.status !== 'ready' || !capabilities.data.available) return null;
   return (
     <Button

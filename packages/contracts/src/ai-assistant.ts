@@ -99,7 +99,14 @@ export type AiCapabilitiesResponse = z.infer<typeof aiCapabilitiesResponseSchema
 export const aiHistoryMessageSchema = z
   .object({
     role: z.enum(['user', 'assistant']),
-    text: z.string().min(1).max(AI_ASSISTANT_LIMITS.maxMessageChars),
+    text: z
+      .string()
+      .min(1)
+      .max(AI_ASSISTANT_LIMITS.maxMessageChars * 2)
+      .refine(
+        (text) => Array.from(text).length <= AI_ASSISTANT_LIMITS.maxMessageChars,
+        'message character limit',
+      ),
   })
   .strict();
 
@@ -113,7 +120,15 @@ export type AiHistoryMessage = z.infer<typeof aiHistoryMessageSchema>;
 export const aiChatRequestSchema = z
   .object({
     requestId: z.uuid(),
-    message: z.string().trim().min(1).max(AI_ASSISTANT_LIMITS.maxMessageChars),
+    message: z
+      .string()
+      .trim()
+      .min(1)
+      .max(AI_ASSISTANT_LIMITS.maxMessageChars * 2)
+      .refine(
+        (text) => Array.from(text).length <= AI_ASSISTANT_LIMITS.maxMessageChars,
+        'message character limit',
+      ),
     history: z.array(aiHistoryMessageSchema).max(AI_ASSISTANT_LIMITS.maxHistoryMessages),
     context: z.object({ leadId: z.uuid() }).strict().optional(),
   })
@@ -137,7 +152,13 @@ export const aiSourceSchema = z.object({
     .string()
     .min(1)
     .max(400)
-    .regex(/^\/(?!\/)/, 'site-relative path'),
+    .regex(/^\/(?!\/)/, 'site-relative path')
+    .refine(
+      (href) =>
+        !href.includes('\\') &&
+        !Array.from(href).some((character) => character.charCodeAt(0) <= 32),
+      'safe path',
+    ),
   asOf: isoDateTimeSchema,
   scope: z.string().min(1).max(300),
 });
@@ -181,3 +202,12 @@ export type AiStreamPart = z.infer<typeof aiStreamPartSchema>;
 
 /** The event name the stream uses for every part; kept here so both ends agree. */
 export const AI_STREAM_EVENT = 'part';
+
+/** AI SDK v7 UI-message protocol custom data part; payload stays backend-owned. */
+export const aiWirePartSchema = z
+  .object({
+    type: z.literal('data-assistant'),
+    data: aiStreamPartSchema,
+    transient: z.literal(true),
+  })
+  .strict();

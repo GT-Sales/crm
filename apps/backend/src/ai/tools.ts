@@ -20,6 +20,7 @@ import {
   projectLead,
   projectTask,
   serializedBytes,
+  toolResultSchema,
   type ActivityProjection,
   type FindLeadsData,
   type LeadSummaryData,
@@ -75,6 +76,7 @@ export const toolInputSchemas = {
     .object({
       leadType: z.string().min(1).max(64).optional(),
       period: aiPeriodSchema.optional(),
+      status: z.literal('submitted').optional(),
     })
     .strict(),
   findLeads: z
@@ -90,6 +92,7 @@ export const toolInputSchemas = {
   getLeadSummary: z
     .object({
       leadId: z.uuid(),
+      includeArchived: z.boolean().optional(),
       sections: z
         .array(z.enum(['tasks', 'activity', 'notes']))
         .max(3)
@@ -118,6 +121,7 @@ export interface ToolContext {
   readonly scope: Scope;
   readonly site: AiSiteContext;
   readonly now: Date;
+  readonly signal?: AbortSignal;
   readonly budget: TurnBudget;
   readonly sources: SourceRegistry;
   readonly reads: AiReadService;
@@ -179,19 +183,22 @@ function stageLabelOf(leadType: string | undefined, stage: string): string {
  * sells mobility but has none yet must answer "0", not "unknown type".
  */
 function validLeadType(value: string | undefined): boolean {
-  return value === undefined || value in leadTypeCatalog;
+  return value === undefined || Object.hasOwn(leadTypeCatalog, value);
 }
 
 export function createAssistantTools(context: ToolContext): AssistantToolset {
   const asOf = () => context.now.toISOString();
 
-  async function reauthorize(): Promise<void> {
+  async function reauthorize(): Promise<StaffAccessSnapshot> {
+    context.signal?.throwIfAborted();
     const access = await context.loadAccess();
+    context.signal?.throwIfAborted();
     const decision = decideAiAccess(access);
     if (!decision.allowed) {
       context.onAccessRevoked?.();
       throw new AssistantAccessRevokedError();
     }
+    return decision.access;
   }
 
   /**
@@ -209,51 +216,32 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     countRecords: (kept: readonly TRow[]) => number = (kept) => kept.length,
   ): string {
     let kept = [...rows];
-    let candidate: ToolResult<T> = { ...result, data: build(kept) };
-    while (serializedBytes(candidate) > AI_ASSISTANT_LIMITS.maxToolResultBytes && kept.length > 1) {
-      kept = kept.slice(0, Math.max(1, Math.floor(kept.length / 2)));
+    let candidate: ToolResult<T>;
+    for (;;) {
       candidate = {
         ...result,
         data: build(kept),
-        truncated: true,
         returnedCount: countRecords(kept),
+        ...(kept.length < rows.length ? { truncated: true, hasMore: true } : {}),
       };
-    }
-    const acceptance = context.budget.acceptResult({
-      bytes: serializedBytes(candidate),
-      records: countRecords(kept),
-    });
-    if (acceptance.rejected) {
-      return JSON.stringify(
-        unavailable<T>(
-          result.scope,
-          result.asOf,
-          'The answer would exceed this turn’s data budget. Ask a narrower question.',
-        ),
-      );
-    }
-    if (acceptance.truncated && countRecords(kept) > acceptance.allowedRecords) {
-      // A result whose records are nested (one lead plus its tasks and notes)
-      // cannot be shrunk by dropping rows; better a clear refusal than an
-      // answer that silently exceeds the budget.
-      if (kept.length <= 1) {
+      const bytes = serializedBytes(candidate);
+      if (
+        bytes <= context.budget.remainingBytes &&
+        countRecords(kept) <= context.budget.remainingRecords
+      ) {
+        context.budget.acceptResult({ bytes, records: countRecords(kept) });
+        return JSON.stringify(candidate);
+      }
+      if (kept.length === 0)
         return JSON.stringify(
           unavailable<T>(
             result.scope,
             result.asOf,
-            'This answer is larger than the remaining budget for one question. Ask something narrower.',
+            'The answer would exceed this turn’s data budget. Ask a narrower question.',
           ),
         );
-      }
-      kept = kept.slice(0, Math.max(acceptance.allowedRecords, 1));
-      candidate = {
-        ...result,
-        data: build(kept),
-        truncated: true,
-        returnedCount: countRecords(kept),
-      };
+      kept = kept.slice(0, -1);
     }
-    return JSON.stringify(candidate);
   }
 
   async function getSiteOverview(input: z.infer<(typeof toolInputSchemas)['getSiteOverview']>) {
@@ -263,15 +251,15 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     const scope = scopeOf(context, {
       leadType: input.leadType ?? null,
       window,
-      filters: { period },
+      filters: { period, ...(input.status === undefined ? {} : { status: input.status }) },
     });
 
     if (input.leadType === undefined) {
       // A site-wide count is allowed, but only over the types this site holds.
-      const totals = await overviewForAllTypes(context, window);
+      const totals = await overviewForAllTypes(context, window, input.status);
       if (!totals) {
         return JSON.stringify(
-          unavailable<OverviewData>(scope, asOf(), 'Lead counts could not be read.'),
+          temporaryFailure<OverviewData>(scope, asOf(), 'Lead counts could not be read.'),
         );
       }
       const data: OverviewData = {
@@ -280,7 +268,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         byStage: totals.byStage,
       };
       context.sources.leadsInbox(
-        `${context.site.name} · all lead types · ${window.label} · drafts included, archived and restricted excluded`,
+        `${context.site.name} · all lead types · ${window.label} · ${input.status === 'submitted' ? 'submitted only' : 'drafts included'}, archived and restricted excluded · ${window.start.toISOString()} ≤ created < ${window.end.toISOString()}`,
       );
       return finish(
         {
@@ -309,10 +297,14 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     const leadType = input.leadType;
     let totals;
     try {
-      totals = await context.reads.overview(context.scope, { leadType, window });
+      totals = await context.reads.overview(context.scope, {
+        leadType,
+        window,
+        ...(input.status === undefined ? {} : { status: input.status }),
+      });
     } catch {
       return JSON.stringify(
-        unavailable<OverviewData>(scope, asOf(), 'Lead counts could not be read just now.'),
+        temporaryFailure<OverviewData>(scope, asOf(), 'Lead counts could not be read just now.'),
       );
     }
     const data: OverviewData = {
@@ -324,7 +316,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       })),
     };
     context.sources.leadsInbox(
-      `${context.site.name} · ${leadType} · ${window.label} · drafts included, archived and restricted excluded`,
+      `${context.site.name} · ${leadType} · ${window.label} · ${input.status === 'submitted' ? 'submitted only' : 'drafts included'}, archived and restricted excluded · ${window.start.toISOString()} ≤ created < ${window.end.toISOString()}`,
     );
     return finish(
       {
@@ -343,6 +335,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
   async function overviewForAllTypes(
     context: ToolContext,
     window: ResolvedWindow,
+    status?: 'submitted',
   ): Promise<{ received: number; submitted: number; byStage: OverviewStageCount[] } | undefined> {
     // Sum the site's own types one by one: the catalogue stays the source of
     // truth for which types exist, and each read stays a bounded query.
@@ -351,7 +344,11 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     let submitted = 0;
     for (const leadType of context.site.leadTypes) {
       try {
-        const totals = await context.reads.overview(context.scope, { leadType, window });
+        const totals = await context.reads.overview(context.scope, {
+          leadType,
+          window,
+          ...(status === undefined ? {} : { status }),
+        });
         received += totals.received;
         submitted += totals.submitted;
         for (const entry of totals.byStage) {
@@ -371,7 +368,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     const scope = scopeOf(context, {
       leadType: input.leadType ?? null,
       window: null,
-      archivePolicy: input.archived === true ? 'including_archived' : 'active_only',
+      archivePolicy: input.archived === true ? 'archived_only' : 'active_only',
       filters: {
         ...(input.search === undefined ? {} : { search: 'provided' }),
         ...(input.stage === undefined ? {} : { stage: input.stage }),
@@ -416,7 +413,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       });
     } catch {
       return JSON.stringify(
-        unavailable<FindLeadsData>(scope, asOf(), 'Leads could not be searched just now.'),
+        temporaryFailure<FindLeadsData>(scope, asOf(), 'Leads could not be searched just now.'),
       );
     }
 
@@ -425,7 +422,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       context.sources.lead(
         lead.leadId,
         lead.reference ?? lead.name ?? 'Lead',
-        `${context.site.name} · ${lead.leadTypeLabel} · ${lead.stageLabel}`,
+        `${context.site.name} · ${lead.leadTypeLabel} · ${lead.stageLabel}${lead.archived ? ' · archived' : ''}`,
       );
     }
     const hasMore = page < 5 && result.total > page * FIND_LEADS_PAGE_SIZE;
@@ -436,6 +433,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         scope,
         total: result.total,
         returnedCount: leads.length,
+        truncated: result.total > leads.length,
         hasMore,
         sources: context.sources.list(),
       },
@@ -445,9 +443,13 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
   }
 
   async function getLeadSummary(input: z.infer<(typeof toolInputSchemas)['getLeadSummary']>) {
-    await reauthorize();
+    const access = await reauthorize();
     const sections = new Set(input.sections ?? ['tasks', 'activity']);
-    const scope = scopeOf(context, { window: null, filters: { leadId: input.leadId } });
+    const scope = scopeOf(context, {
+      window: null,
+      archivePolicy: input.includeArchived ? 'including_archived' : 'active_only',
+      filters: { leadId: input.leadId },
+    });
     if (!context.budget.reserveLeadSummary()) {
       return JSON.stringify(
         unavailable<LeadSummaryData>(
@@ -462,11 +464,13 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     try {
       summary = await context.reads.leadSummary(context.scope, {
         leadId: input.leadId,
+        includeArchived: input.includeArchived ?? false,
         ...(sections.has('notes') ? { includeNotes: true } : {}),
+        includeFinancial: canSeeMoney(access),
       });
     } catch {
       return JSON.stringify(
-        unavailable<LeadSummaryData>(scope, asOf(), 'That lead could not be read just now.'),
+        temporaryFailure<LeadSummaryData>(scope, asOf(), 'That lead could not be read just now.'),
       );
     }
     if (!summary) {
@@ -483,7 +487,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     const lead = projectLead(summary.lead);
     const openTasks = sections.has('tasks') ? summary.openTasks.map(projectTask) : [];
     const recentActivity: ActivityProjection[] = [];
-    if (sections.has('activity') || sections.has('notes')) {
+    if (sections.has('activity')) {
       for (const entry of summary.activity) {
         // Notes are carried by the separate, bounded notes read below, so a
         // lead whose last activities were status changes still shows its notes.
@@ -509,22 +513,35 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     context.sources.lead(
       lead.leadId,
       lead.reference ?? lead.name ?? 'Lead',
-      `${context.site.name} · ${lead.leadTypeLabel} · ${lead.stageLabel}`,
+      `${context.site.name} · ${lead.leadTypeLabel} · ${lead.stageLabel}${lead.archived ? ' · archived' : ''}`,
     );
-    const data: LeadSummaryData = { lead, openTasks, recentActivity };
-    const countRecords = () => 1 + openTasks.length + recentActivity.length;
+    const data: LeadSummaryData = {
+      lead,
+      ...(summary.order === undefined ? {} : { order: summary.order }),
+      openTasks,
+      recentActivity,
+    };
+    const items = [
+      ...openTasks.map((task) => ({ kind: 'task' as const, task })),
+      ...recentActivity.map((activity) => ({ kind: 'activity' as const, activity })),
+    ];
     return finish(
       {
         status: 'ok',
         asOf: asOf(),
         scope,
         total: 1,
-        returnedCount: countRecords(),
+        returnedCount: 1 + items.length,
+        truncated: summary.truncated ?? false,
         sources: context.sources.list(),
       },
-      [data],
-      () => data,
-      countRecords,
+      items,
+      (kept) => ({
+        ...data,
+        openTasks: kept.flatMap((item) => (item.kind === 'task' ? [item.task] : [])),
+        recentActivity: kept.flatMap((item) => (item.kind === 'activity' ? [item.activity] : [])),
+      }),
+      (kept) => 1 + kept.length,
     );
   }
 
@@ -553,7 +570,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       });
     } catch {
       return JSON.stringify(
-        unavailable<OpenTasksData>(scope, asOf(), 'Follow-ups could not be read just now.'),
+        temporaryFailure<OpenTasksData>(scope, asOf(), 'Follow-ups could not be read just now.'),
       );
     }
 
@@ -567,6 +584,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         scope,
         total: result.total,
         returnedCount: tasks.length,
+        truncated: result.total > tasks.length,
         hasMore,
         sources: context.sources.list(),
       },
@@ -610,10 +628,12 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         actorId: context.scope.actorId,
         leadType: input.leadType,
         ...(input.days === undefined ? {} : { days: input.days }),
+        asOf: context.now,
+        queryTimeoutMs: AI_ASSISTANT_LIMITS.toolQueryTimeoutMs,
       });
     } catch {
       return JSON.stringify(
-        unavailable<SourcePerformanceData>(
+        temporaryFailure<SourcePerformanceData>(
           scope,
           asOf(),
           'The source report could not be read just now.',
@@ -621,14 +641,16 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       );
     }
 
-    const rows = report.rows.map((row) => ({
-      source: row.source,
-      kind: row.kind,
-      received: row.received,
-      submitted: row.submitted,
-      madeIt: row.madeIt,
-      other: row.kind === 'other',
-    }));
+    const rows = report.rows
+      .map((row) => ({
+        source: row.source,
+        kind: row.kind,
+        received: row.received,
+        submitted: row.submitted,
+        madeIt: row.madeIt,
+        other: row.kind === 'other',
+      }))
+      .sort((a, b) => Number(b.other) - Number(a.other));
     context.sources.sourceReport(
       'Reports → Sources',
       `${context.site.name} · ${input.leadType} · ${input.days === undefined ? 'all time' : `last ${input.days} days`}`,
@@ -650,19 +672,11 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         sources: context.sources.list(),
       },
       rows,
-      (kept) => {
-        // The report's Other row is an aggregate of sources that are not shown
-        // individually; dropping it would leave rows that cannot reconcile with
-        // `totals`, so it always survives truncation.
-        const keptIds = new Set(kept.map((row) => row.source));
-        const other = rows.filter((row) => row.other && !keptIds.has(row.source));
-        const combined = [...kept, ...other];
-        return {
-          ...data,
-          rows: combined,
-          sourcesShown: combined.filter((row) => !row.other).length,
-        };
-      },
+      (kept) => ({
+        ...data,
+        rows: [...kept].sort((a, b) => Number(a.other) - Number(b.other)),
+        sourcesShown: kept.filter((row) => !row.other).length,
+      }),
     );
   }
 
@@ -681,8 +695,8 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
    * turn's six, and the refusal is a bounded explanation rather than a throw.
    *
    * An identical read already made in this same turn (same tool, same
-   * arguments) is served from memory and reserves nothing: the model repeating
-   * itself must not cost a second query or a second slice of the budget.
+   * arguments) is served from memory without another database query. Replayed
+   * output still consumes call, byte and record allowances.
    */
   const identicalReads = new Map<string, Promise<string>>();
 
@@ -693,7 +707,29 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       // The answer is already in this turn, but permission is not cached: a
       // membership revoked a second ago must still end the turn.
       await reauthorize();
-      return repeated;
+      if (!context.budget.reserveToolCall())
+        return JSON.stringify(
+          unavailable(
+            scopeOf(context, { window: null }),
+            asOf(),
+            'This turn has already used its tool budget.',
+          ),
+        );
+      const cached = await repeated;
+      if (
+        context.budget.acceptResult({
+          bytes: Buffer.byteLength(cached, 'utf8'),
+          records: toolResultSchema.parse(JSON.parse(cached)).returnedCount ?? 0,
+        }).rejected
+      )
+        return JSON.stringify(
+          unavailable(
+            scopeOf(context, { window: null }),
+            asOf(),
+            'This turn has already used its data budget.',
+          ),
+        );
+      return cached;
     }
     if (!context.budget.reserveToolCall()) {
       const scope = scopeOf(context, { window: null });
@@ -705,7 +741,22 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         ),
       );
     }
-    const pending = handlers[name](input);
+    await reauthorize();
+    const checked = toolInputSchemas[name].parse(input);
+    if ('assignee' in checked && checked.assignee && z.uuid().safeParse(checked.assignee).success) {
+      if (!(await context.reads.isActiveMember(context.scope, checked.assignee))) {
+        return JSON.stringify(
+          invalidFilter(
+            scopeOf(context, { window: null }),
+            asOf(),
+            'That assignee is not available in this site.',
+          ),
+        );
+      }
+    }
+    const pending = handlers[name](checked).then((result) =>
+      JSON.stringify(toolResultSchema.parse(JSON.parse(result))),
+    );
     identicalReads.set(key, pending);
     return pending;
   }
@@ -724,7 +775,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     }),
     findLeads: tool({
       description:
-        'Search this site’s leads by name or reference number, optionally filtered by type, stage, assignee or the archive. Returns at most 10 minimal records per page with an exact total. Never returns contact details.',
+        'Search this site’s leads by name, reference number, email or phone, optionally filtered by type, stage, assignee or the archive. Returns at most 10 minimal records per page with an exact total. Never returns contact details.',
       inputSchema: toolInputSchemas.findLeads,
       execute: async (input) => run('findLeads', input),
     }),
@@ -760,7 +811,11 @@ function invalidFilter<T>(scope: ToolScope, asOf: string, message: string): Tool
   return { status: 'invalid_filter', asOf, scope, sources: [], message };
 }
 
-/** Whether this access snapshot may see monetary values (none are exposed in v1). */
+/** Whether this live access snapshot may see the allowlisted order money fields. */
 export function canSeeMoney(access: StaffAccessSnapshot | undefined): boolean {
   return decideAccess(access, 'financial.read').allowed;
+}
+
+function temporaryFailure<T>(scope: ToolScope, asOf: string, message: string): ToolResult<T> {
+  return { status: 'temporary_failure', asOf, scope, sources: [], message };
 }

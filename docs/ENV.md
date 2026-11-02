@@ -271,3 +271,10 @@ GitHub or a deployment.
 | `INCIDENT_DETECTED_AT`                                                                                                                              | Optional. An ISO 8601 date-time; the report then measures the loss window from the run's capture time.                                                                                                                                                                                                                                                                                                                    |
 | `PGSSLMODE`                                                                                                                                         | Optional. Defaults to `require`; set `disable` only for a local `supabase start` target.                                                                                                                                                                                                                                                                                                                                  |
 | `SENTRY_DSN`, `RELEASE_SHA`, `DEPLOYMENT_ENV`                                                                                                       | Optional error tracking when the restore itself fails.                                                                                                                                                                                                                                                                                                                                                                    |
+
+### Optional local AI smoke (never needed by the deployed apps)
+
+`AI_LIVE_SMOKE=synthetic` explicitly opts the backend's `scripts/ai-live-smoke.ts`
+into one bounded live Gateway test using only in-memory synthetic facts. It also
+needs `AI_GATEWAY_API_KEY` and `AI_GATEWAY_MODEL` from secure environment variables.
+Unset, no provider is called and the script exits 2. See the AI runbook §11.

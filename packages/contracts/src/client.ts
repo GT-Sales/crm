@@ -6,6 +6,7 @@ import {
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
+  aiWirePartSchema,
   type AiCapabilitiesResponse,
   type AiChatRequest,
   type AiStreamPart,
@@ -370,6 +371,7 @@ async function* readServerSentEvents(
       if (payload.length > 0) yield payload;
     }
   } finally {
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -865,7 +867,9 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
       } catch {
         continue;
       }
-      const parsed = aiStreamPartSchema.safeParse(payload);
+      const wire = aiWirePartSchema.safeParse(payload);
+      // Accept the previous release while frontend/backend roll independently.
+      const parsed = aiStreamPartSchema.safeParse(wire.success ? wire.data.data : payload);
       if (parsed.success) yield parsed.data;
     }
   }

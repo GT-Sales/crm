@@ -1,4 +1,4 @@
-import { leadStageLabel, leadTypeLabel, type AiSource } from '@gt-sales/contracts';
+import { aiSourceSchema, leadStageLabel, leadTypeLabel, type AiSource } from '@gt-sales/contracts';
 import { z } from 'zod';
 
 /**
@@ -27,7 +27,7 @@ export interface ToolScope {
   readonly siteId: string;
   readonly siteName: string;
   readonly leadType: string | null;
-  readonly archivePolicy: 'active_only' | 'including_archived';
+  readonly archivePolicy: 'active_only' | 'including_archived' | 'archived_only';
   readonly window: ToolWindow | null;
   readonly filters: Readonly<Record<string, string | readonly string[]>>;
 }
@@ -97,8 +97,23 @@ export interface OverviewData {
   readonly byStage: readonly OverviewStageCount[];
 }
 
+export const orderProjectionSchema = z
+  .object({
+    planName: z.string().max(160).nullable().optional(),
+    quantity: z.int().min(1).max(99).optional(),
+    dispatchedAt: z.string().nullable().optional(),
+    activatedAt: z.string().nullable().optional(),
+    priceMinor: z.int().nonnegative().nullable().optional(),
+    currency: z.literal('CAD').optional(),
+    paymentStatus: z.enum(['not_needed', 'pending', 'paid']).optional(),
+    carrierCommission: z.enum(['not_yet', 'invoiced', 'received', 'clawback']).optional(),
+  })
+  .strict();
+export type OrderProjection = z.infer<typeof orderProjectionSchema>;
+
 export interface LeadSummaryData {
   readonly lead: LeadProjection;
+  readonly order?: OrderProjection;
   readonly openTasks: readonly TaskProjection[];
   readonly recentActivity: readonly ActivityProjection[];
 }
@@ -238,3 +253,114 @@ export function noteExcerpt(body: string | null): string | null {
 export function serializedBytes(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(value), 'utf8');
 }
+
+const leadProjectionSchema = z
+  .object({
+    leadId: z.uuid(),
+    leadType: z.string(),
+    leadTypeLabel: z.string(),
+    stage: z.string(),
+    stageLabel: z.string(),
+    status: z.string(),
+    reference: z.string().nullable(),
+    name: z.string().nullable(),
+    assignee: z.string().nullable(),
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+    archived: z.boolean(),
+  })
+  .strict();
+const taskProjectionSchema = z
+  .object({
+    taskId: z.uuid(),
+    leadId: z.uuid(),
+    leadReference: z.string().nullable(),
+    leadName: z.string().nullable(),
+    title: z.string(),
+    assignee: z.string().nullable(),
+    dueAt: z.iso.datetime().nullable(),
+    dueDay: z.string().nullable(),
+  })
+  .strict();
+const activityProjectionSchema = z
+  .object({
+    kind: z.string(),
+    at: z.iso.datetime(),
+    noteExcerpt: z.string().max(500).optional(),
+  })
+  .strict();
+const countsSchema = z
+  .object({
+    received: z.int().nonnegative(),
+    submitted: z.int().nonnegative(),
+    madeIt: z.int().nonnegative(),
+  })
+  .strict();
+
+/** Validate the final minimized result, not merely the SQL input row. */
+export const toolResultSchema = z
+  .object({
+    status: z.enum(['ok', 'not_available', 'invalid_filter', 'temporary_failure']),
+    asOf: z.iso.datetime(),
+    scope: z
+      .object({
+        siteId: z.uuid(),
+        siteName: z.string(),
+        leadType: z.string().nullable(),
+        archivePolicy: z.enum(['active_only', 'including_archived', 'archived_only']),
+        window: z
+          .object({
+            start: z.iso.datetime(),
+            end: z.iso.datetime(),
+            timezone: z.string(),
+            label: z.string(),
+          })
+          .strict()
+          .nullable(),
+        filters: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+      })
+      .strict(),
+    data: z
+      .union([
+        z.object({ leads: z.array(leadProjectionSchema).max(10) }).strict(),
+        z.object({ tasks: z.array(taskProjectionSchema).max(20) }).strict(),
+        z
+          .object({
+            lead: leadProjectionSchema,
+            order: orderProjectionSchema.optional(),
+            openTasks: z.array(taskProjectionSchema).max(10),
+            recentActivity: z.array(activityProjectionSchema).max(15),
+          })
+          .strict(),
+        z
+          .object({
+            received: z.int().nonnegative(),
+            submitted: z.int().nonnegative(),
+            byStage: z.array(
+              z
+                .object({ stage: z.string(), stageLabel: z.string(), count: z.int().nonnegative() })
+                .strict(),
+            ),
+          })
+          .strict(),
+        z
+          .object({
+            totals: countsSchema,
+            rows: z.array(
+              countsSchema.extend({ source: z.string(), kind: z.string(), other: z.boolean() }),
+            ),
+            withSourceData: z.int().nonnegative(),
+            sourcesShown: z.int().nonnegative(),
+            aggregatedOther: z.boolean(),
+          })
+          .strict(),
+      ])
+      .optional(),
+    total: z.int().nonnegative().optional(),
+    returnedCount: z.int().nonnegative().optional(),
+    truncated: z.boolean().optional(),
+    hasMore: z.boolean().optional(),
+    sources: z.array(aiSourceSchema).max(20),
+    message: z.string().max(500).optional(),
+  })
+  .strict();

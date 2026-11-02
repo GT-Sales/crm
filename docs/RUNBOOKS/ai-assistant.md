@@ -63,7 +63,10 @@ Both are enforced through `app.rate_limit_hit`, so they hold across replicas.
 - **Sent to the provider:** the system prompt, the person's question, prior chat
   text from that browser session, and the tool results (only the projected
   fields listed in the design doc). No email, phone, address, SIN, passport,
-  document or money value is in that set.
+  or document value is in that set. Safe order fields are included; price in
+  CAD cents, payment and commission status require effective `financial.read`.
+  A user can type personal information in their own question, and requested
+  note excerpts can contain it; those texts are sent to the provider.
 - **Kept by us:** no chat history (it lives in the browser tab's memory only),
   no prompts, no tool payloads, no names in normal logs. One allowlisted line per
   turn: request id, opaque site/actor ids, engine, model id, prompt version,
@@ -134,4 +137,23 @@ tables) — rate-limit rows are the only writes.
 - Vercel-to-Railway streaming, real cancellation timing and auth-refresh
   behaviour were not measured on the deployed pair.
 - The Gateway spend budget has not been set or observed.
-- The read SQL has not been run against a database here (no local Postgres).
+- Local SQL and real-backend browser checks now pass; see
+  `docs/review/ai-assistant.md`. Physical mobile keyboard and screen-reader
+  checks remain manual.
+
+## 11. Opt-in synthetic provider smoke
+
+With authorization to spend a bounded live request, supply `AI_GATEWAY_API_KEY`
+and `AI_GATEWAY_MODEL` through secure environment variables, set
+`AI_LIVE_SMOKE=synthetic`, then run:
+
+```sh
+pnpm --filter backend exec tsx scripts/ai-live-smoke.ts
+```
+
+This script uses only in-memory synthetic facts (3 received, 2 submitted), no
+CRM database. It verifies a real provider tool call and a count/drafts answer,
+prints model/date/pass status, and suppresses provider error bodies. Without
+the opt-in and both credentials it exits 2 without a provider call. This narrow
+smoke does not establish full answer quality; use the evaluation fixture and
+§7 on an approved synthetic staging Site before real customer data is enabled.

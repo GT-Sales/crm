@@ -39,6 +39,10 @@
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
 import postgres from 'postgres';
+import { z } from 'zod';
+import { DatabaseAiReadService } from '../../src/ai/read-service.js';
+import { DatabaseAiSiteContextStore } from '../../src/ai/site-context.js';
+import { createFakeEngine, type AssistantEngine } from '../../src/ai/engine.js';
 import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
 import { codePropertyCatalog, type FlowDraft } from '@gt-sales/contracts';
 import { createDatabaseClient } from '@gt-sales/db';
@@ -451,9 +455,37 @@ class StubStaffVerifier implements StaffSessionVerifier {
 await applyMigrations({ connectionString: ADMIN_URL, ssl: false });
 await seed();
 
+// Deterministic model only in this test entrypoint; HTTP, reads, RLS and UI are real.
+const assistantEngine: AssistantEngine = {
+  kind: 'fake',
+  async *stream(input) {
+    if (input.messages.at(-1)?.text === 'Slow test') {
+      yield* createFakeEngine([{ hangMs: 10000, chunks: ['Late test answer'] }]).stream(input);
+      return;
+    }
+    yield { type: 'tool-start', toolName: 'getSiteOverview' };
+    if (!input.executeTool) throw new Error('test executor missing');
+    const result = z
+      .object({ status: z.literal('ok'), data: z.object({ received: z.number() }) })
+      .parse(JSON.parse(await input.executeTool('getSiteOverview', { period: 'all_time' })));
+    yield { type: 'text', text: 'Synthetic model: ' };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (input.signal.aborted) return;
+    yield { type: 'text', text: `${result.data.received} leads checked in this site.` };
+    yield { type: 'finish', outputTokens: 12 };
+  },
+};
+
 const app = createApp({
   staff: {
     ...createDefaultStaffRouteDependencies(),
+    ai: {
+      config: { enabled: true, workspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]) },
+      reads: new DatabaseAiReadService(),
+      siteContext: new DatabaseAiSiteContextStore(),
+      engine: assistantEngine,
+      rateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
+    },
     sessionVerifier: new StubStaffVerifier(),
     // Reviews are database rows; no document is opened, so the objects can be in memory.
     documentService: new DocumentService(
