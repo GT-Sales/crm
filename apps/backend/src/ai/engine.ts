@@ -123,6 +123,9 @@ export function createGatewayEngine(
                 part.finishReason === 'tool-calls'
               )
                 throw new AssistantProviderError('budget_exceeded');
+              // The SDK synthesizes `other` when a provider stream closes
+              // without a finish frame. That is not a completed answer.
+              if (part.finishReason !== 'stop') throw new AssistantProviderError();
               yield {
                 type: 'finish',
                 ...(part.totalUsage.outputTokens === undefined

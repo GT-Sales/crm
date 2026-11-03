@@ -1441,6 +1441,14 @@ model/provider validation, deployed streaming and rollout remain owner steps.
 
 ## 4. What is verified, and how
 
+AI follow-up (2026-11-03): PR #18 is merged into `main`; the branch wording
+above is historical. The `claude/finish-ai-chat` follow-up excludes partial
+stopped/failed answers from model history and treats an absent provider/engine
+finish as a failed turn. A Railway production configuration check found none
+of the four `AI_*` variables configured; the assistant is not ready to enable.
+No production configuration was changed during this check. Current verification
+is recorded in `docs/review/ai-assistant.md`.
+
 | Claim                                       | Evidence                                                                                                                                                                                         |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Backend serves and the scheduler runs clean | `GET /api/v1/health` 200; deployment logs show no `scheduler_task_failed` since the pooler fix                                                                                                   |

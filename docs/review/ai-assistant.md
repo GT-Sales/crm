@@ -1,5 +1,38 @@
 # AI assistant branch review — 2026-11-02
 
+## Completion follow-up — 2026-11-03
+
+PR #18 is merged. Follow-up branch `claude/finish-ai-chat` addresses interrupted
+turns: Stop, provider errors and disconnected streams no longer contribute
+partial assistant text to the next model request. Completed turns and user
+questions remain available as context. The production SDK adapter rejects the
+`other` finish reason the SDK synthesizes for a stream missing its provider
+finish frame; the HTTP route also requires an explicit engine finish before
+sending sources or `done`.
+
+Regression coverage exercises all three interruption paths, a truncated stream
+through the actual SDK adapter, and the HTTP terminal-frame contract. Live
+Railway inspection on this date found no `AI_*` variables in the CRM production
+service (including sealed variables). No real provider call or deployment was
+performed. Configure and validate one synthetic Site before enabling customer
+data; the earlier offline evidence below does not establish live answer quality.
+
+Follow-up verification uses Node 22.19.0, pnpm 9.15.0 and a disposable local
+Postgres 17.6 container. Focused AI checks: 9 files, 109 passing tests, including
+the database reads, HTTP streaming, SDK adapter and panel regressions. All six
+authenticated AI browser journeys pass (375/1440 px, both themes, Stop and
+nested lead sheets). Typecheck, lint, formatting, both production builds and
+47 tooling tests pass; regenerating OpenAPI produces no diff.
+
+An initial broad test run under concurrent build load hit 5-second timeouts
+in unrelated automation/email suites and was stopped. It is not counted as a
+passing full-suite run.
+The rerun with two workers and 30-second test/60-second hook timeouts passed
+all 223 files: 2,617 tests passed and four backup tool-dependent tests skipped
+(no local `pg_dump`/`age`). All 14 general browser shell checks also pass.
+
+## Original review
+
 Reviewed `claude/ai-chat-implementation`, original head `2d2757d`, against
 `docs/AI-ASSISTANT-IMPLEMENTATION-PROMPT.md`, after reading the repository's
 agent guide, architecture/handoff, plan, configuration, existing read/auth

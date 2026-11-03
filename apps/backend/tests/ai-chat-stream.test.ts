@@ -427,6 +427,30 @@ describe('POST /workspaces/:id/ai/chat', () => {
     expect(parts.some((part) => part.type === 'text')).toBe(false);
   });
 
+  it('does not mark a truncated engine stream as a completed answer', async () => {
+    await start(
+      appWith({
+        engine: {
+          kind: 'fake',
+          async *stream() {
+            yield { type: 'text', text: 'An unfinished answer' };
+          },
+        },
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    const parts = await readParts(response);
+    expect(parts).toContainEqual({ type: 'text', text: 'An unfinished answer' });
+    expect(
+      parts.some((part) => part.type === 'error' && part.code === 'provider_unavailable'),
+    ).toBe(true);
+    expect(parts.some((part) => part.type === 'done' || part.type === 'sources')).toBe(false);
+  });
+
   it('cancels upstream when the client aborts mid-stream', async () => {
     await start(appWith({ turns: [{ hangMs: 5_000, chunks: ['late'] }] }));
     const controller = new AbortController();

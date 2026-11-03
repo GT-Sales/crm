@@ -209,6 +209,49 @@ describe('Ask AI panel', () => {
     expect(options?.signal?.aborted).toBe(false);
   });
 
+  it.each(['error', 'disconnect', 'stop'] as const)(
+    'keeps completed history but excludes the partial answer after %s',
+    async (failure) => {
+      let call = 0;
+      mocks.askAiAssistant.mockImplementation((_token, _workspace, _body, options) => {
+        call += 1;
+        if (call !== 2)
+          return streamOf([{ type: 'text', text: 'Completed answer' }, { type: 'done' }]);
+        return (async function* () {
+          yield { type: 'text' as const, text: 'Unfinished answer' };
+          if (failure === 'stop') {
+            await new Promise<void>((resolve) => {
+              if (options?.signal?.aborted) resolve();
+              else options?.signal?.addEventListener('abort', () => resolve(), { once: true });
+            });
+          } else if (failure === 'error') {
+            yield {
+              type: 'error' as const,
+              code: 'provider_unavailable' as const,
+              message: 'Failed',
+            };
+          }
+        })();
+      });
+      render(<Harness />);
+      await openPanel();
+      ask('First question');
+      await screen.findByText('Completed answer');
+      await waitFor(() => expect(screen.getByRole('textbox').hasAttribute('disabled')).toBe(false));
+      ask('Second question');
+      await screen.findByText('Unfinished answer');
+      if (failure === 'stop') fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+      await waitFor(() => expect(screen.getByRole('textbox').hasAttribute('disabled')).toBe(false));
+      ask('Follow-up');
+      await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalledTimes(3));
+      expect(mocks.askAiAssistant.mock.calls[2]?.[2].history).toEqual([
+        { role: 'user', text: 'First question' },
+        { role: 'assistant', text: 'Completed answer' },
+        { role: 'user', text: 'Second question' },
+      ]);
+    },
+  );
+
   it('shows and sends the open lead as context', async () => {
     mocks.askAiAssistant.mockImplementation(() => streamOf([{ type: 'done' }]));
     render(<Harness activeLeadId={LEAD_ID} />);

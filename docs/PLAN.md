@@ -452,6 +452,10 @@ triggers, attachments, voice, model selection in the UI, and any cross-site
 analysis. Live Gateway verification remains outstanding; see the design doc §11.
 
 Review corrections and validation are recorded in `docs/review/ai-assistant.md`.
+The follow-up on 2026-11-03 excludes interrupted assistant text from future
+turns and refuses a successful completion when the provider/engine stream
+closes without its finish signal. Live rollout still requires backend
+configuration and a synthetic Site smoke.
 The SDK wire protocol is now used. One deliberate implementation departure
 remains: typed React state and the shared client are retained instead of adding
 `useChat`; the plan’s conversation and cancellation behavior is browser-tested.
