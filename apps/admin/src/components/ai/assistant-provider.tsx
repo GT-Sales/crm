@@ -102,6 +102,9 @@ function emptySession(key: string): SessionState {
 function toHistory(messages: readonly AiMessage[]): AiHistoryEntry[] {
   const history: AiHistoryEntry[] = [];
   for (const message of messages) {
+    // A partial answer is visible for the person, but must not become the
+    // model's completed answer on the next turn after Stop or a disconnect.
+    if (message.role === 'assistant' && message.status !== 'complete') continue;
     if (message.text.length > 0) history.push({ role: message.role, text: message.text });
   }
   return history;

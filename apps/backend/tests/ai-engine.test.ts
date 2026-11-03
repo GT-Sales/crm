@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { simulateReadableStream, tool } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { z } from 'zod';
-import { createGatewayEngine } from '../src/ai/engine.js';
+import { createGatewayEngine, type EngineEvent } from '../src/ai/engine.js';
 
 const usage = {
   inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
@@ -36,7 +36,7 @@ describe('the production SDK adapter with an offline model', () => {
       ],
     });
     const engine = createGatewayEngine({ apiKey: 'synthetic', modelId: 'synthetic/test' }, model);
-    const events = [];
+    const events: EngineEvent[] = [];
     for await (const event of engine.stream({
       system: 'Use the count tool.',
       messages: [{ role: 'user', text: 'Count leads' }],
@@ -61,6 +61,34 @@ describe('the production SDK adapter with an offline model', () => {
     expect(model.doStreamCalls.every((call) => call.maxOutputTokens === 1200)).toBe(true);
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain('"count":3');
   });
+  it('rejects a provider stream that closes after text without a finish frame', async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'text-start', id: 'partial' },
+            { type: 'text-delta', id: 'partial', delta: 'An unfinished answer' },
+            { type: 'text-end', id: 'partial' },
+          ],
+        }),
+      }),
+    });
+    const engine = createGatewayEngine({ apiKey: 'synthetic', modelId: 'synthetic/test' }, model);
+    const events: EngineEvent[] = [];
+    const consume = async () => {
+      for await (const event of engine.stream({
+        system: 'test',
+        messages: [{ role: 'user', text: 'Count leads' }],
+        tools: {},
+        signal: new AbortController().signal,
+      }))
+        events.push(event);
+    };
+    await expect(consume()).rejects.toThrow('assistant provider failed');
+    expect(events).toContainEqual({ type: 'text', text: 'An unfinished answer' });
+    expect(events.some((event) => event.type === 'finish')).toBe(false);
+  });
+
   it('never lets the SDK default logger print a provider error body', async () => {
     const logger = vi.spyOn(console, 'error').mockImplementation(() => {});
     const model = new MockLanguageModelV4({

@@ -413,6 +413,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
 
           let outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost' = 'completed';
           let outputTokens: number | undefined;
+          let finished = false;
 
           try {
             for await (const event of engine.stream({
@@ -439,6 +440,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                   });
                   break;
                 case 'finish':
+                  finished = true;
                   outputTokens = event.outputTokens;
                   break;
                 default:
@@ -466,6 +468,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             }
 
             if (!controller.signal.aborted) {
+              // A dropped engine stream is a failed turn, even if it already
+              // yielded some text. Only an explicit finish can release sources
+              // and the successful terminal frame.
+              if (!finished) throw new AssistantProviderError();
               // Access is rechecked before any answer is released: a role removed
               // while the model was writing must not receive the rest of the turn.
               const finalAccess = await wait(
