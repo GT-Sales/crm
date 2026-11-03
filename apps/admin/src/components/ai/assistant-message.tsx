@@ -7,6 +7,7 @@ import { Button, Skeleton } from '@gt-sales/ui';
 import type { AiUiError } from '../../lib/ai-transport';
 import type { AiAssistantMessage, AiMessage } from './assistant-provider';
 import { AssistantSources } from './assistant-sources';
+import { AssistantMarkdown } from './assistant-markdown';
 
 /** Plain language for each way an answer can fail. Never a provider detail. */
 export function aiErrorText(error: AiUiError): string {
@@ -97,10 +98,7 @@ function AssistantAnswer({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {message.text.length > 0 ? (
-        // Escaped plain text, never HTML and never model-authored links.
-        <p className="whitespace-pre-wrap break-words text-sm text-foreground">{message.text}</p>
-      ) : null}
+      {message.text.length > 0 ? <AssistantMarkdown text={message.text} /> : null}
       {message.status === 'streaming' ? <StreamingState message={message} /> : null}
       {message.status === 'complete' && message.text.length === 0 ? (
         <p className="text-sm text-muted-foreground">

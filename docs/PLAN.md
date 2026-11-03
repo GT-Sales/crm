@@ -430,6 +430,8 @@ Delivered in this version:
 - An "Ask AI" panel in the admin top bar, with streaming answers, Stop/Retry/
   Copy/New chat, an optional lead context sent as an id only, and "Sources
   checked" cards built by the server.
+  Replies support headings, emphasis, lists and tables with contained mobile
+  scrolling; HTML, images and model-authored navigation remain disabled.
 - `GET …/ai/capabilities` and `POST …/ai/chat` on the authenticated staff router,
   the second streaming typed server-sent events; both described by the endpoint
   registry and generated OpenAPI, and reachable through the one typed client.
