@@ -3,6 +3,10 @@ import type { z } from 'zod';
 import type { ErrorDetails } from './common';
 
 import {
+  confirmAiActionRequestSchema,
+  confirmAiActionResponseSchema,
+  type ConfirmAiActionRequest,
+  type ConfirmAiActionResponse,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
@@ -700,8 +704,12 @@ export interface BackendClient {
     ): Promise<ResolveChangeRequestResponse>;
     /** Whether Ask AI is available for this site and this caller, plus the composer's limits. */
     aiCapabilities(workspaceId: string): Promise<AiCapabilitiesResponse>;
+    confirmAiAction(
+      workspaceId: string,
+      body: ConfirmAiActionRequest,
+    ): Promise<ConfirmAiActionResponse>;
     /**
-     * Ask the read-only assistant. Yields each validated stream part in order;
+     * Ask the assistant. Yields text, sources and confirmation proposals in order;
      * the caller aborts through `options.signal`. A rejected promise means the
      * request failed before its stream began (an ordinary JSON API error).
      */
@@ -1534,6 +1542,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           )}/change-requests/${encode(changeRequestId)}/reject`,
           body: resolveChangeRequestRequestSchema.parse(body),
           responseSchema: resolveChangeRequestResponseSchema,
+        }),
+      confirmAiAction: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/actions/confirm`,
+          body: confirmAiActionRequestSchema.parse(body),
+          responseSchema: confirmAiActionResponseSchema,
         }),
       aiCapabilities: (workspaceId) =>
         call({

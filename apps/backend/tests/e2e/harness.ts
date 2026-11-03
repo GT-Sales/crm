@@ -459,6 +459,29 @@ await seed();
 const assistantEngine: AssistantEngine = {
   kind: 'fake',
   async *stream(input) {
+    const question = input.messages.at(-1)?.text ?? '';
+    if (question.startsWith('Add a note:') || question.startsWith('Create a task:')) {
+      const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
+      if (!leadId || !input.executeTool) throw new Error('expected open lead context');
+      const note = question.startsWith('Add a note:');
+      const name = note ? 'prepareNote' : 'prepareTask';
+      yield { type: 'tool-start', toolName: name };
+      await input.executeTool(
+        name,
+        note
+          ? { leadId, body: question.slice('Add a note:'.length).trim() }
+          : {
+              leadId,
+              title: question.slice('Create a task:'.length).trim(),
+              dueDate: '2026-12-01',
+              assignee: 'me',
+            },
+      );
+      yield { type: 'tool-end', toolName: name, ok: true };
+      yield { type: 'text', text: 'Draft ready for confirmation. Nothing has been saved.' };
+      yield { type: 'finish', outputTokens: 12 };
+      return;
+    }
     if (input.messages.at(-1)?.text === 'Slow test') {
       yield* createFakeEngine([{ hangMs: 10000, chunks: ['Late test answer'] }]).stream(input);
       return;
@@ -483,7 +506,11 @@ const app = createApp({
   staff: {
     ...createDefaultStaffRouteDependencies(),
     ai: {
-      config: { enabled: true, workspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]) },
+      config: {
+        enabled: true,
+        apiKey: 'synthetic-e2e-signing-key',
+        workspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
+      },
       reads: new DatabaseAiReadService(),
       siteContext: new DatabaseAiSiteContextStore(),
       engine: assistantEngine,

@@ -15,11 +15,13 @@ import {
   type AiCapabilitiesResponse,
   type AiSource,
   type AiStreamPart,
+  type AiActionProposal,
 } from '@gt-sales/contracts';
 
 import { buildAiChatRequest, streamAnswer, uiErrorForStreamCode } from '../../lib/ai-transport';
 import type { AiRequestLimits, AiUiError, AiHistoryEntry } from '../../lib/ai-transport';
-import { getAiCapabilities, BackendError } from '../../lib/api';
+import { getAiCapabilities, confirmAiAction, BackendError } from '../../lib/api';
+import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
 
 /**
  * Ask AI's client state. The conversation lives in memory only: no storage,
@@ -35,6 +37,7 @@ export interface AiUserMessage {
 }
 
 export interface AiAssistantMessage {
+  actions?: readonly AiActionView[];
   id: string;
   role: 'assistant';
   text: string;
@@ -46,6 +49,12 @@ export interface AiAssistantMessage {
 }
 
 export type AiMessage = AiUserMessage | AiAssistantMessage;
+
+export interface AiActionView {
+  proposal: AiActionProposal;
+  status: 'pending' | 'saving' | 'saved' | 'cancelled' | 'error';
+  error?: string;
+}
 
 export type AssistantCapabilities =
   { status: 'loading' } | { status: 'failed' } | { status: 'ready'; data: AiCapabilitiesResponse };
@@ -68,6 +77,8 @@ interface CapabilitiesState {
 }
 
 export interface AssistantContextValue {
+  confirmAction(messageId: string, actionId: string): void;
+  cancelAction(messageId: string, actionId: string): void;
   capabilities: AssistantCapabilities;
   messages: readonly AiMessage[];
   streaming: boolean;
@@ -247,6 +258,11 @@ export function AssistantProvider({
           for (const source of part.sources) byId.set(source.id, source);
           return { ...message, sources: [...byId.values()] };
         }
+        if (part.type === 'actions')
+          return {
+            ...message,
+            actions: part.actions.map((proposal) => ({ proposal, status: 'pending' as const })),
+          };
         if (part.type === 'error') {
           return {
             ...message,
@@ -431,6 +447,111 @@ export function AssistantProvider({
     startTurn(user.text, current.messages.slice(0, userIndex), user, capabilities.data.limits);
   }, [capabilities, startTurn]);
 
+  const updateAction = useCallback(
+    (messageId: string, actionId: string, change: Partial<AiActionView>) => {
+      const current = sessionRef.current;
+      commitSession({
+        ...current,
+        messages: current.messages.map((message) =>
+          message.id !== messageId || message.role !== 'assistant'
+            ? message
+            : {
+                ...message,
+                actions: message.actions?.map((action) =>
+                  action.proposal.id === actionId ? { ...action, ...change } : action,
+                ),
+              },
+        ),
+      });
+    },
+    [commitSession],
+  );
+
+  const confirmAction = useCallback(
+    (messageId: string, actionId: string) => {
+      const current = sessionRef.current;
+      if (current.streaming) return;
+      const message = current.messages.find((m) => m.id === messageId);
+      const action =
+        message?.role === 'assistant'
+          ? message.actions?.find((a) => a.proposal.id === actionId)
+          : undefined;
+      if (!action || !['pending', 'error'].includes(action.status)) return;
+      const activeKey = sessionKey;
+      updateAction(messageId, actionId, { status: 'saving', error: undefined });
+      void confirmAiAction(accessToken, workspace.id, action.proposal.token).then(
+        (receipt) => {
+          if (sessionRef.current.key !== activeKey) return;
+          if (receipt.actionId !== actionId || receipt.kind !== action.proposal.draft.kind) {
+            updateAction(messageId, actionId, {
+              status: 'error',
+              error: 'Could not verify this save. Check the lead before trying again.',
+            });
+            return;
+          }
+          notifyLeadWorkSaved(workspace.id, action.proposal.draft.leadId);
+          if (sessionRef.current.messages.some((m) => m.id === messageId))
+            updateAction(messageId, actionId, { status: 'saved' });
+        },
+        (error: unknown) => {
+          if (
+            sessionRef.current.key !== activeKey ||
+            !sessionRef.current.messages.some((m) => m.id === messageId)
+          )
+            return;
+          if (
+            error instanceof BackendError &&
+            [
+              'permission_denied',
+              'missing_session',
+              'invalid_session',
+              'membership_revoked',
+              'membership_missing',
+              'membership_pending',
+            ].includes(error.code)
+          ) {
+            generationRef.current += 1;
+            abortRef.current?.abort();
+            commitSession(emptySession(sessionKey));
+            setIsOpen(false);
+            setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+            return;
+          }
+          updateAction(messageId, actionId, {
+            status: 'error',
+            error:
+              error instanceof BackendError &&
+              ['invalid_request', 'lead_not_found', 'lead_trashed', 'ai_unavailable'].includes(
+                error.code,
+              )
+                ? 'This draft expired or is no longer available. Check the lead before asking for a new draft.'
+                : 'Could not confirm the save. Retry this same card to avoid a duplicate.',
+          });
+        },
+      );
+    },
+    [accessToken, workspace.id, sessionKey, commitSession, updateAction],
+  );
+
+  const cancelAction = useCallback(
+    (messageId: string, actionId: string) => {
+      const message = sessionRef.current.messages.find((m) => m.id === messageId);
+      const action =
+        message?.role === 'assistant'
+          ? message.actions?.find((a) => a.proposal.id === actionId)
+          : undefined;
+      if (action && ['pending', 'error'].includes(action.status))
+        updateAction(messageId, actionId, {
+          status: 'cancelled',
+          error:
+            action.status === 'error'
+              ? 'Dismissed. Check the lead if a save was already attempted.'
+              : undefined,
+        });
+    },
+    [updateAction],
+  );
+
   const value = useMemo<AssistantContextValue>(
     () => ({
       capabilities,
@@ -451,6 +572,8 @@ export function AssistantProvider({
       send,
       stop,
       retry,
+      confirmAction,
+      cancelAction,
     }),
     [
       activeLeadId,
@@ -463,6 +586,8 @@ export function AssistantProvider({
       newChat,
       open,
       retry,
+      confirmAction,
+      cancelAction,
       send,
       stop,
       workspace.name,

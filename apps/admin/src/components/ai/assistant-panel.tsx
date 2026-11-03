@@ -70,6 +70,8 @@ export function AssistantPanel() {
     stop,
     retry,
     newChat,
+    confirmAction,
+    cancelAction,
   } = useAssistant();
   const isMobile = useIsMobile();
   const composerId = useId();
@@ -233,6 +235,12 @@ export function AssistantPanel() {
               ? 'Ask about this site’s leads, orders, follow-ups or sources.'
               : 'Ask AI isn’t available for this site right now.'}
           </p>
+          {available && capabilities.status === 'ready' && capabilities.data.actions?.length ? (
+            <p className="text-sm text-muted-foreground">
+              You can also ask to prepare a task or note. Review the details and confirm before
+              saving.
+            </p>
+          ) : null}
           {available && suggestions.length > 0 ? (
             <div>
               <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
@@ -259,6 +267,8 @@ export function AssistantPanel() {
           <AssistantMessage
             key={message.id}
             message={message}
+            onConfirmAction={(id) => confirmAction(message.id, id)}
+            onCancelAction={(id) => cancelAction(message.id, id)}
             {...(message.id === retryId ? { onRetry: retry } : {})}
           />
         ))

@@ -151,6 +151,8 @@ export interface UpdateLeadWorkInput extends WriteScope {
 }
 
 export interface CreateTaskInput extends WriteScope {
+  /** Server-signed AI proposal id; retries reuse the existing record under the lead lock. */
+  creationId?: string;
   leadId: string;
   title: string;
   dueAt?: string | null;
@@ -197,7 +199,9 @@ export interface LeadWorkStore {
   markOpened(
     input: WriteScope & { leadId: string },
   ): Promise<{ status: 'opened'; activity: LeadActivity | null } | { status: 'not_found' }>;
-  addNote(input: WriteScope & { leadId: string; body: string }): Promise<NoteOutcome>;
+  addNote(
+    input: WriteScope & { leadId: string; body: string; creationId?: string },
+  ): Promise<NoteOutcome>;
   /** Queues a mail to the lead's customer in the outbox, with its timeline entry. */
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome>;
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
@@ -465,11 +469,13 @@ export async function insertLeadTask(
     dueAt: string | null;
     assignedActorId: string | null;
     automation?: AutomationAttribution;
+    creationId?: string;
   },
 ): Promise<{ taskId: string }> {
   const [row] = await tx
     .insert(leadTasks)
     .values({
+      ...(input.creationId === undefined ? {} : { id: input.creationId }),
       workspaceId: input.workspaceId,
       leadId: input.leadId,
       title: input.title,
@@ -483,6 +489,7 @@ export async function insertLeadTask(
     leadId: input.leadId,
     dueAt: input.dueAt,
     assignedActorId: input.assignedActorId,
+    ...(input.creationId === undefined ? {} : { aiActionId: input.creationId }),
   };
   await tx.insert(auditEvents).values({
     workspaceId: input.workspaceId,
@@ -1167,15 +1174,33 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     });
   }
 
-  addNote(input: WriteScope & { leadId: string; body: string }): Promise<NoteOutcome> {
+  addNote(
+    input: WriteScope & { leadId: string; body: string; creationId?: string },
+  ): Promise<NoteOutcome> {
     return this.database.withTenantTx(input, async (tx) => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
       if (!lead) return { status: 'not_found' };
       if (lead.trashed) return { status: 'trashed' };
 
+      if (input.creationId) {
+        const [existing] = await tx
+          .select(ACTIVITY_RETURNING)
+          .from(leadActivities)
+          .where(
+            and(
+              eq(leadActivities.workspaceId, input.workspaceId),
+              eq(leadActivities.leadId, input.leadId),
+              eq(leadActivities.actorId, input.actorId),
+              eq(leadActivities.kind, 'note'),
+              eq(leadActivities.id, input.creationId),
+            ),
+          );
+        if (existing) return { status: 'created', activity: insertedActivity(existing) };
+      }
       const [entry] = await tx
         .insert(leadActivities)
         .values({
+          ...(input.creationId === undefined ? {} : { id: input.creationId }),
           workspaceId: input.workspaceId,
           leadId: input.leadId,
           actorId: input.actorId,
@@ -1197,7 +1222,10 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         entity: 'lead',
         entityId: input.leadId,
         requestId: input.requestId,
-        after: { activityId: entry.id },
+        after: {
+          activityId: entry.id,
+          ...(input.creationId === undefined ? {} : { aiActionId: input.creationId }),
+        },
       });
 
       const [activity] = insertedActivities([entry]);
@@ -1211,12 +1239,28 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
       if (!lead) return { status: 'not_found' };
       if (lead.trashed) return { status: 'trashed' };
+      if (input.creationId) {
+        const [existing] = await tx
+          .select({ id: leadTasks.id })
+          .from(leadTasks)
+          .where(
+            and(
+              eq(leadTasks.workspaceId, input.workspaceId),
+              eq(leadTasks.leadId, input.leadId),
+              eq(leadTasks.createdBy, input.actorId),
+              eq(leadTasks.id, input.creationId),
+            ),
+          );
+        if (existing)
+          return { status: 'saved', task: await requireTask(tx, input.workspaceId, existing.id) };
+      }
       const assignee = input.assignedActorId ?? null;
       if (assignee !== null && !(await isActiveMember(tx, input.workspaceId, assignee))) {
         return { status: 'assignee_not_found' };
       }
 
       const { taskId } = await insertLeadTask(tx, {
+        ...(input.creationId === undefined ? {} : { creationId: input.creationId }),
         workspaceId: input.workspaceId,
         actorId: input.actorId,
         requestId: input.requestId,

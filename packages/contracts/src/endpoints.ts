@@ -139,6 +139,8 @@ import {
 } from './uploads';
 import { sourceReportQuerySchema, sourceReportResponseSchema } from './reports';
 import {
+  confirmAiActionRequestSchema,
+  confirmAiActionResponseSchema,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiWirePartSchema,
@@ -894,7 +896,7 @@ export const endpoints: readonly EndpointDef[] = [
     response: testFlowResponseSchema,
   },
 
-  // Staff — AI assistant ("Ask AI"). Read-only; the capability document is
+  // Staff — AI assistant ("Ask AI"). Reads plus explicitly confirmed tasks/notes; the capability document is
   // ordinary JSON, the chat answers as server-sent events.
   {
     operationId: 'getAiCapabilities',
@@ -911,7 +913,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/ai/chat',
     summary:
-      'Ask the read-only staff assistant a question; answers stream as typed server-sent events.',
+      'Ask the staff assistant; answers and confirmation proposals stream as typed server-sent events.',
     auth: 'staff',
     successStatus: 200,
     request: aiChatRequestSchema,
@@ -919,8 +921,19 @@ export const endpoints: readonly EndpointDef[] = [
       contentType: 'text/event-stream',
       schema: aiWirePartSchema,
       event: 'part',
-      summary: 'One typed part: progress, text, sources, error or done.',
+      summary: 'One typed part: progress, text, sources, actions, error or done.',
     },
+  },
+
+  {
+    operationId: 'confirmAiAction',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/actions/confirm',
+    summary: 'Confirm a signed task or note proposal; requires lead.manage and is safe to retry.',
+    auth: 'staff',
+    successStatus: 200,
+    request: confirmAiActionRequestSchema,
+    response: confirmAiActionResponseSchema,
   },
 
   // Staff — outbox jobs

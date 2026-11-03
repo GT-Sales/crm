@@ -7,7 +7,7 @@ import { leadTypeSchema } from './leads';
  * The staff AI assistant ("Ask AI"): its capability document, the one chat
  * request the admin may send, and the typed parts of the streamed answer.
  *
- * Version 1 is read-only. Nothing in this module grants access: every route
+ * Reads and signed task/note proposals. Nothing in this module grants access: every route
  * re-derives the caller's membership, every tool re-reads authorization, and
  * this file only fixes the wire shapes so the admin, the backend and the
  * generated OpenAPI document cannot drift apart.
@@ -78,6 +78,10 @@ export type AiPeriod = z.infer<typeof aiPeriodSchema>;
 /** The lead types a site actually has, so the UI suggests only relevant questions. */
 export const aiCapabilitiesResponseSchema = z.object({
   available: z.boolean(),
+  actions: z
+    .array(z.enum(['task', 'note']))
+    .max(2)
+    .optional(),
   reason: aiUnavailableReasonSchema.optional(),
   site: z.object({
     id: z.uuid(),
@@ -165,6 +169,53 @@ export const aiSourceSchema = z.object({
 
 export type AiSource = z.infer<typeof aiSourceSchema>;
 
+/** A proposed write is data for a confirmation card, never a model-executed write. */
+export const aiActionDraftSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('note'),
+      leadId: z.uuid(),
+      body: z.string().trim().min(1).max(4000),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('task'),
+      leadId: z.uuid(),
+      title: z.string().trim().min(1).max(200),
+      dueDate: z.iso.date().nullable(),
+      assignee: z.enum(['me', 'none']),
+    })
+    .strict(),
+]);
+export type AiActionDraft = z.infer<typeof aiActionDraftSchema>;
+
+export const aiActionProposalSchema = z
+  .object({
+    id: z.uuid(),
+    token: z.string().min(1).max(40000),
+    expiresAt: isoDateTimeSchema,
+    siteName: z.string().min(1).max(160),
+    leadLabel: z.string().min(1).max(160),
+    leadHref: aiSourceSchema.shape.href,
+    draft: aiActionDraftSchema,
+  })
+  .strict();
+export type AiActionProposal = z.infer<typeof aiActionProposalSchema>;
+
+export const confirmAiActionRequestSchema = z
+  .object({ token: z.string().min(1).max(40000) })
+  .strict();
+export type ConfirmAiActionRequest = z.infer<typeof confirmAiActionRequestSchema>;
+export const confirmAiActionResponseSchema = z.object({
+  status: z.literal('saved'),
+  actionId: z.uuid(),
+  kind: z.enum(['note', 'task']),
+  recordId: z.uuid(),
+  requestId: requestIdSchema,
+});
+export type ConfirmAiActionResponse = z.infer<typeof confirmAiActionResponseSchema>;
+
 /** Why a streamed answer ended without one. Safe to show; never a provider body. */
 export const aiStreamErrorCodeSchema = z.enum([
   'provider_unavailable',
@@ -188,6 +239,9 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('progress'), label: z.string().min(1).max(80) }).strict(),
   z.object({ type: z.literal('text'), text: z.string().min(1).max(8_000) }).strict(),
   z.object({ type: z.literal('sources'), sources: z.array(aiSourceSchema).max(20) }).strict(),
+  z
+    .object({ type: z.literal('actions'), actions: z.array(aiActionProposalSchema).max(3) })
+    .strict(),
   z
     .object({
       type: z.literal('error'),

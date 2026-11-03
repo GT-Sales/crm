@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getWorkspaceLeadResponseSchema } from '@gt-sales/contracts';
 
 for (const theme of ['light', 'dark']) {
   for (const width of [375, 1440]) {
@@ -66,5 +67,86 @@ for (const width of [375, 1440]) {
     await expect(page.getByRole('button', { name: 'Close panel' })).toBeVisible();
     await expect(note).toHaveValue('Unsaved AI review note');
     await expect(note).toBeEditable();
+  });
+}
+
+for (const width of [375, 1440]) {
+  test(`AI notes and tasks require confirmation and survive a lost save response at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/w/canadawide/leads');
+    await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+    await expect(page).toHaveURL(/lead=/);
+    const leadId = new URL(page.url()).searchParams.get('lead');
+    if (!leadId) throw new Error('expected lead');
+    const recordUrl = `http://127.0.0.1:4100/api/v1/staff/workspaces/10000000-0000-4000-8000-0000000e2e01/leads/${leadId}`;
+    const record = async () => {
+      const response = await page.request.get(recordUrl, {
+        headers: {
+          authorization: `Bearer ${process.env['E2E_STAFF_BEARER'] ?? 'e2e-staff-session-owner'}`,
+        },
+      });
+      expect(response.status()).toBe(200);
+      return getWorkspaceLeadResponseSchema.parse(await response.json());
+    };
+    await page.getByRole('tab', { name: 'Notes', exact: true }).click();
+    await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+    const note = `AI confirmed callback ${width}`;
+    await page.getByRole('textbox', { name: 'Ask a question' }).fill(`Add a note: ${note}`);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Confirm note' })).toBeVisible();
+    expect(
+      (await record()).activities.filter((a) => a.kind === 'note' && a.body === note),
+    ).toHaveLength(0);
+    let lost = false;
+    await page.route('**/ai/actions/confirm', async (route) => {
+      const response = await route.fetch();
+      if (!lost) {
+        lost = true;
+        await route.abort('failed');
+      } else await route.fulfill({ response });
+    });
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await page.getByRole('button', { name: 'Retry save' }).click();
+    await expect(page.getByText('Note added.', { exact: true })).toBeVisible();
+    expect(
+      (await record()).activities.filter((a) => a.kind === 'note' && a.body === note),
+    ).toHaveLength(1);
+    await page.unroute('**/ai/actions/confirm');
+    await page.getByRole('button', { name: 'Close Ask AI' }).click();
+    await expect(
+      page.getByRole('tabpanel', { name: 'Notes' }).getByText(note, { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+    await page.getByRole('button', { name: 'New chat' }).click();
+    const title = `AI follow-up ${width}`;
+    const prepareTask = async () => {
+      await page.getByRole('textbox', { name: 'Ask a question' }).fill(`Create a task: ${title}`);
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(page.getByRole('region', { name: 'Confirm task' })).toBeVisible();
+    };
+    await prepareTask();
+    await expect(
+      page.getByRole('region', { name: 'Confirm task' }).getByText('You', { exact: true }),
+    ).toBeVisible();
+    expect((await record()).tasks.filter((t) => t.title === title)).toHaveLength(0);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect((await record()).tasks.filter((t) => t.title === title)).toHaveLength(0);
+    await page.getByRole('button', { name: 'New chat' }).click();
+    await prepareTask();
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(page.getByText('Task created.', { exact: true })).toBeVisible();
+    const saved = (await record()).tasks.filter((t) => t.title === title);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      assignedActorId: '20000000-0000-4000-8000-0000000e2e01',
+      dueAt: '2026-12-01T12:00:00.000Z',
+    });
+    await page.getByRole('button', { name: 'Close Ask AI' }).click();
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+    await expect(
+      page.getByRole('tabpanel', { name: 'Tasks' }).getByText(title, { exact: true }),
+    ).toBeVisible();
   });
 }

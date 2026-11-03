@@ -8,6 +8,7 @@ import type { AiUiError } from '../../lib/ai-transport';
 import type { AiAssistantMessage, AiMessage } from './assistant-provider';
 import { AssistantSources } from './assistant-sources';
 import { AssistantMarkdown } from './assistant-markdown';
+import { AssistantAction } from './assistant-action';
 
 /** Plain language for each way an answer can fail. Never a provider detail. */
 export function aiErrorText(error: AiUiError): string {
@@ -92,9 +93,13 @@ function StreamingState({ message }: { message: AiAssistantMessage }) {
 function AssistantAnswer({
   message,
   onRetry,
+  onConfirmAction,
+  onCancelAction,
 }: {
   message: AiAssistantMessage;
   onRetry?: () => void;
+  onConfirmAction?: (id: string) => void;
+  onCancelAction?: (id: string) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -112,6 +117,16 @@ function AssistantAnswer({
         <p className="text-sm text-muted-foreground">{aiErrorText(message.error ?? 'failed')}</p>
       ) : null}
       <AssistantSources sources={message.sources} />
+      {message.status === 'complete'
+        ? message.actions?.map((action) => (
+            <AssistantAction
+              key={action.proposal.id}
+              action={action}
+              onConfirm={() => onConfirmAction?.(action.proposal.id)}
+              onCancel={() => onCancelAction?.(action.proposal.id)}
+            />
+          ))
+        : null}
       {message.status !== 'streaming' && (message.text.length > 0 || message.status === 'error') ? (
         <div className="flex flex-wrap items-center gap-1">
           {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
@@ -136,9 +151,13 @@ function AssistantAnswer({
 export function AssistantMessage({
   message,
   onRetry,
+  onConfirmAction,
+  onCancelAction,
 }: {
   message: AiMessage;
   onRetry?: () => void;
+  onConfirmAction?: (id: string) => void;
+  onCancelAction?: (id: string) => void;
 }) {
   if (message.role === 'user') {
     return (
@@ -149,5 +168,12 @@ export function AssistantMessage({
       </div>
     );
   }
-  return <AssistantAnswer message={message} onRetry={onRetry} />;
+  return (
+    <AssistantAnswer
+      message={message}
+      onRetry={onRetry}
+      onConfirmAction={onConfirmAction}
+      onCancelAction={onCancelAction}
+    />
+  );
 }

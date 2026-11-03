@@ -448,7 +448,12 @@ Delivered in this version:
   (`docs/ENV.md`). No key is needed for tests: the model loop is exercised with
   an injected deterministic fake.
 
-Explicitly deferred (documented, not built): write actions, persistent
+Version 2 adds only explicitly confirmed task/note creation; see
+`docs/design/ai-actions.md`. The model prepares a signed, expiring card; a human
+confirms through a separately authorized endpoint using the existing work
+store. Retries reuse the same record id and audit event.
+
+Explicitly deferred (documented, not built): other write actions, persistent
 conversations, documents/knowledge retrieval, embeddings, automation/n8n
 triggers, attachments, voice, model selection in the UI, and any cross-site
 analysis. Live Gateway verification remains outstanding; see the design doc §11.

@@ -107,7 +107,14 @@ that has the `tracking` scope (docs/HANDOFF.md §2.6).
 
 The neutral answer's floor (500 ms) is fixed in code, not a variable.
 
-### Ask AI (staff assistant, read-only)
+### Ask AI (staff assistant)
+
+Tasks and notes require an explicit confirmation card and `lead.manage`; other
+writes remain unavailable. No additional variable is needed. Confirmation
+tokens use a domain-separated HMAC key derived from `AI_GATEWAY_API_KEY` and
+expire after ten minutes. Rotating the key invalidates outstanding cards; the
+existing feature switch and Site allowlist also gate confirmation. Tokens are
+never sent to the provider or stored in logs.
 
 Off by default and per site. A missing, partial or invalid configuration disables
 the assistant only — the rest of the CRM boots and behaves as before, and

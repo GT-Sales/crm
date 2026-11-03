@@ -2,6 +2,7 @@ import {
   BackendError,
   createBackendClient,
   type AiCapabilitiesResponse,
+  type ConfirmAiActionResponse,
   type AiChatRequest,
   type AiStreamPart,
   type AutomationKey,
@@ -756,4 +757,12 @@ export async function revealLeadIdentity(
   identityId: string,
 ): Promise<RevealLeadIdentityResponse> {
   return client(accessToken).staff.revealLeadIdentity(workspaceId, leadId, identityId);
+}
+
+export async function confirmAiAction(
+  accessToken: string,
+  workspaceId: string,
+  token: string,
+): Promise<ConfirmAiActionResponse> {
+  return client(accessToken).staff.confirmAiAction(workspaceId, { token });
 }

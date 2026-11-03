@@ -1,9 +1,13 @@
 import { createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
+import { createActionProposalTools, verifyAiAction } from '../ai/actions.js';
+import type { LeadWorkStore } from '../leads/work-store.js';
 import { Router, type Response } from 'express';
 import {
   AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
+  confirmAiActionRequestSchema,
+  confirmAiActionResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
   type AiCapabilitiesResponse,
@@ -45,7 +49,7 @@ import type { Scope } from '../tenant-scope.js';
 import type { PlanRouteDependencies } from './plans.js';
 
 /**
- * The staff AI assistant's HTTP surface. Version 1 is read-only and answers two
+ * The staff AI assistant's HTTP surface: reads, signed drafts, and explicit confirmation. Answers two
  * questions — "is this available for me here?" and "answer this" — with all
  * authority derived on the server: the session names the actor, the route names
  * the site, and a live membership read decides both, again before every tool and
@@ -96,6 +100,7 @@ function isToolName(value: string): value is ToolName {
 }
 
 export interface AiAssistantRouteDependencies {
+  work?: Pick<LeadWorkStore, 'addNote' | 'createTask'>;
   config: AiAssistantConfig;
   /** The actor's live membership in the site; the same read the staff router uses. */
   loadAccess(actorId: string, workspaceId: string): Promise<StaffAccessSnapshot | undefined>;
@@ -128,9 +133,11 @@ function capabilityDocument(
   site: { siteId: string; slug: string; name: string; leadTypes: readonly string[] },
   requestId: string,
   unavailable?: AiCapabilitiesResponse['reason'],
+  canAct = false,
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
+    actions: canAct && unavailable === undefined ? ['task', 'note'] : [],
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
     leadTypes: [...site.leadTypes],
@@ -240,9 +247,100 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
 
       res.setHeader('cache-control', 'no-store');
-      res.json(capabilityDocument(site, req.id));
+      res.json(
+        capabilityDocument(
+          site,
+          req.id,
+          undefined,
+          Boolean(
+            dependencies.work &&
+            dependencies.config.apiKey &&
+            decideAccess(access, 'lead.manage').allowed,
+          ),
+        ),
+      );
     } catch (error) {
       dependencies.reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  router.post('/workspaces/:workspaceId/ai/actions/confirm', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const actor = session(req);
+    const body = confirmAiActionRequestSchema.safeParse(req.body);
+    if (!workspaceId.success || !actor || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const access = await dependencies.loadAccess(actor.actorId, workspaceId.data);
+      if (
+        !decideAccess(access, 'workspace.read').allowed ||
+        !decideAccess(access, 'lead.manage').allowed
+      ) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const config = dependencies.config;
+      if (
+        !config.enabled ||
+        !config.apiKey ||
+        !config.workspaceIds.has(workspaceId.data) ||
+        !dependencies.work
+      ) {
+        sendDomainError(res, req.id, 'ai_unavailable', 503);
+        return;
+      }
+      const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
+      const action = verifyAiAction(body.data.token, config.apiKey, scope, now());
+      if (!action) {
+        sendDomainError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      const input = {
+        ...scope,
+        requestId: req.id,
+        leadId: action.draft.leadId,
+        creationId: action.id,
+      };
+      const outcome =
+        action.draft.kind === 'note'
+          ? await dependencies.work.addNote({ ...input, body: action.draft.body })
+          : await dependencies.work.createTask({
+              ...input,
+              title: action.draft.title,
+              dueAt: action.draft.dueDate === null ? null : `${action.draft.dueDate}T12:00:00.000Z`,
+              assignedActorId: action.draft.assignee === 'me' ? actor.actorId : null,
+            });
+      if (outcome.status === 'not_found') {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      if (outcome.status === 'trashed') {
+        sendDomainError(res, req.id, 'lead_trashed', 409);
+        return;
+      }
+      if (outcome.status === 'assignee_not_found') {
+        sendDomainError(res, req.id, 'assignee_not_found', 409);
+        return;
+      }
+      res.json(
+        confirmAiActionResponseSchema.parse({
+          status: 'saved',
+          actionId: action.id,
+          kind: action.draft.kind,
+          recordId:
+            outcome.status === 'created'
+              ? outcome.activity.id
+              : outcome.status === 'saved'
+                ? outcome.task.id
+                : undefined,
+          requestId: req.id,
+        }),
+      );
+    } catch {
+      dependencies.reportFailure(req, new Error('assistant_action_failed'));
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   });
@@ -343,6 +441,20 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const turnStarted = now();
       const scope: Scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const budget = new TurnBudget();
+      const actionTools =
+        dependencies.work &&
+        dependencies.config.apiKey &&
+        decideAccess(access, 'lead.manage').allowed
+          ? createActionProposalTools({
+              scope,
+              site,
+              key: dependencies.config.apiKey,
+              reads: dependencies.reads,
+              loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
+              now,
+              budget,
+            })
+          : undefined;
       const sources = new SourceRegistry({
         workspaceSlug: site.slug,
         asOf: turnStarted,
@@ -394,6 +506,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             leadTypes: site.leadTypes,
             today: businessDayLabel(turnStarted, AI_BUSINESS_TIME_ZONE),
             timeZone: AI_BUSINESS_TIME_ZONE,
+            actionsAvailable:
+              actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
             ...(leadHint === undefined
               ? {}
               : {
@@ -419,12 +533,14 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             for await (const event of engine.stream({
               system,
               messages,
-              tools: toolset.definitions,
+              tools: { ...toolset.definitions, ...actionTools?.definitions },
               signal: controller.signal,
               executeTool: (name, input) =>
                 isToolName(name)
                   ? toolset.execute(name, input)
-                  : Promise.reject(new Error('unknown assistant tool')),
+                  : actionTools && (name === 'prepareNote' || name === 'prepareTask')
+                    ? actionTools.execute(name, input)
+                    : Promise.reject(new Error('unknown assistant tool')),
             })) {
               if (controller.signal.aborted) break;
               switch (event.type) {
@@ -436,7 +552,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                     type: 'progress',
                     label: isToolName(event.toolName)
                       ? PROGRESS_LABELS[event.toolName]
-                      : 'Checking the CRM',
+                      : event.toolName === 'prepareNote'
+                        ? 'Preparing a note for review'
+                        : event.toolName === 'prepareTask'
+                          ? 'Preparing a task for review'
+                          : 'Checking the CRM',
                   });
                   break;
                 case 'finish':
@@ -488,6 +608,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               }
               const cards = sources.list();
               if (cards.length > 0) writePart({ type: 'sources', sources: cards });
+              if (
+                actionTools &&
+                actionTools.proposals.length > 0 &&
+                decideAccess(finalAccess, 'lead.manage').allowed
+              )
+                writePart({ type: 'actions', actions: actionTools.proposals });
               writePart({ type: 'done' });
             }
           } catch (error) {
