@@ -68,6 +68,7 @@ import { LeadsBoard } from './leads-board';
 import { LeadsTable } from './leads-table';
 import { SavedViewSwitcher } from './saved-view-switcher';
 import { useLeadWorkspace } from './use-lead-workspace';
+import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 import { BOARD_CARD_FIELDS, TABLE_COLUMNS, useStoredList } from './view-preferences';
 import {
   allLeadsQuery,
@@ -377,6 +378,19 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const closedLead = useRef<string | undefined>(undefined);
   const panelChanged = useRef(false);
   const [listVersion, setListVersion] = useState(0);
+  const { reload: reloadSummary } = summary;
+  useEffect(() => {
+    const saved = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail?.workspaceId !== workspaceId) return;
+      if (latestQuery.current.lead) panelChanged.current = true;
+      else {
+        setListVersion((version) => version + 1);
+        void reloadSummary();
+      }
+    };
+    window.addEventListener(LEAD_WORK_SAVED, saved);
+    return () => window.removeEventListener(LEAD_WORK_SAVED, saved);
+  }, [workspaceId, reloadSummary]);
   function closePanel() {
     closedLead.current = latestQuery.current.lead;
     if (panelChanged.current) {

@@ -73,6 +73,7 @@ import { RelatedRequests } from './related-requests';
 import { emailSkippedText, StageMoveDialog, stageMoveRefusal } from './stage-move-dialog';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
+import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 
 const ATTRIBUTION_LABELS: Record<string, string> = {
   utmSource: 'UTM source',
@@ -196,6 +197,22 @@ export function LeadRecord({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  const { reload } = record;
+  useEffect(() => {
+    const saved = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        event.detail?.workspaceId === workspaceId &&
+        event.detail?.leadId === leadId
+      ) {
+        void reload();
+        onChangeRef.current?.();
+      }
+    };
+    window.addEventListener(LEAD_WORK_SAVED, saved);
+    return () => window.removeEventListener(LEAD_WORK_SAVED, saved);
+  }, [workspaceId, leadId, reload]);
 
   // The first open by someone who works leads clears the "New" badge for the
   // whole team. Best effort: a failure leaves the badge for the next open.

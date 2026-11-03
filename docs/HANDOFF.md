@@ -1439,6 +1439,25 @@ projection/budget and SDK streaming/logging behavior. Details and current check
 results: [review/ai-assistant.md](review/ai-assistant.md). Gateway credentials,
 model/provider validation, deployed streaming and rollout remain owner steps.
 
+### Ask AI tasks and notes (version 2)
+
+Ask AI can now prepare a follow-up task or a note for an active lead. Nothing
+is saved by the model: staff review a card naming the Site/lead and the exact
+content, due date and assignee, then press Confirm. The confirmation rechecks
+`lead.manage`, the Site allowlist, a signed ten-minute actor/Site-bound token,
+and the lead's archive/restriction state. It uses the existing work store and
+audit path, with the proposal id as the record id so retries and concurrent
+confirmations cannot create duplicates. Tasks support the asking member or
+unassigned, with calendar due dates stored at noon UTC. No migration or new
+secret; signing is domain-separated from the existing Gateway key, whose
+rotation invalidates old cards. Read-only callers keep read tools only.
+
+Saved actions refresh the open lead and My tasks. A lost response offers Retry
+save with the same token; expired or uncertain cards say to check the lead
+before preparing another. See [design/ai-actions.md](design/ai-actions.md) for
+the trust boundary and verification cases. Stage changes, lead assignment,
+emails, exports, edits and bulk operations remain unavailable to the assistant.
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted

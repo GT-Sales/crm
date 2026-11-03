@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 import { leadTypeLabel, type LeadTaskStatus, type WorkspaceTask } from '@gt-sales/contracts';
 import { cn } from '@gt-sales/ui';
 
@@ -53,6 +54,14 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
     [accessToken, workspaceId, scope],
   );
   const tasks = useResource(load);
+  const { reload } = tasks;
+  useEffect(() => {
+    const saved = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.workspaceId === workspaceId) void reload();
+    };
+    window.addEventListener(LEAD_WORK_SAVED, saved);
+    return () => window.removeEventListener(LEAD_WORK_SAVED, saved);
+  }, [workspaceId, reload]);
   const [busyId, setBusyId] = useState<string>();
   const [message, setMessage] = useState<string>();
   const today = todayDay();

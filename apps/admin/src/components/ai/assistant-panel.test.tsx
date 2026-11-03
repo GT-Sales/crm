@@ -6,7 +6,10 @@ import type {
   AiSource,
   AiStreamPart,
   StaffWorkspace,
+  AiActionProposal,
+  ConfirmAiActionResponse,
 } from '@gt-sales/contracts';
+import { BackendError } from '../../lib/api';
 
 import { AssistantPanel } from './assistant-panel';
 import { AssistantProvider } from './assistant-provider';
@@ -33,6 +36,14 @@ type AskAiFn = (
 ) => AsyncGenerator<AiStreamPart, void, undefined>;
 
 const mocks = vi.hoisted(() => ({
+  confirmAiAction:
+    vi.fn<
+      (
+        token: string,
+        workspaceId: string,
+        proposalToken: string,
+      ) => Promise<ConfirmAiActionResponse>
+    >(),
   getAiCapabilities: vi.fn<CapabilitiesFn>(),
   askAiAssistant: vi.fn<AskAiFn>(),
 }));
@@ -140,6 +151,187 @@ describe('Ask AI panel', () => {
     mocks.getAiCapabilities.mockReset();
     mocks.askAiAssistant.mockReset();
     mocks.getAiCapabilities.mockResolvedValue(capabilities());
+    mocks.confirmAiAction.mockReset();
+  });
+
+  const proposal: AiActionProposal = {
+    id: '70000000-0000-4000-8000-000000000001',
+    token: 'signed-proposal',
+    expiresAt: '2099-11-05T12:00:00.000Z',
+    siteName: 'CanadaWide',
+    leadLabel: 'MS-101',
+    leadHref: `/w/canadawide/leads/${LEAD_ID}`,
+    draft: { kind: 'note', leadId: LEAD_ID, body: 'Customer asked for a callback.' },
+  };
+  function propose(action = proposal) {
+    mocks.askAiAssistant.mockImplementation(() =>
+      streamOf([
+        { type: 'text', text: 'Draft ready.' },
+        { type: 'actions', actions: [action] },
+        { type: 'done' },
+      ]),
+    );
+  }
+
+  it('requires Confirm before saving and retains the saved receipt after reopening', async () => {
+    propose();
+    mocks.confirmAiAction.mockResolvedValue({
+      status: 'saved',
+      actionId: proposal.id,
+      recordId: proposal.id,
+      kind: 'note',
+      requestId: proposal.id,
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    const confirm = await screen.findByRole('button', { name: 'Confirm' });
+    expect(screen.getByText('Customer asked for a callback.')).toBeTruthy();
+    expect(mocks.confirmAiAction).not.toHaveBeenCalled();
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await screen.findByText('Note added.');
+    expect(mocks.confirmAiAction).toHaveBeenCalledTimes(1);
+    expect(mocks.confirmAiAction).toHaveBeenCalledWith('staff-token', WORKSPACE_ID, proposal.token);
+    fireEvent.click(screen.getByRole('button', { name: 'Close Ask AI' }));
+    await openPanel();
+    expect(screen.getByText('Note added.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull();
+  });
+
+  it('cancels without a write and shows the exact task, due date and assignee', async () => {
+    propose({
+      ...proposal,
+      draft: {
+        kind: 'task',
+        leadId: LEAD_ID,
+        title: 'Call the customer',
+        dueDate: '2026-11-05',
+        assignee: 'me',
+      },
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Create a follow-up');
+    await screen.findByRole('region', { name: 'Confirm task' });
+    await screen.findByRole('button', { name: 'Confirm' });
+    expect(screen.getByText('Call the customer')).toBeTruthy();
+    expect(screen.getByText('You')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('Cancelled. Nothing was saved.')).toBeTruthy();
+    expect(mocks.confirmAiAction).not.toHaveBeenCalled();
+  });
+
+  it('retries the same signed card after an uncertain save, without making a fresh proposal', async () => {
+    propose();
+    mocks.confirmAiAction
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce({
+        status: 'saved',
+        actionId: proposal.id,
+        recordId: proposal.id,
+        kind: 'note',
+        requestId: proposal.id,
+      });
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry save' }));
+    await screen.findByText('Note added.');
+    expect(mocks.askAiAssistant).toHaveBeenCalledTimes(1);
+    expect(mocks.confirmAiAction.mock.calls.map((call) => call[2])).toEqual([
+      proposal.token,
+      proposal.token,
+    ]);
+  });
+
+  it('clears private chat when confirmation is denied after a permission change', async () => {
+    propose();
+    mocks.confirmAiAction.mockRejectedValue(
+      new BackendError('permission_denied', 403, proposal.id),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull());
+    expect(screen.queryByRole('button', { name: 'Ask AI' })).toBeNull();
+  });
+
+  it('keeps an in-flight save receipt when the person asks a follow-up question', async () => {
+    mocks.askAiAssistant
+      .mockImplementationOnce(() =>
+        streamOf([{ type: 'actions', actions: [proposal] }, { type: 'done' }]),
+      )
+      .mockImplementationOnce(() =>
+        streamOf([{ type: 'text', text: 'Five leads.' }, { type: 'done' }]),
+      );
+    let finish: (value: ConfirmAiActionResponse) => void = () => {};
+    mocks.confirmAiAction.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    expect(screen.getByText('Saving…')).toBeTruthy();
+    ask('How many leads?');
+    await screen.findByText('Five leads.');
+    await act(async () => {
+      finish({
+        status: 'saved',
+        actionId: proposal.id,
+        recordId: proposal.id,
+        kind: 'note',
+        requestId: proposal.id,
+      });
+    });
+    expect(await screen.findByText('Note added.')).toBeTruthy();
+  });
+
+  it('does not restore old action receipts after the member changes', async () => {
+    propose();
+    let finish: (value: ConfirmAiActionResponse) => void = () => {};
+    mocks.confirmAiAction.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { rerender } = render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    rerender(<Harness accessToken="other-member" />);
+    await act(async () => {
+      finish({
+        status: 'saved',
+        actionId: proposal.id,
+        recordId: proposal.id,
+        kind: 'note',
+        requestId: proposal.id,
+      });
+    });
+    expect(screen.queryByText('Note added.')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull();
+  });
+
+  it('does not claim nothing was saved when an uncertain save is dismissed', async () => {
+    propose();
+    mocks.confirmAiAction.mockRejectedValue(new Error('network'));
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(
+      screen.getByText('Dismissed. Check the lead if a save was already attempted.'),
+    ).toBeTruthy();
+    expect(screen.queryByText('Cancelled. Nothing was saved.')).toBeNull();
   });
 
   it('focuses the composer when it opens and sends nothing on an empty submit', async () => {

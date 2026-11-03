@@ -1674,6 +1674,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   };
   router.use(
     createAiAssistantRoutes({
+      ...(dependencies.leadWorkStore === undefined ? {} : { work: dependencies.leadWorkStore }),
       config: ai.config,
       loadAccess: (actorId, workspaceId) =>
         dependencies.store.loadStaffAccess(actorId, workspaceId),

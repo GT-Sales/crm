@@ -6,6 +6,8 @@ import {
   aiChatRequestSchema,
   aiSourceSchema,
   aiStreamPartSchema,
+  aiActionDraftSchema,
+  confirmAiActionRequestSchema,
 } from './ai-assistant';
 
 const REQUEST_ID = '50000000-0000-4000-8000-0000000000a1';
@@ -16,6 +18,36 @@ const chat = (overrides: Record<string, unknown> = {}) => ({
   message: 'How many SIM orders did we receive in the last 30 days?',
   history: [],
   ...overrides,
+});
+
+describe('confirmed AI action contracts', () => {
+  it('accepts only task/note drafts and rejects identity, assignment and date forgery', () => {
+    expect(
+      aiActionDraftSchema.safeParse({ kind: 'note', leadId: LEAD_ID, body: 'A note' }).success,
+    ).toBe(true);
+    const task = {
+      kind: 'task',
+      leadId: LEAD_ID,
+      title: 'Call',
+      dueDate: '2026-11-05',
+      assignee: 'me',
+    };
+    expect(aiActionDraftSchema.safeParse(task).success).toBe(true);
+    for (const extra of [
+      { workspaceId: LEAD_ID },
+      { actorId: LEAD_ID },
+      { assignedActorId: LEAD_ID },
+      { status: 'done' },
+    ])
+      expect(aiActionDraftSchema.safeParse({ ...task, ...extra }).success).toBe(false);
+    expect(aiActionDraftSchema.safeParse({ ...task, dueDate: '2026-02-30' }).success).toBe(false);
+    expect(aiActionDraftSchema.safeParse({ ...task, kind: 'email' }).success).toBe(false);
+    expect(aiActionDraftSchema.safeParse({ ...task, assignee: LEAD_ID }).success).toBe(false);
+    expect(confirmAiActionRequestSchema.safeParse({ token: 'opaque-token' }).success).toBe(true);
+    expect(
+      confirmAiActionRequestSchema.safeParse({ token: 'opaque-token', draft: task }).success,
+    ).toBe(false);
+  });
 });
 
 describe('aiChatRequestSchema', () => {

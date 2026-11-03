@@ -11,6 +11,8 @@ import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { AiAssistantConfig } from '../src/ai/config.js';
 import { createFakeEngine, type FakeTurn, type AssistantEngine } from '../src/ai/engine.js';
+import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { signAiAction } from '../src/ai/actions.js';
 import type { LeadRow } from '../src/ai/projections.js';
 import type { AiReadService } from '../src/ai/read-service.js';
 import type { AiSiteContextStore } from '../src/ai/site-context.js';
@@ -146,6 +148,7 @@ let staff: MemoryStaffStore;
 
 function appWith(
   options: {
+    work?: DatabaseLeadWorkStore;
     config?: AiAssistantConfig;
     engine?: AssistantEngine;
     turns?: readonly FakeTurn[];
@@ -157,6 +160,7 @@ function appWith(
   staff.loader = options.loadAccess;
   return createApp({
     staff: {
+      ...(options.work === undefined ? {} : { leadWorkStore: options.work }),
       sessionVerifier: new TokenVerifier(),
       store: staff,
       credentialStore: noopCredentialStore,
@@ -225,6 +229,168 @@ async function readParts(response: Response): Promise<AiStreamPart[]> {
 }
 
 describe('POST /workspaces/:id/ai/chat', () => {
+  it('prepares a note without writing and saves only the signed content on confirmation', async () => {
+    const work = new DatabaseLeadWorkStore();
+    const add = vi.spyOn(work, 'addNote').mockResolvedValue({
+      status: 'created',
+      activity: {
+        id: REQUEST_ID,
+        actorId: ACTOR,
+        createdAt: NOW.toISOString(),
+        kind: 'note',
+        body: 'Called the customer.',
+      },
+    });
+    vi.spyOn(reads, 'leadHint').mockResolvedValue({
+      leadId: LEAD,
+      reference: 'MS-101',
+      name: 'Test',
+      stage: 'pending',
+      leadType: 'sim_order',
+    });
+    await start(
+      appWith({
+        work,
+        turns: [
+          {
+            toolCalls: [
+              { name: 'prepareNote', input: { leadId: LEAD, body: 'Called the customer.' } },
+            ],
+            chunks: ['Draft ready.'],
+          },
+        ],
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    const actions = (await readParts(response)).find((part) => part.type === 'actions');
+    if (actions?.type !== 'actions') throw new Error('expected confirmation card');
+    const proposal = actions.actions[0];
+    if (!proposal) throw new Error('expected proposal');
+    expect(add).not.toHaveBeenCalled();
+    const saved = await fetch(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({ token: proposal.token }),
+      },
+    );
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      status: 'saved',
+      kind: 'note',
+      actionId: proposal.id,
+    });
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        leadId: LEAD,
+        body: 'Called the customer.',
+        creationId: proposal.id,
+      }),
+    );
+  });
+
+  it.each([
+    'expired',
+    'foreign_actor',
+    'foreign_site',
+    'tampered',
+    'extra_fields',
+    'read_only',
+    'revoked',
+    'disabled',
+  ] as const)('rejects %s confirmations without calling a write store', async (mode) => {
+    const work = new DatabaseLeadWorkStore();
+    const add = vi.spyOn(work, 'addNote').mockResolvedValue({ status: 'not_found' });
+    const task = vi.spyOn(work, 'createTask').mockResolvedValue({ status: 'not_found' });
+    const action = {
+      id: REQUEST_ID,
+      actorId: mode === 'foreign_actor' ? LEAD : ACTOR,
+      workspaceId: mode === 'foreign_site' ? LEAD : WORKSPACE,
+      expiresAt: new Date(NOW.getTime() + (mode === 'expired' ? -1 : 60000)).toISOString(),
+      draft: { kind: 'note' as const, leadId: LEAD, body: 'Exact note' },
+    };
+    let token = signAiAction(action, 'test-key-not-real');
+    if (mode === 'tampered') token = 'x' + token;
+    await start(
+      appWith({
+        work,
+        config: config({ enabled: mode !== 'disabled' }),
+        loadAccess: async () => ({
+          membershipId: MEMBERSHIP,
+          status: mode === 'revoked' ? 'revoked' : 'active',
+          roles: mode === 'read_only' ? ['finance'] : ['owner'],
+          permissions: [],
+        }),
+      }),
+    );
+    const response = await fetch(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          ...(mode === 'extra_fields' ? { body: 'Forged body' } : {}),
+        }),
+      },
+    );
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(add).not.toHaveBeenCalled();
+    expect(task).not.toHaveBeenCalled();
+  });
+
+  it('confirms a task using the asking member and calendar-day due date', async () => {
+    const work = new DatabaseLeadWorkStore();
+    const task = vi.spyOn(work, 'createTask').mockResolvedValue({
+      status: 'saved',
+      task: {
+        id: REQUEST_ID,
+        leadId: LEAD,
+        title: 'Call',
+        dueAt: '2026-11-05T12:00:00.000Z',
+        assignedActorId: ACTOR,
+        status: 'open',
+        completedAt: null,
+        createdBy: ACTOR,
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      },
+    });
+    await start(appWith({ work }));
+    const token = signAiAction(
+      {
+        id: REQUEST_ID,
+        ...{ workspaceId: WORKSPACE, actorId: ACTOR },
+        expiresAt: new Date(NOW.getTime() + 60000).toISOString(),
+        draft: { kind: 'task', leadId: LEAD, title: 'Call', dueDate: '2026-11-05', assignee: 'me' },
+      },
+      'test-key-not-real',
+    );
+    const response = await fetch(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(task).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Call',
+        dueAt: '2026-11-05T12:00:00.000Z',
+        assignedActorId: ACTOR,
+        creationId: REQUEST_ID,
+      }),
+    );
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
   });

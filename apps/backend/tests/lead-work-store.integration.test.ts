@@ -470,6 +470,83 @@ databaseTest('DatabaseLeadWorkStore', () => {
     );
   });
 
+  test('concurrent confirmations of the same AI note or task create one record and audit event', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'AI Confirm',
+      email: 'ai.confirm@example.test',
+      phone: '403 555 0120',
+    });
+    if (!migrationUrl) throw new Error('expected test database');
+    const parallelUrl = new URL(migrationUrl);
+    parallelUrl.username = 'app_runtime';
+    parallelUrl.password = TEST_RUNTIME_PASSWORD;
+    const parallelDatabase = createDatabaseClient({
+      connectionString: parallelUrl.toString(),
+      maxConnections: 2,
+      ssl: false,
+    });
+    const parallelWork = new DatabaseLeadWorkStore(parallelDatabase);
+    try {
+      const noteId = '53000000-0000-4000-8000-000000000e01';
+      const taskId = '53000000-0000-4000-8000-000000000e02';
+      const notes = await Promise.all([
+        parallelWork.addNote({ ...writeScope, leadId, body: 'Confirmed note', creationId: noteId }),
+        parallelWork.addNote({ ...writeScope, leadId, body: 'Confirmed note', creationId: noteId }),
+      ]);
+      expect(notes.every((n) => n.status === 'created' && n.activity.id === noteId)).toBe(true);
+      const taskInput = {
+        ...writeScope,
+        leadId,
+        title: 'Confirmed task',
+        assignedActorId: ACTOR,
+        dueAt: '2026-11-05T12:00:00.000Z',
+        creationId: taskId,
+      };
+      const tasks = await Promise.all([
+        parallelWork.createTask(taskInput),
+        parallelWork.createTask(taskInput),
+      ]);
+      expect(tasks.every((t) => t.status === 'saved' && t.task.id === taskId)).toBe(true);
+      const [counts] = await admin`select
+      (select count(*)::int from app.lead_activities where id=${noteId}) as notes,
+      (select count(*)::int from app.lead_tasks where id=${taskId}) as tasks,
+      (select count(*)::int from app.audit_events where workspace_id=${WORKSPACE} and after->>'aiActionId' in (${noteId},${taskId})) as audits`;
+      expect(counts).toEqual({ notes: 1, tasks: 1, audits: 2 });
+      const details = await work.getLead({ ...scope, leadId, includeWork: true });
+      expect(
+        details?.activities.some((a) => a.kind === 'note' && a.body === 'Confirmed note'),
+      ).toBe(true);
+      expect(details?.tasks.find((t) => t.id === taskId)?.dueAt).toBe('2026-11-05T12:00:00.000Z');
+      await admin`update app.leads set deleted_at=now() where id=${leadId}`;
+      expect(
+        (
+          await parallelWork.addNote({
+            ...writeScope,
+            leadId,
+            body: 'Confirmed note',
+            creationId: noteId,
+          })
+        ).status,
+      ).toBe('trashed');
+      expect((await parallelWork.createTask(taskInput)).status).toBe('trashed');
+      await admin`update app.leads set deleted_at=null,customer_data_restricted_at=now() where id=${leadId}`;
+      expect(
+        (
+          await parallelWork.addNote({
+            ...writeScope,
+            leadId,
+            body: 'Confirmed note',
+            creationId: noteId,
+          })
+        ).status,
+      ).toBe('not_found');
+      expect((await parallelWork.createTask(taskInput)).status).toBe('not_found');
+    } finally {
+      await admin`delete from app.leads where id=${leadId}`;
+      await parallelDatabase.close();
+    }
+  });
+
   test('tasks complete, reopen and cancel; the lead summarises its open ones', async () => {
     const leadId = await createInternetLead({
       fullName: 'Gale Task',

@@ -11,6 +11,23 @@ import {
 
 const UUID = '00000000-0000-4000-8000-000000000001';
 
+it('confirms AI actions with only the signed token and validates the receipt', async () => {
+  const { client, calls } = harness(200, {
+    status: 'saved',
+    actionId: UUID,
+    recordId: UUID,
+    kind: 'note',
+    requestId: UUID,
+  });
+  const result = await client.staff.confirmAiAction(UUID, { token: 'signed-token' });
+  expect(result.actionId).toBe(UUID);
+  expect(calls[0]?.url).toBe(
+    `https://api.example.test/api/v1/staff/workspaces/${UUID}/ai/actions/confirm`,
+  );
+  expect(calls[0]?.method).toBe('POST');
+  expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ token: 'signed-token' });
+});
+
 interface Captured {
   url: string;
   method: string;
