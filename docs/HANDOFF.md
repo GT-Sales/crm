@@ -1441,6 +1441,12 @@ model/provider validation, deployed streaming and rollout remain owner steps.
 
 ## 4. What is verified, and how
 
+Reply presentation follow-up (2026-11-03): assistant answers render restricted
+Markdown instead of visible formatting symbols. Headings, emphasis, lists and
+tables use the CRM's typography; tables scroll inside the reply on small screens.
+Raw HTML and images are disabled, model-authored links remain text, and only
+server-built source cards navigate. Copy retains the original answer text.
+
 AI follow-up (2026-11-03): PR #18 is merged into `main`; the branch wording
 above is historical. The `claude/finish-ai-chat` follow-up excludes partial
 stopped/failed answers from model history and treats an absent provider/engine

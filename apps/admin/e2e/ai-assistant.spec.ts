@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 for (const theme of ['light', 'dark']) {
   for (const width of [375, 1440]) {
-    test(`Ask AI streams from the backend at ${width}px in ${theme} mode`, async ({ page }) => {
+    test(`Ask AI streams from the backend at ${width}px in ${theme} mode`, async ({
+      page,
+    }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/w/canadawide/leads');
@@ -24,10 +26,16 @@ for (const theme of ['light', 'dark']) {
         page.getByText(/Synthetic model: \d+ leads checked in this site\./),
       ).toBeVisible();
       await expect(page.getByText('Sources checked')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Lead overview' })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Answer table' }).getByRole('table'),
+      ).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Count' })).toBeVisible();
       await expect(page.getByRole('textbox', { name: 'Ask a question' })).toBeEnabled();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
+      await page.screenshot({ path: testInfo.outputPath(`formatted-reply-${width}-${theme}.png`) });
       await page.getByRole('textbox', { name: 'Ask a question' }).fill('Slow test');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByRole('button', { name: 'Stop', exact: true }).click();

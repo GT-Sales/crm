@@ -468,10 +468,13 @@ const assistantEngine: AssistantEngine = {
     const result = z
       .object({ status: z.literal('ok'), data: z.object({ received: z.number() }) })
       .parse(JSON.parse(await input.executeTool('getSiteOverview', { period: 'all_time' })));
-    yield { type: 'text', text: 'Synthetic model: ' };
+    yield { type: 'text', text: '## Lead overview\n\n**Synthetic model: ' };
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (input.signal.aborted) return;
-    yield { type: 'text', text: `${result.data.received} leads checked in this site.` };
+    yield {
+      type: 'text',
+      text: `${result.data.received} leads checked in this site.**\n\n| Stage | Count |\n| --- | ---: |\n| Pending | 8 |\n| Verified | 5 |\n\n- Counts include drafts.\n- Archived leads are excluded.`,
+    };
     yield { type: 'finish', outputTokens: 12 };
   },
 };
