@@ -121,6 +121,9 @@ export function createActionProposalTools(input: {
         status: 'confirmation_required',
         message: 'A confirmation card for this draft is already prepared.',
       });
+    // Parallel calls can all pass the entry guard before their reads finish.
+    // Recheck after the final await; checking and appending below are synchronous.
+    if (proposals.length >= 3) return JSON.stringify({ status: 'not_available' });
     const id = randomUUID();
     const expiresAt = new Date(input.now().getTime() + TTL_MS).toISOString();
     const token = signAiAction(

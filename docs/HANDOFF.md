@@ -2270,3 +2270,12 @@ holds DROP statements for a confirmation, so it is a paste in the SQL Editor.
   rotate it.
 - Commit messages explain the why; one change per commit; the attribution
   trailer the session requires.
+
+### AI action release review (2026-11-04)
+
+The review of PR #23 found and fixed a parallel proposal race that could exceed
+three action cards and fail the answer stream. Confirmation refusal tests now
+cover note, task and email; revision tests cover tampering, changed kind/address
+input and access revoked during preview. Review scope, trust boundaries and
+verification limits: [review/ai-actions-release.md](review/ai-actions-release.md).
+The owner authorized merging once PR CI passes and checking main CI afterward.
