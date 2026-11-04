@@ -548,3 +548,12 @@ setup navigation, explicit branch endings, responsive fit/focus, reduced-motion
 transitions and separate run timelines. Sample tests distinguish simulation
 from queued mail and require an explicit Run test. Runtime semantics and access
 rules are preserved. See `docs/design/2026-11-04-automation-ux.md`.
+
+### AI automation authoring follow-up
+
+Implement the staged [AI automation authoring plan](design/2026-11-04-ai-automation-authoring.md):
+read/catalog tools, visual proposals, confirmed atomic draft saves, revision-aware
+editing, pure simulation, then optional separate publishing controls. Existing
+engine remains authoritative. Draft authoring and pure simulation are now implemented
+behind the per-site allowlist; real-model evaluation and controlled operational
+acceptance precede enablement. Chat publishing/enabling remain deferred.

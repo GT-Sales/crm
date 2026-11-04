@@ -1,4 +1,6 @@
 'use client';
+import type { AiAutomationProposal } from '@gt-sales/contracts';
+import { saveAiAutomation, reviseAiAutomation, simulateAiAutomation } from '../../lib/api';
 
 import {
   createContext,
@@ -39,6 +41,7 @@ export interface AiUserMessage {
 }
 
 export interface AiAssistantMessage {
+  automationProposals?: readonly AiAutomationProposal[];
   followUp?: AiFollowUp;
   actions?: readonly AiActionView[];
   id: string;
@@ -80,6 +83,17 @@ interface CapabilitiesState {
 }
 
 export interface AssistantContextValue {
+  workspaceSlug: string;
+  automationApi: {
+    save: (token: string) => ReturnType<typeof saveAiAutomation>;
+    revise: (
+      token: string,
+      draft: Parameters<typeof reviseAiAutomation>[3],
+    ) => ReturnType<typeof reviseAiAutomation>;
+    simulate: (
+      body: Parameters<typeof simulateAiAutomation>[2],
+    ) => ReturnType<typeof simulateAiAutomation>;
+  };
   reviseAction(messageId: string, actionId: string, draft: AiActionDraft): void;
   confirmAction(messageId: string, actionId: string): void;
   cancelAction(messageId: string, actionId: string): void;
@@ -266,6 +280,8 @@ export function AssistantProvider({
           for (const source of part.sources) byId.set(source.id, source);
           return { ...message, sources: [...byId.values()] };
         }
+        if (part.type === 'automation_proposals')
+          return { ...message, automationProposals: part.proposals };
         if (part.type === 'follow_up') return { ...message, followUp: part.followUp };
         if (part.type === 'actions')
           return {
@@ -623,6 +639,12 @@ export function AssistantProvider({
 
   const value = useMemo<AssistantContextValue>(
     () => ({
+      workspaceSlug: workspace.slug,
+      automationApi: {
+        save: (token) => saveAiAutomation(accessToken, workspace.id, token),
+        revise: (token, draft) => reviseAiAutomation(accessToken, workspace.id, token, draft),
+        simulate: (body) => simulateAiAutomation(accessToken, workspace.id, body),
+      },
       capabilities,
       messages: activeSession.messages,
       streaming: activeSession.streaming,
@@ -662,6 +684,9 @@ export function AssistantProvider({
       send,
       stop,
       workspace.name,
+      workspace.id,
+      workspace.slug,
+      accessToken,
     ],
   );
 

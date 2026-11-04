@@ -122,6 +122,12 @@ export function createApp(options: CreateAppOptions = {}): Express {
     express.raw({ type: 'application/json', limit: '64kb' }),
     createResendWebhookRouter(emailDependencies),
   );
+  // A revision carries the existing 65 KiB maximum flow plus a small envelope.
+  // Keep chat and every other endpoint at their existing 64 KiB limit.
+  app.use(
+    '/api/v1/staff/workspaces/:workspaceId/ai/automations/revise',
+    express.json({ limit: '96kb' }),
+  );
   app.use(express.json({ limit: '64kb' }));
   app.get('/api/v1/health', getHealth);
   app.use(

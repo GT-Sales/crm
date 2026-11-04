@@ -14,6 +14,7 @@ import type { AiUnavailableReason } from '@gt-sales/contracts';
 export interface AiAssistantConfig {
   /** True only when every requirement is met; the route still rechecks the site allowlist. */
   readonly enabled: boolean;
+  readonly automationWorkspaceIds?: ReadonlySet<string>;
   /** Why not, when `enabled` is false. Safe to return to an authorized caller. */
   readonly reason?: AiUnavailableReason;
   /** Exact Gateway model id; never defaulted, so an unset value cannot pick a paid model. */
@@ -54,5 +55,13 @@ export function loadAiAssistantConfig(
   if (!apiKey || !modelId.success) {
     return { enabled: false, reason: 'not_configured', workspaceIds };
   }
-  return { enabled: true, apiKey, modelId: modelId.data, workspaceIds };
+  return {
+    enabled: true,
+    apiKey,
+    modelId: modelId.data,
+    workspaceIds,
+    ...(env['AI_AUTOMATION_WORKSPACE_IDS']
+      ? { automationWorkspaceIds: parseWorkspaceIds(env['AI_AUTOMATION_WORKSPACE_IDS']) }
+      : {}),
+  };
 }

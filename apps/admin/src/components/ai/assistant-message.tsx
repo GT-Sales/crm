@@ -10,6 +10,7 @@ import type { AiAssistantMessage, AiMessage } from './assistant-provider';
 import { AssistantSources } from './assistant-sources';
 import { AssistantMarkdown } from './assistant-markdown';
 import { AssistantAction } from './assistant-action';
+import { AssistantAutomation } from './assistant-automation';
 
 /** Plain language for each way an answer can fail. Never a provider detail. */
 export function aiErrorText(error: AiUiError): string {
@@ -113,7 +114,8 @@ function AssistantAnswer({
       {message.status === 'complete' &&
       message.text.length === 0 &&
       !message.followUp &&
-      !message.actions?.length ? (
+      !message.actions?.length &&
+      !message.automationProposals?.length ? (
         <p className="text-sm text-muted-foreground">
           No answer came back. Try asking in another way.
         </p>
@@ -125,6 +127,11 @@ function AssistantAnswer({
         <p className="text-sm text-muted-foreground">{aiErrorText(message.error ?? 'failed')}</p>
       ) : null}
       <AssistantSources sources={message.sources} />
+      {message.status === 'complete'
+        ? message.automationProposals?.map((proposal) => (
+            <AssistantAutomation key={proposal.id} initial={proposal} />
+          ))
+        : null}
       {message.status === 'complete' && message.followUp ? (
         <section aria-label="Clarifying question" className="space-y-2">
           <p className="text-sm">{message.followUp.question}</p>

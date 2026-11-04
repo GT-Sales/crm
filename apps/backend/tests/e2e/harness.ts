@@ -478,6 +478,48 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 0 };
       return;
     }
+    if (
+      question.startsWith('Create a reviewed automation') ||
+      question.startsWith('Edit the reviewed automation')
+    ) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const editing = question.startsWith('Edit');
+      const flowName = 'AI browser flow ' + question.split(' ').at(-1);
+      let target;
+      let definition: unknown = {
+        schemaVersion: 1,
+        trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'], when: null },
+        steps: [{ id: 's_wait', kind: 'wait', for: { amount: 2, unit: 'days' } }],
+      };
+      if (editing) {
+        const listed = z
+          .object({ flows: z.array(z.object({ key: z.string(), name: z.string() })) })
+          .parse(JSON.parse(await input.executeTool('listAutomations', { search: flowName })));
+        const flow = listed.flows[0];
+        if (!flow) throw new Error('missing flow');
+        const current = z
+          .object({
+            key: z.string(),
+            revision: z.number(),
+            draft: z.object({ definition: z.unknown() }),
+          })
+          .parse(JSON.parse(await input.executeTool('getAutomation', { key: flow.key })));
+        definition = current.draft.definition;
+        target = { key: current.key, expectedRevision: current.revision, base: 'draft' };
+      }
+      await input.executeTool('getAutomationCatalog', { leadType: 'sim_order' });
+      await input.executeTool(editing ? 'proposeAutomationEdit' : 'proposeAutomationCreate', {
+        draft: {
+          name: editing ? flowName + ' edited' : flowName,
+          description: 'Created from a reviewed AI proposal',
+          definition,
+        },
+        ...(target ? { target } : {}),
+      });
+      yield { type: 'text', text: 'Automation draft ready. Review and save it.' };
+      yield { type: 'finish', outputTokens: 10 };
+      return;
+    }
     if (question.startsWith('Update lead phone:')) {
       const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
       if (!leadId || !input.executeTool) throw new Error('expected context');
@@ -551,6 +593,7 @@ const app = createApp({
       config: {
         enabled: true,
         apiKey: 'synthetic-e2e-signing-key',
+        automationWorkspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
         workspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
       },
       reads: new DatabaseAiReadService(),

@@ -1,3 +1,10 @@
+import type {
+  AiAutomationDraft,
+  AiAutomationProposal,
+  AiAutomationSaveResponse,
+  AiAutomationSimulation,
+} from '@gt-sales/contracts';
+import type { AiAutomationSimulateRequest } from '@gt-sales/contracts';
 import {
   BackendError,
   createBackendClient,
@@ -776,4 +783,27 @@ export async function reviseAiAction(
   draft: AiActionDraft,
 ): Promise<AiActionProposal> {
   return client(accessToken).staff.reviseAiAction(workspaceId, { token, draft });
+}
+
+export function saveAiAutomation(
+  accessToken: string,
+  workspaceId: string,
+  token: string,
+): Promise<AiAutomationSaveResponse> {
+  return client(accessToken).staff.saveAiAutomation(workspaceId, { token });
+}
+export function reviseAiAutomation(
+  accessToken: string,
+  workspaceId: string,
+  token: string,
+  draft: AiAutomationDraft,
+): Promise<AiAutomationProposal> {
+  return client(accessToken).staff.reviseAiAutomation(workspaceId, { token, draft });
+}
+export function simulateAiAutomation(
+  accessToken: string,
+  workspaceId: string,
+  body: AiAutomationSimulateRequest,
+): Promise<AiAutomationSimulation> {
+  return client(accessToken).staff.simulateAiAutomation(workspaceId, body);
 }

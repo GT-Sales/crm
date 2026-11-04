@@ -242,6 +242,12 @@ export function AssistantPanel() {
               saving.
             </p>
           ) : null}
+          {available && capabilities.status === 'ready' && capabilities.data.automationAuthoring ? (
+            <p className="text-sm text-muted-foreground">
+              Ask to create or edit an automation. Review the visual proposal and save a draft
+              before publishing in the builder.
+            </p>
+          ) : null}
           {available && suggestions.length > 0 ? (
             <div>
               <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
