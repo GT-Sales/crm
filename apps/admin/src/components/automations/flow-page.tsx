@@ -1,6 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type JSX,
+} from 'react';
 import {
   EMPTY_FLOW_DRAFT,
   automationKeySchema,
@@ -73,16 +82,27 @@ const FlowCanvas = dynamic(
   },
 );
 import { StepSidePanel } from './canvas/step-side-panel';
+import { FlowSetup } from './flow-setup';
+import './automation-motion.css';
 import { FlowListView } from './flow-list-view';
 import {
   namesFromCatalog,
+  describeTrigger,
   namesFromCode,
   reasonText,
   stepKindLabel,
-  stepOutcomeText,
+  testStepOutcomeText,
   type FlowNames,
 } from './flow-words';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
+
+function subscribeCompactLayout(onChange: () => void) {
+  const media = window.matchMedia?.('(max-width: 639px)');
+  media?.addEventListener?.('change', onChange);
+  return () => media?.removeEventListener?.('change', onChange);
+}
+const compactLayoutSnapshot = () => window.matchMedia?.('(max-width: 639px)').matches ?? false;
+const serverCompactLayout = () => false;
 
 const SIGNED_OUT = 'You are signed out. Sign in again to continue.';
 const AUTOSAVE_DELAY_MS = 600;
@@ -111,10 +131,10 @@ function hasLeadChangingDraftStep(steps: readonly FlowDraftStep[]): boolean {
   return found;
 }
 
-function hasEmailDraftStep(steps: readonly FlowDraftStep[]): boolean {
+function hasCustomerEmailDraftStep(steps: readonly FlowDraftStep[]): boolean {
   let found = false;
   walkDraftSteps(steps, (step) => {
-    if (step.kind === 'send_email' || step.kind === 'notify_staff') {
+    if (step.kind === 'send_email') {
       found = true;
     }
   });
@@ -283,8 +303,15 @@ function FlowPageEditor({
     [data?.catalog],
   );
 
+  const sectionTabsId = useId();
   const [activeTab, setActiveTab] = useState<'flow' | 'runs'>('flow');
-  const [viewMode, setViewMode] = useState<'canvas' | 'list'>('canvas');
+  const [viewMode, setViewMode] = useState<'canvas' | 'list'>();
+  const compactLayout = useSyncExternalStore(
+    subscribeCompactLayout,
+    compactLayoutSnapshot,
+    serverCompactLayout,
+  );
+  const currentViewMode = viewMode ?? (compactLayout ? 'list' : 'canvas');
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [localDraft, setLocalDraft] = useState<FlowDraft>();
   const [isDirty, setIsDirty] = useState(false);
@@ -695,7 +722,7 @@ function FlowPageEditor({
       ];
 
   const validForActivation = activationCheck.success;
-  const hasEmailStep = hasEmailDraftStep(workingDraft.steps);
+  const hasEmailStep = hasCustomerEmailDraftStep(workingDraft.steps);
   const needsLeadsPermission = hasLeadChangingDraftStep(workingDraft.steps) && !canManageLeads;
 
   async function handleRunTest(emailOverride?: string): Promise<void> {
@@ -727,9 +754,6 @@ function FlowPageEditor({
       setTestEmail(staff.email);
     }
     setTestDialogOpen(true);
-    if (!hasEmailStep) {
-      void handleRunTest('');
-    }
   }
   const hasSiteIssues = (detail.draft?.issues.length ?? 0) > 0 && !isDirty;
   const activateDisabled =
@@ -829,6 +853,17 @@ function FlowPageEditor({
             <Badge variant="outline">Viewing active</Badge>
           ) : null}
         </div>
+        <p className="text-sm text-muted-foreground">
+          {viewingHistoryVersion
+            ? 'You are viewing a past version. Return to the current draft to edit.'
+            : flow.archived
+              ? 'Archived · Restore this flow before editing it or starting new runs.'
+              : flow.enabled
+                ? 'On · New matching leads run the active version. Draft edits are not live until activated.'
+                : flow.activeVersion !== null
+                  ? 'Off · An active version is ready, but new leads will not enter until you switch this flow on.'
+                  : 'Draft · Set a trigger, add actions, then review and activate. Switch on when you are ready for new runs.'}
+        </p>
         {flow.description ? (
           <p className="text-sm text-muted-foreground">{flow.description}</p>
         ) : null}
@@ -906,10 +941,31 @@ function FlowPageEditor({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-        <div role="tablist" aria-label="Flow sections" className="flex items-center gap-1">
+        <div
+          role="tablist"
+          aria-label="Flow sections"
+          className="flex items-center gap-1"
+          onKeyDown={(event) => {
+            if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const next =
+              event.key === 'Home'
+                ? 'flow'
+                : event.key === 'End'
+                  ? 'runs'
+                  : activeTab === 'flow'
+                    ? 'runs'
+                    : 'flow';
+            setActiveTab(next);
+            document.getElementById(`${sectionTabsId}-${next}`)?.focus();
+          }}
+        >
           <button
             type="button"
             role="tab"
+            id={`${sectionTabsId}-flow`}
+            aria-controls={`${sectionTabsId}-flow-panel`}
+            tabIndex={activeTab === 'flow' ? 0 : -1}
             aria-selected={activeTab === 'flow'}
             onClick={() => setActiveTab('flow')}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -923,6 +979,9 @@ function FlowPageEditor({
           <button
             type="button"
             role="tab"
+            id={`${sectionTabsId}-runs`}
+            aria-controls={`${sectionTabsId}-runs-panel`}
+            tabIndex={activeTab === 'runs' ? 0 : -1}
             aria-selected={activeTab === 'runs'}
             onClick={() => setActiveTab('runs')}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -945,8 +1004,8 @@ function FlowPageEditor({
               <Button
                 type="button"
                 size="sm"
-                variant={viewMode === 'canvas' ? 'secondary' : 'ghost'}
-                aria-pressed={viewMode === 'canvas'}
+                variant={currentViewMode === 'canvas' ? 'secondary' : 'ghost'}
+                aria-pressed={currentViewMode === 'canvas'}
                 onClick={() => setViewMode('canvas')}
               >
                 Canvas view
@@ -954,8 +1013,8 @@ function FlowPageEditor({
               <Button
                 type="button"
                 size="sm"
-                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-                aria-pressed={viewMode === 'list'}
+                variant={currentViewMode === 'list' ? 'secondary' : 'ghost'}
+                aria-pressed={currentViewMode === 'list'}
                 onClick={() => setViewMode('list')}
               >
                 List view
@@ -1046,93 +1105,120 @@ function FlowPageEditor({
       ) : null}
 
       {activeTab === 'flow' ? (
-        <section aria-labelledby="flow-definition-heading" className="flex flex-col gap-3">
-          <h2 id="flow-definition-heading" className="text-base font-semibold">
-            What it does
-          </h2>
-          {!uncorruptedDefinition || displayedDefinition === null ? (
-            <NoDefinition detail={detail} />
-          ) : (
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-              <div className="min-w-0 flex-1">
-                {displayedDefinition.trigger === null && displayedDefinition.steps.length === 0 ? (
-                  <p className="mb-2 text-sm text-muted-foreground">No trigger yet.</p>
-                ) : null}
-                {viewMode === 'list' ? (
-                  <FlowListView
-                    definition={displayedDefinition}
-                    names={names}
-                    issues={currentIssues}
-                    readOnly={!canEdit || actionBusy}
-                    selectedId={selectedNodeId}
-                    onSelectNode={setSelectedNodeId}
-                    onAddStep={addStep}
-                  />
-                ) : (
-                  <FlowCanvas
-                    definition={displayedDefinition}
-                    issues={currentIssues}
-                    names={names}
-                    readOnly={!canEdit || actionBusy}
-                    selectedId={selectedNodeId}
-                    onSelectNode={(id) => setSelectedNodeId(id)}
-                    onAddStep={addStep}
-                  />
-                )}
-              </div>
+        <div
+          role="tabpanel"
+          id={`${sectionTabsId}-flow-panel`}
+          aria-labelledby={`${sectionTabsId}-flow`}
+        >
+          <section aria-labelledby="flow-definition-heading" className="flex flex-col gap-3">
+            <h2 id="flow-definition-heading" className="text-base font-semibold">
+              What it does
+            </h2>
+            {displayedDefinition && canEdit ? (
+              <FlowSetup
+                definition={displayedDefinition}
+                names={names}
+                issues={currentIssues}
+                selectedId={selectedNodeId}
+                onSelect={setSelectedNodeId}
+                onReview={() => setConfirmingActivate(true)}
+                canReview={!activateDisabled}
+              />
+            ) : null}
+            {!uncorruptedDefinition || displayedDefinition === null ? (
+              <NoDefinition detail={detail} />
+            ) : (
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+                <div className="min-w-0 flex-1">
+                  {displayedDefinition.trigger === null &&
+                  displayedDefinition.steps.length === 0 ? (
+                    <p className="mb-2 text-sm text-muted-foreground">No trigger yet.</p>
+                  ) : null}
+                  {currentViewMode === 'list' ? (
+                    <FlowListView
+                      definition={displayedDefinition}
+                      names={names}
+                      issues={currentIssues}
+                      readOnly={!canEdit || actionBusy}
+                      selectedId={selectedNodeId}
+                      onSelectNode={setSelectedNodeId}
+                      onAddStep={addStep}
+                    />
+                  ) : (
+                    <FlowCanvas
+                      definition={displayedDefinition}
+                      issues={currentIssues}
+                      names={names}
+                      readOnly={!canEdit || actionBusy}
+                      selectedId={selectedNodeId}
+                      onSelectNode={(id) => setSelectedNodeId(id)}
+                      onAddStep={addStep}
+                    />
+                  )}
+                </div>
 
-              {selectedNodeId && (selectedNodeId === 'trigger' || selectedStepInfo) ? (
-                <StepSidePanel
-                  workspaceSlug={workspaceSlug}
-                  selectedId={selectedNodeId}
-                  trigger={displayedDefinition.trigger}
-                  step={selectedStepInfo?.step}
-                  issues={selectedIssues}
-                  catalog={data.catalog}
-                  readOnly={!canEdit || actionBusy}
-                  onUpdateTrigger={(nextTrigger: FlowDraftTrigger) => {
-                    if (!canEdit) return;
-                    scheduleAutosave({ ...workingDraft, trigger: nextTrigger });
-                  }}
-                  onUpdateStep={(stepId, updater) => {
-                    if (!canEdit) return;
-                    scheduleAutosave(updateStepById(workingDraft, stepId, updater));
-                  }}
-                  canMoveUp={moveAvailability.up}
-                  canMoveDown={moveAvailability.down}
-                  onMoveStep={(stepId, direction) => {
-                    if (!canEdit) return;
-                    scheduleAutosave(moveStepById(workingDraft, stepId, direction));
-                  }}
-                  onRemoveStep={(stepId) => {
-                    if (!canEdit) return;
-                    scheduleAutosave(removeStepById(workingDraft, stepId));
-                    closePanelAndFocusNode('trigger');
-                  }}
-                  onClose={() => closePanelAndFocusNode(selectedNodeId)}
-                />
-              ) : null}
-            </div>
-          )}
-        </section>
+                {selectedNodeId && (selectedNodeId === 'trigger' || selectedStepInfo) ? (
+                  <StepSidePanel
+                    key={selectedNodeId}
+                    workspaceSlug={workspaceSlug}
+                    selectedId={selectedNodeId}
+                    trigger={displayedDefinition.trigger}
+                    step={selectedStepInfo?.step}
+                    issues={selectedIssues}
+                    catalog={data.catalog}
+                    readOnly={!canEdit || actionBusy}
+                    onUpdateTrigger={(nextTrigger: FlowDraftTrigger) => {
+                      if (!canEdit) return;
+                      scheduleAutosave({ ...workingDraft, trigger: nextTrigger });
+                    }}
+                    onUpdateStep={(stepId, updater) => {
+                      if (!canEdit) return;
+                      scheduleAutosave(updateStepById(workingDraft, stepId, updater));
+                    }}
+                    canMoveUp={moveAvailability.up}
+                    canMoveDown={moveAvailability.down}
+                    onMoveStep={(stepId, direction) => {
+                      if (!canEdit) return;
+                      scheduleAutosave(moveStepById(workingDraft, stepId, direction));
+                    }}
+                    onRemoveStep={(stepId) => {
+                      if (!canEdit) return;
+                      scheduleAutosave(removeStepById(workingDraft, stepId));
+                      closePanelAndFocusNode('trigger');
+                    }}
+                    onClose={() => closePanelAndFocusNode(selectedNodeId)}
+                  />
+                ) : null}
+              </div>
+            )}
+          </section>
+        </div>
       ) : null}
 
-      <section aria-labelledby="flow-runs-heading" className="flex flex-col gap-3">
-        <h2 id="flow-runs-heading" className="text-base font-semibold">
-          Recent runs
-        </h2>
-        <AutomationRuns
-          workspaceSlug={workspaceSlug}
-          runs={data.runs}
-          definition={detail.active?.definition ?? workingDraft}
-          names={names}
-          definitionVersion={detail.active?.version}
-          onLoadRun={handleLoadRun}
-          nextBefore={data.runsNextBefore}
-          loadingMore={loadingMoreRuns}
-          onLoadMore={handleLoadMoreRuns}
-        />
-      </section>
+      {activeTab === 'runs' ? (
+        <div
+          role="tabpanel"
+          id={`${sectionTabsId}-runs-panel`}
+          aria-labelledby={`${sectionTabsId}-runs`}
+        >
+          <section aria-labelledby="flow-runs-heading" className="flex flex-col gap-3">
+            <h2 id="flow-runs-heading" className="text-base font-semibold">
+              Recent runs
+            </h2>
+            <AutomationRuns
+              workspaceSlug={workspaceSlug}
+              runs={data.runs}
+              definition={detail.active?.definition ?? workingDraft}
+              names={names}
+              definitionVersion={detail.active?.version}
+              onLoadRun={handleLoadRun}
+              nextBefore={data.runsNextBefore}
+              loadingMore={loadingMoreRuns}
+              onLoadMore={handleLoadMoreRuns}
+            />
+          </section>
+        </div>
+      ) : null}
 
       {flow.origin === 'custom' && detail.canManage ? (
         <ArchiveControl detail={detail} onArchive={onArchive} onRestore={onRestore} />
@@ -1149,6 +1235,22 @@ function FlowPageEditor({
               This publishes your draft as the active version of {flow.name}.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-3 rounded-md border bg-muted/20 p-3 text-sm">
+            <p>
+              {workingDraft.trigger
+                ? describeTrigger(workingDraft.trigger, names)
+                : 'No trigger configured'}
+            </p>
+            <p>
+              {flow.enabled
+                ? 'This flow is on. New matching events will use the published version.'
+                : 'This flow is off. Activation publishes the draft; switch it on afterward to start new runs.'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Review both branches and test with sample data before turning on customer-facing
+              actions. Runs already waiting keep their original version.
+            </p>
+          </div>
           {actionError ? (
             <p role="alert" className="text-sm text-destructive">
               {actionError}
@@ -1181,8 +1283,8 @@ function FlowPageEditor({
             <DialogTitle>Test run {flow.name}</DialogTitle>
             <DialogDescription>
               {hasEmailStep
-                ? 'Runs this flow against sample lead data without changing real leads. Enter the email address you want to use for any email steps in this test.'
-                : 'Runs this flow against sample lead data without changing real leads.'}
+                ? 'Uses sample lead data and leaves real leads unchanged. Customer email steps may send real test emails only to the address below. Staff notifications and lead changes are simulated. Waits are simulated; live stage and document checks still apply when the flow runs.'
+                : 'Uses sample lead data and leaves real leads unchanged. Waits are simulated.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1240,7 +1342,7 @@ function FlowPageEditor({
                       className="flex items-center justify-between gap-2"
                     >
                       <span className="font-medium">{stepKindLabel(step.stepKind)}</span>
-                      <span className="text-muted-foreground">{stepOutcomeText(step)}</span>
+                      <span className="text-muted-foreground">{testStepOutcomeText(step)}</span>
                     </li>
                   ))}
                 </ol>

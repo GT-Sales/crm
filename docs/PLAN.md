@@ -542,3 +542,9 @@ with editable before/after previews and explicit confirmation. Stale preview
 versions conflict; receipt IDs prevent duplicate writes/flows on retry. The
 existing manual update path retains all checks. Details:
 `docs/design/ai-lead-updates.md`. No migration or new configuration is needed.
+
+Automation UX follow-up (2026-11-04): research-backed vertical flow editing,
+setup navigation, explicit branch endings, responsive fit/focus, reduced-motion
+transitions and separate run timelines. Sample tests distinguish simulation
+from queued mail and require an explicit Run test. Runtime semantics and access
+rules are preserved. See `docs/design/2026-11-04-automation-ux.md`.

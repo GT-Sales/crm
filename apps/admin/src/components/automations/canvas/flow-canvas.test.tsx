@@ -17,13 +17,15 @@ it('moves focus through the step menu with arrows and returns it on Escape', asy
   const add = await screen.findByRole('button', { name: 'Add first step' });
   expect(add.closest('.react-flow__node')).toHaveProperty('style.pointerEvents', 'all');
   expect(add.closest('.react-flow__node')?.getAttribute('tabindex')).toBeNull();
-  fireEvent.click(add);
+  fireEvent.keyDown(add, { key: 'Enter', code: 'Enter' });
   const email = await screen.findByRole('menuitem', { name: 'Send email' });
   await waitFor(() => expect(document.activeElement).toBe(email));
   expect(add.closest('.react-flow__node')).toHaveProperty('style.zIndex', '1000');
   fireEvent.keyDown(email, { key: 'ArrowDown' });
-  expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Create task' }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Create task' })),
+  );
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-  expect(document.activeElement).toBe(add);
+  await waitFor(() => expect(document.activeElement).toBe(add));
   expect(screen.queryByRole('menu')).toBeNull();
 });

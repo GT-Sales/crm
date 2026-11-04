@@ -2288,3 +2288,13 @@ preview versions reject stale changes; atomic audit receipts make retries safe.
 The existing applyLeadUpdate enforces stage/document/member rules and triggers
 configured flows. No document override or automatic write is exposed. See
 [design/ai-lead-updates.md](design/ai-lead-updates.md) for scope and boundaries.
+
+### Automation builder visual UX (2026-11-04)
+
+The builder adds setup navigation, visible branch endings (including empty
+read-only branches), directional connections, Fit/Focus controls, step-type
+icons and restrained motion with reduced-motion support. Phones start in the
+list editor. Flow/Runs are separate keyboard-operable tabs; test results label
+simulation versus queued test email. Activation still publishes without
+changing On/Off. Research, scope and checks:
+[design/2026-11-04-automation-ux.md](design/2026-11-04-automation-ux.md).

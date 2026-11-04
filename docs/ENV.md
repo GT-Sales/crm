@@ -297,3 +297,7 @@ the authorized browser card only. There is no mailbox/inbox connection.
 
 Reviewed AI lead updates use the existing AI enablement, Gateway key/model and
 Site allowlist. No additional secret or environment variable is required.
+
+Automation builder visual/setup improvements require no new environment
+variable, dependency or migration; existing scheduler and mail configuration
+still controls actual execution and delivery.

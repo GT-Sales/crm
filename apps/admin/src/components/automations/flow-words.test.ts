@@ -17,6 +17,7 @@ import {
   namesFromCode,
   reasonText,
   runStatusText,
+  testStepOutcomeText,
 } from './flow-words';
 
 const SAM = '20000000-0000-4000-8000-000000000001';
@@ -342,4 +343,29 @@ describe('reasons, runs and chips', () => {
     });
     expect(flowStatusChip({ ...flow, needsAttention: null, hasDraft: false })).toBeNull();
   });
+});
+
+it('distinguishes simulated actions, branch decisions and queued test email', () => {
+  const step = {
+    stepId: 's_test',
+    outcome: 'done' as const,
+    branch: null,
+    reason: null,
+    detail: null,
+    at: '2026-11-04T12:00:00.000Z',
+  };
+  expect(testStepOutcomeText({ ...step, stepKind: 'wait' })).toBe('Wait simulated');
+  expect(testStepOutcomeText({ ...step, stepKind: 'send_email' })).toBe('Test email queued');
+  expect(testStepOutcomeText({ ...step, stepKind: 'create_task' })).toContain('Simulated');
+  expect(testStepOutcomeText({ ...step, stepKind: 'if_else', branch: 'no' })).toBe(
+    'Sample took No branch',
+  );
+  expect(
+    testStepOutcomeText({
+      ...step,
+      stepKind: 'send_email',
+      outcome: 'skipped',
+      reason: 'no_sender',
+    }),
+  ).toContain('Skipped');
 });

@@ -1,0 +1,31 @@
+@keyframes automation-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.automation-node-card,
+.automation-step-panel {
+  animation: automation-card-enter 180ms ease-out;
+}
+.automation-node-selected .automation-node-card {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.automation-canvas .react-flow__edge-path {
+  stroke-width: 1.5;
+}
+.automation-canvas .react-flow__edge-text {
+  font-size: 11px;
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .automation-node-card,
+  .automation-step-panel {
+    animation: none;
+    transition: none;
+  }
+}

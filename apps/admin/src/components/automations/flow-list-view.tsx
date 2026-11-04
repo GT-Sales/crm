@@ -115,7 +115,7 @@ function Card({
       ) : (
         <p>{label}</p>
       )}
-      {data && data.kind !== 'add_step'
+      {data && data.kind !== 'add_step' && data.kind !== 'end'
         ? data.issues.map((issue, index) => (
             <p key={index} className="text-xs text-destructive">
               {issueText(issue)}
@@ -171,7 +171,9 @@ function Steps({
       ))}
       {steps.at(-1)?.kind !== 'if_else' ? (
         <li>
-          {steps.length === 0 ? <p className="text-sm text-muted-foreground">Nothing.</p> : null}
+          {steps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No actions on this path.</p>
+          ) : null}
           <AddStep path={path} index={steps.length} controls={editor} />
         </li>
       ) : null}

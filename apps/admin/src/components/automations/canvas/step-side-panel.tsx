@@ -215,7 +215,7 @@ export function StepSidePanel({
     <aside
       aria-labelledby={`${id}-heading`}
       onKeyDown={handleKeyDown}
-      className="flex w-full flex-col gap-4 rounded-md border bg-card p-4 shadow-sm lg:w-96 lg:shrink-0"
+      className="automation-step-panel flex w-full scroll-mt-20 flex-col gap-4 rounded-lg border bg-card p-4 shadow-sm lg:sticky lg:top-20 lg:max-h-[calc(100dvh-7rem)] lg:w-96 lg:shrink-0 lg:overflow-y-auto"
     >
       <div className="flex items-center justify-between gap-2 border-b pb-3">
         <h3
