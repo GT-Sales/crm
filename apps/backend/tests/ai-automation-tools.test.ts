@@ -25,7 +25,7 @@ function setup(roles: StaffAccessSnapshot['roles'] = ['owner']) {
     now: () => new Date(),
     budget: new TurnBudget(),
   });
-  return { tools, list, access };
+  return { tools, list, access, flows, store };
 }
 describe('automation tool authority and budgets', () => {
   it('rereads access and stops exposing flows when permissions change', async () => {
@@ -35,6 +35,66 @@ describe('automation tool authority and budgets', () => {
     access.roles = ['viewer'];
     expect(JSON.parse(await tools.execute('listAutomations', {})).status).toBe('not_available');
     expect(list).toHaveBeenCalledOnce();
+  });
+  it('identifies the signed-in member independently of member pagination', async () => {
+    const { tools, flows } = setup();
+    vi.spyOn(flows, 'catalog').mockResolvedValue({
+      leadTypes: [],
+      templates: [],
+      members: [{ actorId: scope.actorId, displayName: 'Casey' }],
+      plans: [],
+      properties: [],
+      taskVariables: [],
+    });
+    const result = JSON.parse(
+      await tools.execute('getAutomationCatalog', { section: 'members', offset: 10 }),
+    );
+    expect(result.currentMember).toEqual({
+      reference: 'me',
+      actorId: scope.actorId,
+      displayName: 'Casey',
+    });
+    expect(result.entries).toEqual([]);
+  });
+  it('does not produce duplicate cards when a model repeats a proposal', async () => {
+    const { tools, flows, store } = setup();
+    const catalog = {
+      leadTypes: [],
+      templates: [],
+      members: [{ actorId: scope.actorId, displayName: 'Casey' }],
+      plans: [],
+      properties: [],
+      taskVariables: [],
+    };
+    vi.spyOn(flows, 'catalog').mockResolvedValue(catalog);
+    const prepare = vi
+      .spyOn(store, 'prepare')
+      .mockImplementation(async (_scope, input, siteName, _key, now) => ({
+        id: crypto.randomUUID(),
+        token: 'synthetic',
+        expiresAt: new Date(now.getTime() + 600000).toISOString(),
+        siteName,
+        draft: input.draft,
+        ...(input.target ? { target: input.target } : {}),
+        issues: [],
+        changes: [],
+        catalog,
+      }));
+    const input = {
+      draft: {
+        name: 'Assign my SIM orders',
+        definition: {
+          trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
+          steps: [{ kind: 'assign_lead', actorId: 'me' }],
+        },
+      },
+    };
+    for (let i = 0; i < 3; i++)
+      expect(JSON.parse(await tools.execute('proposeAutomationCreate', input)).status).toBe(
+        'confirmation_required',
+      );
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(tools.proposals).toHaveLength(1);
   });
   it('enforces a turn budget across read and proposal tools', async () => {
     const { tools, list } = setup();

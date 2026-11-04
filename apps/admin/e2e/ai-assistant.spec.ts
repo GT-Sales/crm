@@ -334,3 +334,21 @@ for (const width of [375, 1440]) {
     await expect(page.getByText('Archived', { exact: true })).toBeVisible();
   });
 }
+
+test('AI resolves me into a reviewed assignment without requesting staff identifiers', async ({
+  page,
+}) => {
+  await page.goto('/w/getcanadasim/automations');
+  await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Ask a question' }).fill('Assign new SIM orders to me');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const card = page.getByRole('region', { name: 'Review automation draft' });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText(/Assign/);
+  await expect(card.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+  await expect(page.getByRole('region', { name: 'Clarifying question' })).toHaveCount(0);
+  await expect(card).not.toContainText(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+  );
+  await card.getByRole('button', { name: 'Discard', exact: true }).click();
+});

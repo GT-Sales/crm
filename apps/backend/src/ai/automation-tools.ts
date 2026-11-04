@@ -1,8 +1,13 @@
+import {
+  automationModelProposalSchema,
+  normalizeAutomationProposal,
+  MemberChoiceError,
+} from './automation-input.js';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import {
-  aiAutomationProposalInputSchema,
   automationKeySchema,
+  walkDraftSteps,
   type AiAutomationProposal,
 } from '@gt-sales/contracts';
 import type { Scope } from '../tenant-scope.js';
@@ -36,6 +41,7 @@ export function createAutomationTools(input: {
   budget: TurnBudget;
 }) {
   const proposals: AiAutomationProposal[] = [];
+  const prepared = new Map<string, AiAutomationProposal>();
   const schemas = {
     listAutomations: z
       .object({
@@ -55,8 +61,8 @@ export function createAutomationTools(input: {
       })
       .strict(),
     getAutomationRuns: z.object({ key: automationKeySchema, before: z.uuid().optional() }).strict(),
-    proposeAutomationCreate: aiAutomationProposalInputSchema.omit({ target: true }),
-    proposeAutomationEdit: aiAutomationProposalInputSchema.required({ target: true }),
+    proposeAutomationCreate: automationModelProposalSchema.omit({ target: true }),
+    proposeAutomationEdit: automationModelProposalSchema.required({ target: true }),
   };
   async function execute(name: string, raw: unknown): Promise<string> {
     if (!input.budget.reserveToolCall()) return JSON.stringify({ status: 'budget_exceeded' });
@@ -146,6 +152,13 @@ export function createAutomationTools(input: {
               )
             : allEntries;
           result = {
+            currentMember: {
+              reference: 'me',
+              actorId: input.scope.actorId,
+              displayName:
+                catalog.members.find((m) => m.actorId === input.scope.actorId)?.displayName ??
+                'You',
+            },
             section,
             entries: entries.slice(offset, offset + 10),
             nextOffset: offset + 10 < entries.length ? offset + 10 : null,
@@ -198,14 +211,38 @@ export function createAutomationTools(input: {
             name === 'proposeAutomationCreate'
               ? schemas.proposeAutomationCreate.parse(raw)
               : schemas.proposeAutomationEdit.parse(raw);
+          const catalog = await input.flows.catalog(input.scope);
+          const normalized = normalizeAutomationProposal(
+            args,
+            input.scope.actorId,
+            catalog.members,
+          );
+          const identity = structuredClone(normalized);
+          if (!identity.target)
+            walkDraftSteps(identity.draft.definition.steps, (step) => {
+              step.id = 'new_step';
+            });
+          const proposalKey = JSON.stringify(identity);
+          if (prepared.has(proposalKey))
+            return JSON.stringify({
+              status: 'confirmation_required',
+              message:
+                'This draft is already prepared. Wait for the person to review the card; do not prepare it again.',
+            });
           const proposal = await input.store.prepare(
             { ...input.scope, requestId: crypto.randomUUID() },
-            args,
+            normalized,
             input.site.name,
             input.key,
             input.now(),
           );
+          if (prepared.has(proposalKey))
+            return JSON.stringify({
+              status: 'confirmation_required',
+              message: 'This draft is already prepared for review.',
+            });
           if (proposals.length >= 3) return JSON.stringify({ status: 'limit_reached' });
+          prepared.set(proposalKey, proposal);
           proposals.push(proposal);
           result = {
             status: 'confirmation_required',
@@ -219,6 +256,12 @@ export function createAutomationTools(input: {
           throw new Error('unknown automation tool');
       }
     } catch (error) {
+      if (error instanceof MemberChoiceError)
+        return JSON.stringify({
+          status: 'clarification_required',
+          message: error.message,
+          choices: error.choices.slice(0, 10),
+        });
       if (error instanceof AutomationAuthoringError) return JSON.stringify({ status: error.code });
       if (error instanceof z.ZodError)
         return JSON.stringify({
@@ -243,7 +286,7 @@ export function createAutomationTools(input: {
     getAutomation:
       'Read the current draft, active version and revision. Read before editing; select an existing draft explicitly.',
     getAutomationCatalog:
-      'Read valid stages, templates, plans, members and properties. Resolve names to these identifiers; askFollowUp if ambiguous.',
+      'Read valid stages, templates, plans, members and properties. currentMember identifies the signed-in person. Me/myself always means this person; never ask for UUIDs. Ask named choices only for other ambiguous members.',
     getAutomationRuns: 'Read bounded recorded run statuses. Queued email is not delivery.',
     proposeAutomationCreate:
       'Prepare a visual automation draft only when requested. Use catalog IDs, never invented references. Ask for missing choices. No saving or activation occurs.',

@@ -2327,3 +2327,19 @@ The 30-request model evaluation set and read/proposal-only runner are in `docs/e
 Deterministic tests prove the application boundaries; real-model intent evaluation and
 controlled production delivery/scheduler acceptance are still release gates. The
 implementation follows [the authoring design](design/2026-11-04-ai-automation-authoring.md).
+
+### AI automation production rollout and conversation repair (2026-11-04)
+
+Applied 0021/0022 to the hosted CRM database, including exact Drizzle hashes and
+forced actor RLS, then enabled `AI_AUTOMATION_WORKSPACE_IDS` for Get Canada Sim
+only. No existing flow was activated or enabled by this rollout.
+
+A subsequent live report showed the assistant asking the signed-in person for a
+staff UUID and failing during proposal generation. Automation catalog results now
+identify the current member; model proposal inputs accept `me` or unique staff
+names and normalize to active member IDs on the server. New-step IDs and schema
+bookkeeping are server-generated; the ordinary strict draft schema remains the
+validation boundary. Follow-up cards requesting UUIDs are rejected with correction
+instructions. Signed proposals already prepared at the model's step limit remain
+reviewable rather than being discarded for lack of a final prose answer. Failure
+logs now include a bounded error code, without prompts, arguments or provider bodies.
