@@ -211,3 +211,55 @@ for (const width of [375, 1440]) {
     await page.unroute('**/ai/actions/confirm');
   });
 }
+
+for (const width of [375, 1440]) {
+  test(`AI lead updates review edits and retry a lost receipt at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/w/canadawide/leads');
+    await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+    await expect(page).toHaveURL(/lead=/);
+    const leadId = new URL(page.url()).searchParams.get('lead');
+    if (!leadId) throw new Error('expected lead id');
+    try {
+      if (width === 375)
+        await page.getByRole('dialog').getByRole('button', { name: 'Ask AI', exact: true }).click();
+      else await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+      await page
+        .getByRole('textbox', { name: 'Ask a question' })
+        .fill('Update lead phone: 403 555 0111');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      const card = page.getByRole('region', { name: 'Confirm lead update' });
+      await expect(card.getByText('Current', { exact: true })).toBeVisible();
+      await card.getByRole('button', { name: 'Edit', exact: true }).click();
+      await card.getByRole('textbox', { name: 'Proposed value' }).fill(`403 555 ${width}`);
+      await card.getByRole('button', { name: 'Update draft' }).click();
+      await expect(card.getByText(`403 555 ${width}`, { exact: true })).toBeVisible();
+      let lost = false;
+      await page.route('**/ai/actions/confirm', async (route) => {
+        const response = await route.fetch();
+        if (!lost) {
+          lost = true;
+          await route.abort('failed');
+        } else await route.fulfill({ response });
+      });
+      await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+      await card.getByRole('button', { name: 'Retry save' }).click();
+      await expect(card.getByText('Lead updated.', { exact: true })).toBeVisible();
+      await page.unroute('**/ai/actions/confirm');
+      await page.getByRole('button', { name: 'Close Ask AI' }).click();
+      await expect(page.getByText(`403 555 ${width}`, { exact: true }).first()).toBeVisible();
+    } finally {
+      await page.unroute('**/ai/actions/confirm');
+      const restored = await page.request.patch(
+        `http://127.0.0.1:4100/api/v1/staff/workspaces/10000000-0000-4000-8000-0000000e2e01/leads/${leadId}`,
+        {
+          headers: {
+            authorization: `Bearer ${process.env['E2E_STAFF_BEARER'] ?? 'e2e-staff-session-owner'}`,
+          },
+          data: { contact: { phone: '403 555 0101' } },
+        },
+      );
+      expect(restored.status()).toBe(200);
+    }
+  });
+}

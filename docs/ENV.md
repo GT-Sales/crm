@@ -294,3 +294,6 @@ provider credentials and `EMAIL_CONTACT_HASH_SECRET`) and saved Site email
 settings. No additional secret or database migration is needed. The model never
 gets the recipient/sender preview addresses from tool results; these are sent to
 the authorized browser card only. There is no mailbox/inbox connection.
+
+Reviewed AI lead updates use the existing AI enablement, Gateway key/model and
+Site allowlist. No additional secret or environment variable is required.

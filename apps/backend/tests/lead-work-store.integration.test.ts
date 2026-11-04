@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
@@ -468,6 +469,105 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(Date.parse(after?.lead.updatedAt ?? '')).toBeGreaterThan(
       Date.parse(before?.lead.updatedAt ?? ''),
     );
+  });
+
+  test('AI lead updates reject stale previews, serialize retries and preserve later edits', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'AI Update',
+      email: 'ai.update@example.test',
+      phone: '403 555 0101',
+    });
+    try {
+      const preview = await work.previewAiLeadUpdate({ ...scope, leadId, field: 'fullName' });
+      if (!preview) throw new Error('preview missing');
+      const input = {
+        ...writeScope,
+        creationId: randomUUID(),
+        version: preview.version,
+        draft: {
+          kind: 'lead_update' as const,
+          leadId,
+          field: 'fullName' as const,
+          value: 'Reviewed Name',
+        },
+      };
+      const results = await Promise.all([
+        work.confirmAiLeadUpdate(input),
+        work.confirmAiLeadUpdate(input),
+      ]);
+      expect(results).toEqual([
+        { status: 'saved', recordId: leadId },
+        { status: 'saved', recordId: leadId },
+      ]);
+      const [audit] =
+        await admin`select count(*)::int as count from app.audit_events where id=${input.creationId}`;
+      expect(audit?.count).toBe(1);
+      expect(await work.confirmAiLeadUpdate({ ...input, creationId: randomUUID() })).toEqual({
+        status: 'conflict',
+      });
+      await work.updateLead({ ...writeScope, leadId, contact: { fullName: 'Later edit' } });
+      expect(await work.confirmAiLeadUpdate(input)).toEqual({ status: 'saved', recordId: leadId });
+      const [lead] = await admin`select full_name from app.leads where id=${leadId}`;
+      expect(lead?.full_name).toBe('Later edit');
+      expect(
+        await work.previewAiLeadUpdate({
+          ...scope,
+          workspaceId: OTHER_WORKSPACE,
+          leadId,
+          field: 'stage',
+        }),
+      ).toBeUndefined();
+      expect(await work.confirmAiLeadUpdate({ ...input, workspaceId: OTHER_WORKSPACE })).toEqual({
+        status: 'not_found',
+      });
+      const latest = await work.previewAiLeadUpdate({ ...scope, leadId, field: 'assignedActorId' });
+      if (!latest) throw new Error('missing assignment preview');
+      expect(
+        await work.confirmAiLeadUpdate({
+          ...input,
+          creationId: randomUUID(),
+          version: latest.version,
+          draft: { kind: 'lead_update', leadId, field: 'assignedActorId', value: STRANGER },
+        }),
+      ).toEqual({ status: 'invalid' });
+      const assigned = {
+        ...input,
+        creationId: randomUUID(),
+        version: latest.version,
+        draft: {
+          kind: 'lead_update' as const,
+          leadId,
+          field: 'assignedActorId' as const,
+          value: COLLEAGUE,
+        },
+      };
+      expect(await work.confirmAiLeadUpdate(assigned)).toEqual({
+        status: 'saved',
+        recordId: leadId,
+      });
+      const current = await work.previewAiLeadUpdate({ ...scope, leadId, field: 'stage' });
+      if (!current) throw new Error('missing stage preview');
+      expect(
+        await work.confirmAiLeadUpdate({
+          ...input,
+          creationId: randomUUID(),
+          version: current.version,
+          draft: { kind: 'lead_update', leadId, field: 'stage', value: 'activated' },
+        }),
+      ).toEqual({ status: 'invalid' });
+      expect(
+        await work.confirmAiLeadUpdate({
+          ...input,
+          creationId: randomUUID(),
+          version: current.version,
+          draft: { kind: 'lead_update', leadId, field: 'stage', value: 'contacted' },
+        }),
+      ).toEqual({ status: 'saved', recordId: leadId });
+      await admin`update app.leads set customer_data_restricted_at=now() where id=${leadId}`;
+      expect(await work.confirmAiLeadUpdate(input)).toEqual({ status: 'not_found' });
+    } finally {
+      await admin`delete from app.leads where id=${leadId}`;
+    }
   });
 
   test('AI email resolves its recipient on the Site, escapes text and queues once across retries', async () => {

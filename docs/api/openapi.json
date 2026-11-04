@@ -100247,9 +100247,12 @@
                   "properties": {
                     "available": { "type": "boolean" },
                     "actions": {
-                      "maxItems": 3,
+                      "maxItems": 4,
                       "type": "array",
-                      "items": { "type": "string", "enum": ["task", "note", "email"] }
+                      "items": {
+                        "type": "string",
+                        "enum": ["task", "note", "email", "lead_update"]
+                      }
                     },
                     "reason": {
                       "type": "string",
@@ -100578,6 +100581,43 @@
                                     "format": "date-time",
                                     "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                                   },
+                                  "leadUpdateContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "version": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 100
+                                      },
+                                      "before": {
+                                        "anyOf": [
+                                          { "type": "string", "maxLength": 200 },
+                                          { "type": "null" }
+                                        ]
+                                      },
+                                      "beforeLabel": { "type": "string", "maxLength": 200 },
+                                      "choices": {
+                                        "maxItems": 100,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "value": {
+                                              "anyOf": [
+                                                { "type": "string", "maxLength": 100 },
+                                                { "type": "null" }
+                                              ]
+                                            },
+                                            "label": { "type": "string", "maxLength": 160 }
+                                          },
+                                          "required": ["value", "label"],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "required": ["version", "before", "beforeLabel", "choices"],
+                                    "additionalProperties": false
+                                  },
                                   "emailContext": {
                                     "type": "object",
                                     "properties": {
@@ -100687,6 +100727,38 @@
                                           }
                                         },
                                         "required": ["kind", "leadId", "subject", "body"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "lead_update" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "field": {
+                                            "type": "string",
+                                            "enum": [
+                                              "stage",
+                                              "assignedActorId",
+                                              "fullName",
+                                              "phone"
+                                            ]
+                                          },
+                                          "value": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 160
+                                              },
+                                              { "type": "null" }
+                                            ]
+                                          }
+                                        },
+                                        "required": ["kind", "leadId", "field", "value"],
                                         "additionalProperties": false
                                       }
                                     ]
@@ -101000,6 +101072,36 @@
                       "format": "date-time",
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                     },
+                    "leadUpdateContext": {
+                      "type": "object",
+                      "properties": {
+                        "version": { "type": "string", "minLength": 1, "maxLength": 100 },
+                        "before": {
+                          "anyOf": [{ "type": "string", "maxLength": 200 }, { "type": "null" }]
+                        },
+                        "beforeLabel": { "type": "string", "maxLength": 200 },
+                        "choices": {
+                          "maxItems": 100,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "anyOf": [
+                                  { "type": "string", "maxLength": 100 },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "label": { "type": "string", "maxLength": 160 }
+                            },
+                            "required": ["value", "label"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["version", "before", "beforeLabel", "choices"],
+                      "additionalProperties": false
+                    },
                     "emailContext": {
                       "type": "object",
                       "properties": {
@@ -101079,6 +101181,29 @@
                             "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
                           },
                           "required": ["kind", "leadId", "subject", "body"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "type": "string", "const": "lead_update" },
+                            "leadId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "field": {
+                              "type": "string",
+                              "enum": ["stage", "assignedActorId", "fullName", "phone"]
+                            },
+                            "value": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 160 },
+                                { "type": "null" }
+                              ]
+                            }
+                          },
+                          "required": ["kind", "leadId", "field", "value"],
                           "additionalProperties": false
                         }
                       ]
@@ -101317,6 +101442,29 @@
                         },
                         "required": ["kind", "leadId", "subject", "body"],
                         "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "lead_update" },
+                          "leadId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "field": {
+                            "type": "string",
+                            "enum": ["stage", "assignedActorId", "fullName", "phone"]
+                          },
+                          "value": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 160 },
+                              { "type": "null" }
+                            ]
+                          }
+                        },
+                        "required": ["kind", "leadId", "field", "value"],
+                        "additionalProperties": false
                       }
                     ]
                   }
@@ -101332,7 +101480,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/ai/actions/confirm": {
       "post": {
         "operationId": "confirmAiAction",
-        "summary": "Confirm a signed task/note or queue a reviewed customer email; requires lead.manage and is safe to retry.",
+        "summary": "Confirm a signed task, note, lead update or reviewed customer email; requires lead.manage and is safe to retry.",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -101352,7 +101500,7 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    "kind": { "type": "string", "enum": ["note", "task", "email"] },
+                    "kind": { "type": "string", "enum": ["note", "task", "email", "lead_update"] },
                     "recordId": {
                       "type": "string",
                       "format": "uuid",

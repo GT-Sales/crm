@@ -2279,3 +2279,12 @@ cover note, task and email; revision tests cover tampering, changed kind/address
 input and access revoked during preview. Review scope, trust boundaries and
 verification limits: [review/ai-actions-release.md](review/ai-actions-release.md).
 The owner authorized merging once PR CI passes and checking main CI afterward.
+
+### Reviewed AI lead updates (2026-11-04)
+
+The assistant can prepare editable stage, staff assignment, customer-name and
+phone changes, showing current/proposed values before confirmation. Signed
+preview versions reject stale changes; atomic audit receipts make retries safe.
+The existing applyLeadUpdate enforces stage/document/member rules and triggers
+configured flows. No document override or automatic write is exposed. See
+[design/ai-lead-updates.md](design/ai-lead-updates.md) for scope and boundaries.

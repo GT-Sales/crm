@@ -736,6 +736,7 @@ export {
   reviseAiActionRequestSchema,
   type ReviseAiActionRequest,
   aiFollowUpSchema,
+  aiLeadUpdateContextSchema,
   type AiFollowUp,
   aiActionDraftSchema,
   aiActionProposalSchema,

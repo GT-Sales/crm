@@ -3,6 +3,7 @@ import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import {
   aiActionDraftSchema,
+  aiLeadUpdateContextSchema,
   aiActionProposalSchema,
   leadTypeLabel,
   type AiActionProposal,
@@ -19,6 +20,7 @@ const signedActionSchema = z
     actorId: z.uuid(),
     expiresAt: z.iso.datetime(),
     draft: aiActionDraftSchema,
+    leadUpdateContext: aiLeadUpdateContextSchema.optional(),
     emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
   })
   .strict();
@@ -79,6 +81,10 @@ export function createActionProposalTools(input: {
   emailPreview?: (
     leadId: string,
   ) => Promise<{ toAddress: string; fromAddress: string } | undefined>;
+  leadUpdatePreview?: (
+    leadId: string,
+    field: Extract<import('@gt-sales/contracts').AiActionDraft, { kind: 'lead_update' }>['field'],
+  ) => Promise<import('../leads/work-store.js').AiLeadUpdatePreview | undefined>;
   loadAccess(): Promise<StaffAccessSnapshot | undefined>;
   now(): Date;
   budget: TurnBudget;
@@ -115,6 +121,25 @@ export function createActionProposalTools(input: {
         status: 'not_available',
         message: 'Email cannot be prepared. The Site sender or customer address is unavailable.',
       });
+    const leadUpdateContext =
+      draft.kind === 'lead_update'
+        ? await input.leadUpdatePreview?.(draft.leadId, draft.field)
+        : undefined;
+    if (draft.kind === 'lead_update') {
+      if (!leadUpdateContext) return JSON.stringify({ status: 'not_available' });
+      if (
+        (draft.field === 'stage' || draft.field === 'assignedActorId') &&
+        !leadUpdateContext.choices.some((choice) => choice.value === draft.value)
+      )
+        return JSON.stringify({
+          status: 'not_available',
+          message: 'Choose an available stage or active member.',
+        });
+      if (draft.field !== 'assignedActorId' && draft.value === null)
+        return JSON.stringify({ status: 'not_available' });
+      if (draft.field === 'phone' && (draft.value?.length ?? 0) > 40)
+        return JSON.stringify({ status: 'not_available' });
+    }
     const previous = proposals.find((p) => JSON.stringify(p.draft) === JSON.stringify(draft));
     if (previous)
       return JSON.stringify({
@@ -127,7 +152,14 @@ export function createActionProposalTools(input: {
     const id = randomUUID();
     const expiresAt = new Date(input.now().getTime() + TTL_MS).toISOString();
     const token = signAiAction(
-      { ...input.scope, id, expiresAt, draft, ...(emailContext ? { emailContext } : {}) },
+      {
+        ...input.scope,
+        id,
+        expiresAt,
+        draft,
+        ...(emailContext ? { emailContext } : {}),
+        ...(leadUpdateContext ? { leadUpdateContext } : {}),
+      },
       input.key,
     );
     const result = JSON.stringify({
@@ -145,6 +177,7 @@ export function createActionProposalTools(input: {
         expiresAt,
         draft,
         ...(emailContext ? { emailContext } : {}),
+        ...(leadUpdateContext ? { leadUpdateContext } : {}),
         siteName: input.site.name,
         leadLabel:
           `${lead.reference || lead.name || 'Lead'} · ${leadTypeLabel(lead.leadType)}`.slice(
@@ -157,7 +190,46 @@ export function createActionProposalTools(input: {
     // Never send the bearer confirmation token to the model.
     return result;
   }
+  async function getLeadUpdateOptions({
+    leadId,
+    field,
+  }: {
+    leadId: string;
+    field: 'stage' | 'assignedActorId';
+  }) {
+    if (!input.budget.reserveToolCall()) return 'Not available';
+    const access = await input.loadAccess();
+    if (
+      !decideAccess(access, 'lead.manage').allowed ||
+      !decideAccess(access, 'workspace.read').allowed
+    )
+      return 'Not available';
+    const preview = await input.leadUpdatePreview?.(leadId, field);
+    const result = JSON.stringify({ choices: preview?.choices ?? [] });
+    if (
+      input.budget.acceptResult({
+        bytes: Buffer.byteLength(result, 'utf8'),
+        records: preview?.choices.length ?? 0,
+      }).rejected
+    )
+      return 'Too many choices. Use the lead page.';
+    return result;
+  }
   const definitions: ToolSet = {
+    getLeadUpdateOptions: tool({
+      description:
+        'Read available stage moves or active assignees for one lead before preparing a lead update. Returns choices only, never contact values.',
+      inputSchema: z
+        .object({ leadId: z.uuid(), field: z.enum(['stage', 'assignedActorId']) })
+        .strict(),
+      execute: getLeadUpdateOptions,
+    }),
+    prepareLeadUpdate: tool({
+      description:
+        'Prepare one explicitly requested stage, assignee, name or phone change. Use getLeadUpdateOptions for stage/member choices first. The person reviews current/proposed values and confirms; no write occurs here.',
+      inputSchema: aiActionDraftSchema.options[3].omit({ kind: true }),
+      execute: (raw) => prepare({ ...raw, kind: 'lead_update' }),
+    }),
     prepareNote: tool({
       description:
         'Prepare a note for an identified lead. Only when the person explicitly asks to add a note. Use their requested text; ask if missing. Does not save: a separate confirmation card is required.',
@@ -181,6 +253,18 @@ export function createActionProposalTools(input: {
     definitions,
     proposals,
     execute(name: string, raw: unknown) {
+      if (name === 'getLeadUpdateOptions') {
+        const parsed = z
+          .object({ leadId: z.uuid(), field: z.enum(['stage', 'assignedActorId']) })
+          .strict()
+          .parse(raw);
+        return getLeadUpdateOptions(parsed);
+      }
+      if (name === 'prepareLeadUpdate')
+        return prepare({
+          kind: 'lead_update',
+          ...aiActionDraftSchema.options[3].omit({ kind: true }).parse(raw),
+        });
       if (name !== 'prepareNote' && name !== 'prepareTask' && name !== 'prepareEmail')
         throw new Error('unknown action proposal');
       const schema =

@@ -230,6 +230,81 @@ async function readParts(response: Response): Promise<AiStreamPart[]> {
 }
 
 describe('POST /workspaces/:id/ai/chat', () => {
+  it('previews a lead change without writing and confirms only the signed value/version', async () => {
+    vi.spyOn(reads, 'leadHint').mockResolvedValue({
+      leadId: LEAD,
+      reference: 'MS-101',
+      name: 'Example',
+      stage: 'pending',
+      leadType: 'sim_order',
+    });
+    const work = new DatabaseLeadWorkStore();
+    vi.spyOn(work, 'previewAiLeadUpdate').mockResolvedValue({
+      version: 'v1',
+      before: 'Old',
+      beforeLabel: 'Old',
+      choices: [],
+    });
+    const confirm = vi
+      .spyOn(work, 'confirmAiLeadUpdate')
+      .mockResolvedValue({ status: 'saved', recordId: LEAD });
+    await start(
+      appWith({
+        work,
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: 'prepareLeadUpdate',
+                input: { leadId: LEAD, field: 'fullName', value: 'New' },
+              },
+            ],
+            chunks: [],
+          },
+        ],
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    const parts = await readParts(response);
+    const actions = parts.find((part) => part.type === 'actions');
+    if (actions?.type !== 'actions' || !actions.actions[0]) throw new Error('missing action');
+    const proposal = actions.actions[0];
+    expect(proposal.leadUpdateContext?.beforeLabel).toBe('Old');
+    expect(confirm).not.toHaveBeenCalled();
+    const changedField = await fetch(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/revise`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: proposal.token,
+          draft: { kind: 'lead_update', leadId: LEAD, field: 'phone', value: '403 555 0100' },
+        }),
+      },
+    );
+    expect(changedField.status).toBe(400);
+    const saved = await fetch(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({ token: proposal.token }),
+      },
+    );
+    expect(saved.status).toBe(200);
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: 'v1',
+        creationId: proposal.id,
+        draft: { kind: 'lead_update', leadId: LEAD, field: 'fullName', value: 'New' },
+      }),
+    );
+  });
+
   it('revises only the signed lead and action kind without saving', async () => {
     vi.spyOn(reads, 'leadHint').mockResolvedValue({
       leadId: LEAD,
@@ -298,6 +373,7 @@ describe('POST /workspaces/:id/ai/chat', () => {
       return { toAddress: 'customer@example.test', fromAddress: 'staff@example.test' };
     });
     const queue = vi.spyOn(work, 'queueAiEmail').mockResolvedValue({ status: 'not_found' });
+    const update = vi.spyOn(work, 'confirmAiLeadUpdate').mockResolvedValue({ status: 'not_found' });
     const draft = { kind: 'email' as const, leadId: LEAD, subject: 'Subject', body: 'Message' };
     let token = signAiAction(
       {
@@ -343,6 +419,7 @@ describe('POST /workspaces/:id/ai/chat', () => {
     expect(response.status).toBe(mode === 'disabled' ? 503 : accessLost ? 403 : 400);
     expect(await response.text()).not.toContain('customer@example.test');
     expect(queue).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('releases a guided question only after a completed turn', async () => {
@@ -481,104 +558,113 @@ describe('POST /workspaces/:id/ai/chat', () => {
     );
   });
 
-  describe.each(['note', 'task', 'email'] as const)('%s confirmation guards', (kind) => {
-    it.each([
-      'expired',
-      'foreign_actor',
-      'foreign_site',
-      'tampered',
-      'extra_fields',
-      'read_only',
-      'revoked',
-      'disabled',
-      'site_disabled',
-      'missing_membership',
-      'pending_membership',
-      'orders_only',
-    ] as const)('rejects %s confirmations without calling a write store', async (mode) => {
-      const work = new DatabaseLeadWorkStore();
-      const add = vi.spyOn(work, 'addNote').mockResolvedValue({ status: 'not_found' });
-      const task = vi.spyOn(work, 'createTask').mockResolvedValue({ status: 'not_found' });
-      const queue = vi.spyOn(work, 'queueAiEmail').mockResolvedValue({ status: 'not_found' });
-      const action = {
-        id: REQUEST_ID,
-        actorId: mode === 'foreign_actor' ? LEAD : ACTOR,
-        workspaceId: mode === 'foreign_site' ? LEAD : WORKSPACE,
-        expiresAt: new Date(NOW.getTime() + (mode === 'expired' ? -1 : 60000)).toISOString(),
-        draft:
-          kind === 'task'
-            ? { kind, leadId: LEAD, title: 'Exact task', dueDate: null, assignee: 'me' as const }
-            : kind === 'email'
-              ? { kind, leadId: LEAD, subject: 'Exact subject', body: 'Exact email' }
-              : { kind, leadId: LEAD, body: 'Exact note' },
-        ...(kind === 'email'
-          ? {
-              emailContext: {
-                toAddress: 'customer@example.test',
-                fromAddress: 'staff@example.test',
-              },
-            }
-          : {}),
-      };
-      let token = signAiAction(action, 'test-key-not-real');
-      if (mode === 'tampered') token = 'x' + token;
-      await start(
-        appWith({
-          work,
-          config: config({
-            enabled: mode !== 'disabled',
-            ...(mode === 'site_disabled' ? { workspaceIds: new Set<string>() } : {}),
-          }),
-          loadAccess: async () =>
-            mode === 'missing_membership'
-              ? undefined
-              : {
-                  membershipId: MEMBERSHIP,
-                  status:
-                    mode === 'revoked'
-                      ? 'revoked'
-                      : mode === 'pending_membership'
-                        ? 'pending'
-                        : 'active',
-                  roles:
-                    mode === 'read_only'
-                      ? ['finance']
-                      : mode === 'orders_only'
-                        ? ['orders']
-                        : ['owner'],
-                  permissions: [],
+  describe.each(['note', 'task', 'email', 'lead_update'] as const)(
+    '%s confirmation guards',
+    (kind) => {
+      it.each([
+        'expired',
+        'foreign_actor',
+        'foreign_site',
+        'tampered',
+        'extra_fields',
+        'read_only',
+        'revoked',
+        'disabled',
+        'site_disabled',
+        'missing_membership',
+        'pending_membership',
+        'orders_only',
+      ] as const)('rejects %s confirmations without calling a write store', async (mode) => {
+        const work = new DatabaseLeadWorkStore();
+        const add = vi.spyOn(work, 'addNote').mockResolvedValue({ status: 'not_found' });
+        const task = vi.spyOn(work, 'createTask').mockResolvedValue({ status: 'not_found' });
+        const queue = vi.spyOn(work, 'queueAiEmail').mockResolvedValue({ status: 'not_found' });
+        const update = vi
+          .spyOn(work, 'confirmAiLeadUpdate')
+          .mockResolvedValue({ status: 'not_found' });
+        const action = {
+          id: REQUEST_ID,
+          actorId: mode === 'foreign_actor' ? LEAD : ACTOR,
+          workspaceId: mode === 'foreign_site' ? LEAD : WORKSPACE,
+          expiresAt: new Date(NOW.getTime() + (mode === 'expired' ? -1 : 60000)).toISOString(),
+          draft:
+            kind === 'task'
+              ? { kind, leadId: LEAD, title: 'Exact task', dueDate: null, assignee: 'me' as const }
+              : kind === 'email'
+                ? { kind, leadId: LEAD, subject: 'Exact subject', body: 'Exact email' }
+                : kind === 'lead_update'
+                  ? { kind, leadId: LEAD, field: 'fullName' as const, value: 'New' }
+                  : { kind, leadId: LEAD, body: 'Exact note' },
+          ...(kind === 'email'
+            ? {
+                emailContext: {
+                  toAddress: 'customer@example.test',
+                  fromAddress: 'staff@example.test',
                 },
-        }),
-      );
-      const response = await fetch(
-        `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
-        {
-          method: 'POST',
-          headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
-          body: JSON.stringify({
-            token,
-            ...(mode === 'extra_fields' ? { body: 'Forged body' } : {}),
+              }
+            : {}),
+        };
+        let token = signAiAction(action, 'test-key-not-real');
+        if (mode === 'tampered') token = 'x' + token;
+        await start(
+          appWith({
+            work,
+            config: config({
+              enabled: mode !== 'disabled',
+              ...(mode === 'site_disabled' ? { workspaceIds: new Set<string>() } : {}),
+            }),
+            loadAccess: async () =>
+              mode === 'missing_membership'
+                ? undefined
+                : {
+                    membershipId: MEMBERSHIP,
+                    status:
+                      mode === 'revoked'
+                        ? 'revoked'
+                        : mode === 'pending_membership'
+                          ? 'pending'
+                          : 'active',
+                    roles:
+                      mode === 'read_only'
+                        ? ['finance']
+                        : mode === 'orders_only'
+                          ? ['orders']
+                          : ['owner'],
+                    permissions: [],
+                  },
           }),
-        },
-      );
-      const expectedStatus =
-        mode === 'disabled' || mode === 'site_disabled'
-          ? 503
-          : [
-                'read_only',
-                'revoked',
-                'missing_membership',
-                'pending_membership',
-                'orders_only',
-              ].includes(mode)
-            ? 403
-            : 400;
-      expect(response.status).toBe(expectedStatus);
-      expect(add).not.toHaveBeenCalled();
-      expect(task).not.toHaveBeenCalled();
-      expect(queue).not.toHaveBeenCalled();
-    });
-  });
+        );
+        const response = await fetch(
+          `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
+          {
+            method: 'POST',
+            headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+            body: JSON.stringify({
+              token,
+              ...(mode === 'extra_fields' ? { body: 'Forged body' } : {}),
+            }),
+          },
+        );
+        const expectedStatus =
+          mode === 'disabled' || mode === 'site_disabled'
+            ? 503
+            : [
+                  'read_only',
+                  'revoked',
+                  'missing_membership',
+                  'pending_membership',
+                  'orders_only',
+                ].includes(mode)
+              ? 403
+              : 400;
+        expect(response.status).toBe(expectedStatus);
+        expect(add).not.toHaveBeenCalled();
+        expect(task).not.toHaveBeenCalled();
+        expect(queue).not.toHaveBeenCalled();
+        expect(update).not.toHaveBeenCalled();
+      });
+    },
+  );
 
   it('confirms a task using the asking member and calendar-day due date', async () => {
     const work = new DatabaseLeadWorkStore();
