@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Button, Input, Textarea } from '@gt-sales/ui';
 import {
   leadTypeCatalog,
+  flowStepRunSchema,
   type AiAutomationProposal,
   type AiAutomationSimulation,
   type AiAutomationDraft,
@@ -24,8 +25,25 @@ import {
   removeStepById,
   findStepById,
 } from '../automations/canvas/draft-mutations';
-import { namesFromCatalog, issueText } from '../automations/flow-words';
+import {
+  namesFromCatalog,
+  issueText,
+  stepKindLabel,
+  testStepOutcomeText,
+} from '../automations/flow-words';
 import '../automations/automation-motion.css';
+
+function simulationStepText(step: AiAutomationSimulation['steps'][number]): string {
+  const parsed = flowStepRunSchema.safeParse(step);
+  if (!parsed.success) return 'Action result unavailable. Check this flow in the builder.';
+  const value = parsed.data;
+  if (value.stepKind === 'wait' && value.outcome === 'done') return 'Wait simulated';
+  const outcome =
+    value.stepKind === 'send_email' && value.outcome === 'done'
+      ? 'Email simulated · no email queued'
+      : testStepOutcomeText(value);
+  return `${stepKindLabel(value.stepKind)}: ${outcome}`;
+}
 
 export function AssistantAutomation({ initial }: { initial: AiAutomationProposal }) {
   const { automationApi, workspaceSlug } = useAssistant();
@@ -416,9 +434,7 @@ export function AssistantAutomation({ initial }: { initial: AiAutomationProposal
             · No email queued
           </p>
           {simulation.steps.map((s) => (
-            <p key={s.stepId}>
-              {s.stepKind}: {s.branch ?? s.outcome} · simulated
-            </p>
+            <p key={s.stepId}>{simulationStepText(s)}</p>
           ))}
           <p>{simulation.uncoveredBranches.length} branch outcomes remain untested.</p>
         </div>

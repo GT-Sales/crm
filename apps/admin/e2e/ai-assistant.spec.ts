@@ -284,6 +284,7 @@ for (const width of [375, 1440]) {
     await card.getByLabel('Sample lead type', { exact: true }).selectOption('sim_order');
     await card.getByRole('button', { name: 'Run simulation' }).click();
     await expect(card.getByLabel('Automation simulation results')).toContainText('No email queued');
+    await expect(card.getByLabel('Automation simulation results')).toContainText('Wait simulated');
     await card.getByRole('button', { name: 'Edit draft' }).click();
     await card.getByLabel('Automation draft name').fill(`AI browser flow ${width}`);
     await card.getByRole('button', { name: 'Review edits' }).click();
