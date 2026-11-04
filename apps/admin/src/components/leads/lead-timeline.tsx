@@ -382,6 +382,10 @@ export function LeadTimeline({
               ),
           )
           .map((activity) => {
+            const approvingMember =
+              activity.viaAi && !activity.automation
+                ? members.find((member) => member.actorId === activity.actorId)
+                : undefined;
             const { icon, text, actor } = describe(
               activity,
               lead.leadType,
@@ -431,7 +435,12 @@ export function LeadTimeline({
                           {/* The customer asked, through the website; the import only carried it over. */}
                           {activity.kind === 'system' && activity.event === 'change_requested'
                             ? 'Customer'
-                            : actorName(activity.actorId, members)}
+                            : approvingMember
+                              ? memberName(approvingMember)
+                              : actorName(activity.actorId, members)}
+                          {activity.viaAi && !activity.automation ? (
+                            <span className="text-xs font-normal text-primary"> · via AI</span>
+                          ) : null}
                         </span>{' '}
                       </>
                     )}

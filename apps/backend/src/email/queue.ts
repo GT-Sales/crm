@@ -99,6 +99,7 @@ export async function queueComposedEmail(
       kind: 'system',
       data: {
         event: 'customer_emailed',
+        ...(input.aiActionId && !input.automation ? { viaAi: true } : {}),
         template: payload.template,
         templateVersion: payload.templateVersion,
         ...(input.automation

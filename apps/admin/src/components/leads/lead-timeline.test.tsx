@@ -134,6 +134,54 @@ describe('LeadTimeline', () => {
     return screen.getByRole('region', { name: 'Timeline' });
   }
 
+  it('labels confirmed AI changes with the approving member, including other staff', () => {
+    const other = '20000000-0000-4000-8000-000000000002';
+    render(
+      <LeadTimeline
+        lead={lead}
+        activities={[
+          leadActivitySchema.parse(entry('30', { kind: 'edit', fields: ['phone'], viaAi: true })),
+          leadActivitySchema.parse(
+            entry('31', { kind: 'assignment', from: null, to: SELF, actorId: other, viaAi: true }),
+          ),
+        ]}
+        members={[
+          ...members,
+          {
+            membershipId: '30000000-0000-4000-8000-000000000002',
+            actorId: other,
+            displayName: 'Sam',
+            roles: ['leads'],
+            isSelf: false,
+          },
+        ]}
+        canWrite={false}
+        accessToken="staff-token"
+        workspaceSlug="canadawide"
+        onNoteAdded={vi.fn()}
+      />,
+    );
+    const items = screen.getByRole('region', { name: 'Timeline' }).querySelectorAll('li');
+    expect(items[0]?.textContent).toContain('Takib · via AI');
+    expect(items[1]?.textContent).toContain('Sam · via AI');
+  });
+
+  it('keeps ordinary and automation-written changes separate from AI assistance', () => {
+    const region = timeline([
+      leadActivitySchema.parse(entry('32', { kind: 'edit', fields: ['phone'] })),
+      leadActivitySchema.parse(
+        entry('33', {
+          kind: 'edit',
+          fields: ['phone'],
+          automation: 'flow_0123456789abcdef',
+          automationName: 'Follow-up flow',
+        }),
+      ),
+    ]);
+    expect(within(region).queryByText(/via AI/)).toBeNull();
+    expect(within(region).getByText('Follow-up flow')).toBeTruthy();
+  });
+
   it('says archived and restored, never trash', () => {
     const region = timeline([entry('2', { event: 'restored' }), entry('1', { event: 'trashed' })]);
     expect(within(region).getByText('archived this')).toBeTruthy();

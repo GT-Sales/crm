@@ -54,6 +54,8 @@ const activityBase = {
   id: z.uuid(),
   actorId: z.uuid(),
   createdAt: isoDateTimeSchema,
+  /** Present only when a server-verified, staff-confirmed AI action wrote this entry. */
+  viaAi: z.literal(true).optional(),
   /** The flow that wrote the entry (a mail it queued, a move, an assignment); absent for staff and websites. */
   automation: automationKeySchema.optional(),
   /** That flow's name when it wrote the entry, so the timeline reads "by automation <name>". */

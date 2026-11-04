@@ -2361,3 +2361,13 @@ or database migration is needed. CanadaWide has workspace email settings.
 Reviewed actions, editable email drafts and automation proposals retain the
 existing permissions and explicit confirmation/save requirements. No automation
 was activated and no customer email was sent by enabling the feature.
+
+### AI-assisted lead activity attribution (4 Nov 2026)
+
+New confirmed AI lead edits, stage/assignment changes, notes and queued customer
+emails carry `viaAi: true` in existing activity JSON. The optional response field
+lets the timeline and Notes show the actual approving member followed by
+“· via AI”. Only AI confirmation stores set it; ordinary staff request bodies
+cannot choose provenance. Automation-generated entries retain flow attribution.
+Historical activity is not relabelled from guesses, and existing audit records
+remain unchanged. No migration or new environment variable is needed.
