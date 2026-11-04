@@ -291,4 +291,83 @@ suite('AI automation proposals and atomic draft saves', () => {
       ),
     ).rejects.toThrow('invalid');
   });
+  it('accepts a minimal provider proposal assigning new SIM orders to the signed-in user', async () => {
+    const { createAutomationTools } = await import('../src/ai/automation-tools.js');
+    const { TurnBudget } = await import('../src/ai/limits.js');
+    const { createGatewayEngine } = await import('../src/ai/engine.js');
+    const { MockLanguageModelV4 } = await import('ai/test');
+    const { simulateReadableStream } = await import('ai');
+    const tools = createAutomationTools({
+      scope,
+      site: { name: 'AI Automation', slug: 'ai-automation-9401' },
+      key,
+      flows,
+      store,
+      now: () => now,
+      budget: new TurnBudget(),
+      loadAccess: async () => ({
+        membershipId: ACTOR,
+        status: 'active',
+        roles: ['owner'],
+        permissions: [],
+      }),
+    });
+    const usage = {
+      inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: 1, text: 1, reasoning: undefined },
+    };
+    const call = (toolName: string, input: unknown) => ({
+      stream: simulateReadableStream({
+        chunks: [
+          {
+            type: 'tool-call' as const,
+            toolCallId: crypto.randomUUID(),
+            toolName,
+            input: JSON.stringify(input),
+          },
+          {
+            type: 'finish' as const,
+            finishReason: { unified: 'tool-calls' as const, raw: undefined },
+            usage,
+          },
+        ],
+      }),
+    });
+    const model = new MockLanguageModelV4({
+      doStream: [
+        call('getAutomationCatalog', { section: 'members' }),
+        call('proposeAutomationCreate', {
+          draft: {
+            name: 'Assign new orders to me',
+            definition: {
+              trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
+              steps: [{ kind: 'assign_lead', actorId: 'me' }],
+            },
+          },
+        }),
+        {
+          stream: simulateReadableStream({
+            chunks: [{ type: 'finish', finishReason: { unified: 'stop', raw: undefined }, usage }],
+          }),
+        },
+      ],
+    });
+    const engine = createGatewayEngine({ apiKey: 'synthetic', modelId: 'synthetic/test' }, model);
+    for await (const event of engine.stream({
+      system: 'Prepare a draft',
+      messages: [{ role: 'user', text: 'Assign new SIM orders to me' }],
+      tools: tools.definitions,
+      automationAuthoring: true,
+      hasPreparedAutomation: () => tools.proposals.length > 0,
+      signal: new AbortController().signal,
+    })) {
+      if (event.type === 'tool-end') expect(event.ok).toBe(true);
+    }
+    expect(tools.proposals).toHaveLength(1);
+    expect(tools.proposals[0]?.draft.definition.steps[0]).toMatchObject({
+      kind: 'assign_lead',
+      actorId: ACTOR,
+      reassign: false,
+    });
+  });
 });

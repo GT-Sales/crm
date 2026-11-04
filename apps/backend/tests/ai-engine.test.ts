@@ -113,3 +113,38 @@ describe('the production SDK adapter with an offline model', () => {
     logger.mockRestore();
   });
 });
+
+it('delivers a prepared automation at the step limit without treating it as a failed answer', async () => {
+  let prepared = false;
+  const model = new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: simulateReadableStream({
+        chunks: [
+          { type: 'tool-call', toolCallId: crypto.randomUUID(), toolName: 'prepare', input: '{}' },
+          { type: 'finish', finishReason: { unified: 'tool-calls', raw: undefined }, usage },
+        ],
+      }),
+    }),
+  });
+  const engine = createGatewayEngine({ apiKey: 'synthetic', modelId: 'synthetic/test' }, model);
+  const events: EngineEvent[] = [];
+  for await (const event of engine.stream({
+    system: 'test',
+    messages: [{ role: 'user', text: 'Draft an automation' }],
+    tools: {
+      prepare: tool({
+        inputSchema: z.object({}),
+        execute: async () => {
+          prepared = true;
+          return 'Review required';
+        },
+      }),
+    },
+    automationAuthoring: true,
+    hasPreparedAutomation: () => prepared,
+    signal: new AbortController().signal,
+  }))
+    events.push(event);
+  expect(events.some((e) => e.type === 'finish')).toBe(true);
+  expect(model.doStreamCalls).toHaveLength(5);
+});

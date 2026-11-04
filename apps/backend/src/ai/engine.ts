@@ -32,6 +32,7 @@ export type EngineEvent =
 export interface EngineInput {
   readonly system: string;
   readonly automationAuthoring?: boolean;
+  readonly hasPreparedAutomation?: () => boolean;
   readonly messages: readonly { role: 'user' | 'assistant'; text: string }[];
   readonly tools: ToolSet;
   readonly signal: AbortSignal;
@@ -117,16 +118,23 @@ export function createGatewayEngine(
               );
             case 'abort':
               throw new AssistantProviderError('cancelled');
-            case 'finish':
+            case 'finish': {
+              // A validated, signed draft remains reviewable when the last allowed
+              // generation ends with a successful tool call rather than prose.
+              const preparedAtStepLimit =
+                part.finishReason === 'tool-calls' &&
+                input.automationAuthoring &&
+                input.hasPreparedAutomation?.() === true;
               if (
                 part.finishReason === 'error' ||
                 part.finishReason === 'length' ||
-                part.finishReason === 'tool-calls'
+                (part.finishReason === 'tool-calls' && !preparedAtStepLimit)
               )
                 throw new AssistantProviderError('budget_exceeded');
               // The SDK synthesizes `other` when a provider stream closes
               // without a finish frame. That is not a completed answer.
-              if (part.finishReason !== 'stop') throw new AssistantProviderError();
+              if (part.finishReason !== 'stop' && !preparedAtStepLimit)
+                throw new AssistantProviderError();
               yield {
                 type: 'finish',
                 ...(part.totalUsage.outputTokens === undefined
@@ -134,6 +142,7 @@ export function createGatewayEngine(
                   : { outputTokens: part.totalUsage.outputTokens }),
               };
               break;
+            }
             default:
               // Reasoning, sources and raw provider parts are never forwarded.
               break;

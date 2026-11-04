@@ -10,6 +10,7 @@ import { Router, type Response } from 'express';
 import {
   reviseAiActionRequestSchema,
   aiFollowUpSchema,
+  aiAutomationProposalSchema,
   type AiFollowUp,
   AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
@@ -735,7 +736,15 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           let followUp: AiFollowUp | undefined;
           const guide = async (raw: unknown) => {
             if (!budget.reserveToolCall()) return 'Question limit reached';
-            followUp = aiFollowUpSchema.parse(raw);
+            const question = aiFollowUpSchema.parse(raw);
+            if (
+              automationTools &&
+              /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\buuid\b|staff id/i.test(
+                [question.question, ...question.choices].join(' '),
+              )
+            )
+              return 'Do not ask for internal IDs. Use currentMember/me for the signed-in person, or ask for staff names from getAutomationCatalog.';
+            followUp = question;
             return 'Question and choices ready. Wait for the person to answer; do not assume a choice.';
           };
           const guidedTool = tool({
@@ -769,6 +778,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             { role: 'user' as const, text: body.message },
           ];
 
+          let recoveredDraft = false;
+          let failureCode: import('@gt-sales/contracts').AiStreamErrorCode | undefined;
           let outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost' = 'completed';
           let outputTokens: number | undefined;
           let finished = false;
@@ -778,6 +789,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               system,
               messages,
               automationAuthoring: automationTools !== undefined,
+              hasPreparedAutomation: () => (automationTools?.proposals.length ?? 0) > 0,
               tools: {
                 ...toolset.definitions,
                 ...actionTools?.definitions,
@@ -899,14 +911,51 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             } else if (clientGone || controller.signal.aborted) {
               outcome = 'cancelled';
             } else {
-              outcome = 'failed';
-              // The tracker gets a fixed code, not the provider's own error body.
-              dependencies.reportFailure(req, new Error('assistant_provider_error'));
-              writePart({
-                type: 'error',
-                code: error instanceof AssistantProviderError ? error.code : 'provider_unavailable',
-                message: 'Ask AI could not answer just now. Nothing was changed.',
-              });
+              failureCode = error instanceof AssistantProviderError ? error.code : 'internal_error';
+              const ready = aiAutomationProposalSchema
+                .array()
+                .max(3)
+                .safeParse(automationTools?.proposals ?? []);
+              if (ready.success && ready.data.length > 0) {
+                try {
+                  const finalAccess = await wait(
+                    dependencies.loadAccess(actor.actorId, workspaceId.data),
+                  );
+                  if (
+                    !decideAiAccess(finalAccess).allowed ||
+                    !decideAccess(finalAccess, 'integration.manage').allowed
+                  ) {
+                    outcome = 'access_lost';
+                    writePart({
+                      type: 'error',
+                      code: 'access_lost',
+                      message: 'Your access to this site changed. Close Ask AI and sign in again.',
+                    });
+                    return;
+                  }
+                  writePart({
+                    type: 'text',
+                    text: '\n\nThe explanation could not finish, but a draft is ready for your review. Nothing has been saved.',
+                  });
+                  writePart({ type: 'automation_proposals', proposals: ready.data });
+                  writePart({ type: 'done' });
+                  recoveredDraft = true;
+                  outcome = 'completed';
+                } catch {
+                  // A failed access check or invalid stream must not release a card.
+                }
+              }
+              if (!recoveredDraft) {
+                outcome = 'failed';
+                // The tracker gets a fixed code, not the provider's own error body.
+                dependencies.reportFailure(req, new Error('assistant_provider_error'));
+                writePart({
+                  type: 'error',
+                  code:
+                    error instanceof AssistantProviderError ? error.code : 'provider_unavailable',
+                  message: 'Ask AI could not answer just now. Nothing was changed.',
+                });
+              }
             }
           } finally {
             activeTurns.delete(controller);
@@ -922,6 +971,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               durationMs: Date.now() - startedAt,
               ...(outputTokens === undefined ? {} : { outputTokens }),
               ...budget.usage,
+              ...(failureCode ? { failureCode } : {}),
+              ...(recoveredDraft ? { recoveredDraft: true } : {}),
             });
           }
         },

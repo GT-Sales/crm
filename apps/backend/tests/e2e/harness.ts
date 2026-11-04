@@ -520,6 +520,22 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 10 };
       return;
     }
+    if (question === 'Assign new SIM orders to me') {
+      if (!input.executeTool) throw new Error('expected executor');
+      await input.executeTool('getAutomationCatalog', { section: 'members' });
+      await input.executeTool('proposeAutomationCreate', {
+        draft: {
+          name: 'Assign new SIM orders to me',
+          definition: {
+            trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
+            steps: [{ kind: 'assign_lead', actorId: 'me' }],
+          },
+        },
+      });
+      yield { type: 'text', text: 'Assignment draft ready for your review.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
     if (question.startsWith('Update lead phone:')) {
       const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
       if (!leadId || !input.executeTool) throw new Error('expected context');

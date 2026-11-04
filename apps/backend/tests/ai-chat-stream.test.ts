@@ -1,3 +1,7 @@
+import { DatabaseFlowStore, type FlowStore } from '../src/automations/flow-store.js';
+import { AutomationAuthoringStore } from '../src/ai/automation-authoring.js';
+import { AssistantProviderError } from '../src/ai/engine.js';
+import type { AiAutomationProposal } from '@gt-sales/contracts';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -150,6 +154,7 @@ let staff: MemoryStaffStore;
 function appWith(
   options: {
     work?: DatabaseLeadWorkStore;
+    flows?: FlowStore;
     config?: AiAssistantConfig;
     engine?: AssistantEngine;
     turns?: readonly FakeTurn[];
@@ -161,6 +166,7 @@ function appWith(
   staff.loader = options.loadAccess;
   return createApp({
     staff: {
+      ...(options.flows ? { flowStore: options.flows } : {}),
       ...(options.work === undefined ? {} : { leadWorkStore: options.work }),
       sessionVerifier: new TokenVerifier(),
       store: staff,
@@ -1006,4 +1012,130 @@ describe('POST /workspaces/:id/ai/chat', () => {
       release();
     }
   });
+});
+
+describe('prepared automation delivery after explanation failures', () => {
+  it.each(['valid', 'revoked', 'invalid'])(
+    'validates prepared drafts and permissions before recovery (%s)',
+    async (mode) => {
+      const revoked = mode === 'revoked';
+      const catalog = {
+        leadTypes: [],
+        templates: [],
+        members: [],
+        plans: [],
+        properties: [],
+        taskVariables: [],
+      };
+      const flows = new DatabaseFlowStore();
+      vi.spyOn(flows, 'catalog').mockResolvedValue(catalog);
+      const proposal: AiAutomationProposal = {
+        id: LEAD,
+        token: 'signed-draft',
+        expiresAt: new Date(NOW.getTime() + 600000).toISOString(),
+        siteName: 'Test',
+        draft: {
+          name: 'Sample',
+          description: '',
+          definition: {
+            schemaVersion: 1,
+            trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'], when: null },
+            steps: [{ id: 's_wait', kind: 'wait', for: { amount: 1, unit: 'days' } }],
+          },
+        },
+        issues: [],
+        changes: ['Create draft'],
+        catalog,
+      };
+      if (mode === 'invalid') proposal.token = '';
+      const prepare = vi
+        .spyOn(AutomationAuthoringStore.prototype, 'prepare')
+        .mockResolvedValue(proposal);
+      const engine: AssistantEngine = {
+        kind: 'fake',
+        async *stream(input) {
+          if (!input.executeTool) throw new Error('expected executor');
+          await input.executeTool('proposeAutomationCreate', {
+            draft: {
+              name: 'Sample',
+              definition: {
+                trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'] },
+                steps: [{ kind: 'wait', for: { amount: 1, unit: 'days' } }],
+              },
+            },
+          });
+          yield { type: 'text', text: 'Draft explanation' };
+          if (revoked)
+            staff.access = {
+              membershipId: MEMBERSHIP,
+              status: 'active',
+              roles: ['viewer'],
+              permissions: [],
+            };
+          throw new AssistantProviderError();
+        },
+      };
+      await start(
+        appWith({
+          flows,
+          engine,
+          config: config({ automationWorkspaceIds: new Set([WORKSPACE]) }),
+        }),
+      );
+      try {
+        const response = await fetch(chatUrl(), {
+          method: 'POST',
+          headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+          body: JSON.stringify(body()),
+        });
+        const parts = await readParts(response);
+        expect(prepare).toHaveBeenCalledOnce();
+        if (mode === 'invalid') {
+          expect(parts.some((p) => p.type === 'automation_proposals')).toBe(false);
+          expect(parts.some((p) => p.type === 'error')).toBe(true);
+        } else if (revoked) {
+          expect(parts.some((p) => p.type === 'automation_proposals')).toBe(false);
+          expect(parts.some((p) => p.type === 'error' && p.code === 'access_lost')).toBe(true);
+        } else {
+          expect(parts.some((p) => p.type === 'automation_proposals')).toBe(true);
+          expect(
+            parts.some((p) => p.type === 'text' && p.text.includes('explanation could not finish')),
+          ).toBe(true);
+          expect(parts.at(-1)?.type).toBe('done');
+        }
+      } finally {
+        prepare.mockRestore();
+      }
+    },
+  );
+});
+
+it('does not publish clarification cards asking for the signed-in staff UUID', async () => {
+  await start(
+    appWith({
+      config: config({ automationWorkspaceIds: new Set([WORKSPACE]) }),
+      turns: [
+        {
+          toolCalls: [
+            {
+              name: 'askFollowUp',
+              input: {
+                question: 'Please provide your staff UUID',
+                choices: ['I have my staff UUID', 'Use 20000000-0000-4000-8000-000000000c71'],
+              },
+            },
+          ],
+          chunks: ['Use your signed-in account.'],
+        },
+      ],
+    }),
+  );
+  const response = await fetch(chatUrl(), {
+    method: 'POST',
+    headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+    body: JSON.stringify(body()),
+  });
+  const parts = await readParts(response);
+  expect(parts.some((p) => p.type === 'follow_up')).toBe(false);
+  expect(parts.at(-1)?.type).toBe('done');
 });
