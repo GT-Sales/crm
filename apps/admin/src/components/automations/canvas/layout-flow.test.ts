@@ -7,18 +7,11 @@ import {
   type FlowDraftStep,
 } from '@gt-sales/contracts';
 
-import {
-  ADD_BUTTON_SIZE,
-  CARD_HEIGHT,
-  CARD_WIDTH,
-  layoutFlow,
-  type FlowCanvasNode,
-} from './layout-flow';
+import { CARD_HEIGHT, CARD_WIDTH, layoutFlow, type FlowCanvasNode } from './layout-flow';
 
 function boundingBox(node: FlowCanvasNode) {
-  const isAdd = node.type === 'add_step';
-  const width = isAdd ? ADD_BUTTON_SIZE : CARD_WIDTH;
-  const height = isAdd ? ADD_BUTTON_SIZE : CARD_HEIGHT;
+  const width = node.width ?? CARD_WIDTH;
+  const height = node.height ?? CARD_HEIGHT;
   return {
     id: node.id,
     left: node.position.x,
@@ -45,19 +38,15 @@ describe('layoutFlow', () => {
   it('lays out an empty draft with an incomplete trigger and one add button', () => {
     const result = layoutFlow(EMPTY_FLOW_DRAFT);
     expect(result.totalSteps).toBe(0);
-    expect(result.nodes.map((node) => node.id)).toEqual(['trigger', 'add:steps.0']);
+    expect(result.nodes.map((node) => node.id)).toEqual(['trigger', 'add:steps.0', 'end:steps']);
     expect(result.nodes[0]?.data).toMatchObject({
       kind: 'trigger',
       incomplete: true,
       summary: 'Choose when this flow runs',
     });
-    expect(result.edges).toEqual([
-      {
-        id: 'edge:trigger->add:steps.0',
-        source: 'trigger',
-        target: 'add:steps.0',
-        type: 'smoothstep',
-      },
+    expect(result.edges.map((edge) => [edge.source, edge.target])).toEqual([
+      ['trigger', 'add:steps.0'],
+      ['add:steps.0', 'end:steps'],
     ]);
     assertNoOverlaps(result.nodes);
   });
@@ -79,6 +68,7 @@ describe('layoutFlow', () => {
       'add:steps.1',
       's_mail',
       'add:steps.2',
+      'end:steps',
     ]);
     for (let i = 1; i < result.nodes.length; i += 1) {
       expect(result.nodes[i]!.position.y).toBeGreaterThan(result.nodes[i - 1]!.position.y);
@@ -194,6 +184,35 @@ describe('layoutFlow', () => {
       steps: [{ id: 'main', kind: 'send_email', template: 'order_received' }],
     };
     const result = layoutFlow(flow, { readOnly: true });
-    expect(result.nodes.map((node) => node.id)).toEqual(['trigger', 'main']);
+    expect(result.nodes.map((node) => node.id)).toEqual(['trigger', 'main', 'end:steps']);
   });
+});
+
+it('shows both empty branch outcomes and their endings in a read-only flow', () => {
+  const layout = layoutFlow(
+    {
+      schemaVersion: 1,
+      trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'], when: null },
+      steps: [
+        {
+          id: 'branch',
+          kind: 'if_else',
+          condition: { match: 'all', items: [{ kind: 'lead_type', in: ['sim_order'] }] },
+          then: [],
+          else: [],
+        },
+      ],
+    },
+    { readOnly: true },
+  );
+  expect(layout.nodes.filter((node) => node.data.kind === 'end')).toHaveLength(2);
+  expect(
+    layout.edges
+      .filter((edge) => edge.source === 'branch')
+      .map((edge) => ({ label: edge.label, handle: edge.sourceHandle })),
+  ).toEqual([
+    { label: 'Yes · matches', handle: 'yes' },
+    { label: 'No · otherwise', handle: 'no' },
+  ]);
+  assertNoOverlaps(layout.nodes);
 });

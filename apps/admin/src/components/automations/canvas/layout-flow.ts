@@ -1,4 +1,4 @@
-import type { Edge, Node } from '@xyflow/react';
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import {
   AUTOMATION_MAX_BRANCH_DEPTH,
   AUTOMATION_MAX_STEPS,
@@ -20,8 +20,8 @@ import {
   type FlowNames,
 } from '../flow-words';
 
-export const CARD_WIDTH = 280;
-export const CARD_HEIGHT = 80;
+export const CARD_WIDTH = 304;
+export const CARD_HEIGHT = 116;
 export const ADD_BUTTON_SIZE = 32;
 export const VERTICAL_GAP = 32;
 export const BRANCH_GAP = 64;
@@ -82,7 +82,13 @@ export interface AddStepNodeData extends Record<string, unknown> {
   disabled: boolean;
 }
 
-export type FlowCanvasNodeData = TriggerNodeData | StepNodeData | IfElseNodeData | AddStepNodeData;
+export interface EndNodeData extends Record<string, unknown> {
+  kind: 'end';
+  label: string;
+  branchLabel?: 'Yes' | 'No';
+}
+export type FlowCanvasNodeData =
+  TriggerNodeData | StepNodeData | IfElseNodeData | AddStepNodeData | EndNodeData;
 
 export type FlowCanvasNode = Node<FlowCanvasNodeData>;
 export type FlowCanvasEdge = Edge;
@@ -245,7 +251,13 @@ export function layoutFlow(
       source,
       target,
       type: 'smoothstep',
-      ...(label ? { label } : {}),
+      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+      ...(label
+        ? {
+            label: label === 'Yes' ? 'Yes · matches' : 'No · otherwise',
+            sourceHandle: label.toLowerCase(),
+          }
+        : {}),
     });
   }
 
@@ -393,6 +405,25 @@ export function layoutFlow(
           ? 'Add first step'
           : 'Add step at end';
       placeAddButton(steps.length, endLabel);
+      const endId = `end:${sequencePath}`;
+      nodes.push({
+        id: endId,
+        type: 'end',
+        position: { x: centerX - 90, y: currentY },
+        width: 180,
+        height: 36,
+        initialWidth: 180,
+        initialHeight: 36,
+        draggable: false,
+        selectable: false,
+        data: {
+          kind: 'end',
+          label: steps.length === 0 ? 'No actions on this path' : 'End of path',
+          ...(pendingBranchLabel ? { branchLabel: pendingBranchLabel } : {}),
+        },
+      });
+      addEdge(previousId, endId, pendingBranchLabel);
+      currentY += 36 + VERTICAL_GAP;
     }
 
     return currentY;

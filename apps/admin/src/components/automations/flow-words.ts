@@ -420,3 +420,13 @@ export function flowStatusChip(
   if (flow.hasDraft) return { label: 'Draft changes', tone: 'neutral' };
   return null;
 }
+
+/** Sample outcomes describe simulation, never claim real lead changes or delivery. */
+export function testStepOutcomeText(step: FlowStepRun): string {
+  if (step.outcome !== 'done') return stepOutcomeText(step);
+  if (step.stepKind === 'if_else')
+    return `Sample took ${step.branch === 'yes' ? 'Yes' : step.branch === 'no' ? 'No' : 'an unknown'} branch`;
+  if (step.stepKind === 'send_email') return 'Test email queued';
+  if (step.stepKind === 'wait') return 'Wait simulated';
+  return 'Simulated · no real lead or staff changes';
+}

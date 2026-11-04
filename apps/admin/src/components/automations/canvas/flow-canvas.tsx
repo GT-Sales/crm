@@ -11,19 +11,12 @@ if (typeof globalThis.window !== 'undefined' && typeof globalThis.ResizeObserver
   globalThis.ResizeObserver = FallbackResizeObserver;
 }
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type JSX,
-  type KeyboardEvent,
-} from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import {
   Background,
   Controls,
+  MiniMap,
+  type ReactFlowInstance,
   Handle,
   Position,
   ReactFlow,
@@ -31,7 +24,28 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 import type { FlowDefinition, FlowDraft, FlowIssue, FlowStepKind } from '@gt-sales/contracts';
-import { Badge, cn } from '@gt-sales/ui';
+import {
+  ZapIcon,
+  MailIcon,
+  ListTodoIcon,
+  UserRoundIcon,
+  PencilIcon,
+  BellIcon,
+  GitBranchIcon,
+  ClockIcon,
+  FlagIcon,
+} from 'lucide-react';
+import {
+  Badge,
+  Button,
+  cn,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@gt-sales/ui';
 
 import { issueText, type FlowNames } from '../flow-words';
 import {
@@ -45,6 +59,16 @@ import {
   type StepNodeData,
   type TriggerNodeData,
 } from './layout-flow';
+
+const STEP_ICONS = {
+  send_email: MailIcon,
+  create_task: ListTodoIcon,
+  assign_lead: UserRoundIcon,
+  update_lead: PencilIcon,
+  notify_staff: BellIcon,
+  if_else: GitBranchIcon,
+  wait: ClockIcon,
+};
 
 const ACTION_STEP_KINDS: readonly FlowStepKind[] = [
   'send_email',
@@ -88,14 +112,16 @@ function TriggerNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
         aria-pressed={selected}
         onClick={() => ctx.onSelectNode(id)}
         className={cn(
-          'nodrag nopan flex w-full flex-col gap-1 rounded-md border bg-card p-3 text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'automation-node-card nodrag nopan flex h-[116px] w-full flex-col gap-1.5 overflow-hidden rounded-lg border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           selected ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary/50',
           hasIssue ? 'border-amber-400 dark:border-amber-700' : '',
         )}
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            When
+            <span className="inline-flex items-center gap-2">
+              <ZapIcon className="size-4" aria-hidden="true" /> Trigger
+            </span>
           </span>
           {hasIssue ? (
             <Badge
@@ -110,7 +136,14 @@ function TriggerNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
             </Badge>
           ) : null}
         </div>
-        <p className="line-clamp-2 text-sm font-medium">{triggerData.summary}</p>
+        <p
+          className={cn(
+            'text-sm font-medium',
+            hasIssue && triggerData.whenSummary ? 'line-clamp-1' : 'line-clamp-2',
+          )}
+        >
+          {triggerData.summary}
+        </p>
         {triggerData.whenSummary ? (
           <p className="line-clamp-1 text-xs text-muted-foreground">{triggerData.whenSummary}</p>
         ) : null}
@@ -134,6 +167,7 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
   const ctx = useContext(CanvasContext);
   if (data.kind !== 'step' && data.kind !== 'if_else') return null;
   const stepData: StepNodeData | IfElseNodeData = data;
+  const Icon = STEP_ICONS[stepData.step.kind];
   const selected = ctx.selectedId === id;
   const hasIssue = stepData.issues.length > 0;
 
@@ -152,14 +186,17 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
         aria-pressed={selected}
         onClick={() => ctx.onSelectNode(id)}
         className={cn(
-          'nodrag nopan flex w-full flex-col gap-1 rounded-md border bg-card p-3 text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'automation-node-card nodrag nopan flex h-[116px] w-full flex-col gap-1.5 overflow-hidden rounded-lg border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           selected ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary/50',
           hasIssue ? 'border-amber-400 dark:border-amber-700' : '',
         )}
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {stepData.kindLabel}
+            <span className="inline-flex items-center gap-2">
+              <Icon className="size-4" aria-hidden="true" />
+              {stepData.kindLabel}
+            </span>
           </span>
           {hasIssue ? (
             <Badge
@@ -181,61 +218,57 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
           </p>
         ) : null}
       </button>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        isConnectable={false}
-        className="!pointer-events-none !opacity-0"
-      />
+      {stepData.kind === 'if_else' ? (
+        <>
+          <Handle
+            id="yes"
+            type="source"
+            position={Position.Bottom}
+            isConnectable={false}
+            style={{ left: '25%' }}
+            className="!pointer-events-none !opacity-0"
+          />
+          <Handle
+            id="no"
+            type="source"
+            position={Position.Bottom}
+            isConnectable={false}
+            style={{ left: '75%' }}
+            className="!pointer-events-none !opacity-0"
+          />
+        </>
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          isConnectable={false}
+          className="!pointer-events-none !opacity-0"
+        />
+      )}
     </div>
   );
 }
 
+const STEP_HELP: Record<FlowStepKind, string> = {
+  send_email: 'Use a Site email template',
+  create_task: 'Create a staff follow-up',
+  assign_lead: 'Set the lead owner',
+  update_lead: 'Change a field or stage',
+  notify_staff: 'Email your team',
+  if_else: 'Choose a Yes or No path',
+  wait: 'Pause before the next action',
+};
+
 function AddStepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
   const ctx = useContext(CanvasContext);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const isOpen = ctx.openMenuId === id;
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const firstItem = menuRef.current?.querySelector<HTMLButtonElement>(
-      'button[role="menuitem"]:not([disabled])',
-    );
-    firstItem?.focus();
-  }, [isOpen]);
-
+  const choseStep = useRef(false);
   if (data.kind !== 'add_step') return null;
   const addData: AddStepNodeData = data;
-
-  function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      ctx.setOpenMenuId(undefined);
-      buttonRef.current?.focus();
-      return;
-    }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    const items = Array.from(
-      menuRef.current?.querySelectorAll<HTMLButtonElement>(
-        'button[role="menuitem"]:not([disabled])',
-      ) ?? [],
-    );
-    if (items.length === 0) return;
-    const currentIndex = items.findIndex((item) => item === document.activeElement);
-    const delta = event.key === 'ArrowDown' ? 1 : -1;
-    const nextIndex =
-      currentIndex === -1 ? 0 : (currentIndex + delta + items.length) % items.length;
-    items[nextIndex]?.focus();
-  }
-
   function choose(kind: FlowStepKind) {
+    choseStep.current = true;
     ctx.setOpenMenuId(undefined);
     ctx.onAddStep(addData.sequencePath, addData.index, kind);
   }
-
   return (
     <div
       style={{ width: ADD_BUTTON_SIZE, height: ADD_BUTTON_SIZE }}
@@ -247,74 +280,69 @@ function AddStepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
-      {addData.branchLabel ? (
-        <span className="pointer-events-none absolute -top-6 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-          {addData.branchLabel}
-        </span>
-      ) : null}
-      <button
-        ref={buttonRef}
-        type="button"
-        data-node-id={id}
-        disabled={addData.disabled}
-        aria-label={addData.label}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        title={addData.disabled ? 'A flow has 30 steps at most' : addData.label}
-        onClick={() => ctx.setOpenMenuId(isOpen ? undefined : id)}
-        className="nodrag nopan flex size-8 items-center justify-center rounded-full border bg-background text-sm font-semibold shadow-sm transition-colors hover:border-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      <DropdownMenu
+        open={ctx.openMenuId === id}
+        onOpenChange={(open) => {
+          if (open) choseStep.current = false;
+          ctx.setOpenMenuId(open ? id : undefined);
+        }}
       >
-        +
-      </button>
-
-      {isOpen ? (
-        <div
-          ref={menuRef}
-          role="menu"
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            data-node-id={id}
+            disabled={addData.disabled}
+            aria-label={addData.label}
+            title={addData.disabled ? 'A flow has 30 steps at most' : addData.label}
+            className="nodrag nopan flex size-8 items-center justify-center rounded-full border bg-background text-sm font-semibold shadow-sm transition-colors hover:border-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            +
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          onCloseAutoFocus={(event) => {
+            if (choseStep.current) event.preventDefault();
+          }}
           aria-label="Add step"
-          onKeyDown={handleMenuKeyDown}
-          className="nodrag nopan absolute top-9 left-1/2 z-50 flex w-48 -translate-x-1/2 flex-col gap-1 rounded-md border bg-popover p-1.5 text-popover-foreground shadow-md"
+          aria-labelledby={undefined}
+          sideOffset={8}
+          collisionPadding={12}
+          className="nodrag nopan max-h-[min(28rem,var(--radix-dropdown-menu-content-available-height))] w-64 overflow-y-auto"
         >
-          <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Actions
-          </p>
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
           {ACTION_STEP_KINDS.map((kind) => (
-            <button
+            <DropdownMenuItem
               key={kind}
-              type="button"
-              role="menuitem"
-              onClick={() => choose(kind)}
-              className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+              aria-label={STEP_KIND_LABELS[kind]}
+              onSelect={() => choose(kind)}
             >
-              {STEP_KIND_LABELS[kind]}
-            </button>
+              <span>
+                <span className="block font-medium">{STEP_KIND_LABELS[kind]}</span>
+                <span className="block text-xs text-muted-foreground">{STEP_HELP[kind]}</span>
+              </span>
+            </DropdownMenuItem>
           ))}
-          <div className="my-0.5 border-t" />
-          <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Flow
-          </p>
-          {FLOW_CONTROL_STEP_KINDS.map((kind) => {
-            const disabled = kind === 'if_else' && !addData.canAddIfElse;
-            return (
-              <button
-                key={kind}
-                type="button"
-                role="menuitem"
-                disabled={disabled}
-                title={disabled ? 'Branches go 3 deep at most' : undefined}
-                onClick={() => choose(kind)}
-                className="flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span>{STEP_KIND_LABELS[kind]}</span>
-                {disabled ? (
-                  <span className="text-[10px] text-muted-foreground">Max depth</span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Flow</DropdownMenuLabel>
+          {FLOW_CONTROL_STEP_KINDS.map((kind) => (
+            <DropdownMenuItem
+              key={kind}
+              aria-label={STEP_KIND_LABELS[kind]}
+              disabled={kind === 'if_else' && !addData.canAddIfElse}
+              onSelect={() => choose(kind)}
+            >
+              <span>
+                <span className="block font-medium">{STEP_KIND_LABELS[kind]}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {kind === 'if_else' && !addData.canAddIfElse
+                    ? 'Branches go 3 deep at most'
+                    : STEP_HELP[kind]}
+                </span>
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Handle
         type="source"
         position={Position.Bottom}
@@ -325,7 +353,24 @@ function AddStepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
   );
 }
 
+function EndNode({ data }: NodeProps<FlowCanvasNode>) {
+  if (data.kind !== 'end') return null;
+  return (
+    <div className="flex h-9 w-[180px] items-center justify-center gap-2 rounded-full border border-dashed bg-background text-xs text-muted-foreground">
+      <Handle
+        type="target"
+        position={Position.Top}
+        isConnectable={false}
+        className="!pointer-events-none !opacity-0"
+      />
+      <FlagIcon className="size-3" aria-hidden="true" />
+      {data.label}
+    </div>
+  );
+}
+
 const NODE_TYPES: NodeTypes = {
+  end: EndNode,
   trigger: TriggerNode,
   step: StepNode,
   if_else: StepNode,
@@ -350,6 +395,9 @@ export function FlowCanvas({
   onAddStep(sequencePath: string, index: number, kind: FlowStepKind): void;
 }): JSX.Element {
   const [openMenuId, setOpenMenuId] = useState<string>();
+  const [instance, setInstance] = useState<ReactFlowInstance<FlowCanvasNode>>();
+  const motionDuration = () =>
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 280;
 
   const { nodes, edges } = useMemo(() => {
     const layout = layoutFlow(definition, { issues, readOnly, names });
@@ -363,9 +411,24 @@ export function FlowCanvas({
         // Fixed, non-selectable nodes still contain interactive buttons.
         // React Flow otherwise disables pointer events on their wrappers.
         style: { ...node.style, pointerEvents: 'all' },
+        className: node.id === selectedId ? 'automation-node-selected' : undefined,
       })),
     };
-  }, [definition, issues, readOnly, names, openMenuId]);
+  }, [definition, issues, readOnly, names, openMenuId, selectedId]);
+
+  useEffect(() => {
+    if (!instance || !selectedId) return;
+    const timer = window.setTimeout(() => {
+      void instance.fitView({
+        nodes: [{ id: selectedId }],
+        padding: 0.5,
+        minZoom: 0.65,
+        maxZoom: 0.9,
+        duration: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 280,
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [instance, selectedId]);
 
   const contextValue = useMemo<CanvasContextValue>(
     () => ({
@@ -383,37 +446,88 @@ export function FlowCanvas({
 
   return (
     <CanvasContext.Provider value={contextValue}>
-      <div
-        role="region"
-        aria-label="Automation flow canvas"
-        className="h-[38rem] w-full rounded-md border bg-muted/10"
-      >
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={NODE_TYPES}
-          width={800}
-          height={608}
-          onlyRenderVisibleElements={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          nodesFocusable={false}
-          edgesFocusable={false}
-          elementsSelectable={false}
-          zoomOnDoubleClick={false}
-          fitView
-          fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-          minZoom={0.25}
-          maxZoom={1.5}
-          proOptions={{ hideAttribution: true }}
-          onPaneClick={() => setOpenMenuId(undefined)}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <p className="text-muted-foreground">
+            Follow the arrows. Select a card to see its settings.
+          </p>
+          <div className="flex gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void instance?.fitView({
+                  nodes,
+                  padding: 0.2,
+                  minZoom: 0.25,
+                  maxZoom: 1,
+                  duration: motionDuration(),
+                })
+              }
+            >
+              Fit flow
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!selectedId || !instance}
+              onClick={() => {
+                const node = nodes.find((node) => node.id === selectedId);
+                if (node)
+                  void instance?.fitView({
+                    nodes: [node],
+                    maxZoom: 1,
+                    padding: 0.5,
+                    duration: motionDuration(),
+                  });
+              }}
+            >
+              Focus selected
+            </Button>
+          </div>
+        </div>
+        <div
+          role="region"
+          aria-label="Automation flow canvas"
+          className="automation-canvas h-[34rem] w-full overflow-hidden rounded-lg border bg-muted/10 sm:h-[40rem]"
         >
-          <Background gap={16} size={1} />
-          <Controls
-            showInteractive={false}
-            className="[&>button]:!border-border [&>button]:!bg-card [&>button]:!text-foreground [&>button:hover]:!bg-accent"
-          />
-        </ReactFlow>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={NODE_TYPES}
+            onInit={setInstance}
+            onlyRenderVisibleElements={false}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            nodesFocusable={false}
+            edgesFocusable={false}
+            elementsSelectable={false}
+            zoomOnDoubleClick={false}
+            fitView
+            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            minZoom={0.25}
+            maxZoom={1.5}
+            proOptions={{ hideAttribution: true }}
+            onPaneClick={() => setOpenMenuId(undefined)}
+          >
+            <Background gap={16} size={1} />
+            {nodes.filter((node) => node.data.kind === 'step' || node.data.kind === 'if_else')
+              .length > 8 ? (
+              <MiniMap
+                pannable
+                zoomable
+                className="!hidden sm:!block"
+                ariaLabel="Flow overview map"
+              />
+            ) : null}
+            <Controls
+              showInteractive={false}
+              className="[&>button]:!border-border [&>button]:!bg-card [&>button]:!text-foreground [&>button:hover]:!bg-accent"
+            />
+          </ReactFlow>
+        </div>
       </div>
     </CanvasContext.Provider>
   );

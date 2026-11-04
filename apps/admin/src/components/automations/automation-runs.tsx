@@ -2,7 +2,8 @@
 
 import { useState, type JSX } from 'react';
 import type { FlowDefinition, FlowDraft, FlowRun } from '@gt-sales/contracts';
-import { Button } from '@gt-sales/ui';
+import { CheckCircle2Icon, ClockIcon, AlertCircleIcon, MinusCircleIcon } from 'lucide-react';
+import { Button, cn } from '@gt-sales/ui';
 import Link from 'next/link';
 
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
@@ -99,7 +100,27 @@ export function AutomationRuns({
                 >
                   {leadLabel}
                 </Link>
-                <span>{runStatusText(shownRun)}</span>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium',
+                    shownRun.status === 'failed'
+                      ? 'border-destructive/30 text-destructive'
+                      : shownRun.status === 'waiting'
+                        ? 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-200'
+                        : '',
+                  )}
+                >
+                  {shownRun.status === 'completed' ? (
+                    <CheckCircle2Icon className="size-3.5" aria-hidden="true" />
+                  ) : shownRun.status === 'waiting' ? (
+                    <ClockIcon className="size-3.5" aria-hidden="true" />
+                  ) : shownRun.status === 'failed' ? (
+                    <AlertCircleIcon className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <MinusCircleIcon className="size-3.5" aria-hidden="true" />
+                  )}
+                  {runStatusText(shownRun)}
+                </span>
                 {run.version === null ? null : (
                   <span className="text-muted-foreground">Version {run.version}</span>
                 )}
@@ -144,7 +165,7 @@ export function AutomationRuns({
               {isExpanded && run.steps.length > 0 ? (
                 <ol
                   aria-label={`Step outcomes for ${leadLabel}`}
-                  className="flex flex-col gap-1.5 rounded-md border bg-muted/20 p-2.5 text-xs"
+                  className="automation-run-timeline flex flex-col gap-0 rounded-md border bg-muted/20 p-3 text-xs"
                 >
                   {shownRun.steps.map((stepRun, index) => {
                     const found = runDefinition
@@ -156,9 +177,25 @@ export function AutomationRuns({
                     return (
                       <li
                         key={`${stepRun.stepId}:${index}`}
-                        className="flex flex-wrap items-center justify-between gap-2"
+                        className="relative ml-3 flex flex-wrap items-start justify-between gap-2 border-l pb-4 pl-6 last:border-transparent last:pb-0"
                       >
-                        <span className="font-medium">{stepTitle}</span>
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            'absolute -left-3 top-0 flex size-6 items-center justify-center rounded-full border bg-card text-[10px]',
+                            stepRun.outcome === 'failed' && 'text-destructive',
+                            stepRun.outcome === 'waiting' && 'text-amber-800 dark:text-amber-200',
+                          )}
+                        >
+                          {stepRun.outcome === 'done' ? (
+                            <CheckCircle2Icon className="size-3.5" />
+                          ) : stepRun.outcome === 'waiting' ? (
+                            <ClockIcon className="size-3.5" />
+                          ) : (
+                            index + 1
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1 break-words font-medium">{stepTitle}</span>
                         <span className="text-muted-foreground">{stepOutcomeText(stepRun)}</span>
                       </li>
                     );

@@ -339,12 +339,15 @@ describe('FlowPage', () => {
     await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' });
 
     const addFirst = await screen.findByRole('button', { name: 'Add first step' });
-    fireEvent.click(addFirst);
+    fireEvent.keyDown(addFirst, { key: 'Enter', code: 'Enter' });
     const menu = await screen.findByRole('menu', { name: 'Add step' });
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Wait' }));
 
     const panel = await screen.findByRole('complementary', { name: 'Wait' });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(panel).getByRole('heading', { name: /^Wait$/ })),
+    );
     fireEvent.keyDown(panel, { key: 'Escape' });
     expect(screen.queryByRole('complementary', { name: 'Wait' })).toBeNull();
   });
@@ -359,10 +362,47 @@ describe('FlowPage', () => {
     expect(screen.getByText(NEEDS_LEADS_FOR_ACTIVATION)).toBeTruthy();
   });
 
+  it('opens a staff-notification sample test without asking for a customer email or running immediately', async () => {
+    const notification: FlowDefinition = {
+      ...definition,
+      steps: [
+        { id: 's_notify', kind: 'notify_staff', toAssignee: true, actorIds: [], note: 'Follow up' },
+      ],
+    };
+    mocks.getAutomation.mockResolvedValue(
+      detail({ draft: { version: 2, definition: notification, issues: [] } }),
+    );
+    mocks.testAutomation.mockResolvedValue({
+      status: 'completed',
+      reason: null,
+      detail: null,
+      steps: [],
+      emailsQueued: 0,
+      requestId: 'sample_test',
+    });
+    render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' });
+    fireEvent.click(screen.getByRole('button', { name: 'Test run' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Test run Verified follow-up' });
+    expect(within(dialog).queryByLabelText('Test email address')).toBeNull();
+    expect(mocks.testAutomation).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Run test' }));
+    await waitFor(() =>
+      expect(mocks.testAutomation).toHaveBeenCalledWith('staff-token', WORKSPACE, FLOW, {
+        definition: notification,
+      }),
+    );
+  });
+
   it('shows the latest runs in words on the Runs tab and expands step outcomes', async () => {
     render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
     await screen.findByRole('heading', { level: 1, name: 'Verified follow-up' });
-    fireEvent.click(screen.getByRole('tab', { name: /^Runs/ }));
+    expect(screen.queryByRole('list', { name: 'Recent runs' })).toBeNull();
+    fireEvent.keyDown(screen.getByRole('tab', { name: /^Flow$/ }), {
+      key: 'ArrowRight',
+    });
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Runs/ }));
+    expect(screen.queryByRole('region', { name: 'What it does' })).toBeNull();
 
     const runs = await screen.findByRole('list', { name: 'Recent runs' });
     const items = within(runs).getAllByRole('listitem');
@@ -665,6 +705,6 @@ describe('FlowPage', () => {
     );
     expect(await within(dialog).findByText('Test run completed')).toBeTruthy();
     expect(within(dialog).getByText('1 test email queued to tester@example.com')).toBeTruthy();
-    expect(within(dialog).getByText('Done (No branch)')).toBeTruthy();
+    expect(within(dialog).getByText('Sample took No branch')).toBeTruthy();
   });
 });
