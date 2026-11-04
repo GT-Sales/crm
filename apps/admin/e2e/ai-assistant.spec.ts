@@ -135,8 +135,20 @@ for (const width of [375, 1440]) {
     expect((await record()).tasks.filter((t) => t.title === title)).toHaveLength(0);
     await page.getByRole('button', { name: 'New chat' }).click();
     await prepareTask();
+    // The server saves successfully but its receipt is lost. Retry must use
+    // the same signed task card, including through the real browser client.
+    let taskReceiptLost = false;
+    await page.route('**/ai/actions/confirm', async (route) => {
+      const response = await route.fetch();
+      if (!taskReceiptLost) {
+        taskReceiptLost = true;
+        await route.abort('failed');
+      } else await route.fulfill({ response });
+    });
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await page.getByRole('button', { name: 'Retry save' }).click();
     await expect(page.getByText('Task created.', { exact: true })).toBeVisible();
+    await page.unroute('**/ai/actions/confirm');
     const saved = (await record()).tasks.filter((t) => t.title === title);
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({

@@ -502,6 +502,20 @@ databaseTest('DatabaseLeadWorkStore', () => {
         dueAt: '2026-11-05T12:00:00.000Z',
         creationId: taskId,
       };
+      // The same actor belongs to both Sites. Membership in the other Site
+      // must not make the target lead reachable through that tenant context.
+      const foreignScope = { ...writeScope, workspaceId: OTHER_WORKSPACE };
+      expect(
+        await parallelWork.addNote({
+          ...foreignScope,
+          leadId,
+          body: 'Wrong Site',
+          creationId: noteId,
+        }),
+      ).toEqual({ status: 'not_found' });
+      expect(await parallelWork.createTask({ ...taskInput, ...foreignScope })).toEqual({
+        status: 'not_found',
+      });
       const tasks = await Promise.all([
         parallelWork.createTask(taskInput),
         parallelWork.createTask(taskInput),
@@ -517,6 +531,23 @@ databaseTest('DatabaseLeadWorkStore', () => {
         details?.activities.some((a) => a.kind === 'note' && a.body === 'Confirmed note'),
       ).toBe(true);
       expect(details?.tasks.find((t) => t.id === taskId)?.dueAt).toBe('2026-11-05T12:00:00.000Z');
+      // A late network retry must not undo work performed after the first save.
+      await parallelWork.updateTask({
+        ...writeScope,
+        taskId,
+        title: 'Edited by staff',
+        status: 'done',
+      });
+      const replayed = await parallelWork.createTask(taskInput);
+      expect(replayed.status === 'saved' && replayed.task).toMatchObject({
+        id: taskId,
+        title: 'Edited by staff',
+        status: 'done',
+      });
+      const [replayCounts] = await admin`select
+        (select count(*)::int from app.lead_tasks where id=${taskId}) as tasks,
+        (select count(*)::int from app.audit_events where workspace_id=${WORKSPACE} and action='lead.task_created' and after->>'aiActionId'=${taskId}) as audits`;
+      expect(replayCounts).toEqual({ tasks: 1, audits: 1 });
       await admin`update app.leads set deleted_at=now() where id=${leadId}`;
       expect(
         (

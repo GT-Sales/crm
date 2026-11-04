@@ -305,6 +305,10 @@ describe('POST /workspaces/:id/ai/chat', () => {
     'read_only',
     'revoked',
     'disabled',
+    'site_disabled',
+    'missing_membership',
+    'pending_membership',
+    'orders_only',
   ] as const)('rejects %s confirmations without calling a write store', async (mode) => {
     const work = new DatabaseLeadWorkStore();
     const add = vi.spyOn(work, 'addNote').mockResolvedValue({ status: 'not_found' });
@@ -321,13 +325,29 @@ describe('POST /workspaces/:id/ai/chat', () => {
     await start(
       appWith({
         work,
-        config: config({ enabled: mode !== 'disabled' }),
-        loadAccess: async () => ({
-          membershipId: MEMBERSHIP,
-          status: mode === 'revoked' ? 'revoked' : 'active',
-          roles: mode === 'read_only' ? ['finance'] : ['owner'],
-          permissions: [],
+        config: config({
+          enabled: mode !== 'disabled',
+          ...(mode === 'site_disabled' ? { workspaceIds: new Set<string>() } : {}),
         }),
+        loadAccess: async () =>
+          mode === 'missing_membership'
+            ? undefined
+            : {
+                membershipId: MEMBERSHIP,
+                status:
+                  mode === 'revoked'
+                    ? 'revoked'
+                    : mode === 'pending_membership'
+                      ? 'pending'
+                      : 'active',
+                roles:
+                  mode === 'read_only'
+                    ? ['finance']
+                    : mode === 'orders_only'
+                      ? ['orders']
+                      : ['owner'],
+                permissions: [],
+              },
       }),
     );
     const response = await fetch(
@@ -341,7 +361,19 @@ describe('POST /workspaces/:id/ai/chat', () => {
         }),
       },
     );
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    const expectedStatus =
+      mode === 'disabled' || mode === 'site_disabled'
+        ? 503
+        : [
+              'read_only',
+              'revoked',
+              'missing_membership',
+              'pending_membership',
+              'orders_only',
+            ].includes(mode)
+          ? 403
+          : 400;
+    expect(response.status).toBe(expectedStatus);
     expect(add).not.toHaveBeenCalled();
     expect(task).not.toHaveBeenCalled();
   });

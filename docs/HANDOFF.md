@@ -1441,6 +1441,10 @@ model/provider validation, deployed streaming and rollout remain owner steps.
 
 ### Ask AI tasks and notes (version 2)
 
+Confirmation/retry verification follow-up (2026-11-04): PR #21 is merged.
+`review/ai-actions.md` records the review and added tenant-isolation, late-retry,
+permission-refusal and lost-task-receipt regression coverage.
+
 Ask AI can now prepare a follow-up task or a note for an active lead. Nothing
 is saved by the model: staff review a card naming the Site/lead and the exact
 content, due date and assignee, then press Confirm. The confirmation rechecks

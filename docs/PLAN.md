@@ -452,6 +452,8 @@ Version 2 adds only explicitly confirmed task/note creation; see
 `docs/design/ai-actions.md`. The model prepares a signed, expiring card; a human
 confirms through a separately authorized endpoint using the existing work
 store. Retries reuse the same record id and audit event.
+The confirmation/retry review and its verification evidence are recorded in
+`docs/review/ai-actions.md` (2026-11-04).
 
 Explicitly deferred (documented, not built): other write actions, persistent
 conversations, documents/knowledge retrieval, embeddings, automation/n8n
