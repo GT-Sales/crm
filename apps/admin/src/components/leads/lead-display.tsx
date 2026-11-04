@@ -158,7 +158,7 @@ export function PersonChip({
       <Avatar className={size === 'xs' ? 'size-5' : 'size-6'}>
         <AvatarFallback
           className={cn(
-            'bg-primary/35 font-semibold text-foreground',
+            'bg-accent font-semibold text-accent-foreground',
             size === 'xs' ? 'text-[9px]' : 'text-[10px]',
           )}
         >
