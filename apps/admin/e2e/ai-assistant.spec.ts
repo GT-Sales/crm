@@ -305,6 +305,7 @@ for (const width of [375, 1440]) {
     await expect(card.getByRole('alert')).toBeVisible();
     await card.getByRole('button', { name: 'Save draft' }).click();
     await expect(card.getByRole('status')).toContainText('Draft saved');
+    await expect(card.getByText(/· Saved draft$/)).toBeVisible();
     await page.unroute('**/ai/automations/save');
     await ask(`Edit the reviewed automation ${width}`);
     const edit = page.getByRole('region', { name: 'Review automation draft' }).last();

@@ -149,7 +149,10 @@ export function AssistantAutomation({ initial }: { initial: AiAutomationProposal
         <h3 className="font-semibold">
           {proposal.target ? 'Edit automation' : 'Create automation'}
         </h3>
-        <p className="text-xs text-muted-foreground">{proposal.siteName} · Unsaved draft</p>
+        <p className="text-xs text-muted-foreground">
+          {proposal.siteName} ·{' '}
+          {savedKey ? 'Saved draft' : cancelled ? 'Discarded proposal' : 'Unsaved draft'}
+        </p>
       </div>
       <p>
         {proposal.target
