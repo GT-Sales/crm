@@ -452,6 +452,15 @@ Version 2 adds only explicitly confirmed task/note creation; see
 `docs/design/ai-actions.md`. The model prepares a signed, expiring card; a human
 confirms through a separately authorized endpoint using the existing work
 store. Retries reuse the same record id and audit event.
+The confirmation/retry review and its verification evidence are recorded in
+`docs/review/ai-actions.md` (2026-11-04).
+
+Version 3 adds editable task/note/email cards, structured clarification choices
+and reviewed customer email sending. Edit → Update draft creates a fresh signed
+proposal without saving. Email shows To/From, subject and body; Send queues one
+message through the existing outbox, with the recipient resolved from the lead
+and bound to the signed preview. This does not connect an inbox or accept
+arbitrary recipient addresses. See `docs/design/interactive-ai.md`.
 
 Explicitly deferred (documented, not built): other write actions, persistent
 conversations, documents/knowledge retrieval, embeddings, automation/n8n
@@ -522,3 +531,8 @@ State as of 2026-10-27 21:00 UTC (CRM phase 2 core live; CanadaWide switched to 
 | `SENSITIVE_FIELDS_KEY` for sealing SINs (§5.9)                                                                                                                                                                                                                                                                                                                                                                                                          | Owner decision; blocks moving CanadaWide's ID step and importing `mobility_id_uploads`.                                                                                                                                                                                                                                                                                                                                                                                     |
 | Confirm storing contact-form messages as leads (`contact_message`)                                                                                                                                                                                                                                                                                                                                                                                      | At the cutover (merge design §12).                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Product name (working title: GT Sales CRM) and brand tokens                                                                                                                                                                                                                                                                                                                                                                                             | Any time.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+
+AI action release review (2026-11-04): enforce the three-card limit after
+asynchronous proposal reads, including parallel model tool calls. Expanded
+confirmation/revision security regressions and release verification are in
+`docs/review/ai-actions-release.md`. The owner authorized the CI-gated release.

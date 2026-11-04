@@ -135,8 +135,20 @@ for (const width of [375, 1440]) {
     expect((await record()).tasks.filter((t) => t.title === title)).toHaveLength(0);
     await page.getByRole('button', { name: 'New chat' }).click();
     await prepareTask();
+    // The server saves successfully but its receipt is lost. Retry must use
+    // the same signed task card, including through the real browser client.
+    let taskReceiptLost = false;
+    await page.route('**/ai/actions/confirm', async (route) => {
+      const response = await route.fetch();
+      if (!taskReceiptLost) {
+        taskReceiptLost = true;
+        await route.abort('failed');
+      } else await route.fulfill({ response });
+    });
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await page.getByRole('button', { name: 'Retry save' }).click();
     await expect(page.getByText('Task created.', { exact: true })).toBeVisible();
+    await page.unroute('**/ai/actions/confirm');
     const saved = (await record()).tasks.filter((t) => t.title === title);
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({
@@ -148,5 +160,54 @@ for (const width of [375, 1440]) {
     await expect(
       page.getByRole('tabpanel', { name: 'Tasks' }).getByText(title, { exact: true }),
     ).toBeVisible();
+  });
+}
+
+for (const width of [375, 1440]) {
+  test(`interactive drafts and email queue at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/w/canadawide/leads');
+    await page.getByRole('link', { name: 'Avery Example', exact: true }).click();
+    await expect(page).toHaveURL(/lead=/);
+    if (width === 375)
+      await page.getByRole('dialog').getByRole('button', { name: 'Ask AI', exact: true }).click();
+    else await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+    const ask = async (text: string) => {
+      await page.getByRole('textbox', { name: 'Ask a question' }).fill(text);
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+    };
+    await ask('Guided follow-up');
+    await expect(page.getByRole('region', { name: 'Clarifying question' })).toBeVisible();
+    await page.getByRole('button', { name: 'No due date', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Ask a question' })).toBeEnabled();
+    await page.getByRole('button', { name: 'New chat' }).click();
+    await ask('Add a note: Original draft');
+    const note = page.getByRole('region', { name: 'Confirm note' });
+    await note.getByRole('button', { name: 'Edit', exact: true }).click();
+    await note.getByRole('textbox', { name: 'Note text' }).fill(`Edited note ${width}`);
+    await note.getByRole('button', { name: 'Update draft' }).click();
+    await expect(note.getByText(`Edited note ${width}`, { exact: true })).toBeVisible();
+    await note.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(note.getByText('Note added.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'New chat' }).click();
+    await ask(`Draft an email: Please call us ${width}`);
+    const email = page.getByRole('region', { name: 'Review email' });
+    await email.getByRole('button', { name: 'Edit', exact: true }).click();
+    await email.getByRole('textbox', { name: 'Email subject' }).fill('Updated subject');
+    await email.getByRole('textbox', { name: 'Email message' }).fill(`Updated message ${width}`);
+    await email.getByRole('button', { name: 'Update draft' }).click();
+    await expect(email.getByText('Updated subject', { exact: true })).toBeVisible();
+    let lost = false;
+    await page.route('**/ai/actions/confirm', async (route) => {
+      const response = await route.fetch();
+      if (!lost) {
+        lost = true;
+        await route.abort('failed');
+      } else await route.fulfill({ response });
+    });
+    await email.getByRole('button', { name: 'Send', exact: true }).click();
+    await email.getByRole('button', { name: 'Retry save', exact: true }).click();
+    await expect(email.getByText('Email queued for delivery.', { exact: true })).toBeVisible();
+    await page.unroute('**/ai/actions/confirm');
   });
 }

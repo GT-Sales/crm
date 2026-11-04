@@ -70,6 +70,7 @@ export function AssistantPanel() {
     stop,
     retry,
     newChat,
+    reviseAction,
     confirmAction,
     cancelAction,
   } = useAssistant();
@@ -267,6 +268,8 @@ export function AssistantPanel() {
           <AssistantMessage
             key={message.id}
             message={message}
+            onReviseAction={(id, draft) => reviseAction(message.id, id, draft)}
+            onAnswerChoice={message.id === last?.id && !streaming ? send : undefined}
             onConfirmAction={(id) => confirmAction(message.id, id)}
             onCancelAction={(id) => cancelAction(message.id, id)}
             {...(message.id === retryId ? { onRetry: retry } : {})}

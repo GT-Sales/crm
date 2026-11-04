@@ -2,6 +2,8 @@ import {
   BackendError,
   createBackendClient,
   type AiCapabilitiesResponse,
+  type AiActionDraft,
+  type AiActionProposal,
   type ConfirmAiActionResponse,
   type AiChatRequest,
   type AiStreamPart,
@@ -765,4 +767,13 @@ export async function confirmAiAction(
   token: string,
 ): Promise<ConfirmAiActionResponse> {
   return client(accessToken).staff.confirmAiAction(workspaceId, { token });
+}
+
+export async function reviseAiAction(
+  accessToken: string,
+  workspaceId: string,
+  token: string,
+  draft: AiActionDraft,
+): Promise<AiActionProposal> {
+  return client(accessToken).staff.reviseAiAction(workspaceId, { token, draft });
 }

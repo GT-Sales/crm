@@ -1441,6 +1441,10 @@ model/provider validation, deployed streaming and rollout remain owner steps.
 
 ### Ask AI tasks and notes (version 2)
 
+Confirmation/retry verification follow-up (2026-11-04): PR #21 is merged.
+`review/ai-actions.md` records the review and added tenant-isolation, late-retry,
+permission-refusal and lost-task-receipt regression coverage.
+
 Ask AI can now prepare a follow-up task or a note for an active lead. Nothing
 is saved by the model: staff review a card naming the Site/lead and the exact
 content, due date and assignee, then press Confirm. The confirmation rechecks
@@ -1457,6 +1461,18 @@ save with the same token; expired or uncertain cards say to check the lead
 before preparing another. See [design/ai-actions.md](design/ai-actions.md) for
 the trust boundary and verification cases. Stage changes, lead assignment,
 emails, exports, edits and bulk operations remain unavailable to the assistant.
+
+### Ask AI interactive drafts and email (version 3, 2026-11-04)
+
+Branch `claude/interactive-ai` adds card editing before confirmation, the
+`askFollowUp` question/choices tool, and `prepareEmail`. The model drafts;
+staff review the To/From and edit subject/body before pressing Send. A new
+revision endpoint re-signs edited cards with fresh IDs and the same actor,
+Site, lead and action kind. Saves cannot be edited while pending or uncertain.
+Mail uses the Site sender, existing suppression/delivery/outbox path and an
+AI-action dedupe key. It never uses model-provided addresses. Changed recipient
+or sender details require a new preview. No migration or new secret. See
+`design/interactive-ai.md`; no production rollout is implied.
 
 ## 4. What is verified, and how
 
@@ -2254,3 +2270,12 @@ holds DROP statements for a confirmation, so it is a paste in the SQL Editor.
   rotate it.
 - Commit messages explain the why; one change per commit; the attribution
   trailer the session requires.
+
+### AI action release review (2026-11-04)
+
+The review of PR #23 found and fixed a parallel proposal race that could exceed
+three action cards and fail the answer stream. Confirmation refusal tests now
+cover note, task and email; revision tests cover tampering, changed kind/address
+input and access revoked during preview. Review scope, trust boundaries and
+verification limits: [review/ai-actions-release.md](review/ai-actions-release.md).
+The owner authorized merging once PR CI passes and checking main CI afterward.

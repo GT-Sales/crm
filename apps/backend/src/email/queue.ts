@@ -49,6 +49,7 @@ export async function queueComposedEmail(
     automation: QueuedByAutomation | null;
     /** The template as staff read it; written on the entry for a site-made (`tpl_`) template. */
     templateName?: string;
+    aiActionId?: string;
   },
 ): Promise<{ queued: boolean; jobId: string | null; activity: LeadActivity | null }> {
   const { payload } = input;
@@ -136,6 +137,7 @@ export async function queueComposedEmail(
       template: payload.template,
       templateVersion: payload.templateVersion,
       jobId: job.id,
+      ...(input.aiActionId ? { aiActionId: input.aiActionId } : {}),
       automation: input.automation
         ? {
             key: input.automation.key,

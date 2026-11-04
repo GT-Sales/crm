@@ -1,3 +1,4 @@
+import { aiStreamPartSchema } from '@gt-sales/contracts';
 import { describe, expect, it } from 'vitest';
 import { createActionProposalTools, signAiAction, verifyAiAction } from '../src/ai/actions.js';
 import { TurnBudget } from '../src/ai/limits.js';
@@ -87,6 +88,43 @@ describe('signed AI confirmation cards', () => {
       JSON.parse(await tools.execute('prepareNote', { leadId, body: 'Over limit' })).status,
     ).toBe('not_available');
     expect(tools.proposals).toHaveLength(3);
+  });
+
+  it('caps parallel proposals at three without breaking the stream contract', async () => {
+    const reads = new DatabaseAiReadService();
+    vi.spyOn(reads, 'leadHint').mockResolvedValue({
+      leadId,
+      reference: 'MS-101',
+      name: 'Example',
+      stage: 'pending',
+      leadType: 'sim_order',
+    });
+    const tools = createActionProposalTools({
+      scope,
+      site: { name: 'Test', slug: 'test' },
+      key,
+      reads,
+      now: () => now,
+      budget: new TurnBudget(),
+      loadAccess: async () => ({
+        membershipId: leadId,
+        status: 'active',
+        roles: ['owner'],
+        permissions: [],
+      }),
+    });
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        tools.execute('prepareNote', { leadId, body: `Note ${index}` }),
+      ),
+    );
+    expect(tools.proposals).toHaveLength(3);
+    expect(
+      results.filter((result) => JSON.parse(result).status === 'confirmation_required'),
+    ).toHaveLength(3);
+    expect(
+      aiStreamPartSchema.safeParse({ type: 'actions', actions: tools.proposals }).success,
+    ).toBe(true);
   });
 
   it('refuses read-only callers and unavailable leads, and rejects invalid dates', async () => {

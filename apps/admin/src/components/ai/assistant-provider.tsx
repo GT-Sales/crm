@@ -16,11 +16,13 @@ import {
   type AiSource,
   type AiStreamPart,
   type AiActionProposal,
+  type AiActionDraft,
+  type AiFollowUp,
 } from '@gt-sales/contracts';
 
 import { buildAiChatRequest, streamAnswer, uiErrorForStreamCode } from '../../lib/ai-transport';
 import type { AiRequestLimits, AiUiError, AiHistoryEntry } from '../../lib/ai-transport';
-import { getAiCapabilities, confirmAiAction, BackendError } from '../../lib/api';
+import { getAiCapabilities, confirmAiAction, reviseAiAction, BackendError } from '../../lib/api';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
 
 /**
@@ -37,6 +39,7 @@ export interface AiUserMessage {
 }
 
 export interface AiAssistantMessage {
+  followUp?: AiFollowUp;
   actions?: readonly AiActionView[];
   id: string;
   role: 'assistant';
@@ -52,7 +55,7 @@ export type AiMessage = AiUserMessage | AiAssistantMessage;
 
 export interface AiActionView {
   proposal: AiActionProposal;
-  status: 'pending' | 'saving' | 'saved' | 'cancelled' | 'error';
+  status: 'pending' | 'revising' | 'saving' | 'saved' | 'cancelled' | 'error';
   error?: string;
 }
 
@@ -77,6 +80,7 @@ interface CapabilitiesState {
 }
 
 export interface AssistantContextValue {
+  reviseAction(messageId: string, actionId: string, draft: AiActionDraft): void;
   confirmAction(messageId: string, actionId: string): void;
   cancelAction(messageId: string, actionId: string): void;
   capabilities: AssistantCapabilities;
@@ -116,7 +120,11 @@ function toHistory(messages: readonly AiMessage[]): AiHistoryEntry[] {
     // A partial answer is visible for the person, but must not become the
     // model's completed answer on the next turn after Stop or a disconnect.
     if (message.role === 'assistant' && message.status !== 'complete') continue;
-    if (message.text.length > 0) history.push({ role: message.role, text: message.text });
+    const text =
+      message.role === 'assistant' && message.followUp
+        ? `${message.followUp.question} Options: ${message.followUp.choices.join('; ')}\n${message.text}`
+        : message.text;
+    if (text.length > 0) history.push({ role: message.role, text });
   }
   return history;
 }
@@ -258,6 +266,7 @@ export function AssistantProvider({
           for (const source of part.sources) byId.set(source.id, source);
           return { ...message, sources: [...byId.values()] };
         }
+        if (part.type === 'follow_up') return { ...message, followUp: part.followUp };
         if (part.type === 'actions')
           return {
             ...message,
@@ -467,6 +476,57 @@ export function AssistantProvider({
     [commitSession],
   );
 
+  const reviseAction = useCallback(
+    (messageId: string, actionId: string, draft: AiActionDraft) => {
+      const current = sessionRef.current;
+      if (current.streaming) return;
+      const message = current.messages.find((m) => m.id === messageId);
+      const action =
+        message?.role === 'assistant'
+          ? message.actions?.find((a) => a.proposal.id === actionId)
+          : undefined;
+      if (!action || action.status !== 'pending') return;
+      const activeKey = sessionKey;
+      updateAction(messageId, actionId, { status: 'revising', error: undefined });
+      void reviseAiAction(accessToken, workspace.id, action.proposal.token, draft).then(
+        (proposal) => {
+          if (sessionRef.current.key !== activeKey) return;
+          updateAction(messageId, actionId, { proposal, status: 'pending', error: undefined });
+        },
+        (error: unknown) => {
+          if (
+            sessionRef.current.key !== activeKey ||
+            !sessionRef.current.messages.some((m) => m.id === messageId)
+          )
+            return;
+          if (
+            error instanceof BackendError &&
+            [
+              'permission_denied',
+              'missing_session',
+              'invalid_session',
+              'membership_revoked',
+              'membership_missing',
+              'membership_pending',
+            ].includes(error.code)
+          ) {
+            generationRef.current += 1;
+            abortRef.current?.abort();
+            commitSession(emptySession(sessionKey));
+            setIsOpen(false);
+            setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+            return;
+          }
+          updateAction(messageId, actionId, {
+            status: 'pending',
+            error: 'Draft could not be updated. The original draft is shown; nothing was saved.',
+          });
+        },
+      );
+    },
+    [accessToken, workspace.id, sessionKey, updateAction, commitSession],
+  );
+
   const confirmAction = useCallback(
     (messageId: string, actionId: string) => {
       const current = sessionRef.current;
@@ -520,12 +580,19 @@ export function AssistantProvider({
           updateAction(messageId, actionId, {
             status: 'error',
             error:
-              error instanceof BackendError &&
-              ['invalid_request', 'lead_not_found', 'lead_trashed', 'ai_unavailable'].includes(
-                error.code,
-              )
-                ? 'This draft expired or is no longer available. Check the lead before asking for a new draft.'
-                : 'Could not confirm the save. Retry this same card to avoid a duplicate.',
+              error instanceof BackendError && error.code === 'conflict'
+                ? 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
+                : error instanceof BackendError && error.code === 'feature_not_ready'
+                  ? 'Email is not ready. Check this Site’s email settings and the customer address on the lead.'
+                  : error instanceof BackendError &&
+                      [
+                        'invalid_request',
+                        'lead_not_found',
+                        'lead_trashed',
+                        'ai_unavailable',
+                      ].includes(error.code)
+                    ? 'This draft expired or is no longer available. Check the lead before asking for a new draft.'
+                    : 'Could not confirm the save. Retry this same card to avoid a duplicate.',
           });
         },
       );
@@ -572,6 +639,7 @@ export function AssistantProvider({
       send,
       stop,
       retry,
+      reviseAction,
       confirmAction,
       cancelAction,
     }),
@@ -586,6 +654,7 @@ export function AssistantProvider({
       newChat,
       open,
       retry,
+      reviseAction,
       confirmAction,
       cancelAction,
       send,

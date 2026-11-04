@@ -240,3 +240,21 @@ export function renderCustomerEmail(input: {
 
   return { ok: true, subject: filledSubject, html, text };
 }
+
+/** A staff-authored message: plain text only, with the Site's branding/footer. */
+export function renderPlainCustomerEmail(input: {
+  subject: string;
+  body: string;
+  branding: EmailBranding;
+}): { subject: string; text: string; html: string } {
+  const { branding } = input;
+  const footer = branding.footerText || branding.siteName;
+  const header = branding.logoUrl
+    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(branding.siteName)}" height="40">`
+    : `<h2>${escapeHtml(branding.siteName)}</h2>`;
+  return {
+    subject: input.subject,
+    text: `${input.body}\n\n--\n${footer}`,
+    html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:${TEXT_COLOR};padding:24px"><div style="border-bottom:2px solid ${safeColor(branding.brandColor)};padding-bottom:12px">${header}</div><div style="white-space:pre-wrap;padding:20px 0">${escapeHtml(input.body)}</div><hr><p style="white-space:pre-wrap;color:${MUTED_COLOR}">${escapeHtml(footer)}</p></body></html>`,
+  };
+}

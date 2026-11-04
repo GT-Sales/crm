@@ -403,6 +403,15 @@ async function seed(): Promise<void> {
     // Get Canada Sim's sender, and its Dispatched email saved once (version 1).
     // No flow is switched on: the journeys do that.
     const email = new DatabaseEmailSettingsStore(database);
+    await email.putSettings(owner, {
+      fromName: 'CanadaWide',
+      fromAddress: 'staff@canadawide.example',
+      replyTo: null,
+      logoUrl: null,
+      brandColor: '#123abc',
+      footerText: 'Test footer',
+      siteUrl: 'https://canadawide.example',
+    });
     await email.putSettings(simOwner, {
       fromName: 'Get Canada Sim',
       fromAddress: 'orders@getcanadasim.example',
@@ -460,6 +469,27 @@ const assistantEngine: AssistantEngine = {
   kind: 'fake',
   async *stream(input) {
     const question = input.messages.at(-1)?.text ?? '';
+    if (question === 'Guided follow-up') {
+      if (!input.executeTool) throw new Error('executor missing');
+      await input.executeTool('askFollowUp', {
+        question: 'When should this be due?',
+        choices: ['Tomorrow', 'No due date'],
+      });
+      yield { type: 'finish', outputTokens: 0 };
+      return;
+    }
+    if (question.startsWith('Draft an email:')) {
+      const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
+      if (!leadId || !input.executeTool) throw new Error('expected context');
+      await input.executeTool('prepareEmail', {
+        leadId,
+        subject: 'Your follow-up',
+        body: question.slice('Draft an email:'.length).trim(),
+      });
+      yield { type: 'text', text: 'Email draft ready. Review and Send.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
     if (question.startsWith('Add a note:') || question.startsWith('Create a task:')) {
       const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
       if (!leadId || !input.executeTool) throw new Error('expected open lead context');

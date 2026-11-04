@@ -1,4 +1,8 @@
-# Ask AI: confirmed tasks and notes
+# Ask AI: confirmed tasks and notes (version 2 foundation)
+
+Version 3 extends these foundations with editable cards, guided questions and
+reviewed customer email. See [interactive-ai.md](interactive-ai.md) for the
+current scope and address-binding/revision behavior.
 
 Version 2 adds two operations to the existing site-scoped assistant: prepare a
 follow-up task and prepare a note. A model tool call only prepares a card. It has

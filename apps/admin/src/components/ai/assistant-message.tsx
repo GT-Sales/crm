@@ -1,4 +1,5 @@
 'use client';
+import type { AiActionDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
@@ -95,17 +96,24 @@ function AssistantAnswer({
   onRetry,
   onConfirmAction,
   onCancelAction,
+  onReviseAction,
+  onAnswerChoice,
 }: {
   message: AiAssistantMessage;
   onRetry?: () => void;
   onConfirmAction?: (id: string) => void;
   onCancelAction?: (id: string) => void;
+  onReviseAction?: (id: string, draft: AiActionDraft) => void;
+  onAnswerChoice?: (choice: string) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {message.text.length > 0 ? <AssistantMarkdown text={message.text} /> : null}
       {message.status === 'streaming' ? <StreamingState message={message} /> : null}
-      {message.status === 'complete' && message.text.length === 0 ? (
+      {message.status === 'complete' &&
+      message.text.length === 0 &&
+      !message.followUp &&
+      !message.actions?.length ? (
         <p className="text-sm text-muted-foreground">
           No answer came back. Try asking in another way.
         </p>
@@ -117,11 +125,31 @@ function AssistantAnswer({
         <p className="text-sm text-muted-foreground">{aiErrorText(message.error ?? 'failed')}</p>
       ) : null}
       <AssistantSources sources={message.sources} />
+      {message.status === 'complete' && message.followUp ? (
+        <section aria-label="Clarifying question" className="space-y-2">
+          <p className="text-sm">{message.followUp.question}</p>
+          <div className="flex flex-wrap gap-2">
+            {message.followUp.choices.map((choice) => (
+              <Button
+                key={choice}
+                variant="outline"
+                size="sm"
+                disabled={!onAnswerChoice}
+                onClick={() => onAnswerChoice?.(choice)}
+              >
+                {choice}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">Choose an option or type your own answer.</p>
+        </section>
+      ) : null}
       {message.status === 'complete'
         ? message.actions?.map((action) => (
             <AssistantAction
               key={action.proposal.id}
               action={action}
+              onRevise={(draft) => onReviseAction?.(action.proposal.id, draft)}
               onConfirm={() => onConfirmAction?.(action.proposal.id)}
               onCancel={() => onCancelAction?.(action.proposal.id)}
             />
@@ -153,11 +181,15 @@ export function AssistantMessage({
   onRetry,
   onConfirmAction,
   onCancelAction,
+  onReviseAction,
+  onAnswerChoice,
 }: {
   message: AiMessage;
   onRetry?: () => void;
   onConfirmAction?: (id: string) => void;
   onCancelAction?: (id: string) => void;
+  onReviseAction?: (id: string, draft: AiActionDraft) => void;
+  onAnswerChoice?: (choice: string) => void;
 }) {
   if (message.role === 'user') {
     return (
@@ -174,6 +206,8 @@ export function AssistantMessage({
       onRetry={onRetry}
       onConfirmAction={onConfirmAction}
       onCancelAction={onCancelAction}
+      onReviseAction={onReviseAction}
+      onAnswerChoice={onAnswerChoice}
     />
   );
 }

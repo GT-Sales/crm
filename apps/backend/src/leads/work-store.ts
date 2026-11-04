@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import {
+  outboxJobs,
   auditEvents,
   leadActivities,
   leads,
@@ -9,6 +10,8 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  customerEmailJobPayloadSchema,
+  type AiActionDraft,
   ORDER_PROPERTY_KEYS,
   ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
@@ -44,9 +47,11 @@ import { fireFlows, type FlowSiteHolder } from '../automations/engine.js';
 import { automationLeadOf } from '../automations/run.js';
 import { taskDueDay, writeTimers } from '../automations/timers.js';
 import type { StaffNotificationEnvironment } from '../automations/staff-notification.js';
+import { renderPlainCustomerEmail } from '../email/layout.js';
 import { composeCustomerEmail } from '../email/compose.js';
 import { queueComposedEmail } from '../email/queue.js';
 import {
+  resolveSiteSender,
   customerEmailEnvironmentFromEnv,
   type CustomerEmailEnvironment,
 } from '../email/senders.js';
@@ -202,7 +207,21 @@ export interface LeadWorkStore {
   addNote(
     input: WriteScope & { leadId: string; body: string; creationId?: string },
   ): Promise<NoteOutcome>;
-  /** Queues a mail to the lead's customer in the outbox, with its timeline entry. */
+  /** Resolves addresses for an authorized browser preview; returns no model-visible data. */
+  previewAiEmail?(
+    input: WriteScope & { leadId: string },
+  ): Promise<{ toAddress: string; fromAddress: string } | undefined>;
+  queueAiEmail?(
+    input: WriteScope & {
+      leadId: string;
+      creationId: string;
+      draft: Extract<AiActionDraft, { kind: 'email' }>;
+      emailContext: { toAddress: string; fromAddress: string };
+    },
+  ): Promise<
+    | { status: 'queued'; recordId: string }
+    | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' }
+  >;
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome>;
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
@@ -1135,6 +1154,96 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         lead: await requireDetail(tx, input.workspaceId, input.leadId),
         activity: activity ?? null,
       };
+    });
+  }
+
+  previewAiEmail(
+    input: WriteScope & { leadId: string },
+  ): Promise<{ toAddress: string; fromAddress: string } | undefined> {
+    return this.database.withTenantTx(input, async (tx) => {
+      if (!this.emailEnvironment.providerReady) return undefined;
+      await tx.execute(sql`set local statement_timeout = '5s'`);
+      const [lead] = await tx
+        .select({ email: leads.email })
+        .from(leads)
+        .where(
+          and(
+            eq(leads.workspaceId, input.workspaceId),
+            eq(leads.id, input.leadId),
+            sql`${leads.deletedAt} is null`,
+            sql`${leads.customerDataRestrictedAt} is null`,
+          ),
+        );
+      const site = await resolveSiteSender(tx, input.workspaceId);
+      const toAddress = customerEmailJobPayloadSchema.shape.toAddress.safeParse(
+        lead?.email?.trim(),
+      );
+      return site && toAddress.success
+        ? { toAddress: toAddress.data, fromAddress: site.sender.fromAddress }
+        : undefined;
+    });
+  }
+
+  queueAiEmail(
+    input: WriteScope & {
+      leadId: string;
+      creationId: string;
+      draft: Extract<AiActionDraft, { kind: 'email' }>;
+      emailContext: { toAddress: string; fromAddress: string };
+    },
+  ): Promise<
+    | { status: 'queued'; recordId: string }
+    | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' }
+  > {
+    return this.database.withTenantTx(input, async (tx) => {
+      const lead = await lockLead(tx, input.workspaceId, input.leadId);
+      if (!lead) return { status: 'not_found' };
+      if (lead.trashed) return { status: 'trashed' };
+      const dedupeKey = `ai_email:${input.creationId}`;
+      const [existing] = await tx
+        .select({ id: outboxJobs.id })
+        .from(outboxJobs)
+        .where(
+          and(
+            eq(outboxJobs.workspaceId, input.workspaceId),
+            eq(outboxJobs.jobType, 'lead_customer_email'),
+            eq(outboxJobs.dedupeKey, dedupeKey),
+          ),
+        );
+      if (existing) return { status: 'queued', recordId: existing.id };
+      if (!this.emailEnvironment.providerReady) return { status: 'no_sender' };
+      const site = await resolveSiteSender(tx, input.workspaceId);
+      if (!site) return { status: 'no_sender' };
+      if (
+        !lead.email ||
+        !customerEmailJobPayloadSchema.shape.toAddress.safeParse(lead.email.trim()).success
+      )
+        return { status: 'missing' };
+      if (
+        lead.email.trim() !== input.emailContext.toAddress ||
+        site.sender.fromAddress !== input.emailContext.fromAddress
+      )
+        return { status: 'changed' };
+      const payload = customerEmailJobPayloadSchema.parse({
+        leadId: input.leadId,
+        // A per-message custom-template transport label; never read as a saved template.
+        template: `tpl_${input.creationId.replace(/-/g, '').slice(0, 16)}`,
+        templateVersion: 0,
+        toAddress: lead.email.trim(),
+        contactHash: this.emailEnvironment.contactHash(lead.email.trim()),
+        sender: site.sender,
+        rendered: renderPlainCustomerEmail({ ...input.draft, branding: site.branding }),
+      });
+      const queued = await queueComposedEmail(tx, {
+        ...input,
+        dedupeKey,
+        payload,
+        automation: null,
+        templateName: 'AI email',
+        aiActionId: input.creationId,
+      });
+      if (!queued.jobId) throw new Error('AI email queue did not return a job');
+      return { status: 'queued', recordId: queued.jobId };
     });
   }
 
