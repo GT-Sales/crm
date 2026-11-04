@@ -7,7 +7,7 @@ import { leadTypeSchema } from './leads';
  * The staff AI assistant ("Ask AI"): its capability document, the one chat
  * request the admin may send, and the typed parts of the streamed answer.
  *
- * Reads and signed task/note proposals. Nothing in this module grants access: every route
+ * Reads and signed task, note, email and lead-update proposals. Nothing in this module grants access: every route
  * re-derives the caller's membership, every tool re-reads authorization, and
  * this file only fixes the wire shapes so the admin, the backend and the
  * generated OpenAPI document cannot drift apart.
@@ -79,8 +79,8 @@ export type AiPeriod = z.infer<typeof aiPeriodSchema>;
 export const aiCapabilitiesResponseSchema = z.object({
   available: z.boolean(),
   actions: z
-    .array(z.enum(['task', 'note', 'email']))
-    .max(3)
+    .array(z.enum(['task', 'note', 'email', 'lead_update']))
+    .max(4)
     .optional(),
   reason: aiUnavailableReasonSchema.optional(),
   site: z.object({
@@ -170,6 +170,19 @@ export const aiSourceSchema = z.object({
 export type AiSource = z.infer<typeof aiSourceSchema>;
 
 /** A proposed write is data for a confirmation card, never a model-executed write. */
+export const aiLeadUpdateContextSchema = z
+  .object({
+    version: z.string().min(1).max(100),
+    before: z.string().max(200).nullable(),
+    beforeLabel: z.string().max(200),
+    choices: z
+      .array(
+        z.object({ value: z.string().max(100).nullable(), label: z.string().max(160) }).strict(),
+      )
+      .max(100),
+  })
+  .strict();
+
 export const aiActionDraftSchema = z.discriminatedUnion('kind', [
   z
     .object({
@@ -200,6 +213,14 @@ export const aiActionDraftSchema = z.discriminatedUnion('kind', [
       body: z.string().trim().min(1).max(4000),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal('lead_update'),
+      leadId: z.uuid(),
+      field: z.enum(['stage', 'assignedActorId', 'fullName', 'phone']),
+      value: z.string().trim().min(1).max(160).nullable(),
+    })
+    .strict(),
 ]);
 export type AiActionDraft = z.infer<typeof aiActionDraftSchema>;
 
@@ -208,6 +229,7 @@ export const aiActionProposalSchema = z
     id: z.uuid(),
     token: z.string().min(1).max(40000),
     expiresAt: isoDateTimeSchema,
+    leadUpdateContext: aiLeadUpdateContextSchema.optional(),
     emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
     siteName: z.string().min(1).max(160),
     leadLabel: z.string().min(1).max(160),
@@ -236,7 +258,7 @@ export type ConfirmAiActionRequest = z.infer<typeof confirmAiActionRequestSchema
 export const confirmAiActionResponseSchema = z.object({
   status: z.literal('saved'),
   actionId: z.uuid(),
-  kind: z.enum(['note', 'task', 'email']),
+  kind: z.enum(['note', 'task', 'email', 'lead_update']),
   recordId: z.uuid(),
   requestId: requestIdSchema,
 });

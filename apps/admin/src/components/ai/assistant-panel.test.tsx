@@ -184,6 +184,50 @@ describe('Ask AI panel', () => {
     );
   }
 
+  it('reviews current/proposed lead values and edits before confirmation', async () => {
+    const update: AiActionProposal = {
+      ...proposal,
+      draft: { kind: 'lead_update', leadId: LEAD_ID, field: 'fullName', value: 'New name' },
+      leadUpdateContext: {
+        version: 'v1',
+        before: 'Old name',
+        beforeLabel: 'Old name',
+        choices: [],
+      },
+    };
+    propose(update);
+    mocks.reviseAiAction.mockResolvedValue({
+      ...update,
+      id: '70000000-0000-4000-8000-000000000003',
+      token: 'edited-lead-token',
+      draft: {
+        ...update.draft,
+        kind: 'lead_update',
+        leadId: LEAD_ID,
+        field: 'fullName',
+        value: 'Reviewed name',
+      },
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Update the name');
+    const region = await screen.findByRole('region', { name: 'Confirm lead update' });
+    expect(within(region).getByText('Old name')).toBeTruthy();
+    expect(mocks.confirmAiAction).not.toHaveBeenCalled();
+    fireEvent.click(within(region).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Proposed value' }), {
+      target: { value: 'Reviewed name' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Update draft' }));
+    await screen.findByText('Reviewed name');
+    expect(mocks.reviseAiAction).toHaveBeenCalledWith('staff-token', WORKSPACE_ID, proposal.token, {
+      kind: 'lead_update',
+      leadId: LEAD_ID,
+      field: 'fullName',
+      value: 'Reviewed name',
+    });
+  });
+
   it('edits a note into a fresh signed draft before confirming', async () => {
     propose();
     const revised = {

@@ -103,7 +103,16 @@ function isToolName(value: string): value is ToolName {
 }
 
 export interface AiAssistantRouteDependencies {
-  work?: Pick<LeadWorkStore, 'addNote' | 'createTask' | 'queueAiEmail' | 'previewAiEmail'>;
+  work?: Pick<
+    LeadWorkStore,
+    | 'addNote'
+    | 'createTask'
+    | 'queueAiEmail'
+    | 'previewAiEmail'
+    | 'previewAiLeadUpdate'
+    | 'confirmAiLeadUpdate'
+  >;
+  listAssignees?: (scope: Scope) => Promise<{ actorId: string; displayName: string | null }[]>;
   config: AiAssistantConfig;
   /** The actor's live membership in the site; the same read the staff router uses. */
   loadAccess(actorId: string, workspaceId: string): Promise<StaffAccessSnapshot | undefined>;
@@ -140,7 +149,7 @@ function capabilityDocument(
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
-    actions: canAct && unavailable === undefined ? ['task', 'note', 'email'] : [],
+    actions: canAct && unavailable === undefined ? ['task', 'note', 'email', 'lead_update'] : [],
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
     leadTypes: [...site.leadTypes],
@@ -199,6 +208,28 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependencies): Router {
   const router = Router();
   const previewEmail = dependencies.work?.previewAiEmail?.bind(dependencies.work);
+  const leadUpdatePreview = async (
+    scope: Scope,
+    leadId: string,
+    field: import('../leads/work-store.js').AiLeadUpdateDraft['field'],
+  ) => {
+    const preview = await dependencies.work?.previewAiLeadUpdate?.({ ...scope, leadId, field });
+    if (!preview) return undefined;
+    if (field === 'assignedActorId') {
+      const members = ((await dependencies.listAssignees?.(scope)) ?? []).slice(0, 24);
+      preview.choices = [
+        { value: null, label: 'Unassigned' },
+        ...members.map((member) => ({
+          value: member.actorId,
+          label:
+            member.displayName || (member.actorId === scope.actorId ? 'You' : 'Unnamed member'),
+        })),
+      ];
+      preview.beforeLabel =
+        preview.choices.find((choice) => choice.value === preview.before)?.label ?? 'Former member';
+    }
+    return preview;
+  };
   const now = () => (dependencies.now ?? (() => new Date()))();
   // One guard per router (one per process): a duplicate request id inside a
   // minute is refused rather than spending a second turn's budget.
@@ -296,7 +327,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       if (
         !original ||
         original.draft.kind !== body.data.draft.kind ||
-        original.draft.leadId !== body.data.draft.leadId
+        original.draft.leadId !== body.data.draft.leadId ||
+        (original.draft.kind === 'lead_update' &&
+          body.data.draft.kind === 'lead_update' &&
+          original.draft.field !== body.data.draft.field)
       ) {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
         return;
@@ -310,6 +344,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         scope,
         site,
         key: config.apiKey,
+        leadUpdatePreview: (leadId, field) => leadUpdatePreview(scope, leadId, field),
         reads: dependencies.reads,
         emailPreview: previewEmail
           ? (leadId) => previewEmail({ ...scope, leadId, requestId: req.id })
@@ -320,7 +355,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       });
       const { kind, ...draft } = body.data.draft;
       await tools.execute(
-        kind === 'note' ? 'prepareNote' : kind === 'task' ? 'prepareTask' : 'prepareEmail',
+        kind === 'note'
+          ? 'prepareNote'
+          : kind === 'task'
+            ? 'prepareTask'
+            : kind === 'email'
+              ? 'prepareEmail'
+              : 'prepareLeadUpdate',
         draft,
       );
       const proposal = tools.proposals[0];
@@ -374,6 +415,42 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const action = verifyAiAction(body.data.token, config.apiKey, scope, now());
       if (!action) {
         sendDomainError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      if (action.draft.kind === 'lead_update') {
+        if (!dependencies.work.confirmAiLeadUpdate || !action.leadUpdateContext) {
+          sendDomainError(res, req.id, 'ai_unavailable', 503);
+          return;
+        }
+        const outcome = await dependencies.work.confirmAiLeadUpdate({
+          ...scope,
+          requestId: req.id,
+          draft: action.draft,
+          creationId: action.id,
+          version: action.leadUpdateContext.version,
+        });
+        if (outcome.status !== 'saved') {
+          sendDomainError(
+            res,
+            req.id,
+            outcome.status === 'not_found'
+              ? 'lead_not_found'
+              : outcome.status === 'trashed'
+                ? 'lead_trashed'
+                : 'conflict',
+            outcome.status === 'not_found' ? 404 : 409,
+          );
+          return;
+        }
+        res.json(
+          confirmAiActionResponseSchema.parse({
+            status: 'saved',
+            actionId: action.id,
+            kind: 'lead_update',
+            recordId: outcome.recordId,
+            requestId: req.id,
+          }),
+        );
         return;
       }
       if (action.draft.kind === 'email') {
@@ -566,6 +643,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               scope,
               site,
               key: dependencies.config.apiKey,
+              leadUpdatePreview: (leadId, field) => wait(leadUpdatePreview(scope, leadId, field)),
               reads: dependencies.reads,
               emailPreview: previewEmail
                 ? (leadId) => wait(previewEmail({ ...scope, leadId, requestId: req.id }))
@@ -675,7 +753,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 isToolName(name)
                   ? toolset.execute(name, input)
                   : actionTools &&
-                      (name === 'prepareNote' || name === 'prepareTask' || name === 'prepareEmail')
+                      (name === 'prepareNote' ||
+                        name === 'prepareTask' ||
+                        name === 'prepareEmail' ||
+                        name === 'prepareLeadUpdate' ||
+                        name === 'getLeadUpdateOptions')
                     ? actionTools.execute(name, input)
                     : name === 'askFollowUp'
                       ? guide(input)

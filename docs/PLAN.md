@@ -536,3 +536,9 @@ AI action release review (2026-11-04): enforce the three-card limit after
 asynchronous proposal reads, including parallel model tool calls. Expanded
 confirmation/revision security regressions and release verification are in
 `docs/review/ai-actions-release.md`. The owner authorized the CI-gated release.
+
+Reviewed AI lead updates add one-field stage, assignment, name and phone cards
+with editable before/after previews and explicit confirmation. Stale preview
+versions conflict; receipt IDs prevent duplicate writes/flows on retry. The
+existing manual update path retains all checks. Details:
+`docs/design/ai-lead-updates.md`. No migration or new configuration is needed.

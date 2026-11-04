@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   outboxJobs,
@@ -11,6 +12,9 @@ import {
 } from '@gt-sales/db';
 import {
   customerEmailJobPayloadSchema,
+  codePropertyCatalog,
+  allowedStageMoves,
+  leadStageLabel,
   type AiActionDraft,
   ORDER_PROPERTY_KEYS,
   ORDER_STORAGE_KEYS,
@@ -155,6 +159,16 @@ export interface UpdateLeadWorkInput extends WriteScope {
   documentsOverrideReason?: string;
 }
 
+class AiLeadUpdateRefused extends Error {}
+
+export type AiLeadUpdateDraft = Extract<AiActionDraft, { kind: 'lead_update' }>;
+export type AiLeadUpdatePreview = {
+  version: string;
+  before: string | null;
+  beforeLabel: string;
+  choices: { value: string | null; label: string }[];
+};
+
 export interface CreateTaskInput extends WriteScope {
   /** Server-signed AI proposal id; retries reuse the existing record under the lead lock. */
   creationId?: string;
@@ -195,6 +209,15 @@ export interface LeadWorkStore {
   getLead(
     input: Scope & { leadId: string; includeWork: boolean; catalog: PropertyCatalog },
   ): Promise<LeadWorkResult | undefined>;
+  previewAiLeadUpdate?(
+    input: Scope & { leadId: string; field: AiLeadUpdateDraft['field'] },
+  ): Promise<AiLeadUpdatePreview | undefined>;
+  confirmAiLeadUpdate?(
+    input: WriteScope & { draft: AiLeadUpdateDraft; creationId: string; version: string },
+  ): Promise<{
+    status: 'saved' | 'conflict' | 'not_found' | 'trashed' | 'invalid';
+    recordId?: string;
+  }>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
   /** Archives a lead (or restores one); the timeline and audit keep the `trashed`/`restored` names. */
   setArchived(
@@ -1155,6 +1178,127 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         activity: activity ?? null,
       };
     });
+  }
+
+  previewAiLeadUpdate(
+    input: Scope & { leadId: string; field: AiLeadUpdateDraft['field'] },
+  ): Promise<AiLeadUpdatePreview | undefined> {
+    return this.database.withTenantTx(input, async (tx) => {
+      await tx.execute(sql`set local statement_timeout = '5s'`);
+      const [row] = await tx
+        .select({
+          stage: leads.stage,
+          leadType: leads.leadType,
+          assignedActorId: leads.assignedActorId,
+          fullName: leads.fullName,
+          phone: leads.phone,
+          version: sql<string>`updated_at::text`,
+        })
+        .from(leads)
+        .where(
+          and(
+            eq(leads.workspaceId, input.workspaceId),
+            eq(leads.id, input.leadId),
+            sql`${leads.deletedAt} is null`,
+            sql`${leads.customerDataRestrictedAt} is null`,
+          ),
+        );
+      if (!row) return undefined;
+      const before = row[input.field];
+      return {
+        version: row.version,
+        before,
+        beforeLabel:
+          input.field === 'stage'
+            ? leadStageLabel(row.leadType, row.stage)
+            : (before ?? 'Unassigned / not recorded'),
+        choices:
+          input.field === 'stage'
+            ? allowedStageMoves(row.leadType, row.stage).map((value) => ({
+                value,
+                label: leadStageLabel(row.leadType, value),
+              }))
+            : [],
+      };
+    });
+  }
+
+  confirmAiLeadUpdate(
+    input: WriteScope & { draft: AiLeadUpdateDraft; creationId: string; version: string },
+  ): Promise<{
+    status: 'saved' | 'conflict' | 'not_found' | 'trashed' | 'invalid';
+    recordId?: string;
+  }> {
+    return this.database
+      .withTenantTx(
+        input,
+        async (
+          tx,
+        ): Promise<{
+          status: 'saved' | 'conflict' | 'not_found' | 'trashed' | 'invalid';
+          recordId?: string;
+        }> => {
+          const lead = await lockLead(tx, input.workspaceId, input.draft.leadId);
+          if (!lead) return { status: 'not_found' };
+          if (lead.trashed) return { status: 'trashed' };
+          const [receipt] = await tx
+            .select({ id: auditEvents.id })
+            .from(auditEvents)
+            .where(
+              and(
+                eq(auditEvents.workspaceId, input.workspaceId),
+                eq(auditEvents.id, input.creationId),
+                eq(auditEvents.actorId, input.actorId),
+                eq(auditEvents.entityId, input.draft.leadId),
+                eq(auditEvents.action, 'ai.lead_updated'),
+              ),
+            );
+          if (receipt) return { status: 'saved', recordId: input.draft.leadId };
+          const [row] = await tx
+            .select({ version: sql<string>`updated_at::text` })
+            .from(leads)
+            .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.draft.leadId)));
+          if (row?.version !== input.version) return { status: 'conflict' };
+          const { field, value } = input.draft;
+          if (field === 'assignedActorId' && value !== null && !z.uuid().safeParse(value).success)
+            return { status: 'invalid' };
+          if (
+            (field !== 'assignedActorId' && value === null) ||
+            (field === 'phone' && (value?.length ?? 0) > 40)
+          )
+            return { status: 'invalid' };
+          const outcome = await applyLeadUpdate(
+            tx,
+            { emailEnvironment: this.emailEnvironment },
+            {
+              ...input,
+              leadId: input.draft.leadId,
+              catalog: codePropertyCatalog,
+              ...(field === 'stage' && value !== null ? { stage: value } : {}),
+              ...(field === 'assignedActorId' ? { assignedActorId: value } : {}),
+              ...(field === 'fullName' && value !== null ? { contact: { fullName: value } } : {}),
+              ...(field === 'phone' && value !== null ? { contact: { phone: value } } : {}),
+            },
+          );
+          if (outcome.status !== 'updated') throw new AiLeadUpdateRefused();
+          await tx.insert(auditEvents).values({
+            id: input.creationId,
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            actorLabel: 'staff actor',
+            action: 'ai.lead_updated',
+            entity: 'lead',
+            entityId: input.draft.leadId,
+            requestId: input.requestId,
+            after: { field },
+          });
+          return { status: 'saved', recordId: input.draft.leadId };
+        },
+      )
+      .catch((error: unknown) => {
+        if (error instanceof AiLeadUpdateRefused) return { status: 'invalid' };
+        throw error;
+      });
   }
 
   previewAiEmail(

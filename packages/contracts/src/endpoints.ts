@@ -942,7 +942,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/ai/actions/confirm',
     summary:
-      'Confirm a signed task/note or queue a reviewed customer email; requires lead.manage and is safe to retry.',
+      'Confirm a signed task, note, lead update or reviewed customer email; requires lead.manage and is safe to retry.',
     auth: 'staff',
     successStatus: 200,
     request: confirmAiActionRequestSchema,

@@ -478,6 +478,18 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 0 };
       return;
     }
+    if (question.startsWith('Update lead phone:')) {
+      const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
+      if (!leadId || !input.executeTool) throw new Error('expected context');
+      await input.executeTool('prepareLeadUpdate', {
+        leadId,
+        field: 'phone',
+        value: question.slice('Update lead phone:'.length).trim(),
+      });
+      yield { type: 'text', text: 'Lead update ready for review.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
     if (question.startsWith('Draft an email:')) {
       const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
       if (!leadId || !input.executeTool) throw new Error('expected context');

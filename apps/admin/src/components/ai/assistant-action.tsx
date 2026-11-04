@@ -22,6 +22,16 @@ export function AssistantAction({
   const { proposal, status } = action;
   const draft = proposal.draft;
   const isNote = draft.kind === 'note';
+  const isLeadUpdate = draft.kind === 'lead_update';
+  const fieldLabel =
+    draft.kind === 'lead_update'
+      ? {
+          stage: 'Stage',
+          assignedActorId: 'Assigned to',
+          fullName: 'Customer name',
+          phone: 'Phone',
+        }[draft.field]
+      : '';
   const isEmail = draft.kind === 'email';
   const [editing, setEditing] = useState(false);
   const [edited, setEdited] = useState<AiActionDraft>(draft);
@@ -35,16 +45,26 @@ export function AssistantAction({
       : 'No due date';
   return (
     <section
-      aria-label={isNote ? 'Confirm note' : isEmail ? 'Review email' : 'Confirm task'}
+      aria-label={
+        isLeadUpdate
+          ? 'Confirm lead update'
+          : isNote
+            ? 'Confirm note'
+            : isEmail
+              ? 'Review email'
+              : 'Confirm task'
+      }
       className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-3 text-sm"
     >
       <div>
         <h3 className="font-semibold">
-          {isNote
-            ? 'Add a note'
-            : isEmail
-              ? 'Email the lead’s customer'
-              : 'Create a follow-up task'}
+          {isLeadUpdate
+            ? `Update ${fieldLabel.toLowerCase()}`
+            : isNote
+              ? 'Add a note'
+              : isEmail
+                ? 'Email the lead’s customer'
+                : 'Create a follow-up task'}
         </h3>
         <p className="mt-1 break-words text-xs text-muted-foreground">
           {proposal.siteName} · {proposal.leadLabel}
@@ -88,7 +108,32 @@ export function AssistantAction({
               />
             </label>
           ) : null}
-          {edited.kind === 'task' ? (
+          {edited.kind === 'lead_update' ? (
+            <label className="block text-xs">
+              {fieldLabel}
+              {edited.field === 'stage' || edited.field === 'assignedActorId' ? (
+                <select
+                  aria-label="Proposed value"
+                  className="block w-full rounded border bg-background p-2"
+                  value={edited.value ?? ''}
+                  onChange={(event) => setEdited({ ...edited, value: event.target.value || null })}
+                >
+                  {proposal.leadUpdateContext?.choices.map((choice) => (
+                    <option key={choice.value ?? ''} value={choice.value ?? ''}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  aria-label="Proposed value"
+                  value={edited.value ?? ''}
+                  maxLength={edited.field === 'phone' ? 40 : 160}
+                  onChange={(event) => setEdited({ ...edited, value: event.target.value })}
+                />
+              )}
+            </label>
+          ) : edited.kind === 'task' ? (
             <>
               <label className="block text-xs">
                 Task title
@@ -161,7 +206,24 @@ export function AssistantAction({
             <p className="font-medium break-words">{draft.kind === 'email' ? draft.subject : ''}</p>
           ) : null}
           <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">
-            {draft.kind === 'task' ? draft.title : draft.body}
+            {draft.kind === 'lead_update' ? (
+              <>
+                <span className="block text-xs text-muted-foreground">Current</span>
+                <span>{proposal.leadUpdateContext?.beforeLabel}</span>
+                <span className="mt-2 block text-xs text-muted-foreground">Proposed</span>
+                <span>
+                  {proposal.leadUpdateContext?.choices.find(
+                    (choice) => choice.value === draft.value,
+                  )?.label ??
+                    draft.value ??
+                    'Unassigned'}
+                </span>
+              </>
+            ) : draft.kind === 'task' ? (
+              draft.title
+            ) : (
+              draft.body
+            )}
           </p>
           {draft.kind === 'task' ? (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
@@ -175,11 +237,13 @@ export function AssistantAction({
       )}
       <p role="status" className="text-xs text-muted-foreground">
         {status === 'saved'
-          ? isNote
-            ? 'Note added.'
-            : isEmail
-              ? 'Email queued for delivery.'
-              : 'Task created.'
+          ? isLeadUpdate
+            ? 'Lead updated.'
+            : isNote
+              ? 'Note added.'
+              : isEmail
+                ? 'Email queued for delivery.'
+                : 'Task created.'
           : status === 'cancelled'
             ? (action.error ?? 'Cancelled. Nothing was saved.')
             : status === 'revising'
@@ -228,6 +292,12 @@ export function AssistantAction({
             {status === 'error' ? 'Dismiss' : 'Cancel'}
           </Button>
         </div>
+      ) : null}
+      {isLeadUpdate ? (
+        <p className="text-xs text-muted-foreground">
+          Confirm applies this change using the CRM’s rules and may trigger enabled automations. If
+          the lead changes, request a fresh draft.
+        </p>
       ) : null}
       {isEmail ? (
         <p className="text-xs text-muted-foreground">

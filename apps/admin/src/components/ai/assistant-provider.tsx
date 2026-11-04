@@ -581,7 +581,9 @@ export function AssistantProvider({
             status: 'error',
             error:
               error instanceof BackendError && error.code === 'conflict'
-                ? 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
+                ? action.proposal.draft.kind === 'lead_update'
+                  ? 'The lead changed or this update needs additional details. Check the lead page and request a fresh draft.'
+                  : 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
                 : error instanceof BackendError && error.code === 'feature_not_ready'
                   ? 'Email is not ready. Check this Site’s email settings and the customer address on the lead.'
                   : error instanceof BackendError &&
