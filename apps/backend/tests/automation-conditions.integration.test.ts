@@ -9,7 +9,11 @@ import type {
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
-import { evaluateConditionGroup } from '../src/automations/conditions.js';
+import { evaluateSampleConditionGroup } from '../src/automations/test-run.js';
+import {
+  evaluateConditionGroup,
+  evaluateSyntheticConditionGroup,
+} from '../src/automations/conditions.js';
 import { selectLeadPage } from '../src/leads/staff-queries.js';
 import { loadPropertyCatalog } from '../src/properties/catalog.js';
 import { disposableTestDatabaseUrl } from './support/flows.js';
@@ -30,6 +34,134 @@ databaseTest('flow conditions mean what the inbox filters mean', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
   const scope = { workspaceId: SITE, actorId: STAFF };
+
+  it('sample conditions reject properties unavailable to the sample lead type', async () => {
+    await database.withTenantTx(scope, async (tx) => {
+      const catalog = await loadPropertyCatalog(tx);
+      expect(
+        evaluateSampleConditionGroup(
+          {
+            match: 'all',
+            items: [{ kind: 'property', filter: { key: 'quantity', op: 'gte', value: 2 } }],
+          },
+          {
+            leadType: 'partner_application',
+            stage: 'new',
+            planId: null,
+            assignedActorId: null,
+            properties: new Map([['quantity', 3]]),
+          },
+          catalog,
+        ),
+      ).toBe(false);
+      expect(
+        evaluateSampleConditionGroup(
+          {
+            match: 'all',
+            items: [{ kind: 'property', filter: { key: 'quantity', op: 'gte', value: 2 } }],
+          },
+          {
+            leadType: 'sim_order',
+            stage: 'new',
+            planId: null,
+            assignedActorId: null,
+            properties: new Map([['quantity', 3]]),
+          },
+          catalog,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('sample text equality matches live case-insensitive trimmed equality', async () => {
+    await database.withTenantTx(scope, async (tx) => {
+      const catalog = await loadPropertyCatalog(tx);
+      expect(
+        evaluateSampleConditionGroup(
+          {
+            match: 'all',
+            items: [
+              { kind: 'property', filter: { key: 'custom_size', op: 'eq', value: ' LARGE ' } },
+            ],
+          },
+          {
+            leadType: 'sim_order',
+            stage: 'pending',
+            planId: null,
+            assignedActorId: null,
+            properties: new Map([['custom_size', 'Large']]),
+          },
+          catalog,
+        ),
+      ).toBe(true);
+      expect(
+        await evaluateConditionGroup(tx, {
+          workspaceId: SITE,
+          leadId: L1,
+          leadType: 'sim_order',
+          catalog,
+          group: {
+            match: 'all',
+            items: [
+              { kind: 'property', filter: { key: 'custom_size', op: 'eq', value: ' LARGE ' } },
+            ],
+          },
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it('synthetic scenarios share live predicates for typed filters and defaults', async () => {
+    await database.withTenantTx(scope, async (tx) => {
+      const catalog = await loadPropertyCatalog(tx);
+      const sample = {
+        leadType: 'sim_order',
+        stage: 'pending',
+        planId: PLAN_A,
+        assignedActorId: null,
+        properties: new Map<string, string | number | boolean | null>([
+          ['custom_size', 'Large'],
+          ['custom_count', 5],
+          ['quantity', 2],
+          ['permitType', 'student'],
+          ['reference', 'Batch 7'],
+          ['arrivalDate', '2026-11-10'],
+        ]),
+      };
+      const filters: LeadPropertyFilter[] = [
+        { key: 'custom_size', op: 'eq', value: ' LARGE ' },
+        { key: 'custom_size', op: 'contains', value: 'ARG' },
+        { key: 'custom_size', op: 'empty' },
+        { key: 'custom_size', op: 'notEmpty' },
+        { key: 'custom_count', op: 'eq', value: 5 },
+        { key: 'custom_count', op: 'gte', value: 3 },
+        { key: 'custom_count', op: 'lte', value: 2 },
+        { key: 'quantity', op: 'gte', value: 2 },
+        { key: 'permitType', op: 'eq', value: 'student' },
+        { key: 'reference', op: 'contains', value: 'batch' },
+        { key: 'arrivalDate', op: 'lte', value: '2026-11-11' },
+        { key: 'arrivalDate', op: 'gte', value: '2026-11-11' },
+      ];
+      const conditions: Condition[] = [
+        ...filters.map((filter): Condition => ({ kind: 'property', filter })),
+        { kind: 'assignee', op: 'none' },
+        { kind: 'plan', op: 'in', planIds: [PLAN_A] },
+        { kind: 'stage', op: 'in', stages: ['pending'] },
+      ];
+      for (const condition of conditions) {
+        const group: ConditionGroup = { match: 'all', items: [condition] };
+        expect(await evaluateSyntheticConditionGroup(tx, group, sample, catalog)).toBe(
+          await evaluateConditionGroup(tx, {
+            workspaceId: SITE,
+            leadId: L1,
+            leadType: 'sim_order',
+            group,
+            catalog,
+          }),
+        );
+      }
+    });
+  });
 
   const insertLead = (input: {
     id: string;

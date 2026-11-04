@@ -95,3 +95,37 @@ export async function evaluateConditionGroup(
   `);
   return rows[0]?.holds === true;
 }
+
+/** Evaluate synthetic data through exactly the live SQL predicates, without writing a lead. */
+export async function evaluateSyntheticConditionGroup(
+  tx: TenantTransaction,
+  group: ConditionGroup,
+  lead: {
+    leadType: string;
+    stage: string;
+    planId: string | null;
+    assignedActorId: string | null;
+    properties: ReadonlyMap<string, string | number | boolean | null>;
+  },
+  catalog: PropertyCatalog,
+): Promise<boolean> {
+  const form: Record<string, unknown> = {},
+    custom: Record<string, unknown> = {},
+    order: Record<string, unknown> = {};
+  for (const property of catalog.forType(lead.leadType)) {
+    if (!lead.properties.has(property.key)) continue;
+    const target =
+      property.storage === 'form' ? form : property.storage === 'order' ? order : custom;
+    target[property.storageKey ?? property.key] = lead.properties.get(property.key);
+  }
+  order.planId = lead.planId;
+  const [row] = await tx.execute<{ holds: boolean }>(sql`
+    select coalesce(${conditionGroupSql(group, lead.leadType, catalog)},false) as holds
+    from (select ${lead.leadType}::text as lead_type,${lead.stage}::text as stage,
+      ${lead.assignedActorId}::uuid as assigned_actor_id,
+      ${JSON.stringify({ payload: form })}::jsonb as payload,
+      ${JSON.stringify(custom)}::jsonb as custom_values,
+      ${JSON.stringify(order)}::jsonb as order_details) l
+  `);
+  return row?.holds === true;
+}

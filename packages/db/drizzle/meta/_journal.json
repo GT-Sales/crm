@@ -148,6 +148,20 @@
       "when": 1793450690795,
       "tag": "0020_automation_flows_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793789490235,
+      "tag": "0021_ai_automation_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793789491385,
+      "tag": "0022_ai_automation_proposals_runtime",
+      "breakpoints": true
     }
   ]
 }

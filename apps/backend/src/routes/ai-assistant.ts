@@ -1,3 +1,7 @@
+import { createAiAutomationRoutes } from './ai-automations.js';
+import { createAutomationTools, AUTOMATION_TOOL_NAMES } from '../ai/automation-tools.js';
+import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
+import type { FlowStore } from '../automations/flow-store.js';
 import { tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
 import { createActionProposalTools, verifyAiAction } from '../ai/actions.js';
@@ -103,6 +107,8 @@ function isToolName(value: string): value is ToolName {
 }
 
 export interface AiAssistantRouteDependencies {
+  automationAuthoring?: AutomationAuthoringStore;
+  flows?: FlowStore;
   work?: Pick<
     LeadWorkStore,
     | 'addNote'
@@ -146,9 +152,11 @@ function capabilityDocument(
   requestId: string,
   unavailable?: AiCapabilitiesResponse['reason'],
   canAct = false,
+  automationAuthoring = false,
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
+    ...(automationAuthoring ? { automationAuthoring: true } : {}),
     actions: canAct && unavailable === undefined ? ['task', 'note', 'email', 'lead_update'] : [],
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
@@ -241,6 +249,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     next();
   });
 
+  router.use(createAiAutomationRoutes(dependencies));
+
   async function refuseDisabled(res: Response, requestId: string): Promise<void> {
     sendDomainError(res, requestId, 'ai_unavailable', 503);
   }
@@ -291,6 +301,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             dependencies.work &&
             dependencies.config.apiKey &&
             decideAccess(access, 'lead.manage').allowed,
+          ),
+          Boolean(
+            dependencies.automationAuthoring &&
+            dependencies.flows &&
+            dependencies.config.automationWorkspaceIds?.has(workspaceId.data) &&
+            decideAccess(access, 'integration.manage').allowed,
           ),
         ),
       );
@@ -653,6 +669,23 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               budget,
             })
           : undefined;
+      const automationTools =
+        dependencies.automationAuthoring &&
+        dependencies.flows &&
+        dependencies.config.apiKey &&
+        dependencies.config.automationWorkspaceIds?.has(scope.workspaceId) &&
+        decideAccess(access, 'integration.manage').allowed
+          ? createAutomationTools({
+              scope,
+              site,
+              key: dependencies.config.apiKey,
+              flows: dependencies.flows,
+              store: dependencies.automationAuthoring,
+              loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
+              now,
+              budget,
+            })
+          : undefined;
       const sources = new SourceRegistry({
         workspaceSlug: site.slug,
         asOf: turnStarted,
@@ -716,6 +749,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             leadTypes: site.leadTypes,
             today: businessDayLabel(turnStarted, AI_BUSINESS_TIME_ZONE),
             timeZone: AI_BUSINESS_TIME_ZONE,
+            automationsAvailable: automationTools !== undefined,
             actionsAvailable:
               actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
             ...(leadHint === undefined
@@ -743,9 +777,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             for await (const event of engine.stream({
               system,
               messages,
+              automationAuthoring: automationTools !== undefined,
               tools: {
                 ...toolset.definitions,
                 ...actionTools?.definitions,
+                ...automationTools?.definitions,
                 askFollowUp: guidedTool,
               },
               signal: controller.signal,
@@ -759,9 +795,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                         name === 'prepareLeadUpdate' ||
                         name === 'getLeadUpdateOptions')
                     ? actionTools.execute(name, input)
-                    : name === 'askFollowUp'
-                      ? guide(input)
-                      : Promise.reject(new Error('unknown assistant tool')),
+                    : automationTools && AUTOMATION_TOOL_NAMES.some((toolName) => toolName === name)
+                      ? automationTools.execute(name, input)
+                      : name === 'askFollowUp'
+                        ? guide(input)
+                        : Promise.reject(new Error('unknown assistant tool')),
             })) {
               if (controller.signal.aborted) break;
               switch (event.type) {
@@ -835,6 +873,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 decideAccess(finalAccess, 'lead.manage').allowed
               )
                 writePart({ type: 'actions', actions: actionTools.proposals });
+              if (
+                automationTools?.proposals.length &&
+                decideAccess(finalAccess, 'integration.manage').allowed
+              )
+                writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
               if (followUp) writePart({ type: 'follow_up', followUp });
               writePart({ type: 'done' });
             }

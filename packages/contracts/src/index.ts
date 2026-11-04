@@ -765,3 +765,5 @@ export {
   type AiStreamPart,
   type AiUnavailableReason,
 } from './ai-assistant';
+
+export * from './ai-automations';

@@ -301,3 +301,19 @@ Site allowlist. No additional secret or environment variable is required.
 Automation builder visual/setup improvements require no new environment
 variable, dependency or migration; existing scheduler and mail configuration
 still controls actual execution and delivery.
+
+### AI automation authoring
+
+`AI_AUTOMATION_WORKSPACE_IDS` is an optional comma-separated UUID allowlist.
+Unset/empty disables automation authoring only. Sites must also be in
+`AI_ASSISTANT_WORKSPACE_IDS`, the assistant must be configured, and each caller
+needs existing assistant access plus `integration.manage`. Deploy migrations
+0021/0022 before adding test sites to this allowlist. Proposal cards expire after
+10 minutes; saved receipts can be retried for 24 hours. Operational retention
+prunes proposal storage after one day; actor-owned lazy cleanup also runs when
+preparing proposals. No new provider key or model is introduced.
+
+AI authoring generations allow up to 4,800 output tokens when automation tools
+are enabled (ordinary chat stays at 1,200). Shared tool/turn and timeout budgets
+still apply. Only `/ai/automations/revise` accepts up to 96 KiB JSON so a maximum
+65 KiB flow definition and its envelope fit; other JSON endpoints retain 64 KiB.

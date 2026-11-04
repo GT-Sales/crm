@@ -2430,7 +2430,36 @@ export const changeRequests = appSchema
   )
   .enableRLS();
 
+/** Expiring AI drafts and atomic save receipts; visible only to their proposing actor. */
+export const aiAutomationProposals = appSchema
+  .table(
+    'ai_automation_proposals',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      actorId: uuid('actor_id').notNull(),
+      payload: jsonb('payload').notNull(),
+      digest: text('digest').notNull(),
+      expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+      result: jsonb('result'),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      index('ai_automation_proposals_expiry_idx').on(table.expiresAt),
+      check(
+        'ai_automation_proposals_size_check',
+        sql`octet_length(${table.payload}::text) <= 100000`,
+      ),
+      ownerPolicy('ai_automation_proposals_owner_policy', table.workspaceId, table.actorId),
+      backupReadPolicy('ai_automation_proposals'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
+  aiAutomationProposals,
   workspaces,
   memberships,
   roles,

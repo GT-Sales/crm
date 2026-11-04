@@ -1,3 +1,4 @@
+import { aiAutomationProposalSchema } from './ai-automations';
 import { z } from 'zod';
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
@@ -77,6 +78,7 @@ export type AiPeriod = z.infer<typeof aiPeriodSchema>;
 
 /** The lead types a site actually has, so the UI suggests only relevant questions. */
 export const aiCapabilitiesResponseSchema = z.object({
+  automationAuthoring: z.boolean().optional(),
   available: z.boolean(),
   actions: z
     .array(z.enum(['task', 'note', 'email', 'lead_update']))
@@ -284,6 +286,12 @@ export type AiStreamErrorCode = z.infer<typeof aiStreamErrorCodeSchema>;
  * model reasoning and provider errors never appear here.
  */
 export const aiStreamPartSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('automation_proposals'),
+      proposals: z.array(aiAutomationProposalSchema).max(3),
+    })
+    .strict(),
   z.object({ type: z.literal('progress'), label: z.string().min(1).max(80) }).strict(),
   z.object({ type: z.literal('text'), text: z.string().min(1).max(8_000) }).strict(),
   z.object({ type: z.literal('sources'), sources: z.array(aiSourceSchema).max(20) }).strict(),

@@ -1,3 +1,16 @@
+import {
+  aiAutomationTokenRequestSchema,
+  aiAutomationReviseRequestSchema,
+  aiAutomationSimulateRequestSchema,
+  aiAutomationProposalSchema,
+  aiAutomationSaveResponseSchema,
+  aiAutomationSimulationSchema,
+  type AiAutomationDraft,
+  type AiAutomationProposal,
+  type AiAutomationSaveResponse,
+  type AiAutomationSimulation,
+} from './ai-automations';
+import type { z as AutomationZod } from 'zod';
 import { websiteBotTokenSchema, type WebsiteBotProof } from './website-bot';
 import type { z } from 'zod';
 import type { ErrorDetails } from './common';
@@ -708,6 +721,18 @@ export interface BackendClient {
     ): Promise<ResolveChangeRequestResponse>;
     /** Whether Ask AI is available for this site and this caller, plus the composer's limits. */
     aiCapabilities(workspaceId: string): Promise<AiCapabilitiesResponse>;
+    saveAiAutomation(
+      workspaceId: string,
+      body: { token: string },
+    ): Promise<AiAutomationSaveResponse>;
+    reviseAiAutomation(
+      workspaceId: string,
+      body: { token: string; draft: AiAutomationDraft },
+    ): Promise<AiAutomationProposal>;
+    simulateAiAutomation(
+      workspaceId: string,
+      body: AutomationZod.infer<typeof aiAutomationSimulateRequestSchema>,
+    ): Promise<AiAutomationSimulation>;
     reviseAiAction(workspaceId: string, body: ReviseAiActionRequest): Promise<AiActionProposal>;
     confirmAiAction(
       workspaceId: string,
@@ -1547,6 +1572,27 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           )}/change-requests/${encode(changeRequestId)}/reject`,
           body: resolveChangeRequestRequestSchema.parse(body),
           responseSchema: resolveChangeRequestResponseSchema,
+        }),
+      saveAiAutomation: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/automations/save`,
+          body: aiAutomationTokenRequestSchema.parse(body),
+          responseSchema: aiAutomationSaveResponseSchema,
+        }),
+      reviseAiAutomation: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/automations/revise`,
+          body: aiAutomationReviseRequestSchema.parse(body),
+          responseSchema: aiAutomationProposalSchema,
+        }),
+      simulateAiAutomation: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/automations/simulate`,
+          body: aiAutomationSimulateRequestSchema.parse(body),
+          responseSchema: aiAutomationSimulationSchema,
         }),
       reviseAiAction: (workspaceId, body) =>
         call({

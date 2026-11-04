@@ -263,3 +263,72 @@ for (const width of [375, 1440]) {
     }
   });
 }
+
+for (const width of [375, 1440]) {
+  test(`AI automation drafts are reviewed, simulated and explicitly saved at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/w/getcanadasim/automations');
+    await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+    const ask = async (text: string) => {
+      await page.getByRole('textbox', { name: 'Ask a question' }).fill(text);
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(page.getByRole('textbox', { name: 'Ask a question' })).toBeEnabled();
+    };
+    await ask(`Create a reviewed automation ${width}`);
+    const card = page.getByRole('region', { name: 'Review automation draft' }).last();
+    await expect(card).toBeVisible();
+    await expect(card.getByText('Saving creates a draft with the flow Off.')).toBeVisible();
+    await card.getByText('Simulate with sample data', { exact: true }).click();
+    await card.getByLabel('Sample lead type', { exact: true }).selectOption('sim_order');
+    await card.getByRole('button', { name: 'Run simulation' }).click();
+    await expect(card.getByLabel('Automation simulation results')).toContainText('No email queued');
+    await card.getByRole('button', { name: 'Edit draft' }).click();
+    await card.getByLabel('Automation draft name').fill(`AI browser flow ${width}`);
+    await card.getByRole('button', { name: 'Review edits' }).click();
+    await expect(card.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+    await page.screenshot({
+      path: testInfo.outputPath(`automation-proposal-${width}.png`),
+      fullPage: true,
+    });
+    let lost = false;
+    await page.route('**/ai/automations/save', async (route) => {
+      const response = await route.fetch();
+      if (!lost) {
+        lost = true;
+        await route.abort('failed');
+      } else await route.fulfill({ response });
+    });
+    await card.getByRole('button', { name: 'Save draft' }).click();
+    await expect(card.getByRole('alert')).toBeVisible();
+    await card.getByRole('button', { name: 'Save draft' }).click();
+    await expect(card.getByRole('status')).toContainText('Draft saved');
+    await page.unroute('**/ai/automations/save');
+    await ask(`Edit the reviewed automation ${width}`);
+    const edit = page.getByRole('region', { name: 'Review automation draft' }).last();
+    await expect(edit.getByText('Before this edit', { exact: true })).toBeVisible();
+    await edit.getByRole('button', { name: 'Save draft' }).click();
+    await expect(edit.getByRole('status')).toContainText('Draft saved');
+    const href = await edit.getByRole('link', { name: 'Open in builder' }).getAttribute('href');
+    if (!href) throw new Error('missing builder link');
+    await page.getByRole('button', { name: 'Close Ask AI' }).click();
+    await page.goto(href);
+    await expect(
+      page.getByRole('heading', { level: 1, name: `AI browser flow ${width} edited` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('switch', { name: `AI browser flow ${width} edited`, exact: true }),
+    ).toHaveAttribute('aria-checked', 'false');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    // Keep the shared seeded site's seven active-list fixtures intact for later journeys.
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: `Archive AI browser flow ${width} edited?` })
+      .getByRole('button', { name: 'Archive', exact: true })
+      .click();
+    await expect(page.getByText('Archived', { exact: true })).toBeVisible();
+  });
+}

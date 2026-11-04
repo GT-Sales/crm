@@ -22,6 +22,8 @@ import { queueComposedEmail } from '../email/queue.js';
 import { resolveSiteSender, type CustomerEmailEnvironment } from '../email/senders.js';
 import type { WriteScope } from '../tenant-scope.js';
 import { loadFlowSite } from './site.js';
+import { evaluateSyntheticConditionGroup } from './conditions.js';
+import { resolvePropertyFor } from '../leads/staff-queries.js';
 
 export interface SampleLeadState {
   leadType: LeadType;
@@ -120,16 +122,24 @@ function evaluatePropertyFilter(
   lead: SampleLeadState,
   catalog: PropertyCatalog,
 ): boolean {
-  const property = catalog.get(filter.key);
+  const property = resolvePropertyFor(catalog, filter.key, lead.leadType);
   if (!property || property.hidden || property.sensitive) return false;
   const raw = lead.properties.get(filter.key) ?? null;
   const val = filter.value;
   switch (filter.op) {
     case 'notEmpty':
-      return raw !== null && raw !== '';
+      return raw !== null && (typeof raw !== 'string' || raw.replace(/^ +| +$/g, '') !== '');
     case 'empty':
-      return raw === null || raw === '';
+      return raw === null || (typeof raw === 'string' && raw.replace(/^ +| +$/g, '') === '');
     case 'eq':
+      if (
+        ['text', 'longText', 'email', 'phone', 'url'].includes(property.kind) &&
+        typeof raw === 'string' &&
+        typeof val === 'string'
+      )
+        return (
+          raw.replace(/^ +| +$/g, '').toLowerCase() === val.replace(/^ +| +$/g, '').toLowerCase()
+        );
       return raw === val;
     case 'contains':
       return (
@@ -216,11 +226,14 @@ export async function runFlowTest(
     definition: FlowDefinition;
     email?: string;
     customerEmailEnvironment: CustomerEmailEnvironment | undefined;
+    simulation?: { sample: SampleLeadState };
   },
 ): Promise<FlowTestRunResult> {
   const { scope, flowKey, definition, email, customerEmailEnvironment } = input;
   const site = await loadFlowSite(tx, scope.workspaceId);
-  const lead = initialSampleLead(definition, site);
+  const lead = input.simulation
+    ? structuredClone(input.simulation.sample)
+    : initialSampleLead(definition, site);
   const steps: FlowStepRun[] = [];
   let emailsQueued = 0;
 
@@ -229,7 +242,9 @@ export async function runFlowTest(
       const at = new Date().toISOString();
       switch (step.kind) {
         case 'if_else': {
-          const holds = evaluateSampleConditionGroup(step.condition, lead, site.catalog);
+          const holds = input.simulation
+            ? await evaluateSyntheticConditionGroup(tx, step.condition, lead, site.catalog)
+            : evaluateSampleConditionGroup(step.condition, lead, site.catalog);
           const branch = holds ? 'yes' : 'no';
           steps.push({
             stepId: step.id,
@@ -344,6 +359,18 @@ export async function runFlowTest(
           break;
         }
         case 'send_email': {
+          if (input.simulation) {
+            steps.push({
+              stepId: step.id,
+              stepKind: step.kind,
+              outcome: 'done',
+              branch: null,
+              reason: null,
+              detail: 'Simulated; no email queued',
+              at,
+            });
+            break;
+          }
           if (!email) {
             steps.push({
               stepId: step.id,
@@ -431,7 +458,7 @@ export async function runFlowTest(
             });
             break;
           }
-          if (!sender && !email) {
+          if (!input.simulation && !sender && !email) {
             steps.push({
               stepId: step.id,
               stepKind: 'notify_staff',

@@ -1,3 +1,11 @@
+import {
+  aiAutomationTokenRequestSchema,
+  aiAutomationReviseRequestSchema,
+  aiAutomationSimulateRequestSchema,
+  aiAutomationProposalSchema,
+  aiAutomationSaveResponseSchema,
+  aiAutomationSimulationSchema,
+} from './ai-automations';
 import type { z } from 'zod';
 
 import {
@@ -927,6 +935,36 @@ export const endpoints: readonly EndpointDef[] = [
     },
   },
 
+  {
+    operationId: 'saveAiAutomation',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/automations/save',
+    summary: 'Confirm and save an AI automation draft without activating it',
+    auth: 'staff',
+    successStatus: 200,
+    request: aiAutomationTokenRequestSchema,
+    response: aiAutomationSaveResponseSchema,
+  },
+  {
+    operationId: 'reviseAiAutomation',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/automations/revise',
+    summary: 'Revise an unsaved automation proposal',
+    auth: 'staff',
+    successStatus: 200,
+    request: aiAutomationReviseRequestSchema,
+    response: aiAutomationProposalSchema,
+  },
+  {
+    operationId: 'simulateAiAutomation',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/automations/simulate',
+    summary: 'Simulate an automation with synthetic data and no side effects',
+    auth: 'staff',
+    successStatus: 200,
+    request: aiAutomationSimulateRequestSchema,
+    response: aiAutomationSimulationSchema,
+  },
   {
     operationId: 'reviseAiAction',
     method: 'POST',

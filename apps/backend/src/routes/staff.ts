@@ -1,3 +1,4 @@
+import { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
 import {
@@ -1674,6 +1675,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   };
   router.use(
     createAiAssistantRoutes({
+      flows: dependencies.flowStore ?? unconfiguredFlowStore,
+      automationAuthoring: new AutomationAuthoringStore(),
       ...(dependencies.leadWorkStore === undefined ? {} : { work: dependencies.leadWorkStore }),
       listAssignees: (scope) =>
         dependencies.store.listAssignableMembers(scope.workspaceId, scope.actorId),

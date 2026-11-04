@@ -196,6 +196,7 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     expect(result).toContainEqual({ tableName: 'tracking_challenges', deleted: 1 });
     expect(result.map((row) => row.tableName).sort()).toEqual(
       [
+        'ai_automation_proposals',
         'automation_runs',
         'automation_timers',
         'email_provider_events',

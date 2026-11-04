@@ -2298,3 +2298,32 @@ list editor. Flow/Runs are separate keyboard-operable tabs; test results label
 simulation versus queued test email. Activation still publishes without
 changing On/Off. Research, scope and checks:
 [design/2026-11-04-automation-ux.md](design/2026-11-04-automation-ux.md).
+
+### Automation system review and AI authoring plan (2026-11-04)
+
+Sample condition evaluation now resolves properties for the sample lead type and
+matches live text equality semantics. Review scope and remaining operational limits:
+[review](review/2026-11-04-automation-system.md). The detailed
+[AI authoring plan](design/2026-11-04-ai-automation-authoring.md) extends existing
+signed action cards with visual proposals and revision-aware draft saving. The review
+itself added no environment variables or migrations; implementation status follows below.
+
+### AI automation authoring implementation (2026-11-04)
+
+Implemented bounded automation read/catalog/run tools and visual create/edit proposals
+in the existing AI SDK chat. Proposals are actor-owned temporary records with signed
+references. Save draft is explicit, atomic and retryable; edits use expected revisions,
+preserve existing step IDs, and show the previous definition. Inline edits require a
+fresh reviewed proposal, superseding the old token. Publishing/enabling remain in the
+builder. Pure simulation evaluates live SQL predicates on synthetic values and cannot
+queue email or write leads/tasks. Phone cards use the list view; canvas loads on demand.
+
+New migrations: 0021/0022 (proposal table, forced actor RLS/grants and one-day operational
+retention). Apply before enabling `AI_AUTOMATION_WORKSPACE_IDS`; it defaults off. Normal
+AI and automations continue when authoring is off. No production migration, provider
+change or capability enablement was performed in this workspace.
+
+The 30-request model evaluation set and read/proposal-only runner are in `docs/evals`.
+Deterministic tests prove the application boundaries; real-model intent evaluation and
+controlled production delivery/scheduler acceptance are still release gates. The
+implementation follows [the authoring design](design/2026-11-04-ai-automation-authoring.md).
