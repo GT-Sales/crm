@@ -19,6 +19,7 @@ const signedActionSchema = z
     actorId: z.uuid(),
     expiresAt: z.iso.datetime(),
     draft: aiActionDraftSchema,
+    emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
   })
   .strict();
 export type SignedAiAction = z.infer<typeof signedActionSchema>;
@@ -75,6 +76,9 @@ export function createActionProposalTools(input: {
   site: { name: string; slug: string };
   key: string;
   reads: AiReadService;
+  emailPreview?: (
+    leadId: string,
+  ) => Promise<{ toAddress: string; fromAddress: string } | undefined>;
   loadAccess(): Promise<StaffAccessSnapshot | undefined>;
   now(): Date;
   budget: TurnBudget;
@@ -102,6 +106,15 @@ export function createActionProposalTools(input: {
         message: 'The lead could not be checked.',
       });
     if (!lead || lead.leadId !== draft.leadId) return JSON.stringify({ status: 'not_available' });
+    const emailContext =
+      draft.kind === 'email'
+        ? await input.emailPreview?.(draft.leadId).catch(() => undefined)
+        : undefined;
+    if (draft.kind === 'email' && !emailContext)
+      return JSON.stringify({
+        status: 'not_available',
+        message: 'Email cannot be prepared. The Site sender or customer address is unavailable.',
+      });
     const previous = proposals.find((p) => JSON.stringify(p.draft) === JSON.stringify(draft));
     if (previous)
       return JSON.stringify({
@@ -110,7 +123,10 @@ export function createActionProposalTools(input: {
       });
     const id = randomUUID();
     const expiresAt = new Date(input.now().getTime() + TTL_MS).toISOString();
-    const token = signAiAction({ ...input.scope, id, expiresAt, draft }, input.key);
+    const token = signAiAction(
+      { ...input.scope, id, expiresAt, draft, ...(emailContext ? { emailContext } : {}) },
+      input.key,
+    );
     const result = JSON.stringify({
       status: 'confirmation_required',
       message: 'Draft prepared. Nothing saved. The person must press Confirm in the card.',
@@ -125,6 +141,7 @@ export function createActionProposalTools(input: {
         token,
         expiresAt,
         draft,
+        ...(emailContext ? { emailContext } : {}),
         siteName: input.site.name,
         leadLabel:
           `${lead.reference || lead.name || 'Lead'} · ${leadTypeLabel(lead.leadType)}`.slice(
@@ -144,6 +161,12 @@ export function createActionProposalTools(input: {
       inputSchema: aiActionDraftSchema.options[0].omit({ kind: true }),
       execute: (raw) => prepare({ ...raw, kind: 'note' }),
     }),
+    prepareEmail: tool({
+      description:
+        'Draft a customer email only when requested. Resolve the lead first; ask for missing recipient intent or message details. Address is resolved by the server, never provide an address. Plain text subject and body. Does not send: the person reviews and presses Send.',
+      inputSchema: aiActionDraftSchema.options[2].omit({ kind: true }),
+      execute: (raw) => prepare({ ...raw, kind: 'email' }),
+    }),
     prepareTask: tool({
       description:
         'Prepare a follow-up task for an identified lead, only when explicitly requested. Use a calendar dueDate (YYYY-MM-DD) or null; ask if ambiguous. Assignee me assigns the asking person, none leaves it unassigned. Does not save until the person confirms the card.',
@@ -155,13 +178,18 @@ export function createActionProposalTools(input: {
     definitions,
     proposals,
     execute(name: string, raw: unknown) {
-      if (name !== 'prepareNote' && name !== 'prepareTask')
+      if (name !== 'prepareNote' && name !== 'prepareTask' && name !== 'prepareEmail')
         throw new Error('unknown action proposal');
       const schema =
         name === 'prepareNote'
           ? aiActionDraftSchema.options[0].omit({ kind: true })
-          : aiActionDraftSchema.options[1].omit({ kind: true });
-      return prepare({ kind: name === 'prepareNote' ? 'note' : 'task', ...schema.parse(raw) });
+          : name === 'prepareTask'
+            ? aiActionDraftSchema.options[1].omit({ kind: true })
+            : aiActionDraftSchema.options[2].omit({ kind: true });
+      return prepare({
+        kind: name === 'prepareNote' ? 'note' : name === 'prepareTask' ? 'task' : 'email',
+        ...schema.parse(raw),
+      });
     },
   };
 }

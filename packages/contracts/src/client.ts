@@ -3,6 +3,10 @@ import type { z } from 'zod';
 import type { ErrorDetails } from './common';
 
 import {
+  reviseAiActionRequestSchema,
+  aiActionProposalSchema,
+  type ReviseAiActionRequest,
+  type AiActionProposal,
   confirmAiActionRequestSchema,
   confirmAiActionResponseSchema,
   type ConfirmAiActionRequest,
@@ -704,6 +708,7 @@ export interface BackendClient {
     ): Promise<ResolveChangeRequestResponse>;
     /** Whether Ask AI is available for this site and this caller, plus the composer's limits. */
     aiCapabilities(workspaceId: string): Promise<AiCapabilitiesResponse>;
+    reviseAiAction(workspaceId: string, body: ReviseAiActionRequest): Promise<AiActionProposal>;
     confirmAiAction(
       workspaceId: string,
       body: ConfirmAiActionRequest,
@@ -1542,6 +1547,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           )}/change-requests/${encode(changeRequestId)}/reject`,
           body: resolveChangeRequestRequestSchema.parse(body),
           responseSchema: resolveChangeRequestResponseSchema,
+        }),
+      reviseAiAction: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/actions/revise`,
+          body: reviseAiActionRequestSchema.parse(body),
+          responseSchema: aiActionProposalSchema,
         }),
       confirmAiAction: (workspaceId, body) =>
         call({

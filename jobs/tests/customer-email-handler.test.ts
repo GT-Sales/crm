@@ -83,6 +83,32 @@ function setup(eligible: { eligible: boolean; reason?: string } = { eligible: tr
 }
 
 describe('lead_customer_email', () => {
+  it('delivers a reviewed ad hoc AI email through the existing eligibility and delivery path', async () => {
+    const context = setup();
+    const draftPayload = {
+      ...payload,
+      template: 'tpl_5300000000004000',
+      templateVersion: 0,
+      rendered: {
+        subject: 'Reviewed subject',
+        html: '<p>Reviewed body</p>',
+        text: 'Reviewed body',
+      },
+    };
+    expect(await context.handler(job({ payload: draftPayload }))).toEqual({
+      status: 'completed',
+      providerId: 'provider-1',
+    });
+    expect(context.sent).toHaveLength(1);
+    expect(context.sent[0]).toMatchObject({
+      toAddress: draftPayload.toAddress,
+      rendered: draftPayload.rendered,
+      sender: draftPayload.sender,
+    });
+    expect(context.checked).toHaveLength(1);
+    expect(context.prepared).toHaveLength(1);
+  });
+
   it('is an outbox job type', () => {
     expect(outboxJobTypes).toContain('lead_customer_email');
     // The SIM number mail is a site template now; its old job type is gone.

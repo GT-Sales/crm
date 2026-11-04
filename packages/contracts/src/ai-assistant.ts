@@ -79,8 +79,8 @@ export type AiPeriod = z.infer<typeof aiPeriodSchema>;
 export const aiCapabilitiesResponseSchema = z.object({
   available: z.boolean(),
   actions: z
-    .array(z.enum(['task', 'note']))
-    .max(2)
+    .array(z.enum(['task', 'note', 'email']))
+    .max(3)
     .optional(),
   reason: aiUnavailableReasonSchema.optional(),
   site: z.object({
@@ -187,6 +187,19 @@ export const aiActionDraftSchema = z.discriminatedUnion('kind', [
       assignee: z.enum(['me', 'none']),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal('email'),
+      leadId: z.uuid(),
+      subject: z
+        .string()
+        .trim()
+        .min(1)
+        .max(150)
+        .refine((value) => !/[\r\n]/.test(value), 'Single-line subject'),
+      body: z.string().trim().min(1).max(4000),
+    })
+    .strict(),
 ]);
 export type AiActionDraft = z.infer<typeof aiActionDraftSchema>;
 
@@ -195,6 +208,7 @@ export const aiActionProposalSchema = z
     id: z.uuid(),
     token: z.string().min(1).max(40000),
     expiresAt: isoDateTimeSchema,
+    emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
     siteName: z.string().min(1).max(160),
     leadLabel: z.string().min(1).max(160),
     leadHref: aiSourceSchema.shape.href,
@@ -203,6 +217,18 @@ export const aiActionProposalSchema = z
   .strict();
 export type AiActionProposal = z.infer<typeof aiActionProposalSchema>;
 
+export const reviseAiActionRequestSchema = z
+  .object({ token: z.string().min(1).max(40000), draft: aiActionDraftSchema })
+  .strict();
+export type ReviseAiActionRequest = z.infer<typeof reviseAiActionRequestSchema>;
+export const aiFollowUpSchema = z
+  .object({
+    question: z.string().trim().min(1).max(300),
+    choices: z.array(z.string().trim().min(1).max(200)).min(2).max(5),
+  })
+  .strict();
+export type AiFollowUp = z.infer<typeof aiFollowUpSchema>;
+
 export const confirmAiActionRequestSchema = z
   .object({ token: z.string().min(1).max(40000) })
   .strict();
@@ -210,7 +236,7 @@ export type ConfirmAiActionRequest = z.infer<typeof confirmAiActionRequestSchema
 export const confirmAiActionResponseSchema = z.object({
   status: z.literal('saved'),
   actionId: z.uuid(),
-  kind: z.enum(['note', 'task']),
+  kind: z.enum(['note', 'task', 'email']),
   recordId: z.uuid(),
   requestId: requestIdSchema,
 });
@@ -249,6 +275,7 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
       message: z.string().min(1).max(300),
     })
     .strict(),
+  z.object({ type: z.literal('follow_up'), followUp: aiFollowUpSchema }).strict(),
   z.object({ type: z.literal('done') }).strict(),
 ]);
 

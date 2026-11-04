@@ -733,6 +733,10 @@ export {
 export {
   AI_ASSISTANT_LIMITS,
   AI_STREAM_EVENT,
+  reviseAiActionRequestSchema,
+  type ReviseAiActionRequest,
+  aiFollowUpSchema,
+  type AiFollowUp,
   aiActionDraftSchema,
   aiActionProposalSchema,
   confirmAiActionRequestSchema,

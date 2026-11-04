@@ -139,6 +139,8 @@ import {
 } from './uploads';
 import { sourceReportQuerySchema, sourceReportResponseSchema } from './reports';
 import {
+  reviseAiActionRequestSchema,
+  aiActionProposalSchema,
   confirmAiActionRequestSchema,
   confirmAiActionResponseSchema,
   aiCapabilitiesResponseSchema,
@@ -926,10 +928,21 @@ export const endpoints: readonly EndpointDef[] = [
   },
 
   {
+    operationId: 'reviseAiAction',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/actions/revise',
+    summary: 'Revise an unsaved action card without writing business data.',
+    auth: 'staff',
+    successStatus: 200,
+    request: reviseAiActionRequestSchema,
+    response: aiActionProposalSchema,
+  },
+  {
     operationId: 'confirmAiAction',
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/ai/actions/confirm',
-    summary: 'Confirm a signed task or note proposal; requires lead.manage and is safe to retry.',
+    summary:
+      'Confirm a signed task/note or queue a reviewed customer email; requires lead.manage and is safe to retry.',
     auth: 'staff',
     successStatus: 200,
     request: confirmAiActionRequestSchema,

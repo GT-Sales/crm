@@ -455,6 +455,13 @@ store. Retries reuse the same record id and audit event.
 The confirmation/retry review and its verification evidence are recorded in
 `docs/review/ai-actions.md` (2026-11-04).
 
+Version 3 adds editable task/note/email cards, structured clarification choices
+and reviewed customer email sending. Edit → Update draft creates a fresh signed
+proposal without saving. Email shows To/From, subject and body; Send queues one
+message through the existing outbox, with the recipient resolved from the lead
+and bound to the signed preview. This does not connect an inbox or accept
+arbitrary recipient addresses. See `docs/design/interactive-ai.md`.
+
 Explicitly deferred (documented, not built): other write actions, persistent
 conversations, documents/knowledge retrieval, embeddings, automation/n8n
 triggers, attachments, voice, model selection in the UI, and any cross-site

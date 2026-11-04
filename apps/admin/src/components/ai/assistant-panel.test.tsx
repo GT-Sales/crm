@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AiCapabilitiesResponse,
@@ -7,6 +7,7 @@ import type {
   AiStreamPart,
   StaffWorkspace,
   AiActionProposal,
+  AiActionDraft,
   ConfirmAiActionResponse,
 } from '@gt-sales/contracts';
 import { BackendError } from '../../lib/api';
@@ -36,6 +37,15 @@ type AskAiFn = (
 ) => AsyncGenerator<AiStreamPart, void, undefined>;
 
 const mocks = vi.hoisted(() => ({
+  reviseAiAction:
+    vi.fn<
+      (
+        token: string,
+        workspaceId: string,
+        proposalToken: string,
+        draft: AiActionDraft,
+      ) => Promise<AiActionProposal>
+    >(),
   confirmAiAction:
     vi.fn<
       (
@@ -152,6 +162,7 @@ describe('Ask AI panel', () => {
     mocks.askAiAssistant.mockReset();
     mocks.getAiCapabilities.mockResolvedValue(capabilities());
     mocks.confirmAiAction.mockReset();
+    mocks.reviseAiAction.mockReset();
   });
 
   const proposal: AiActionProposal = {
@@ -172,6 +183,101 @@ describe('Ask AI panel', () => {
       ]),
     );
   }
+
+  it('edits a note into a fresh signed draft before confirming', async () => {
+    propose();
+    const revised = {
+      ...proposal,
+      id: '70000000-0000-4000-8000-000000000002',
+      token: 'revised-token',
+      draft: { kind: 'note' as const, leadId: LEAD_ID, body: 'Edited note' },
+    };
+    mocks.reviseAiAction.mockResolvedValue(revised);
+    mocks.confirmAiAction.mockResolvedValue({
+      status: 'saved',
+      actionId: revised.id,
+      recordId: revised.id,
+      kind: 'note',
+      requestId: revised.id,
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note text' }), {
+      target: { value: 'Edited note' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Update draft' }));
+    await screen.findByText('Edited note');
+    expect(mocks.confirmAiAction).not.toHaveBeenCalled();
+    expect(mocks.reviseAiAction).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE_ID,
+      proposal.token,
+      revised.draft,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    await screen.findByText('Note added.');
+    expect(mocks.confirmAiAction).toHaveBeenCalledWith('staff-token', WORKSPACE_ID, revised.token);
+  });
+
+  it('sends a guided choice with its question preserved in history', async () => {
+    let turn = 0;
+    mocks.askAiAssistant.mockImplementation(() =>
+      ++turn === 1
+        ? streamOf([
+            {
+              type: 'follow_up',
+              followUp: {
+                question: 'When should this be due?',
+                choices: ['Tomorrow', 'No due date'],
+              },
+            },
+            { type: 'done' },
+          ])
+        : streamOf([{ type: 'text', text: 'Draft next' }, { type: 'done' }]),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Create a follow-up');
+    fireEvent.click(await screen.findByRole('button', { name: 'Tomorrow' }));
+    await screen.findByText('Draft next');
+    expect(mocks.askAiAssistant.mock.calls[1]?.[2].message).toBe('Tomorrow');
+    expect(
+      mocks.askAiAssistant.mock.calls[1]?.[2].history.some((entry) =>
+        entry.text.includes('When should this be due?'),
+      ),
+    ).toBe(true);
+  });
+
+  it('shows an email draft and queues it only after Send', async () => {
+    const email: AiActionProposal = {
+      ...proposal,
+      draft: {
+        kind: 'email',
+        leadId: LEAD_ID,
+        subject: 'Your appointment',
+        body: 'Please call us tomorrow.',
+      },
+    };
+    propose(email);
+    mocks.confirmAiAction.mockResolvedValue({
+      status: 'saved',
+      actionId: email.id,
+      recordId: email.id,
+      kind: 'email',
+      requestId: email.id,
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Draft an email');
+    const region = await screen.findByRole('region', { name: 'Review email' });
+    const sendEmail = within(region).getByRole('button', { name: /^Send$/ });
+    expect(mocks.confirmAiAction).not.toHaveBeenCalled();
+    fireEvent.click(sendEmail);
+    await screen.findByText('Email queued for delivery.');
+    expect(mocks.confirmAiAction).toHaveBeenCalledTimes(1);
+  });
 
   it('requires Confirm before saving and retains the saved receipt after reopening', async () => {
     propose();

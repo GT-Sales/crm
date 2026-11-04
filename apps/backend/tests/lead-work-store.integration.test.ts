@@ -470,6 +470,82 @@ databaseTest('DatabaseLeadWorkStore', () => {
     );
   });
 
+  test('AI email resolves its recipient on the Site, escapes text and queues once across retries', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'AI Email',
+      email: 'ai.email@example.test',
+      phone: '403 555 0188',
+    });
+    if (!migrationUrl) throw new Error('expected test database');
+    const url = new URL(migrationUrl);
+    url.username = 'app_runtime';
+    url.password = TEST_RUNTIME_PASSWORD;
+    const mailDatabase = createDatabaseClient({
+      connectionString: url.toString(),
+      maxConnections: 2,
+      ssl: false,
+    });
+    try {
+      await admin`insert into app.workspace_email_settings (workspace_id, from_name, from_address, brand_color, footer_text, updated_by) values (${WORKSPACE}, 'Test Site', 'staff@example.test', '#123abc', 'Test footer', ${ACTOR}) on conflict (workspace_id) do nothing`;
+      const mailWork = new DatabaseLeadWorkStore(
+        mailDatabase,
+        customerEmailEnvironmentFromEnv({
+          EMAIL_PROVIDER: 'fake',
+          NODE_ENV: 'test',
+          EMAIL_CONTACT_HASH_SECRET: MAIL_SECRET,
+        }),
+      );
+      const input = {
+        ...writeScope,
+        leadId,
+        emailContext: { toAddress: 'ai.email@example.test', fromAddress: 'staff@example.test' },
+        creationId: '53000000-0000-4000-8000-000000000e03',
+        draft: {
+          kind: 'email' as const,
+          leadId,
+          subject: 'Your follow-up',
+          body: '<script>bad()</script> {first name}',
+        },
+      };
+      expect(await mailWork.queueAiEmail({ ...input, workspaceId: OTHER_WORKSPACE })).toEqual({
+        status: 'not_found',
+      });
+      expect(
+        await mailWork.queueAiEmail({
+          ...input,
+          emailContext: { ...input.emailContext, toAddress: 'changed@example.test' },
+        }),
+      ).toEqual({ status: 'changed' });
+      expect(
+        await mailWork.queueAiEmail({
+          ...input,
+          emailContext: { ...input.emailContext, fromAddress: 'changed@example.test' },
+        }),
+      ).toEqual({ status: 'changed' });
+      const [first, second] = await Promise.all([
+        mailWork.queueAiEmail(input),
+        mailWork.queueAiEmail(input),
+      ]);
+      expect(second).toEqual(first);
+      const rows =
+        await admin`select payload from app.outbox_jobs where workspace_id=${WORKSPACE} and dedupe_key=${`ai_email:${input.creationId}`}`;
+      expect(rows).toHaveLength(1);
+      const [audit] =
+        await admin`select count(*)::int as count from app.audit_events where workspace_id=${WORKSPACE} and action='lead.customer_emailed' and after->>'aiActionId'=${input.creationId}`;
+      expect(audit?.count).toBe(1);
+      expect(rows[0]?.payload.toAddress).toBe('ai.email@example.test');
+      expect(rows[0]?.payload.rendered.html).toContain('&lt;script&gt;');
+      expect(rows[0]?.payload.rendered.html).not.toContain('<script>');
+      expect(rows[0]?.payload.rendered.text).toContain('{first name}');
+      await admin`update app.leads set customer_data_restricted_at=now() where id=${leadId}`;
+      expect(await mailWork.queueAiEmail(input)).toEqual({ status: 'not_found' });
+    } finally {
+      await mailDatabase.close();
+      await admin`delete from app.outbox_jobs where workspace_id=${WORKSPACE} and dedupe_key='ai_email:53000000-0000-4000-8000-000000000e03'`;
+      await admin`delete from app.leads where id=${leadId}`;
+    }
+  });
+
   test('concurrent confirmations of the same AI note or task create one record and audit event', async () => {
     const leadId = await createInternetLead({
       fullName: 'AI Confirm',

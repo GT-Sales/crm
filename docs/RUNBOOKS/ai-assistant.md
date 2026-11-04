@@ -1,11 +1,22 @@
 # Runbook: Ask AI (staff assistant)
 
-Version 2 answers staff questions about one Site and can **prepare a task or
-note for explicit confirmation**. The model cannot save anything itself.
+Version 3 answers staff questions about one Site and can **prepare an editable
+task, note or customer email for explicit confirmation**. The model cannot save or send anything itself.
 Confirmation requires live `lead.manage`, a signed actor/Site-bound ten-minute
-card and an active unrestricted lead. Other writes, email, exports and cross-Site
+card and an active unrestricted lead. Other writes, exports and cross-Site
 access remain unavailable. Design: `docs/design/ai-assistant.md` and
-`docs/design/ai-actions.md`.
+`docs/design/ai-actions.md` and `docs/design/interactive-ai.md`.
+
+Edit a card and choose Update draft to obtain a fresh signed preview. Confirm
+saves a task/note; Send queues an email to the lead's customer from the Site's
+configured sender. To/From are shown on the card and checked again on Send.
+Changed addresses require a fresh draft. Queued is not proof of inbox delivery.
+Uncertain saves can only retry the same card, without editing it.
+
+Email needs the existing provider configuration and saved Site email settings;
+there is no new secret or migration. Content is plain text, not HTML or template
+markup. The worker uses its existing suppression and delivery checks. No inbox,
+arbitrary recipients, bulk email or autonomous sending is introduced.
 
 ## 1. What must be true before it is enabled
 

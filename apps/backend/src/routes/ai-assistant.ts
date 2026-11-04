@@ -1,9 +1,12 @@
-import { createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
 import { createActionProposalTools, verifyAiAction } from '../ai/actions.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import { Router, type Response } from 'express';
 import {
+  reviseAiActionRequestSchema,
+  aiFollowUpSchema,
+  type AiFollowUp,
   AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
   confirmAiActionRequestSchema,
@@ -100,7 +103,7 @@ function isToolName(value: string): value is ToolName {
 }
 
 export interface AiAssistantRouteDependencies {
-  work?: Pick<LeadWorkStore, 'addNote' | 'createTask'>;
+  work?: Pick<LeadWorkStore, 'addNote' | 'createTask' | 'queueAiEmail' | 'previewAiEmail'>;
   config: AiAssistantConfig;
   /** The actor's live membership in the site; the same read the staff router uses. */
   loadAccess(actorId: string, workspaceId: string): Promise<StaffAccessSnapshot | undefined>;
@@ -137,7 +140,7 @@ function capabilityDocument(
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
-    actions: canAct && unavailable === undefined ? ['task', 'note'] : [],
+    actions: canAct && unavailable === undefined ? ['task', 'note', 'email'] : [],
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
     leadTypes: [...site.leadTypes],
@@ -195,6 +198,7 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 
 export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependencies): Router {
   const router = Router();
+  const previewEmail = dependencies.work?.previewAiEmail?.bind(dependencies.work);
   const now = () => (dependencies.now ?? (() => new Date()))();
   // One guard per router (one per process): a duplicate request id inside a
   // minute is refused rather than spending a second turn's budget.
@@ -265,6 +269,80 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     }
   });
 
+  router.post('/workspaces/:workspaceId/ai/actions/revise', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const actor = session(req);
+    const body = reviseAiActionRequestSchema.safeParse(req.body);
+    if (!workspaceId.success || !actor || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const access = await dependencies.loadAccess(actor.actorId, workspaceId.data);
+      if (
+        !decideAccess(access, 'workspace.read').allowed ||
+        !decideAccess(access, 'lead.manage').allowed
+      ) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const config = dependencies.config;
+      if (!config.enabled || !config.apiKey || !config.workspaceIds.has(workspaceId.data)) {
+        sendDomainError(res, req.id, 'ai_unavailable', 503);
+        return;
+      }
+      const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
+      const original = verifyAiAction(body.data.token, config.apiKey, scope, now());
+      if (
+        !original ||
+        original.draft.kind !== body.data.draft.kind ||
+        original.draft.leadId !== body.data.draft.leadId
+      ) {
+        sendStaffAuthError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      const site = await dependencies.siteContext.siteContext(scope);
+      if (!site) {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      const tools = createActionProposalTools({
+        scope,
+        site,
+        key: config.apiKey,
+        reads: dependencies.reads,
+        emailPreview: previewEmail
+          ? (leadId) => previewEmail({ ...scope, leadId, requestId: req.id })
+          : undefined,
+        loadAccess: () => dependencies.loadAccess(actor.actorId, scope.workspaceId),
+        now,
+        budget: new TurnBudget(),
+      });
+      const { kind, ...draft } = body.data.draft;
+      await tools.execute(
+        kind === 'note' ? 'prepareNote' : kind === 'task' ? 'prepareTask' : 'prepareEmail',
+        draft,
+      );
+      const proposal = tools.proposals[0];
+      if (!proposal) {
+        sendDomainError(res, req.id, 'lead_not_found', 404);
+        return;
+      }
+      const finalAccess = await dependencies.loadAccess(actor.actorId, scope.workspaceId);
+      if (
+        !decideAccess(finalAccess, 'workspace.read').allowed ||
+        !decideAccess(finalAccess, 'lead.manage').allowed
+      ) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      res.json(proposal);
+    } catch {
+      dependencies.reportFailure(req, new Error('assistant_revision_failed'));
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
   router.post('/workspaces/:workspaceId/ai/actions/confirm', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const actor = session(req);
@@ -296,6 +374,45 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const action = verifyAiAction(body.data.token, config.apiKey, scope, now());
       if (!action) {
         sendDomainError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      if (action.draft.kind === 'email') {
+        if (!dependencies.work.queueAiEmail || !action.emailContext) {
+          sendDomainError(res, req.id, 'ai_unavailable', 503);
+          return;
+        }
+        const outcome = await dependencies.work.queueAiEmail({
+          ...scope,
+          requestId: req.id,
+          leadId: action.draft.leadId,
+          creationId: action.id,
+          draft: action.draft,
+          emailContext: action.emailContext,
+        });
+        if (outcome.status !== 'queued') {
+          sendDomainError(
+            res,
+            req.id,
+            outcome.status === 'not_found'
+              ? 'lead_not_found'
+              : outcome.status === 'trashed'
+                ? 'lead_trashed'
+                : outcome.status === 'changed'
+                  ? 'conflict'
+                  : 'feature_not_ready',
+            outcome.status === 'not_found' ? 404 : 409,
+          );
+          return;
+        }
+        res.json(
+          confirmAiActionResponseSchema.parse({
+            status: 'saved',
+            actionId: action.id,
+            kind: 'email',
+            recordId: outcome.recordId,
+            requestId: req.id,
+          }),
+        );
         return;
       }
       const input = {
@@ -450,6 +567,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               site,
               key: dependencies.config.apiKey,
               reads: dependencies.reads,
+              emailPreview: previewEmail
+                ? (leadId) => wait(previewEmail({ ...scope, leadId, requestId: req.id }))
+                : undefined,
               loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
               now,
               budget,
@@ -501,6 +621,18 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               : await wait(dependencies.reads.leadHint(scope, body.context.leadId)).catch(
                   () => undefined,
                 );
+          let followUp: AiFollowUp | undefined;
+          const guide = async (raw: unknown) => {
+            if (!budget.reserveToolCall()) return 'Question limit reached';
+            followUp = aiFollowUpSchema.parse(raw);
+            return 'Question and choices ready. Wait for the person to answer; do not assume a choice.';
+          };
+          const guidedTool = tool({
+            description:
+              'Ask one short clarification with 2-5 meaningful choices when the lead, action content, due date or email intent is missing or ambiguous. Never invent an answer. The person can also type freely.',
+            inputSchema: aiFollowUpSchema,
+            execute: guide,
+          });
           const system = buildSystemPrompt({
             siteName: site.name,
             leadTypes: site.leadTypes,
@@ -533,14 +665,21 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             for await (const event of engine.stream({
               system,
               messages,
-              tools: { ...toolset.definitions, ...actionTools?.definitions },
+              tools: {
+                ...toolset.definitions,
+                ...actionTools?.definitions,
+                askFollowUp: guidedTool,
+              },
               signal: controller.signal,
               executeTool: (name, input) =>
                 isToolName(name)
                   ? toolset.execute(name, input)
-                  : actionTools && (name === 'prepareNote' || name === 'prepareTask')
+                  : actionTools &&
+                      (name === 'prepareNote' || name === 'prepareTask' || name === 'prepareEmail')
                     ? actionTools.execute(name, input)
-                    : Promise.reject(new Error('unknown assistant tool')),
+                    : name === 'askFollowUp'
+                      ? guide(input)
+                      : Promise.reject(new Error('unknown assistant tool')),
             })) {
               if (controller.signal.aborted) break;
               switch (event.type) {
@@ -614,6 +753,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 decideAccess(finalAccess, 'lead.manage').allowed
               )
                 writePart({ type: 'actions', actions: actionTools.proposals });
+              if (followUp) writePart({ type: 'follow_up', followUp });
               writePart({ type: 'done' });
             }
           } catch (error) {

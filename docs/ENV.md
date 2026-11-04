@@ -285,3 +285,12 @@ GitHub or a deployment.
 into one bounded live Gateway test using only in-memory synthetic facts. It also
 needs `AI_GATEWAY_API_KEY` and `AI_GATEWAY_MODEL` from secure environment variables.
 Unset, no provider is called and the script exits 2. See the AI runbook §11.
+
+### Reviewed AI email and interactive drafts
+
+Version 3 uses the existing AI configuration and Site allowlist. Sending also
+requires the existing customer-email provider configuration (`EMAIL_PROVIDER`,
+provider credentials and `EMAIL_CONTACT_HASH_SECRET`) and saved Site email
+settings. No additional secret or database migration is needed. The model never
+gets the recipient/sender preview addresses from tool results; these are sent to
+the authorized browser card only. There is no mailbox/inbox connection.

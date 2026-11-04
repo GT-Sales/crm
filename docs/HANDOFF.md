@@ -1462,6 +1462,18 @@ before preparing another. See [design/ai-actions.md](design/ai-actions.md) for
 the trust boundary and verification cases. Stage changes, lead assignment,
 emails, exports, edits and bulk operations remain unavailable to the assistant.
 
+### Ask AI interactive drafts and email (version 3, 2026-11-04)
+
+Branch `claude/interactive-ai` adds card editing before confirmation, the
+`askFollowUp` question/choices tool, and `prepareEmail`. The model drafts;
+staff review the To/From and edit subject/body before pressing Send. A new
+revision endpoint re-signs edited cards with fresh IDs and the same actor,
+Site, lead and action kind. Saves cannot be edited while pending or uncertain.
+Mail uses the Site sender, existing suppression/delivery/outbox path and an
+AI-action dedupe key. It never uses model-provided addresses. Changed recipient
+or sender details require a new preview. No migration or new secret. See
+`design/interactive-ai.md`; no production rollout is implied.
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted

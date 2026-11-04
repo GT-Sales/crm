@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   aiWirePartSchema,
+  aiActionProposalSchema,
   apiErrorResponseSchema,
   type AiStreamPart,
   type StaffWorkspace,
@@ -12,7 +13,7 @@ import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/ses
 import type { AiAssistantConfig } from '../src/ai/config.js';
 import { createFakeEngine, type FakeTurn, type AssistantEngine } from '../src/ai/engine.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
-import { signAiAction } from '../src/ai/actions.js';
+import { signAiAction, verifyAiAction } from '../src/ai/actions.js';
 import type { LeadRow } from '../src/ai/projections.js';
 import type { AiReadService } from '../src/ai/read-service.js';
 import type { AiSiteContextStore } from '../src/ai/site-context.js';
@@ -229,6 +230,118 @@ async function readParts(response: Response): Promise<AiStreamPart[]> {
 }
 
 describe('POST /workspaces/:id/ai/chat', () => {
+  it('revises only the signed lead and action kind without saving', async () => {
+    vi.spyOn(reads, 'leadHint').mockResolvedValue({
+      leadId: LEAD,
+      reference: 'MS-101',
+      name: 'Example',
+      stage: 'pending',
+      leadType: 'sim_order',
+    });
+    const token = signAiAction(
+      {
+        id: REQUEST_ID,
+        actorId: ACTOR,
+        workspaceId: WORKSPACE,
+        expiresAt: new Date(NOW.getTime() + 60000).toISOString(),
+        draft: { kind: 'note', leadId: LEAD, body: 'Original' },
+      },
+      'test-key-not-real',
+    );
+    const work = new DatabaseLeadWorkStore();
+    const write = vi.spyOn(work, 'addNote');
+    await start(appWith({ work }));
+    const revise = (draft: unknown) =>
+      fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/revise`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({ token, draft }),
+      });
+    expect((await revise({ kind: 'note', leadId: ACTOR, body: 'Changed lead' })).status).toBe(400);
+    const response = await revise({ kind: 'note', leadId: LEAD, body: 'Edited' });
+    expect(response.status).toBe(200);
+    const proposal = aiActionProposalSchema.parse(await response.json());
+    expect(proposal.id).not.toBe(REQUEST_ID);
+    expect(
+      verifyAiAction(
+        proposal.token,
+        'test-key-not-real',
+        { actorId: ACTOR, workspaceId: WORKSPACE },
+        NOW,
+      )?.draft,
+    ).toEqual({ kind: 'note', leadId: LEAD, body: 'Edited' });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('releases a guided question only after a completed turn', async () => {
+    await start(
+      appWith({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: 'askFollowUp',
+                input: { question: 'When?', choices: ['Tomorrow', 'No due date'] },
+              },
+            ],
+            chunks: [],
+          },
+        ],
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    expect(await readParts(response)).toContainEqual({
+      type: 'follow_up',
+      followUp: { question: 'When?', choices: ['Tomorrow', 'No due date'] },
+    });
+  });
+
+  it('queues only the signed email on explicit confirmation', async () => {
+    const work = new DatabaseLeadWorkStore();
+    const queue = vi
+      .spyOn(work, 'queueAiEmail')
+      .mockResolvedValue({ status: 'queued', recordId: LEAD });
+    const draft = {
+      kind: 'email' as const,
+      leadId: LEAD,
+      subject: 'Hello',
+      body: 'Please call us.',
+    };
+    const token = signAiAction(
+      {
+        id: REQUEST_ID,
+        actorId: ACTOR,
+        workspaceId: WORKSPACE,
+        expiresAt: new Date(NOW.getTime() + 60000).toISOString(),
+        draft,
+        emailContext: { toAddress: 'customer@example.test', fromAddress: 'staff@example.test' },
+      },
+      'test-key-not-real',
+    );
+    await start(appWith({ work }));
+    const response = await fetch(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/confirm`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(queue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        creationId: REQUEST_ID,
+        draft,
+      }),
+    );
+  });
+
   it('prepares a note without writing and saves only the signed content on confirmation', async () => {
     const work = new DatabaseLeadWorkStore();
     const add = vi.spyOn(work, 'addNote').mockResolvedValue({
