@@ -66,7 +66,7 @@ export function niceCeiling(peak: number): number {
 }
 
 /**
- * A neutral line and light area show daily volume, with the peak labelled.
+ * An accent line and light area show daily volume, with the peak labelled.
  * Hover, or focus and the arrow keys, reads any day; the same numbers sit
  * in a table for screen readers.
  */
@@ -133,7 +133,7 @@ export function VolumeChart({
             <path
               d={`${line} L${points.at(-1)?.x ?? 600},240 L${points[0]?.x ?? 0},240 Z`}
               fill={SERIES}
-              fillOpacity="0.05"
+              fillOpacity="0.08"
             />
             <path
               d={line}

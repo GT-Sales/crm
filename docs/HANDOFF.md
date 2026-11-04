@@ -2343,3 +2343,10 @@ validation boundary. Follow-up cards requesting UUIDs are rejected with correcti
 instructions. Signed proposals already prepared at the model's step limit remain
 reviewable rather than being discarded for lack of a final prose answer. Failure
 logs now include a bounded error code, without prompts, arguments or provider bodies.
+
+### Restrained CRM color accents (4 Nov 2026)
+
+Admin-scoped theme tokens now use blue for primary actions, selected navigation,
+filters, focus and charts. Dashboard outcome icons use small green/amber/rose
+surfaces, retaining neutral values and page backgrounds. Light and dark palettes
+are explicit; shared storefront tokens and existing stage semantics are unchanged.

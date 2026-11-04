@@ -248,17 +248,22 @@ function Tile({
   hint,
   children,
   icon: Icon = InboxIcon,
+  tone = 'info',
 }: {
   label: string;
   value: number;
   hint: string;
   children?: ReactNode;
   icon?: LucideIcon;
+  tone?: 'info' | 'success' | 'warning' | 'danger';
 }) {
   return (
-    <div className="crm-stat flex min-h-[7.75rem] flex-col justify-center gap-3 px-6 py-3 md:py-0">
+    <div
+      data-tone={tone}
+      className="crm-stat flex min-h-[7.75rem] flex-col justify-center gap-3 px-6 py-3 md:py-0"
+    >
       <h2 className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-        <Icon className="size-4" aria-hidden="true" />
+        <Icon className="crm-stat-icon size-4 shrink-0" aria-hidden="true" />
         {label}
       </h2>
       <p className="text-xs text-muted-foreground">{hint}</p>
@@ -324,12 +329,14 @@ function StatTiles({
     <div className="crm-stat-grid grid grid-cols-1 overflow-hidden rounded-2xl border bg-card sm:grid-cols-2 lg:grid-cols-4">
       {received}
       <Tile
+        tone="success"
         icon={CircleCheckIcon}
         label={outcomes.done.label}
         value={count(outcomes.done.stages)}
         hint={outcomes.done.hint}
       />
       <Tile
+        tone="warning"
         icon={BellRingIcon}
         label={outcomes.waiting.label}
         value={count(outcomes.waiting.stages)}
@@ -342,6 +349,7 @@ function StatTiles({
         ) : null}
       </Tile>
       <Tile
+        tone="danger"
         label={outcomes.lost.label}
         value={lost}
         hint={`${rate.toFixed(1)}% ${outcomes.lost.hint}`}

@@ -1,25 +1,9 @@
 /**
- * CRM surfaces matched to the live Shadcnblocks reference: neutral colors,
- * monochrome controls, fine borders and consistent component proportions.
+ * CRM surfaces keep neutral backgrounds, with a restrained blue accent for
+ * actions and navigation and small semantic indicators for outcomes.
  * The admin uses the light palette by default and keeps a browser-local dark
  * preference. Shadcnblocks-inspired surfaces are scoped to this app.
  */
-
-:root {
-  --crm-header: oklch(0.985 0 0);
-  --crm-chip: oklch(0.96 0.03 27);
-  --crm-chip-border: oklch(0.88 0.06 27);
-  --crm-chip-foreground: var(--primary);
-}
-
-/* Dark: a header a shade above the background and a dim red chip with light
-   red text. */
-.dark {
-  --crm-header: oklch(0.18 0 0);
-  --crm-chip: oklch(0.26 0.06 27);
-  --crm-chip-border: oklch(0.4 0.1 27);
-  --crm-chip-foreground: oklch(0.88 0.06 20);
-}
 
 @theme inline {
   --color-crm-header: var(--crm-header);
@@ -34,30 +18,42 @@
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: var(--card);
   --popover-foreground: var(--foreground);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: var(--muted);
-  --accent-foreground: var(--foreground);
+  --accent: #eff6ff;
+  --accent-foreground: #1d4ed8;
+  --ring: #2563eb;
   --border: oklch(0.922 0 0);
   --input: var(--border);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: var(--foreground);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-accent: #eff6ff;
+  --sidebar-accent-foreground: #1d4ed8;
+  --sidebar-ring: var(--ring);
   --sidebar-border: var(--border);
   --crm-header: var(--card);
-  --chart-1: oklch(0.205 0 0);
+  --chart-1: #2563eb;
+  --chart-2: #0f766e;
+  --chart-3: #b45309;
+  --chart-4: #7c3aed;
+  --chart-5: #64748b;
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --crm-chip: var(--muted);
-  --crm-chip-border: var(--border);
-  --crm-chip-foreground: var(--foreground);
+  --crm-chip: #eff6ff;
+  --crm-chip-border: #bfdbfe;
+  --crm-chip-foreground: #1d4ed8;
+  --crm-success: #047857;
+  --crm-success-surface: #ecfdf5;
+  --crm-warning: #b45309;
+  --crm-warning-surface: #fffbeb;
+  --crm-danger: #be123c;
+  --crm-danger-surface: #fff1f2;
 }
 
 .crm-ui.dark {
@@ -70,10 +66,27 @@
   --muted-foreground: oklch(0.708 0 0);
   --border: oklch(1 0 0 / 10%);
   --sidebar: oklch(0.18 0 0);
-  --sidebar-accent: var(--muted);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --chart-1: oklch(0.922 0 0);
+  --primary: #93c5fd;
+  --primary-foreground: #172554;
+  --accent: #172554;
+  --accent-foreground: #bfdbfe;
+  --ring: #60a5fa;
+  --sidebar-accent: #172554;
+  --sidebar-accent-foreground: #bfdbfe;
+  --chart-1: #60a5fa;
+  --chart-2: #5eead4;
+  --chart-3: #fbbf24;
+  --chart-4: #c4b5fd;
+  --chart-5: #94a3b8;
+  --crm-chip: #172554;
+  --crm-chip-border: #1e40af;
+  --crm-chip-foreground: #bfdbfe;
+  --crm-success: #6ee7b7;
+  --crm-success-surface: #062e25;
+  --crm-warning: #fcd34d;
+  --crm-warning-surface: #38270b;
+  --crm-danger: #fda4af;
+  --crm-danger-surface: #3b1423;
 }
 
 .crm-content {
@@ -152,6 +165,16 @@
 .crm-ui [data-slot='sidebar-menu-button'] {
   font-weight: 400;
 }
+/* Color supports the existing selected state and labels; it is never the only cue. */
+.crm-ui [data-slot='sidebar-menu-button'][data-active='true'] {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+  font-weight: 600;
+}
+.crm-ui [data-slot='tabs-trigger'][data-state='active'] {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
 .crm-ui [data-slot='sidebar-group-label'] {
   font-weight: 400;
 }
@@ -173,9 +196,29 @@
   width: 2rem;
   height: 2rem;
   padding: 0.4375rem;
-  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border: 1px solid var(--crm-chip-border);
   border-radius: 0.5rem;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.crm-stat-icon {
+  box-sizing: content-box;
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.crm-stat[data-tone='success'] .crm-stat-icon {
+  background: var(--crm-success-surface);
+  color: var(--crm-success);
+}
+.crm-stat[data-tone='warning'] .crm-stat-icon {
+  background: var(--crm-warning-surface);
+  color: var(--crm-warning);
+}
+.crm-stat[data-tone='danger'] .crm-stat-icon {
+  background: var(--crm-danger-surface);
+  color: var(--crm-danger);
 }
 .crm-stat-grid {
   padding: 1.5rem 0;

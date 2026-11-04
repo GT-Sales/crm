@@ -42,8 +42,8 @@ changes, billing, AI tools and unrelated product modules are not CRM features.
 ## Implementation
 
 The owner clarified that the live website's styling takes priority over the
-local template. The admin uses its neutral gray palette and monochrome primary
-controls, Inter typography, 32px navigation rows, 56px header and 24px desktop
+local template. The admin retains neutral gray surfaces with restrained blue primary
+controls and selected navigation (owner refinement, 4 Nov 2026), Inter typography, 32px navigation rows, 56px header and 24px desktop
 page padding. Outlined header icons, inset KPI separators, thin line/area
 charts and flat settings sections follow the live reference. Status colors
 retain their semantic meanings.
@@ -211,3 +211,9 @@ These screenshots use the disposable browser-test database's synthetic data.
 ![Filters](screenshots/design-inbox-filters.png)
 
 ![Board view options](screenshots/design-inbox-board-options.png)
+
+The restrained color pass uses blue for actions, focus, active tabs, filters and
+chart series. Dashboard icon tiles use green for completed outcomes, amber for
+waiting work and rose for cancellations; values and page backgrounds stay neutral.
+Both themes have explicit contrasting pairs. Existing stage and warning labels
+remain visible, so color supplements the meaning.
