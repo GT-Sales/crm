@@ -31,7 +31,7 @@ to `me`, checks the visual review card and confirms no staff identifier is displ
 The configured production model is retained; no provider or pricing change is made.
 
 Local verification: the full suite passed 229 files / 2,749 tests with four
-backup-tool skips. Subsequent focused SDK/HTTP tests cover explanation recovery,
+backup-tool skips. The final 101 focused SDK/HTTP tests passed and cover explanation recovery,
 including permission revocation and invalid-card rejection. The browser scenarios
 passed for assignment to the authenticated member and ordinary create/edit drafts.
 Workspace typechecks, lint, formatting and production builds are checked before
