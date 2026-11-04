@@ -2350,3 +2350,14 @@ Admin-scoped theme tokens now use blue for primary actions, selected navigation,
 filters, focus and charts. Dashboard outcome icons use small green/amber/rose
 surfaces, retaining neutral values and page backgrounds. Light and dark palettes
 are explicit; shared storefront tokens and existing stage semantics are unchanged.
+
+### CanadaWide AI rollout (4 Nov 2026)
+
+At the owner’s request, both `AI_ASSISTANT_WORKSPACE_IDS` and
+`AI_AUTOMATION_WORKSPACE_IDS` now list Get Canada Sim (`…101`) and CanadaWide
+(`…102`). The existing backend tools resolve CanadaWide’s Internet/Mobility
+catalogue and active members in its own tenant scope; no second implementation
+or database migration is needed. CanadaWide has workspace email settings.
+Reviewed actions, editable email drafts and automation proposals retain the
+existing permissions and explicit confirmation/save requirements. No automation
+was activated and no customer email was sent by enabling the feature.

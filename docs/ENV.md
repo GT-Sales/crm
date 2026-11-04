@@ -317,3 +317,8 @@ AI authoring generations allow up to 4,800 output tokens when automation tools
 are enabled (ordinary chat stays at 1,200). Shared tool/turn and timeout budgets
 still apply. Only `/ai/automations/revise` accepts up to 96 KiB JSON so a maximum
 65 KiB flow definition and its envelope fit; other JSON endpoints retain 64 KiB.
+
+Production rollout (4 Nov 2026): both AI workspace allowlists contain
+`10000000-0000-4000-8000-000000000101` (Get Canada Sim) and
+`10000000-0000-4000-8000-000000000102` (CanadaWide). The intake-check workspace
+is not included. Provider credentials and the configured model are unchanged.
