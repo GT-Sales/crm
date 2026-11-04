@@ -463,6 +463,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
       'Booked install for Monday.',
       'Called, no answer.',
     ]);
+    expect(after?.activities.every((entry) => entry.viaAi === undefined)).toBe(true);
     expect(after?.activities.every((entry) => leadActivitySchema.safeParse(entry).success)).toBe(
       true,
     );
@@ -502,6 +503,10 @@ databaseTest('DatabaseLeadWorkStore', () => {
       const [audit] =
         await admin`select count(*)::int as count from app.audit_events where id=${input.creationId}`;
       expect(audit?.count).toBe(1);
+      const aiDetail = await work.getLead({ ...scope, leadId, includeWork: true });
+      expect(aiDetail?.activities.filter((a) => a.kind === 'edit')).toEqual([
+        expect.objectContaining({ actorId: ACTOR, viaAi: true, fields: ['fullName'] }),
+      ]);
       expect(await work.confirmAiLeadUpdate({ ...input, creationId: randomUUID() })).toEqual({
         status: 'conflict',
       });
@@ -509,6 +514,11 @@ databaseTest('DatabaseLeadWorkStore', () => {
       expect(await work.confirmAiLeadUpdate(input)).toEqual({ status: 'saved', recordId: leadId });
       const [lead] = await admin`select full_name from app.leads where id=${leadId}`;
       expect(lead?.full_name).toBe('Later edit');
+      const mixedDetail = await work.getLead({ ...scope, leadId, includeWork: true });
+      const edits = mixedDetail?.activities.filter((a) => a.kind === 'edit') ?? [];
+      expect(edits).toHaveLength(2);
+      expect(edits.filter((a) => a.viaAi)).toHaveLength(1);
+      expect(edits.every((a) => a.actorId === ACTOR)).toBe(true);
       expect(
         await work.previewAiLeadUpdate({
           ...scope,
@@ -563,6 +573,15 @@ databaseTest('DatabaseLeadWorkStore', () => {
           draft: { kind: 'lead_update', leadId, field: 'stage', value: 'contacted' },
         }),
       ).toEqual({ status: 'saved', recordId: leadId });
+      const finalDetail = await work.getLead({ ...scope, leadId, includeWork: true });
+      expect(finalDetail?.activities.find((a) => a.kind === 'assignment')).toMatchObject({
+        actorId: ACTOR,
+        viaAi: true,
+      });
+      expect(finalDetail?.activities.find((a) => a.kind === 'status_change')).toMatchObject({
+        actorId: ACTOR,
+        viaAi: true,
+      });
       await admin`update app.leads set customer_data_restricted_at=now() where id=${leadId}`;
       expect(await work.confirmAiLeadUpdate(input)).toEqual({ status: 'not_found' });
     } finally {
@@ -633,6 +652,10 @@ databaseTest('DatabaseLeadWorkStore', () => {
       const [audit] =
         await admin`select count(*)::int as count from app.audit_events where workspace_id=${WORKSPACE} and action='lead.customer_emailed' and after->>'aiActionId'=${input.creationId}`;
       expect(audit?.count).toBe(1);
+      const emailDetail = await mailWork.getLead({ ...scope, leadId, includeWork: true });
+      expect(
+        emailDetail?.activities.find((a) => a.kind === 'system' && a.event === 'customer_emailed'),
+      ).toMatchObject({ actorId: ACTOR, viaAi: true });
       expect(rows[0]?.payload.toAddress).toBe('ai.email@example.test');
       expect(rows[0]?.payload.rendered.html).toContain('&lt;script&gt;');
       expect(rows[0]?.payload.rendered.html).not.toContain('<script>');
@@ -704,7 +727,13 @@ databaseTest('DatabaseLeadWorkStore', () => {
       expect(counts).toEqual({ notes: 1, tasks: 1, audits: 2 });
       const details = await work.getLead({ ...scope, leadId, includeWork: true });
       expect(
-        details?.activities.some((a) => a.kind === 'note' && a.body === 'Confirmed note'),
+        details?.activities.some(
+          (a) =>
+            a.kind === 'note' &&
+            a.body === 'Confirmed note' &&
+            a.viaAi === true &&
+            a.actorId === ACTOR,
+        ),
       ).toBe(true);
       expect(details?.tasks.find((t) => t.id === taskId)?.dueAt).toBe('2026-11-05T12:00:00.000Z');
       // A late network retry must not undo work performed after the first save.

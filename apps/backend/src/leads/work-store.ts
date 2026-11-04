@@ -689,6 +689,8 @@ async function rescuedOrder(
 
 /** What a lead update needs beyond its transaction: customer mail (the flows it sets off send it). */
 export interface LeadUpdateContext {
+  /** Set only by AI confirmation, never read from the staff PATCH body. */
+  aiActionId?: string;
   emailEnvironment: CustomerEmailEnvironment;
   /** The site snapshot the write's flows share (P23); a flow's own move passes its write's. */
   siteHolder?: FlowSiteHolder;
@@ -925,7 +927,11 @@ export async function applyLeadUpdate(
         leadId: input.leadId,
         actorId: input.actorId,
         kind: entry.kind,
-        data: { ...entry.data, ...entryAutomation(automation) },
+        data: {
+          ...entry.data,
+          ...entryAutomation(automation),
+          ...(context.aiActionId && !automation ? { viaAi: true } : {}),
+        },
       })),
     )
     .returning(ACTIVITY_RETURNING);
@@ -1269,7 +1275,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
             return { status: 'invalid' };
           const outcome = await applyLeadUpdate(
             tx,
-            { emailEnvironment: this.emailEnvironment },
+            { emailEnvironment: this.emailEnvironment, aiActionId: input.creationId },
             {
               ...input,
               leadId: input.draft.leadId,
@@ -1459,6 +1465,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           actorId: input.actorId,
           kind: 'note',
           body: input.body,
+          ...(input.creationId ? { data: { viaAi: true } } : {}),
         })
         .returning(ACTIVITY_RETURNING);
       if (!entry) throw new Error('activity insert did not return a row');

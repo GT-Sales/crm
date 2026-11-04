@@ -248,6 +248,14 @@ for (const width of [375, 1440]) {
       await page.unroute('**/ai/actions/confirm');
       await page.getByRole('button', { name: 'Close Ask AI' }).click();
       await expect(page.getByText(`403 555 ${width}`, { exact: true }).first()).toBeVisible();
+      await page.getByRole('tab', { name: 'Activity', exact: true }).click();
+      const aiChange = page
+        .getByRole('region', { name: 'Timeline' })
+        .getByRole('listitem')
+        .filter({ hasText: 'via AI' })
+        .first();
+      await expect(aiChange).toContainText('Takib · via AI');
+      await expect(aiChange).toContainText('corrected the phone');
     } finally {
       await page.unroute('**/ai/actions/confirm');
       const restored = await page.request.patch(
