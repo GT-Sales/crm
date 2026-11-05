@@ -12,7 +12,7 @@ import {
 import { hashContact } from '../src/email/hash.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
-import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { aiLeadValueDigest, DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { DatabaseStaffStore } from '../src/staff/store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
@@ -472,6 +472,27 @@ databaseTest('DatabaseLeadWorkStore', () => {
     );
   });
 
+  test('an AI lead update stays valid through unrelated work on the lead (ACT-3)', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'Unrelated Work',
+      email: 'unrelated.work@example.test',
+      phone: '403 555 0109',
+    });
+    const preview = await work.previewAiLeadUpdate({ ...scope, leadId, field: 'phone' });
+    if (!preview) throw new Error('preview missing');
+    // A note and a stage move change the row, not the phone the card was made for.
+    await work.addNote({ ...writeScope, leadId, body: 'Called; will send ID.' });
+    await work.updateLead({ ...writeScope, leadId, stage: 'contacted' });
+    expect(
+      await work.confirmAiLeadUpdate({
+        ...writeScope,
+        creationId: randomUUID(),
+        before: aiLeadValueDigest(preview.before),
+        draft: { kind: 'lead_update', leadId, field: 'phone', value: '403 555 0110' },
+      }),
+    ).toEqual({ status: 'saved', recordId: leadId });
+  });
+
   test('AI lead updates reject stale previews, serialize retries and preserve later edits', async () => {
     const leadId = await createInternetLead({
       fullName: 'AI Update',
@@ -484,7 +505,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
       const input = {
         ...writeScope,
         creationId: randomUUID(),
-        version: preview.version,
+        before: aiLeadValueDigest(preview.before),
         draft: {
           kind: 'lead_update' as const,
           leadId,
@@ -536,14 +557,14 @@ databaseTest('DatabaseLeadWorkStore', () => {
         await work.confirmAiLeadUpdate({
           ...input,
           creationId: randomUUID(),
-          version: latest.version,
+          before: aiLeadValueDigest(latest.before),
           draft: { kind: 'lead_update', leadId, field: 'assignedActorId', value: STRANGER },
         }),
       ).toEqual({ status: 'refused', refusal: { status: 'assignee_not_found' } });
       const assigned = {
         ...input,
         creationId: randomUUID(),
-        version: latest.version,
+        before: aiLeadValueDigest(latest.before),
         draft: {
           kind: 'lead_update' as const,
           leadId,
@@ -561,7 +582,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
         await work.confirmAiLeadUpdate({
           ...input,
           creationId: randomUUID(),
-          version: current.version,
+          before: aiLeadValueDigest(current.before),
           draft: { kind: 'lead_update', leadId, field: 'stage', value: 'activated' },
         }),
       ).toEqual({ status: 'refused', refusal: { status: 'invalid_stage' } });
@@ -569,7 +590,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
         await work.confirmAiLeadUpdate({
           ...input,
           creationId: randomUUID(),
-          version: current.version,
+          before: aiLeadValueDigest(current.before),
           draft: { kind: 'lead_update', leadId, field: 'stage', value: 'contacted' },
         }),
       ).toEqual({ status: 'saved', recordId: leadId });
@@ -676,7 +697,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
         await work.confirmAiLeadUpdate({
           ...writeScope,
           creationId: randomUUID(),
-          version: preview.version,
+          before: aiLeadValueDigest(preview.before),
           draft: { kind: 'lead_update', leadId, field: 'stage', value: 'activated' },
         }),
       ).toEqual({

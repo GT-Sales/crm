@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import {
   aiAutomationProposals,
   withTenantTx,
@@ -90,12 +90,25 @@ function verify(token: string, key: string, scope: Scope) {
     throw new AutomationAuthoringError('invalid');
   return { id, digest };
 }
-function normalizedDefinition(definition: FlowDraft, existing: FlowDraft | undefined): FlowDraft {
-  const ids = new Set<string>();
+/**
+ * Server-made step ids: a step keeps its id when the base flow or, on a
+ * revision, the reviewed proposal already had it (AUTH-5), so the changes
+ * read "Change X" rather than "Remove X / Add X"; any other id, or a second
+ * use of one, is replaced.
+ */
+function normalizedDefinition(
+  definition: FlowDraft,
+  existing: FlowDraft | undefined,
+  keep: ReadonlySet<string> = new Set(),
+): FlowDraft {
+  const ids = new Set<string>(keep);
   if (existing) walkDraftSteps(existing.steps, (step) => ids.add(step.id));
   const copy = structuredClone(definition);
+  const used = new Set<string>();
   walkDraftSteps(copy.steps, (step) => {
-    if (!ids.has(step.id)) step.id = 's_' + randomUUID().replaceAll('-', '').slice(0, 20);
+    if (!ids.has(step.id) || used.has(step.id))
+      step.id = 's_' + randomUUID().replaceAll('-', '').slice(0, 20);
+    used.add(step.id);
   });
   return copy;
 }
@@ -163,6 +176,7 @@ export class AutomationAuthoringStore {
     siteName: string,
     key: string,
     now: Date,
+    options: { keepIds?: ReadonlySet<string> } = {},
   ): Promise<AiAutomationProposal> {
     const parsed = aiAutomationProposalInputSchema.parse(input);
     return this.database.withTenantTx(scope, async (tx) => {
@@ -180,10 +194,18 @@ export class AutomationAuthoringStore {
             lt(aiAutomationProposals.createdAt, new Date(now.getTime() - 24 * 60 * 60_000)),
           ),
         );
+      // AUTH-11: saved receipts and expired or superseded proposals are not
+      // open drafts, so they do not count toward the cap.
       const rows = await tx
         .select({ id: aiAutomationProposals.id })
         .from(aiAutomationProposals)
-        .where(ownProposals(scope))
+        .where(
+          and(
+            ownProposals(scope),
+            isNull(aiAutomationProposals.result),
+            gt(aiAutomationProposals.expiresAt, now),
+          ),
+        )
         .limit(101);
       if (rows.length >= 100) throw new AutomationAuthoringError('limit_reached');
       const flows = this.flows(tx);
@@ -207,7 +229,7 @@ export class AutomationAuthoringStore {
         };
       }
       const definition = flowDraftSchemaFor(origin).parse(
-        normalizedDefinition(parsed.draft.definition, before?.definition),
+        normalizedDefinition(parsed.draft.definition, before?.definition, options.keepIds),
       );
       const draft = { ...parsed.draft, definition };
       const payload = { draft, ...(parsed.target ? { target: parsed.target } : {}) };
@@ -252,7 +274,11 @@ export class AutomationAuthoringStore {
         withTenantTx: async (_scope, work) => work(tx),
       });
       const original = await child.load(scope, token, key, now);
-      const next = await child.prepare(scope, { ...original, draft }, siteName, key, now);
+      const keepIds = new Set<string>();
+      walkDraftSteps(original.draft.definition.steps, (step) => keepIds.add(step.id));
+      const next = await child.prepare(scope, { ...original, draft }, siteName, key, now, {
+        keepIds,
+      });
       await tx
         .update(aiAutomationProposals)
         .set({ expiresAt: now })
@@ -267,10 +293,11 @@ export class AutomationAuthoringStore {
     token: string,
     key: string,
     now: Date,
+    options: { lock?: boolean } = {},
   ): Promise<AiAutomationProposalInput> {
     const signed = verify(token, key, scope);
     return this.database.withTenantTx(scope, async (tx) => {
-      const [row] = await tx
+      const query = tx
         .select()
         .from(aiAutomationProposals)
         .where(
@@ -279,8 +306,9 @@ export class AutomationAuthoringStore {
             eq(aiAutomationProposals.workspaceId, scope.workspaceId),
             eq(aiAutomationProposals.actorId, scope.actorId),
           ),
-        )
-        .for('update');
+        );
+      // AUTH-8: a revision locks the row it supersedes; a simulation only reads.
+      const [row] = options.lock === false ? await query : await query.for('update');
       if (!row || row.digest !== signed.digest || row.digest !== digestOf(row.payload))
         throw new AutomationAuthoringError('not_found');
       if (row.expiresAt.getTime() <= now.getTime() || row.result)
@@ -312,7 +340,12 @@ export class AutomationAuthoringStore {
       // Saved receipts remain retryable for 24h; expired unsaved proposals cannot execute.
       if (row.createdAt.getTime() + 24 * 60 * 60_000 <= now.getTime())
         throw new AutomationAuthoringError('expired');
-      if (row.result) return aiAutomationSaveResponseSchema.parse(row.result);
+      if (row.result) {
+        // A receipt this version cannot read is a server fault, not a bad request (AUTH-7).
+        const receipt = aiAutomationSaveResponseSchema.safeParse(row.result);
+        if (!receipt.success) throw new Error('ai_automation_receipt_invalid');
+        return receipt.data;
+      }
       if (row.expiresAt.getTime() <= now.getTime()) throw new AutomationAuthoringError('expired');
       const input = aiAutomationProposalInputSchema.parse(row.payload);
       const flows = this.flows(tx);

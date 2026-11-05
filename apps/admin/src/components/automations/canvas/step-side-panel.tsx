@@ -553,8 +553,9 @@ export function StepSidePanel({
                     onUpdateStep(step.id, (current) => {
                       if (current.kind !== 'create_task') return current;
                       if (kind === 'member') {
-                        const firstActor =
-                          catalog?.members[0]?.actorId ?? '00000000-0000-4000-8000-000000000001';
+                        // UI-6: only a real member, never a placeholder id.
+                        const firstActor = catalog?.members[0]?.actorId;
+                        if (firstActor === undefined) return current;
                         return {
                           ...current,
                           assignee: { kind: 'member', actorId: firstActor },
@@ -569,7 +570,9 @@ export function StepSidePanel({
                   className="h-9 rounded-md border bg-background px-2.5 text-sm"
                 >
                   <option value="lead_assignee">The lead’s owner</option>
-                  <option value="member">Specific member</option>
+                  <option value="member" disabled={!catalog?.members.length}>
+                    Specific member
+                  </option>
                   <option value="none">No one</option>
                 </select>
               </div>

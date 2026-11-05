@@ -89,10 +89,20 @@ suite('AI automation proposals and atomic draft saves', () => {
         await admin`select count(*)::int as count from app.ai_automation_proposals where actor_id=${ACTOR} and created_at=${stale}`;
       expect(ownStale?.count).toBe(0);
 
-      // At this member's own cap the next proposal is refused.
+      // Expired proposals and saved receipts are not open drafts (AUTH-11).
+      await admin`
+        insert into app.ai_automation_proposals (workspace_id, actor_id, payload, digest, expires_at, result)
+        select ${SITE}, ${ACTOR}, '{}'::jsonb, 'digest', ${now},
+          case when g % 2 = 0 then '{"status":"saved"}'::jsonb else null end
+        from generate_series(1, 100) g
+      `;
+      await expect(prepare()).resolves.toMatchObject({ draft: { name: 'AI follow-up' } });
+
+      // At this member's own cap of open drafts the next proposal is refused.
       await admin`
         insert into app.ai_automation_proposals (workspace_id, actor_id, payload, digest, expires_at)
-        select ${SITE}, ${ACTOR}, '{}'::jsonb, 'digest', ${now} from generate_series(1, 100)
+        select ${SITE}, ${ACTOR}, '{}'::jsonb, 'digest', ${new Date(now.getTime() + 600_000)}
+        from generate_series(1, 100)
       `;
       await expect(prepare()).rejects.toMatchObject({ code: 'limit_reached' });
     } finally {
@@ -150,6 +160,10 @@ suite('AI automation proposals and atomic draft saves', () => {
       now,
     );
     await expect(store.save(scope, p.token, key, now)).rejects.toThrow('expired');
+    // AUTH-5: the reviewed draft keeps the ids the proposal gave its steps.
+    expect(next.draft.definition.steps.map((step) => step.id)).toEqual(
+      p.draft.definition.steps.map((step) => step.id),
+    );
     const saved = await store.save(scope, next.token, key, now);
     expect((await flows.get(scope, saved.key))?.name).toBe('Reviewed name');
   });
@@ -476,7 +490,7 @@ suite('AI automation proposals and atomic draft saves', () => {
       messages: [{ role: 'user', text: 'Assign new SIM orders to me' }],
       tools: tools.definitions,
       automationAuthoring: true,
-      hasPreparedAutomation: () => tools.proposals.length > 0,
+      hasPreparedDraft: () => tools.proposals.length > 0,
       signal: new AbortController().signal,
     })) {
       if (event.type === 'tool-end') expect(event.ok).toBe(true);

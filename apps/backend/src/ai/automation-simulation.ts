@@ -27,7 +27,9 @@ export async function simulateAutomation(
   },
   database: Pick<DatabaseClient, 'withTenantTx'> = { withTenantTx },
 ): Promise<AiAutomationSimulation> {
-  const proposal = await input.store.load(input.scope, input.token, input.key, input.now);
+  const proposal = await input.store.load(input.scope, input.token, input.key, input.now, {
+    lock: false,
+  });
   const scenario = aiAutomationScenarioSchema.parse(input.scenario);
   return database.withTenantTx(input.scope, async (tx) => {
     await tx.execute(sql`set transaction read only`);

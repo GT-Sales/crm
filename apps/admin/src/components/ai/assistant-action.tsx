@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { aiActionDraftSchema, type AiActionDraft, type AiStageMoveNeed } from '@gt-sales/contracts';
 import { Button, Input, Textarea } from '@gt-sales/ui';
-import type { AiActionView } from './assistant-provider';
+import { useOptionalAssistant, type AiActionView } from './assistant-provider';
 import { safeInternalHref } from './assistant-sources';
 import { dateTimeLabel } from '../../lib/dates';
 
@@ -27,6 +27,9 @@ export function AssistantAction({
   onRevise(draft: AiActionDraft): void;
 }) {
   const { proposal, status } = action;
+  // UI-9: while an answer streams the provider ignores Confirm and Revise, so
+  // the buttons say so instead of doing nothing.
+  const streaming = useOptionalAssistant()?.streaming ?? false;
   const draft = proposal.draft;
   const isNote = draft.kind === 'note';
   const isLeadUpdate = draft.kind === 'lead_update';
@@ -197,7 +200,7 @@ export function AssistantAction({
           )}
           {editError ? <p role="alert">{editError}</p> : null}
           <div className="flex gap-2">
-            <Button size="sm" type="submit">
+            <Button size="sm" type="submit" disabled={streaming}>
               Update draft
             </Button>
             <Button
@@ -277,7 +280,7 @@ export function AssistantAction({
           <Button
             type="button"
             size="sm"
-            disabled={status === 'saving' || status === 'revising'}
+            disabled={status === 'saving' || status === 'revising' || streaming}
             onClick={onConfirm}
           >
             {status === 'error' ? 'Retry save' : isEmail ? 'Send' : 'Confirm'}
@@ -305,6 +308,11 @@ export function AssistantAction({
             {status === 'error' ? 'Dismiss' : 'Cancel'}
           </Button>
         </div>
+      ) : null}
+      {streaming && (status === 'pending' || status === 'error') ? (
+        <p className="text-xs text-muted-foreground">
+          Wait for the answer to finish, then confirm or edit this draft.
+        </p>
       ) : null}
       {isLeadUpdate ? (
         <p className="text-xs text-muted-foreground">

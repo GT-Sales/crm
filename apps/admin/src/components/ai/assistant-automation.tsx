@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button, Input, Textarea } from '@gt-sales/ui';
 import {
@@ -83,10 +83,31 @@ export function AssistantAutomation({
   });
   const names = namesFromCatalog(proposal.catalog);
   const dirty = JSON.stringify(draft) !== JSON.stringify(proposal.draft);
-  const expired = Date.now() >= Date.parse(proposal.expiresAt);
+  // UI-5: the card turns expired at its expiry, not only when it next renders.
+  const expiresAtMs = Date.parse(proposal.expiresAt);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const remaining = expiresAtMs - Date.now();
+    if (remaining <= 0) return;
+    const timer = window.setTimeout(
+      () => setNowMs(Date.now()),
+      Math.min(remaining + 50, 2 ** 31 - 1),
+    );
+    return () => window.clearTimeout(timer);
+  }, [expiresAtMs]);
+  const expired = nowMs >= expiresAtMs;
   const disabled = busy || cancelled || !!savedKey || expired;
   const href = `/w/${encodeURIComponent(workspaceSlug)}/automations/${savedKey ?? proposal.target?.key ?? ''}`;
   function failure(cause: unknown) {
+    if (cause instanceof BackendError && cause.code === 'automation_limit_reached')
+      return 'This site already has the most automations it can hold. Archive one before saving this draft.';
+    if (
+      cause instanceof BackendError &&
+      (cause.status === 410 || cause.details?.['reason'] === 'expired')
+    )
+      return 'This proposal expired. Ask AI to prepare a fresh one; nothing was saved.';
+    if (cause instanceof BackendError && cause.status === 404)
+      return 'This proposal is no longer available. Ask AI to prepare a fresh one.';
     if (cause instanceof BackendError && cause.code === 'revision_conflict')
       return 'This automation changed. Ask AI to reload it and prepare a fresh proposal; your edits remain visible.';
     if (

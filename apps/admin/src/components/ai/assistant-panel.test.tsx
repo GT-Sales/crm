@@ -616,7 +616,7 @@ describe('Ask AI panel', () => {
   });
 
   it.each(['error', 'disconnect', 'stop'] as const)(
-    'keeps completed history but excludes the partial answer after %s',
+    'keeps completed turns and drops the unanswered one after %s (UI-7)',
     async (failure) => {
       let call = 0;
       mocks.askAiAssistant.mockImplementation((_token, _workspace, _body, options) => {
@@ -650,13 +650,35 @@ describe('Ask AI panel', () => {
       await waitFor(() => expect(screen.getByRole('textbox').hasAttribute('disabled')).toBe(false));
       ask('Follow-up');
       await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalledTimes(3));
+      // The question without a finished answer is not sent: two questions in a
+      // row would reach the model.
       expect(mocks.askAiAssistant.mock.calls[2]?.[2].history).toEqual([
         { role: 'user', text: 'First question' },
         { role: 'assistant', text: 'Completed answer' },
-        { role: 'user', text: 'Second question' },
       ]);
     },
   );
+
+  it("sends each finished answer back with the server's signature (CHAT-2)", async () => {
+    const signature = 'a'.repeat(43);
+    mocks.askAiAssistant.mockImplementation(() =>
+      streamOf([
+        { type: 'text', text: 'Signed answer' },
+        { type: 'done', signature },
+      ]),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('First question');
+    await screen.findByText('Signed answer');
+    await waitFor(() => expect(screen.getByRole('textbox').hasAttribute('disabled')).toBe(false));
+    ask('Second question');
+    await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalledTimes(2));
+    expect(mocks.askAiAssistant.mock.calls[1]?.[2].history).toEqual([
+      { role: 'user', text: 'First question' },
+      { role: 'assistant', text: 'Signed answer', signature },
+    ]);
+  });
 
   it('shows and sends the open lead as context', async () => {
     mocks.askAiAssistant.mockImplementation(() => streamOf([{ type: 'done' }]));

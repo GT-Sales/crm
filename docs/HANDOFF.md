@@ -2543,3 +2543,49 @@ them before the deploy.
   dismissal and simulation when the panel is closed and opened again. The flow
   page saves an edit still inside the autosave delay when it is left, and a
   reload with an unsaved edit asks first.
+
+### AI and automation review, phase D (5 Nov 2026)
+
+Phase D of [the architecture review](review/2026-11-05-ai-and-automation-architecture-review.md),
+the last. Migration **0026** goes with it (docs/RUNBOOKS/database.md); it is
+safe in either order with the deploy.
+
+- **Flows run after the write (ENG-5).** A staff save, an AI-confirmed lead
+  update and a website submit match their flows inside the write (trigger,
+  `when`, loop and daily-run guards) but only queue each run: a wait at the
+  start marker `__start`, due now. The same request runs the queued starts
+  once the write has committed, each in its own transaction through the resume
+  path and as the write's actor, and returns what they wrote; the scheduler
+  runs any a crash left behind. Email composition and step writes leave the
+  lead lock and the website's submit transaction, and a failing flow can no
+  longer fail the write. A change request's approval still runs its flows
+  inline.
+- **Trusted history (CHAT-2, UI-7).** Each finished answer is signed (its
+  `done` part); the server replays only whole turns with a signed answer, so a
+  client cannot write the model's side and two questions never reach it in a
+  row. The admin sends the signatures and leaves out unanswered turns. Admin
+  tabs open across the deploy lose their earlier history once (unsigned).
+- **Prepared cards survive a failed explanation (CHAT-4).** Note, task, email
+  and lead-update cards are released with a note, as automation drafts were.
+- **Ask AI small items.** A named authoring output limit (CHAT-8), a per-member
+  budget on confirm and revise (CHAT-9), fixed-window wording (CHAT-10), long
+  chunks split (CHAT-11), per-tool progress labels (CHAT-12).
+- **Lead-update cards (ACT-3, ACT-4, ACT-5).** A card signs a digest of the
+  field's value (never the name or phone) and only a change to that field makes
+  it stale; the model may narrow assignees by name, and a card may name any
+  active member. Cards signed before the deploy no longer verify; staff ask
+  again.
+- **Authoring (AUTH-5 to AUTH-11).** Revisions keep step ids; the three-card
+  slot is taken before the row is written; 404 and 410 for missing and expired
+  proposals; simulation reads without locking; built-ins are seeded as the
+  system with an audit row (`automation.builtins_seeded`); NFKC member names;
+  receipts and expired proposals leave the 100-row cap.
+- **Engine (ENG-L1, L2, L3, L4, L7).** Runs keep their chain (0026); failed
+  resumes back off 5/10/20/40 minutes and a lost transaction still counts its
+  attempt; switching a flow on may carry `expectedRevision`; a step record that
+  does not fit fails the step, not the run.
+- **Admin (UI-2, 4, 5, 6, 8, 9, 10).** Card parts merge by id; Reload says it
+  discards edits; automation cards expire on time with specific errors; no
+  placeholder ids in new conditions or tasks; abort-signal fallbacks for older
+  browsers; Confirm and Edit wait, and say so, while an answer streams; timeout
+  and over-budget answers have their own advice.

@@ -2055,12 +2055,23 @@ export const automationRuns = appSchema
       triggerKind: text('trigger_kind'),
       depth: integer('depth').default(0).notNull(),
       parentRunId: uuid('parent_run_id'),
+      /**
+       * The flows this run's write came through, oldest first (ENG-L1): kept
+       * on the run so a long wait's loop guard survives its parents' pruning.
+       * Null on runs written before it, which walk `parent_run_id`.
+       */
+      chain: text('chain').array(),
       createdAt: createdAt(),
       updatedAt: updatedAt(),
       finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
     },
     (table) => [
       unique('automation_runs_workspace_id_id_unique').on(table.workspaceId, table.id),
+      check(
+        'automation_runs_chain_check',
+        // AUTOMATION_MAX_CHAIN_DEPTH in @gt-sales/contracts.
+        sql`${table.chain} is null or cardinality(${table.chain}) <= 3`,
+      ),
       foreignKey({
         name: 'automation_runs_workspace_lead_fk',
         columns: [table.workspaceId, table.leadId],

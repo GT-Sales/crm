@@ -77,6 +77,18 @@ At most three action drafts fit one turn. Each uses the same tool budget as read
 Cards and proposals are signed with `AI_ACTION_SIGNING_SECRET` (docs/ENV.md);
 rotating it invalidates outstanding signed cards.
 
+Card confirm and revise have their own budget: 30 per member per site per
+minute (`ai_card:` keys). Automation authoring turns may write up to
+`AI_ASSISTANT_LIMITS.maxAuthoringOutputTokens` (4,800) output tokens, since a
+draft is long JSON; other turns keep 1,200.
+
+History is replayed only as whole turns whose answer the server signed: each
+finished answer's `done` part carries an HMAC (with the signing secret, bound to
+the member and site) of the answer as history will send it, and an unsigned,
+altered or foreign answer is dropped with its question before the model sees
+it. No chat text is stored. Rotating `AI_ACTION_SIGNING_SECRET` empties the
+history of conversations open at the time (the next answer is signed again).
+
 Usage per site lives in `app.ai_turns` (migration 0024): one row per turn with
 the outcome, model, prompt version, duration, output tokens, tool calls, records
 and bytes, never any text. Rows are kept 90 days. For example, a site's last

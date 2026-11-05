@@ -5,13 +5,16 @@ import type { FlowStore } from '../automations/flow-store.js';
 import { AISDKError, tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
 import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
+import { signAssistantTurn, trustedHistory } from '../ai/history.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import type { AiTurnStore } from '../ai/turn-store.js';
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import {
   reviseAiActionRequestSchema,
   aiFollowUpSchema,
   aiAutomationProposalSchema,
+  aiActionProposalSchema,
+  aiAssistantHistoryText,
   type AiFollowUp,
   AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
@@ -220,6 +223,31 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   }
 }
 
+/** Members a lead-update preview may list: the contract's 100 choices, Unassigned included. */
+const AI_ASSIGNEE_CHOICES_MAX = 99;
+
+/** Confirm and revise requests per member per site per minute (CHAT-9). */
+const AI_CARD_REQUESTS_PER_MINUTE = 30;
+
+/** CHAT-12: what the panel says while an action or automation tool runs. */
+const CARD_PROGRESS_LABELS: Readonly<Record<string, string>> = {
+  prepareNote: 'Preparing a note for review',
+  prepareTask: 'Preparing a task for review',
+  prepareEmail: 'Preparing an email for review',
+  getLeadUpdateOptions: 'Checking the lead’s choices',
+  prepareLeadUpdate: 'Preparing a lead change for review',
+  listAutomations: 'Reading the automations',
+  getAutomation: 'Reading the automation',
+  getAutomationCatalog: 'Checking what automations can use',
+  getAutomationRuns: 'Reading recent runs',
+  proposeAutomationCreate: 'Drafting an automation for review',
+  proposeAutomationEdit: 'Drafting automation changes for review',
+  askFollowUp: 'Preparing a question',
+};
+
+/** The longest text part the stream sends; a longer provider chunk is split. */
+const AI_TEXT_PART_CHARS = 8_000;
+
 /** How long a chat request id stays claimed in the shared limiter. */
 export const AI_REPLAY_WINDOW_SECONDS = 3600;
 
@@ -238,26 +266,62 @@ export function reportableAssistantError(error: unknown, code: string): unknown 
 
 export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependencies): Router {
   const router = Router();
+
+  /**
+   * CHAT-9: confirm and revise get a per-member budget like the chat's, so an
+   * office behind one address does not share the staff limiter's. True when
+   * the request was refused (the limiter said no, or could not be reached).
+   */
+  async function cardLimitRefused(
+    req: Request,
+    res: Response,
+    workspaceId: string,
+    actorId: string,
+  ): Promise<boolean> {
+    let limit: RateLimitResult;
+    try {
+      limit = await dependencies.rateLimit({
+        bucketKey: `ai_card:${actorId}:${workspaceId}`,
+        windowSeconds: 60,
+        maxCount: AI_CARD_REQUESTS_PER_MINUTE,
+      });
+    } catch (error) {
+      dependencies.reportFailure(req, error);
+      sendDomainError(res, req.id, 'ai_unavailable', 503);
+      return true;
+    }
+    if (limit.allowed) return false;
+    res.setHeader('retry-after', String(limit.retryAfterSeconds));
+    sendDomainError(res, req.id, 'ai_rate_limited', 429);
+    return true;
+  }
   const previewEmail = dependencies.work?.previewAiEmail?.bind(dependencies.work);
   const leadUpdatePreview = async (
     scope: Scope,
     leadId: string,
     field: import('../leads/work-store.js').AiLeadUpdateDraft['field'],
+    options: { search?: string; limit?: number } = {},
   ) => {
     const preview = await dependencies.work?.previewAiLeadUpdate?.({ ...scope, leadId, field });
     if (!preview) return undefined;
     if (field === 'assignedActorId') {
-      const members = ((await dependencies.listAssignees?.(scope)) ?? []).slice(0, 24);
-      preview.choices = [
-        { value: null, label: 'Unassigned' },
-        ...members.map((member) => ({
-          value: member.actorId,
-          label:
-            member.displayName || (member.actorId === scope.actorId ? 'You' : 'Unnamed member'),
-        })),
-      ];
+      // ACT-4: every active member, labelled; the model's list is narrowed by
+      // a name search and capped, but a card may name any of them, and the
+      // current assignee is never called "Former" while still a member.
+      const all = ((await dependencies.listAssignees?.(scope)) ?? []).map((member) => ({
+        value: member.actorId,
+        label: member.displayName || (member.actorId === scope.actorId ? 'You' : 'Unnamed member'),
+      }));
+      const needle = options.search?.normalize('NFKC').trim().toLowerCase();
+      const matching = needle
+        ? all.filter((choice) => choice.label.normalize('NFKC').toLowerCase().includes(needle))
+        : all;
+      const limit = Math.min(options.limit ?? AI_ASSIGNEE_CHOICES_MAX, AI_ASSIGNEE_CHOICES_MAX);
+      preview.choices = [{ value: null, label: 'Unassigned' }, ...matching.slice(0, limit)];
       preview.beforeLabel =
-        preview.choices.find((choice) => choice.value === preview.before)?.label ?? 'Former member';
+        preview.before === null
+          ? 'Unassigned'
+          : (all.find((choice) => choice.value === preview.before)?.label ?? 'Former member');
     }
     return preview;
   };
@@ -360,6 +424,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'ai_unavailable', 503);
         return;
       }
+      if (await cardLimitRefused(req, res, workspaceId.data, actor.actorId)) return;
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const original = verifyAiAction(body.data.token, config.signingKey, scope, now());
       if (
@@ -451,6 +516,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'ai_unavailable', 503);
         return;
       }
+      if (await cardLimitRefused(req, res, workspaceId.data, actor.actorId)) return;
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const action = verifyAiAction(body.data.token, config.signingKey, scope, now());
       if (!action) {
@@ -469,7 +535,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return true;
       };
       if (action.draft.kind === 'lead_update') {
-        if (!dependencies.work.confirmAiLeadUpdate || !action.leadUpdateContext) {
+        if (!dependencies.work.confirmAiLeadUpdate || action.leadUpdateBefore === undefined) {
           sendDomainError(res, req.id, 'ai_unavailable', 503);
           return;
         }
@@ -479,7 +545,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           draft: action.draft,
           creationId: rootId,
           aiCardId: action.id,
-          version: action.leadUpdateContext.version,
+          before: action.leadUpdateBefore,
         });
         if (outcome.status === 'refused') {
           // The same answer a staff edit gets: which detail or documents the
@@ -740,7 +806,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               scope,
               site,
               key: dependencies.config.signingKey,
-              leadUpdatePreview: (leadId, field) => wait(leadUpdatePreview(scope, leadId, field)),
+              leadUpdatePreview: (leadId, field, options) =>
+                wait(leadUpdatePreview(scope, leadId, field, options)),
               reads: dependencies.reads,
               emailPreview: previewEmail
                 ? (leadId) => wait(previewEmail({ ...scope, leadId, requestId: req.id }))
@@ -798,11 +865,45 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const engine = dependencies.engine;
       const stream = createUIMessageStream({
         execute: async ({ writer }) => {
+          // The answer as the client will hold it, for its history signature.
+          let answered = '';
           const writePart = (part: AiStreamPart) => {
+            if (part.type === 'text') {
+              answered += part.text;
+              // CHAT-11: a provider chunk over the part limit goes out in pieces.
+              const characters = Array.from(part.text);
+              for (let at = 0; at < characters.length; at += AI_TEXT_PART_CHARS) {
+                writer.write({
+                  type: 'data-assistant',
+                  data: aiStreamPartSchema.parse({
+                    type: 'text',
+                    text: characters.slice(at, at + AI_TEXT_PART_CHARS).join(''),
+                  }),
+                  transient: true,
+                });
+              }
+              return;
+            }
             writer.write({
               type: 'data-assistant',
               data: aiStreamPartSchema.parse(part),
               transient: true,
+            });
+          };
+          // CHAT-2: the finished answer is signed so the next turn can replay it.
+          const writeDone = () => {
+            const key = dependencies.config.signingKey;
+            writePart({
+              type: 'done',
+              ...(key === undefined
+                ? {}
+                : {
+                    signature: signAssistantTurn(
+                      key,
+                      scope,
+                      aiAssistantHistoryText({ text: answered, followUp }),
+                    ),
+                  }),
             });
           };
           writePart({ type: 'progress', label: 'Getting ready' });
@@ -855,8 +956,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 }),
           });
           const openLeadData = leadHint === undefined ? undefined : openLeadDataBlock(leadHint);
+          // CHAT-2: only whole turns whose answer this server signed are replayed.
+          const history = trustedHistory(body.history, dependencies.config.signingKey, scope);
           const messages = [
-            ...body.history.map((message) => ({ role: message.role, text: message.text })),
+            ...history.messages,
             {
               role: 'user' as const,
               text:
@@ -875,7 +978,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               system,
               messages,
               automationAuthoring: automationTools !== undefined,
-              hasPreparedAutomation: () => (automationTools?.proposals.length ?? 0) > 0,
+              // CHAT-4: a turn that ends on a prepared card's tool call is done.
+              hasPreparedDraft: () =>
+                (automationTools?.proposals.length ?? 0) > 0 ||
+                (actionTools?.proposals.length ?? 0) > 0,
               tools: {
                 ...toolset.definitions,
                 ...actionTools?.definitions,
@@ -909,11 +1015,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                     type: 'progress',
                     label: isToolName(event.toolName)
                       ? PROGRESS_LABELS[event.toolName]
-                      : event.toolName === 'prepareNote'
-                        ? 'Preparing a note for review'
-                        : event.toolName === 'prepareTask'
-                          ? 'Preparing a task for review'
-                          : 'Checking the CRM',
+                      : (CARD_PROGRESS_LABELS[event.toolName] ?? 'Checking the CRM'),
                   });
                   break;
                 case 'finish':
@@ -977,7 +1079,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               )
                 writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
               if (followUp) writePart({ type: 'follow_up', followUp });
-              writePart({ type: 'done' });
+              writeDone();
             }
           } catch (error) {
             if (revoked || error instanceof AssistantAccessRevokedError) {
@@ -998,19 +1100,24 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               outcome = 'cancelled';
             } else {
               failureCode = error instanceof AssistantProviderError ? error.code : 'internal_error';
-              const ready = aiAutomationProposalSchema
+              // CHAT-4: cards already prepared (signed drafts that save nothing
+              // until confirmed) are released with a note, not lost with the turn.
+              const readyAutomations = aiAutomationProposalSchema
                 .array()
                 .max(3)
                 .safeParse(automationTools?.proposals ?? []);
-              if (ready.success && ready.data.length > 0) {
+              const readyActions = aiActionProposalSchema
+                .array()
+                .max(3)
+                .safeParse(actionTools?.proposals ?? []);
+              const automations = readyAutomations.success ? readyAutomations.data : [];
+              const actions = readyActions.success ? readyActions.data : [];
+              if (automations.length > 0 || actions.length > 0) {
                 try {
                   const finalAccess = await wait(
                     dependencies.loadAccess(actor.actorId, workspaceId.data),
                   );
-                  if (
-                    !decideAiAccess(finalAccess).allowed ||
-                    !decideAccess(finalAccess, 'integration.manage').allowed
-                  ) {
+                  if (!decideAiAccess(finalAccess).allowed) {
                     outcome = 'access_lost';
                     writePart({
                       type: 'error',
@@ -1019,14 +1126,23 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                     });
                     return;
                   }
-                  writePart({
-                    type: 'text',
-                    text: '\n\nThe explanation could not finish, but a draft is ready for your review. Nothing has been saved.',
-                  });
-                  writePart({ type: 'automation_proposals', proposals: ready.data });
-                  writePart({ type: 'done' });
-                  recoveredDraft = true;
-                  outcome = 'completed';
+                  const releaseActions =
+                    actions.length > 0 && decideAccess(finalAccess, 'lead.manage').allowed;
+                  const releaseAutomations =
+                    automations.length > 0 &&
+                    decideAccess(finalAccess, 'integration.manage').allowed;
+                  if (releaseActions || releaseAutomations) {
+                    writePart({
+                      type: 'text',
+                      text: '\n\nThe explanation could not finish, but a draft is ready for your review. Nothing has been saved.',
+                    });
+                    if (releaseActions) writePart({ type: 'actions', actions });
+                    if (releaseAutomations)
+                      writePart({ type: 'automation_proposals', proposals: automations });
+                    writeDone();
+                    recoveredDraft = true;
+                    outcome = 'completed';
+                  }
                 } catch {
                   // A failed access check or invalid stream must not release a card.
                 }

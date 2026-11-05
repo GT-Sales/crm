@@ -828,6 +828,23 @@ select has_table_privilege('app_runtime', 'app.ai_turns', 'delete');            
 select proname, prosecdef from pg_proc where proname = 'automation_overdue_sites'; -- t
 ```
 
+## 0026_automation_run_chain (2026-11-05)
+
+Phase D of the AI and automation review (ENG-L1). One nullable column,
+`automation_runs.chain text[]` (the flows a run's write came through, at most
+three, checked by `automation_runs_chain_check`). New runs write it; a resume
+reads it and falls back to walking `parent_run_id` for runs written before, so
+the deploy and the migration may go in either order. Metadata-only: no table
+rewrite, no backfill. Rollback: `ALTER TABLE app.automation_runs DROP COLUMN
+chain;` after reverting the code.
+
+- **Applied in production 2026-11-05** through the Supabase tool with its
+  Drizzle tracker row (hash
+  `22874a2caa5ce865b58ac9c01630017fec1698798945a29f45a68eaf1bb8c240`, `when`
+  `1793908019352`). Verified: `chain` is `text[]`, the check exists and
+  `app_runtime` may insert it. The Supabase tracker also lists an older,
+  unrelated `0026_orders_billing_contract`; only the name prefix is shared.
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

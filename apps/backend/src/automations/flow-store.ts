@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
@@ -150,6 +152,7 @@ export interface FlowStore {
     ctx: WriteScope,
     key: AutomationKey,
     enabled: boolean,
+    expectedRevision?: number,
   ): Promise<FlowStoreOutcome<StoredFlow>>;
   archive(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>>;
   restore(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>>;
@@ -436,8 +439,16 @@ async function audit(
  * (`on conflict do nothing`, then the rows still missing a version locked).
  * Never called in a move or a submit.
  */
+/**
+ * Who seeds a site's built-in flows (ENG-L3, AUTH-9): the system, not
+ * whoever first opened Automations (a viewer) or asked Ask AI about them.
+ * One audit row records the seeding and who set it off.
+ */
+export const BUILT_IN_SEED_ACTOR_ID = '00000000-0000-4000-8000-0000000000b1';
+
 export async function ensureBuiltInFlows(tx: TenantTransaction, scope: Scope): Promise<void> {
-  const { workspaceId, actorId } = scope;
+  const { workspaceId } = scope;
+  const actorId = BUILT_IN_SEED_ACTOR_ID;
   const existing = await tx
     .select({
       key: automations.key,
@@ -455,6 +466,7 @@ export async function ensureBuiltInFlows(tx: TenantTransaction, scope: Scope): P
 
   const present = new Set(existing.map((row) => row.key));
   const missing = BUILT_IN_AUTOMATION_KEYS.filter((key) => !present.has(key));
+  const seeded: string[] = [...missing];
   if (missing.length > 0) {
     await tx
       .insert(automations)
@@ -488,6 +500,7 @@ export async function ensureBuiltInFlows(tx: TenantTransaction, scope: Scope): P
     .for('no key update');
   for (const row of unversioned) {
     if (!isBuiltInAutomationKey(row.key)) continue;
+    if (!seeded.includes(row.key)) seeded.push(row.key);
     const version = await nextVersionNumber(tx, workspaceId, row.id);
     const [saved] = await tx
       .insert(automationVersions)
@@ -519,6 +532,19 @@ export async function ensureBuiltInFlows(tx: TenantTransaction, scope: Scope): P
           isNull(automations.name),
         ),
       );
+  }
+
+  if (seeded.length > 0) {
+    await tx.insert(auditEvents).values({
+      workspaceId,
+      actorId,
+      actorLabel: 'system',
+      action: 'automation.builtins_seeded',
+      entity: 'workspace',
+      entityId: workspaceId,
+      requestId: randomUUID(),
+      after: { keys: seeded, openedBy: scope.actorId },
+    });
   }
 }
 
@@ -1206,6 +1232,7 @@ export class DatabaseFlowStore implements FlowStore {
     ctx: WriteScope,
     key: AutomationKey,
     enabled: boolean,
+    expectedRevision?: number,
   ): Promise<FlowStoreOutcome<StoredFlow>> {
     return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
       await ensureBuiltInFlows(tx, ctx);
@@ -1214,6 +1241,10 @@ export class DatabaseFlowStore implements FlowStore {
       const locked = await lockFlow(tx, ctx.workspaceId, key);
       if (!locked) return { status: 'not_found' };
       if (locked.enabled === enabled) return this.okFlow(tx, ctx.workspaceId, key);
+      // ENG-L4: switching on checks the revision the caller saw; switching
+      // off never waits on it.
+      if (enabled && expectedRevision !== undefined && locked.revision !== expectedRevision)
+        return { status: 'revision_conflict' };
       if (enabled && locked.archived) return { status: 'archived' };
       if (enabled && locked.activeVersionId === null) return { status: 'no_active_version' };
       await tx

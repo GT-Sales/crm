@@ -115,6 +115,22 @@ describe('model automation proposal normalization', () => {
       ),
     ).toThrow(MemberChoiceError);
   });
+  it('matches member names as people read them (AUTH-10)', () => {
+    const result = normalizeAutomationProposal(
+      proposal([{ kind: 'assign_lead', actorId: '  ＡＬＥＸ ' }]),
+      ME,
+      [...members, { actorId: '28000000-0000-4000-8000-000000009403', displayName: 'José  Silva' }],
+    );
+    expect(result.draft.definition.steps[0]).toMatchObject({ actorId: OTHER });
+    const jose = normalizeAutomationProposal(
+      proposal([{ kind: 'assign_lead', actorId: 'jose\u0301 silva' }]),
+      ME,
+      [...members, { actorId: '28000000-0000-4000-8000-000000009403', displayName: 'José  Silva' }],
+    );
+    expect(jose.draft.definition.steps[0]).toMatchObject({
+      actorId: '28000000-0000-4000-8000-000000009403',
+    });
+  });
   it('preserves existing step IDs and never defaults reassignment on', () => {
     const result = normalizeAutomationProposal(
       {

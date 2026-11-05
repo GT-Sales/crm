@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import {
@@ -48,7 +50,7 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 
-import { fireFlows, type FlowSiteHolder } from '../automations/engine.js';
+import { fireFlows, runQueuedStarts, type FlowSiteHolder } from '../automations/engine.js';
 import { automationLeadOf } from '../automations/run.js';
 import { taskDueDay, writeTimers } from '../automations/timers.js';
 import type { StaffNotificationEnvironment } from '../automations/staff-notification.js';
@@ -237,7 +239,8 @@ export interface LeadWorkStore {
     input: WriteScope & {
       draft: AiLeadUpdateDraft;
       creationId: string;
-      version: string;
+      /** The digest of the field's value the card was prepared against (ACT-3, ACT-5). */
+      before: string;
       aiCardId?: string;
     },
   ): Promise<AiLeadUpdateConfirmOutcome>;
@@ -732,6 +735,11 @@ export interface LeadUpdateContext {
   staffNotifications?: StaffNotificationEnvironment;
   /** A flow's own write passes its write's list of started runs (counted once, at the end). */
   startedRuns?: string[];
+  /**
+   * ENG-5: a person's write collects the runs its move starts here; they run
+   * after the write commits (`runQueuedStarts`), out of its lead lock.
+   */
+  queued?: string[];
 }
 
 /**
@@ -1028,6 +1036,7 @@ export async function applyLeadUpdate(
               ? { staffNotifications: context.staffNotifications }
               : {}),
             ...(context.startedRuns ? { startedRuns: context.startedRuns } : {}),
+            ...(context.queued && !automation ? { queued: context.queued } : {}),
           },
           [
             ...(rescue
@@ -1065,6 +1074,17 @@ export async function applyLeadUpdate(
     activities: newestFirst([...inserted.map(insertedActivity), ...fired.activities]),
     ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
   };
+}
+
+/**
+ * A lead field's value as an AI card carries it (ACT-5): a digest, so the
+ * bearer token never holds the customer's name or phone, and confirmation
+ * can still tell whether the value changed since the card was prepared.
+ */
+export function aiLeadValueDigest(value: string | null | undefined): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value ?? null))
+    .digest('hex');
 }
 
 type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
@@ -1133,10 +1153,46 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     });
   }
 
-  updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome> {
-    return this.database.withTenantTx(input, (tx) =>
-      applyLeadUpdate(tx, { emailEnvironment: this.emailEnvironment }, input),
+  async updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome> {
+    const queued: string[] = [];
+    const outcome = await this.database.withTenantTx(input, (tx) =>
+      applyLeadUpdate(tx, { emailEnvironment: this.emailEnvironment, queued }, input),
     );
+    return this.afterQueuedFlows(input, outcome, queued);
+  }
+
+  /**
+   * ENG-5: the flows a committed move started run now, each in its own
+   * transaction, and the response carries what they wrote and the lead as
+   * they left it. A flow that fails here is retried by the scheduler.
+   */
+  private async afterQueuedFlows(
+    input: WriteScope & { leadId: string; catalog: PropertyCatalog },
+    outcome: UpdateLeadWorkOutcome,
+    queued: readonly string[],
+  ): Promise<UpdateLeadWorkOutcome> {
+    if (outcome.status !== 'updated' || queued.length === 0) return outcome;
+    const ran = await runQueuedStarts(
+      this.database,
+      {
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        requestId: input.requestId,
+        environment: this.emailEnvironment,
+        catalog: input.catalog,
+      },
+      queued,
+    );
+    const lead = await this.database.withTenantTx(input, (tx) =>
+      requireDetail(tx, input.workspaceId, input.leadId, input.catalog),
+    );
+    const emailSkipped = [...(outcome.emailSkipped ?? []), ...ran.skipped].slice(0, 200);
+    return {
+      ...outcome,
+      lead,
+      activities: newestFirst([...outcome.activities, ...ran.activities]),
+      ...(emailSkipped.length > 0 ? { emailSkipped } : {}),
+    };
   }
 
   markOpened(
@@ -1302,10 +1358,11 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     input: WriteScope & {
       draft: AiLeadUpdateDraft;
       creationId: string;
-      version: string;
+      before: string;
       aiCardId?: string;
     },
   ): Promise<AiLeadUpdateConfirmOutcome> {
+    const queued: string[] = [];
     return this.database
       .withTenantTx(input, async (tx): Promise<AiLeadUpdateConfirmOutcome> => {
         const lead = await lockLead(tx, input.workspaceId, input.draft.leadId);
@@ -1324,11 +1381,19 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
             ),
           );
         if (receipt) return { status: 'saved', recordId: input.draft.leadId };
+        // ACT-3: only a change to the field itself makes the card stale; a
+        // note, a task or another card on the lead does not.
         const [row] = await tx
-          .select({ version: sql<string>`updated_at::text` })
+          .select({
+            stage: leads.stage,
+            assignedActorId: leads.assignedActorId,
+            fullName: leads.fullName,
+            phone: leads.phone,
+          })
           .from(leads)
           .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.draft.leadId)));
-        if (row?.version !== input.version) return { status: 'conflict' };
+        if (!row || aiLeadValueDigest(row[input.draft.field]) !== input.before)
+          return { status: 'conflict' };
         const { field, value } = input.draft;
         if (field === 'assignedActorId' && value !== null && !z.uuid().safeParse(value).success)
           return { status: 'invalid' };
@@ -1339,7 +1404,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           return { status: 'invalid' };
         const outcome = await applyLeadUpdate(
           tx,
-          { emailEnvironment: this.emailEnvironment, aiActionId: input.creationId },
+          { emailEnvironment: this.emailEnvironment, aiActionId: input.creationId, queued },
           {
             ...input,
             leadId: input.draft.leadId,
@@ -1365,6 +1430,23 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           after: { field, ...(input.aiCardId ? { aiCardId: input.aiCardId } : {}) },
         });
         return { status: 'saved', recordId: input.draft.leadId };
+      })
+      .then(async (outcome) => {
+        // ENG-5: the move's flows run once the confirmation has committed.
+        if (outcome.status === 'saved' && queued.length > 0) {
+          await runQueuedStarts(
+            this.database,
+            {
+              workspaceId: input.workspaceId,
+              actorId: input.actorId,
+              requestId: input.requestId,
+              environment: this.emailEnvironment,
+              catalog: codePropertyCatalog,
+            },
+            queued,
+          );
+        }
+        return outcome;
       })
       .catch((error: unknown): AiLeadUpdateConfirmOutcome => {
         if (error instanceof AiLeadUpdateRefused)

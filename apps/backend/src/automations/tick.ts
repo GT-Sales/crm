@@ -10,6 +10,7 @@ import type { SchedulerRunInput } from '../scheduler.js';
 import {
   errorCode,
   fireTimer,
+  recordResumeFailure,
   resumeRun,
   type FireFlowsContext,
   type ItemHooks,
@@ -216,6 +217,10 @@ export async function runAutomationTick(
       } catch (error) {
         siteCounts.failed += 1;
         logItemFailure('wait', id, error);
+        // ENG-L2: the attempt still counts, recorded in a transaction of its own.
+        await database
+          .withTenantTx(scope, (tx) => recordResumeFailure(tx, workspaceId, id, now))
+          .catch((recordError: unknown) => logItemFailure('wait', id, recordError));
       }
     }
     for (const id of due.timers) {

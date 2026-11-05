@@ -126,6 +126,9 @@ export const automationModelProposalSchema = z
   })
   .strict();
 const record = z.record(z.string(), z.unknown());
+function comparableName(name: string): string {
+  return name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
 export class MemberChoiceError extends Error {
   constructor(readonly choices: readonly string[]) {
     super('Choose one available staff member by name. No UUID is needed.');
@@ -144,9 +147,12 @@ export function normalizeAutomationProposal(
       if (members.some((m) => m.actorId === actorId)) return actorId;
       throw new MemberChoiceError(members.map((m) => m.displayName ?? 'Unnamed member'));
     }
+    // AUTH-10: names compare as people read them: compatibility-normalised,
+    // case-folded, inner whitespace collapsed.
+    const wanted = comparableName(value);
     const matches = members.filter(
       (m) =>
-        m.actorId === value || m.displayName?.trim().toLowerCase() === value.trim().toLowerCase(),
+        m.actorId === value || (m.displayName !== null && comparableName(m.displayName) === wanted),
     );
     if (matches.length !== 1)
       throw new MemberChoiceError(

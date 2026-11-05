@@ -42,6 +42,8 @@ export function createAutomationTools(input: {
 }) {
   const proposals: AiAutomationProposal[] = [];
   const prepared = new Map<string, AiAutomationProposal>();
+  // Drafts being written now (AUTH-6), counted toward the three-card limit.
+  const preparing = new Set<string>();
   const schemas = {
     listAutomations: z
       .object({
@@ -223,25 +225,29 @@ export function createAutomationTools(input: {
               step.id = 'new_step';
             });
           const proposalKey = JSON.stringify(identity);
-          if (prepared.has(proposalKey))
+          if (prepared.has(proposalKey) || preparing.has(proposalKey))
             return JSON.stringify({
               status: 'confirmation_required',
               message:
                 'This draft is already prepared. Wait for the person to review the card; do not prepare it again.',
             });
-          const proposal = await input.store.prepare(
-            { ...input.scope, requestId: crypto.randomUUID() },
-            normalized,
-            input.site.name,
-            input.key,
-            input.now(),
-          );
-          if (prepared.has(proposalKey))
-            return JSON.stringify({
-              status: 'confirmation_required',
-              message: 'This draft is already prepared for review.',
-            });
-          if (proposals.length >= 3) return JSON.stringify({ status: 'limit_reached' });
+          // AUTH-6: the slot and the draft are taken before the row is written,
+          // so a parallel call is turned away first and no row is left orphaned.
+          if (proposals.length + preparing.size >= 3)
+            return JSON.stringify({ status: 'limit_reached' });
+          preparing.add(proposalKey);
+          let proposal: AiAutomationProposal;
+          try {
+            proposal = await input.store.prepare(
+              { ...input.scope, requestId: crypto.randomUUID() },
+              normalized,
+              input.site.name,
+              input.key,
+              input.now(),
+            );
+          } finally {
+            preparing.delete(proposalKey);
+          }
           prepared.set(proposalKey, proposal);
           proposals.push(proposal);
           result = {

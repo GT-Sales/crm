@@ -523,7 +523,8 @@ describe('staff automation flow routes', () => {
       expectedRevision: 2,
       mayChangeLeads: true,
     });
-    expect(flows.setEnabled).toHaveBeenCalledWith(writeScope, FLOW, true);
+    // No expectedRevision was sent, so none is checked (ENG-L4).
+    expect(flows.setEnabled).toHaveBeenCalledWith(writeScope, FLOW, true, undefined);
   });
 
   it('integration management without lead.manage activates an email-only flow, not a lead-changing one', async () => {

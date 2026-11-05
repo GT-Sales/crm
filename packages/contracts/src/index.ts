@@ -752,6 +752,7 @@ export {
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiHistoryMessageSchema,
+  aiAssistantHistoryText,
   aiPeriodSchema,
   aiSourceSchema,
   aiStreamErrorCodeSchema,

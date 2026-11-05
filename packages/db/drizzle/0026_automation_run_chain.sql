@@ -1,0 +1,2 @@
+ALTER TABLE "app"."automation_runs" ADD COLUMN "chain" text[];--> statement-breakpoint
+ALTER TABLE "app"."automation_runs" ADD CONSTRAINT "automation_runs_chain_check" CHECK ("app"."automation_runs"."chain" is null or cardinality("app"."automation_runs"."chain") <= 3);

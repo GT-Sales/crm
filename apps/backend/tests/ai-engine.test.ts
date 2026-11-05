@@ -183,7 +183,7 @@ it('delivers a prepared automation at the step limit without treating it as a fa
       }),
     },
     automationAuthoring: true,
-    hasPreparedAutomation: () => prepared,
+    hasPreparedDraft: () => prepared,
     signal: new AbortController().signal,
   }))
     events.push(event);

@@ -318,6 +318,35 @@ import {
  */
 
 /** Thrown for any non-2xx response. Carries the contract error code, HTTP status and request id. */
+
+/**
+ * UI-8: `AbortSignal.timeout` and `AbortSignal.any` are missing from Safari
+ * before 17.4 and Firefox before 124; these use them when present and an
+ * equivalent `AbortController` otherwise.
+ */
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  const controller = new AbortController();
+  setTimeout(
+    () => controller.abort(new DOMException('The request timed out.', 'TimeoutError')),
+    ms,
+  );
+  return controller.signal;
+}
+
+function anySignal(signals: readonly AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([...signals]);
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 export class BackendError extends Error {
   constructor(
     readonly code: ApiErrorCode | 'internal_error',
@@ -803,7 +832,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
       body: config.body === undefined ? undefined : JSON.stringify(config.body),
       cache: 'no-store',
       redirect: 'error',
-      signal: config.signal ?? AbortSignal.timeout(timeoutMs),
+      signal: config.signal ?? timeoutSignal(timeoutMs),
     });
 
     // An edge 502/504, an unknown path (Express's HTML 404) or an empty body is
@@ -866,7 +895,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
     const url = new URL(path, origin);
     assertApiPath(url, origin);
     const requestId = globalThis.crypto.randomUUID();
-    const signals: AbortSignal[] = [AbortSignal.timeout(chatTimeoutMs)];
+    const signals: AbortSignal[] = [timeoutSignal(chatTimeoutMs)];
     if (streamOptions?.signal) signals.push(streamOptions.signal);
 
     const response = await doFetch(url, {
@@ -880,7 +909,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
       body: JSON.stringify(aiChatRequestSchema.parse(body)),
       cache: 'no-store',
       redirect: 'error',
-      signal: AbortSignal.any(signals),
+      signal: anySignal(signals),
     });
 
     const contentType = response.headers.get('content-type') ?? '';

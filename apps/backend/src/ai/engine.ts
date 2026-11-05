@@ -34,7 +34,8 @@ export type EngineEvent =
 export interface EngineInput {
   readonly system: string;
   readonly automationAuthoring?: boolean;
-  readonly hasPreparedAutomation?: () => boolean;
+  /** Whether the turn already holds a signed card (an action or an automation draft). */
+  readonly hasPreparedDraft?: () => boolean;
   readonly messages: readonly { role: 'user' | 'assistant'; text: string }[];
   readonly tools: ToolSet;
   readonly signal: AbortSignal;
@@ -88,7 +89,9 @@ export function createGatewayEngine(
         tools: input.tools,
         // Five generations at most, the answer step included.
         stopWhen: stepCountIs(AI_ASSISTANT_LIMITS.maxModelSteps),
-        maxOutputTokens: input.automationAuthoring ? 4800 : AI_ASSISTANT_LIMITS.maxOutputTokens,
+        maxOutputTokens: input.automationAuthoring
+          ? AI_ASSISTANT_LIMITS.maxAuthoringOutputTokens
+          : AI_ASSISTANT_LIMITS.maxOutputTokens,
         // One automatic retry is allowed before any text has been shown; the
         // route never retries a partially streamed answer.
         maxRetries: 1,
@@ -125,9 +128,7 @@ export function createGatewayEngine(
               // A validated, signed draft remains reviewable when the last allowed
               // generation ends with a successful tool call rather than prose.
               const preparedAtStepLimit =
-                part.finishReason === 'tool-calls' &&
-                input.automationAuthoring &&
-                input.hasPreparedAutomation?.() === true;
+                part.finishReason === 'tool-calls' && input.hasPreparedDraft?.() === true;
               if (
                 part.finishReason === 'error' ||
                 part.finishReason === 'length' ||
