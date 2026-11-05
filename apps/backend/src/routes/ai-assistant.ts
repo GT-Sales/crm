@@ -303,7 +303,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           undefined,
           Boolean(
             dependencies.work &&
-            dependencies.config.apiKey &&
+            dependencies.config.signingKey &&
             decideAccess(access, 'lead.manage').allowed,
           ),
           Boolean(
@@ -338,12 +338,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       const config = dependencies.config;
-      if (!config.enabled || !config.apiKey || !config.workspaceIds.has(workspaceId.data)) {
+      if (!config.enabled || !config.signingKey || !config.workspaceIds.has(workspaceId.data)) {
         sendDomainError(res, req.id, 'ai_unavailable', 503);
         return;
       }
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const original = verifyAiAction(body.data.token, config.apiKey, scope, now());
+      const original = verifyAiAction(body.data.token, config.signingKey, scope, now());
       if (
         !original ||
         original.draft.kind !== body.data.draft.kind ||
@@ -363,7 +363,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const tools = createActionProposalTools({
         scope,
         site,
-        key: config.apiKey,
+        key: config.signingKey,
         leadUpdatePreview: (leadId, field) => leadUpdatePreview(scope, leadId, field),
         reads: dependencies.reads,
         emailPreview: previewEmail
@@ -424,7 +424,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const config = dependencies.config;
       if (
         !config.enabled ||
-        !config.apiKey ||
+        !config.signingKey ||
         !config.workspaceIds.has(workspaceId.data) ||
         !dependencies.work
       ) {
@@ -432,7 +432,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const action = verifyAiAction(body.data.token, config.apiKey, scope, now());
+      const action = verifyAiAction(body.data.token, config.signingKey, scope, now());
       if (!action) {
         sendDomainError(res, req.id, 'invalid_request', 400);
         return;
@@ -667,12 +667,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const budget = new TurnBudget();
       const actionTools =
         dependencies.work &&
-        dependencies.config.apiKey &&
+        dependencies.config.signingKey &&
         decideAccess(access, 'lead.manage').allowed
           ? createActionProposalTools({
               scope,
               site,
-              key: dependencies.config.apiKey,
+              key: dependencies.config.signingKey,
               leadUpdatePreview: (leadId, field) => wait(leadUpdatePreview(scope, leadId, field)),
               reads: dependencies.reads,
               emailPreview: previewEmail
@@ -686,13 +686,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const automationTools =
         dependencies.automationAuthoring &&
         dependencies.flows &&
-        dependencies.config.apiKey &&
+        dependencies.config.signingKey &&
         dependencies.config.automationWorkspaceIds?.has(scope.workspaceId) &&
         decideAccess(access, 'integration.manage').allowed
           ? createAutomationTools({
               scope,
               site,
-              key: dependencies.config.apiKey,
+              key: dependencies.config.signingKey,
               flows: dependencies.flows,
               store: dependencies.automationAuthoring,
               loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),

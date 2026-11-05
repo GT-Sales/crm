@@ -163,6 +163,17 @@ export interface StaffRouteDependencies {
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
   const aiConfig = loadAiAssistantConfig();
+  // The deploy keeps working without the dedicated secret, but says so once.
+  if (aiConfig.enabled && aiConfig.signingKeySource !== 'dedicated') {
+    console.warn(
+      JSON.stringify({
+        event:
+          aiConfig.signingKey === undefined
+            ? 'ai_signing_secret_invalid'
+            : 'ai_signing_secret_missing',
+      }),
+    );
+  }
   return {
     sessionVerifier: defaultStaffSessionVerifier(),
     rateLimit: rateLimitHit,

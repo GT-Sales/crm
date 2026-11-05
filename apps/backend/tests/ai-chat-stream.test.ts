@@ -146,6 +146,7 @@ function config(overrides: Partial<AiAssistantConfig> = {}): AiAssistantConfig {
   return {
     enabled: true,
     apiKey: 'test-key-not-real',
+    signingKey: 'test-key-not-real',
     modelId: 'test/model',
     workspaceIds: new Set([WORKSPACE]),
     ...overrides,

@@ -35,6 +35,7 @@ async function setup(
       config: {
         enabled: true,
         apiKey: 'test-key',
+        signingKey: 'test-key',
         workspaceIds: new Set([SITE]),
         automationWorkspaceIds: new Set(options.enabled === false ? [] : [SITE]),
       },

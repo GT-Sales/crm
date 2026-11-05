@@ -49,7 +49,7 @@ export function createAiAutomationRoutes(
         const config = deps.config;
         if (
           !config.enabled ||
-          !config.apiKey ||
+          !config.signingKey ||
           !config.workspaceIds.has(workspace.data) ||
           !config.automationWorkspaceIds?.has(workspace.data) ||
           !deps.automationAuthoring
@@ -73,7 +73,7 @@ export function createAiAutomationRoutes(
           const body = aiAutomationTokenRequestSchema.parse(req.body);
           res.json(
             aiAutomationSaveResponseSchema.parse(
-              await store.save(scope, body.token, config.apiKey, now),
+              await store.save(scope, body.token, config.signingKey, now),
             ),
           );
         } else if (operation === 'revise') {
@@ -85,7 +85,7 @@ export function createAiAutomationRoutes(
           }
           res.json(
             aiAutomationProposalSchema.parse(
-              await store.revise(scope, body.token, body.draft, site.name, config.apiKey, now),
+              await store.revise(scope, body.token, body.draft, site.name, config.signingKey, now),
             ),
           );
         } else {
@@ -95,7 +95,7 @@ export function createAiAutomationRoutes(
               await simulateAutomation({
                 scope,
                 token: body.token,
-                key: config.apiKey,
+                key: config.signingKey,
                 now,
                 store,
                 scenario: body.scenario,
