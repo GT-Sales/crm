@@ -48,6 +48,73 @@ describe('model automation proposal normalization', () => {
       toAssignee: false,
     });
   });
+  it('resolves assignee conditions by name in the trigger and in branches (AUTH-1)', () => {
+    const result = normalizeAutomationProposal(
+      {
+        draft: {
+          name: 'Tell me when Alex gets a verified order',
+          definition: {
+            trigger: {
+              kind: 'stage_entered',
+              leadType: 'sim_order',
+              stage: 'verified',
+              when: {
+                match: 'all',
+                items: [
+                  { kind: 'assignee', op: 'is', actorId: 'Alex' },
+                  { match: 'any', items: [{ kind: 'assignee', op: 'is', actorId: 'me' }] },
+                ],
+              },
+            },
+            steps: [
+              {
+                kind: 'if_else',
+                condition: {
+                  match: 'all',
+                  items: [{ kind: 'assignee', op: 'is', actorId: 'Casey' }],
+                },
+                then: [{ kind: 'notify_staff', actorIds: ['me'] }],
+                else: [],
+              },
+            ],
+          },
+        },
+      },
+      ME,
+      members,
+    );
+    expect(result.draft.definition.trigger?.when).toEqual({
+      match: 'all',
+      items: [
+        { kind: 'assignee', op: 'is', actorId: OTHER },
+        { match: 'any', items: [{ kind: 'assignee', op: 'is', actorId: ME }] },
+      ],
+    });
+    expect(result.draft.definition.steps[0]).toMatchObject({
+      condition: { match: 'all', items: [{ kind: 'assignee', op: 'is', actorId: ME }] },
+    });
+  });
+  it('asks for a choice when an assignee condition names nobody on the site', () => {
+    expect(() =>
+      normalizeAutomationProposal(
+        {
+          draft: {
+            name: 'Unknown teammate',
+            definition: {
+              trigger: {
+                kind: 'lead_submitted',
+                leadTypes: ['sim_order'],
+                when: { match: 'all', items: [{ kind: 'assignee', op: 'is', actorId: 'Sarah' }] },
+              },
+              steps: [{ kind: 'notify_staff', actorIds: ['me'] }],
+            },
+          },
+        },
+        ME,
+        members,
+      ),
+    ).toThrow(MemberChoiceError);
+  });
   it('preserves existing step IDs and never defaults reassignment on', () => {
     const result = normalizeAutomationProposal(
       {

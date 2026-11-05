@@ -255,6 +255,90 @@ suite('AI automation proposals and atomic draft saves', () => {
     }
     expect(await counts()).toEqual(before);
   });
+  it('simulates stage moves through the live rules and keeps an owned lead without reassign (AUTH-2)', async () => {
+    const definition: FlowDraft = {
+      ...draft,
+      steps: [
+        // pending → activated is not a move SIM orders allow.
+        { id: 's_skip', kind: 'update_lead', change: { kind: 'stage', stage: 'activated' } },
+        { id: 's_verify', kind: 'update_lead', change: { kind: 'stage', stage: 'verified' } },
+        // verified → delivered is allowed but needs a courier and documents.
+        { id: 's_deliver', kind: 'update_lead', change: { kind: 'stage', stage: 'delivered' } },
+        { id: 's_assign', kind: 'assign_lead', actorId: ACTOR, reassign: false },
+      ],
+    };
+    const p = await prepare({ draft: { ...input.draft, definition } });
+    const result = await simulateAutomation(
+      {
+        scope,
+        token: p.token,
+        key,
+        now,
+        store,
+        scenario: {
+          leadType: 'sim_order',
+          stage: 'pending',
+          planId: null,
+          assignedActorId: ACTOR,
+          properties: {},
+        },
+      },
+      database,
+    );
+    expect(
+      result.steps.map(({ stepId, outcome, reason }) => ({ stepId, outcome, reason })),
+    ).toEqual([
+      { stepId: p.draft.definition.steps[0]?.id, outcome: 'skipped', reason: 'illegal_stage_move' },
+      { stepId: p.draft.definition.steps[1]?.id, outcome: 'done', reason: null },
+      {
+        stepId: p.draft.definition.steps[2]?.id,
+        outcome: 'skipped',
+        reason: 'dispatch_details_required',
+      },
+      { stepId: p.draft.definition.steps[3]?.id, outcome: 'skipped', reason: 'already_assigned' },
+    ]);
+  });
+  it('simulates an edit with the schema of the flow it edits (AUTH-3)', async () => {
+    const p = await prepare();
+    const saved = await store.save(scope, p.token, key, now);
+    const current = await flows.get(scope, saved.key);
+    if (!current?.draft) throw new Error('missing draft');
+    const edit = await prepare({
+      draft: { ...p.draft, name: 'Edited custom' },
+      target: { key: saved.key, expectedRevision: current.revision, base: 'draft' },
+    });
+    // A built-in's `main` step id is not valid in a custom flow. The loaded
+    // proposal is swapped (its digest would refuse a stored change), so only
+    // the schema the simulation picks can refuse it.
+    const [first, ...rest] = edit.draft.definition.steps;
+    if (!first) throw new Error('missing step');
+    vi.spyOn(store, 'load').mockResolvedValueOnce({
+      draft: {
+        ...edit.draft,
+        definition: { ...edit.draft.definition, steps: [{ ...first, id: 'main' }, ...rest] },
+      },
+      ...(edit.target ? { target: edit.target } : {}),
+    });
+    await expect(
+      simulateAutomation(
+        {
+          scope,
+          token: edit.token,
+          key,
+          now,
+          store,
+          scenario: {
+            leadType: 'sim_order',
+            stage: 'pending',
+            planId: null,
+            assignedActorId: null,
+            properties: {},
+          },
+        },
+        database,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid' });
+  });
   it('evaluates trigger conditions and reports uncovered branches without executing mismatches', async () => {
     const p = await prepare({
       draft: {

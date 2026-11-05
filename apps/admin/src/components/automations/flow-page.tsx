@@ -347,9 +347,19 @@ function FlowPageEditor({
     }
   }, [data?.detail, isDirty]);
 
+  // The draft an autosave is still waiting to send, for the unmount flush below.
+  const pendingDraftRef = useRef<FlowDraft | null>(null);
+  const persistDraftRef = useRef<((draft: FlowDraft) => Promise<unknown>) | null>(null);
+
+  // UI-3: leaving the page inside the autosave delay still saves the last
+  // edit, unless the draft is in conflict (Reload decides then).
   useEffect(
     () => () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      if (!autosaveTimerRef.current) return;
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      const pending = pendingDraftRef.current;
+      if (pending && !saveConflictRef.current) void persistDraftRef.current?.(pending);
     },
     [],
   );
@@ -415,6 +425,21 @@ function FlowPageEditor({
     },
     [accessToken, workspaceId, key, mutate],
   );
+  useEffect(() => {
+    persistDraftRef.current = persistDraft;
+  }, [persistDraft]);
+
+  // A tab closed or reloaded with an edit not yet saved asks first.
+  const unsaved = isDirty && (saveStatus === 'unsaved' || saveStatus === 'saving');
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [unsaved]);
 
   function beginAction(): boolean {
     if (actionBusyRef.current) return false;
@@ -443,7 +468,10 @@ function FlowPageEditor({
     setSaveStatus('unsaved');
     setSaveErrorText(undefined);
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    pendingDraftRef.current = nextDraft;
     autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
+      pendingDraftRef.current = null;
       void persistDraft(nextDraft);
     }, AUTOSAVE_DELAY_MS);
   }

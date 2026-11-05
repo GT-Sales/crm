@@ -2463,8 +2463,57 @@ export const aiAutomationProposals = appSchema
   )
   .enableRLS();
 
+/**
+ * One row per Ask AI turn: who, when, which model, how it ended and what it
+ * cost (CHAT-6). Counts only: never a prompt, history, tool input or answer.
+ * Pruned after 90 days by `prune_operational_rows`.
+ */
+export const aiTurns = appSchema
+  .table(
+    'ai_turns',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      actorId: uuid('actor_id').notNull(),
+      requestId: uuid('request_id').notNull(),
+      engine: text('engine').notNull(),
+      model: text('model'),
+      promptVersion: integer('prompt_version').notNull(),
+      outcome: text('outcome').notNull(),
+      failureCode: text('failure_code'),
+      durationMs: integer('duration_ms').notNull(),
+      outputTokens: integer('output_tokens').default(0).notNull(),
+      toolCalls: integer('tool_calls').default(0).notNull(),
+      records: integer('records').default(0).notNull(),
+      dataBytes: integer('data_bytes').default(0).notNull(),
+      recoveredDraft: boolean('recovered_draft').default(false).notNull(),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      index('ai_turns_workspace_created_idx').on(table.workspaceId, table.createdAt.desc()),
+      check(
+        'ai_turns_outcome_check',
+        sql`${table.outcome} in ('completed', 'cancelled', 'failed', 'access_lost')`,
+      ),
+      check(
+        'ai_turns_counts_check',
+        sql`${table.durationMs} >= 0 and ${table.outputTokens} >= 0 and ${table.toolCalls} >= 0 and ${table.records} >= 0 and ${table.dataBytes} >= 0`,
+      ),
+      check(
+        'ai_turns_text_check',
+        sql`length(${table.engine}) <= 20 and length(coalesce(${table.model}, '')) <= 200 and length(coalesce(${table.failureCode}, '')) <= 60`,
+      ),
+      tenantPolicy('ai_turns_tenant_policy', table.workspaceId),
+      backupReadPolicy('ai_turns'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
   aiAutomationProposals,
+  aiTurns,
   workspaces,
   memberships,
   roles,

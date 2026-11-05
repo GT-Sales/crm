@@ -133,6 +133,9 @@ export const AUTOMATION_REASONS = [
   // The member who activated the version is no longer on the site: the flow
   // still runs (as the scheduler), but its lead-changing steps cannot.
   'activator_unavailable',
+  // A wait or time trigger of the flow is two ticks past due: the scheduler
+  // is behind or does not run this site.
+  'work_overdue',
 ] as const;
 export const automationReasonSchema = z.enum(AUTOMATION_REASONS);
 export type AutomationReason = z.infer<typeof automationReasonSchema>;
@@ -566,6 +569,7 @@ export const FLOW_ISSUE_CODES = [
   'invalid_variable',
   'definition_invalid',
   'activator_unavailable',
+  'work_overdue',
 ] as const;
 export const flowIssueCodeSchema = z.enum(FLOW_ISSUE_CODES);
 export type FlowIssueCode = z.infer<typeof flowIssueCodeSchema>;

@@ -69,6 +69,7 @@ import { loadPlanOptions } from '../plans/options.js';
 import { loadPropertyCatalog } from '../properties/catalog.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
 import { cancelFlowWork, takeFlowSwitch } from './records.js';
+import { AUTOMATION_OVERDUE_AFTER_MS } from './schedule.js';
 import { loadFlowSite } from './site.js';
 
 /**
@@ -551,8 +552,16 @@ const DEFINITION_INVALID: FlowIssue = {
   ref: 'definition',
 };
 
-/** What makes a flow's active version unusable now: its first site issue, `definition_invalid`, or null. */
-export function flowAttention(flow: StoredFlow, site: FlowSite): FlowIssue | null {
+/**
+ * What needs someone about a flow now: its first site issue,
+ * `definition_invalid`, a departed activator, overdue waits or timers
+ * (`overdue` holds the ids of flows with work two ticks past due), or null.
+ */
+export function flowAttention(
+  flow: StoredFlow,
+  site: FlowSite,
+  overdue: ReadonlySet<string> = new Set(),
+): FlowIssue | null {
   if (!flow.activeVersion) return null;
   const definition = parsedActiveDefinition(flow);
   if (!definition) return DEFINITION_INVALID;
@@ -565,7 +574,21 @@ export function flowAttention(flow: StoredFlow, site: FlowSite): FlowIssue | nul
   if (activator !== null && !site.memberIds.has(activator)) {
     return { path: 'activatedBy', code: 'activator_unavailable', ref: '' };
   }
+  if (overdue.has(flow.id)) return { path: 'schedule', code: 'work_overdue', ref: '' };
   return null;
+}
+
+/** Flows of this site with a pending wait or timer two ticks past due (ENG-4, ENG-9). */
+async function overdueFlowIds(tx: TenantTransaction, workspaceId: string): Promise<Set<string>> {
+  const before = new Date(Date.now() - AUTOMATION_OVERDUE_AFTER_MS).toISOString();
+  const rows = await tx.execute<{ id: string }>(sql`
+    select automation_id as id from app.automation_waits
+    where workspace_id = ${workspaceId} and status = 'pending' and resume_at < ${before}::timestamptz
+    union
+    select automation_id from app.automation_timers
+    where workspace_id = ${workspaceId} and status = 'pending' and due_at < ${before}::timestamptz
+  `);
+  return new Set(rows.map((row) => row.id));
 }
 
 /** Built-ins in `BUILT_IN_AUTOMATION_KEYS` order, then custom flows by creation, then id. */
@@ -1039,9 +1062,10 @@ export class DatabaseFlowStore implements FlowStore {
         flows = rows.map(toStoredFlow).sort(byFlowOrder);
       }
       const site = await loadFlowSite(tx, ctx.workspaceId);
+      const overdue = await overdueFlowIds(tx, ctx.workspaceId);
       const needsAttention = new Map<string, FlowIssue>();
       for (const flow of flows) {
-        const issue = flowAttention(flow, site);
+        const issue = flowAttention(flow, site, overdue);
         if (issue) needsAttention.set(flow.key, issue);
       }
       const warnings = options.archived
@@ -1505,7 +1529,7 @@ export class DatabaseFlowStore implements FlowStore {
       }
       return {
         flow,
-        needsAttention: flowAttention(flow, site),
+        needsAttention: flowAttention(flow, site, await overdueFlowIds(tx, ctx.workspaceId)),
         draft,
         active: flow.activeVersion
           ? { version: flow.activeVersion.version, definition: parsedActiveDefinition(flow) }

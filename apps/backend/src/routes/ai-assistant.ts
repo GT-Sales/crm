@@ -2,10 +2,11 @@ import { createAiAutomationRoutes } from './ai-automations.js';
 import { createAutomationTools, AUTOMATION_TOOL_NAMES } from '../ai/automation-tools.js';
 import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import type { FlowStore } from '../automations/flow-store.js';
-import { tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { AISDKError, tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
 import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
+import type { AiTurnStore } from '../ai/turn-store.js';
 import { Router, type Response } from 'express';
 import {
   reviseAiActionRequestSchema,
@@ -39,10 +40,9 @@ import {
 import type { VerifiedStaffSession } from '../auth/session.js';
 import type { AiAssistantConfig } from '../ai/config.js';
 import type { AssistantEngine } from '../ai/engine.js';
-import { logAiTurn } from '../ai/logging.js';
+import { logAiTurn, type AiTurnLog } from '../ai/logging.js';
 import { TurnBudget } from '../ai/limits.js';
 import { buildSystemPrompt, openLeadDataBlock, AI_PROMPT_VERSION } from '../ai/prompt.js';
-import { ReplayGuard } from '../ai/replay-guard.js';
 import { serializedBytes } from '../ai/projections.js';
 import type { AiReadService } from '../ai/read-service.js';
 import type { AiSiteContextStore } from '../ai/site-context.js';
@@ -136,6 +136,8 @@ export interface AiAssistantRouteDependencies {
   engine?: AssistantEngine;
   /** The distributed limiter; a failure to reach it refuses the request. */
   rateLimit(input: RateLimitInput): Promise<RateLimitResult>;
+  /** Where each turn's usage is recorded; absent in tests that do not check it. */
+  turns?: AiTurnStore;
   now?: () => Date;
   reportFailure: PlanRouteDependencies['reportFailure'];
 }
@@ -218,6 +220,22 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   }
 }
 
+/** How long a chat request id stays claimed in the shared limiter. */
+export const AI_REPLAY_WINDOW_SECONDS = 3600;
+
+/**
+ * What the error tracker receives for a failed assistant request. A provider
+ * error is reported by a fixed code (its body could carry prompt text); any
+ * other failure (a database, schema or programming error) is reported as
+ * itself, so it stays diagnosable. The tracker scrubs the message either way.
+ */
+export function reportableAssistantError(error: unknown, code: string): unknown {
+  if (error instanceof AssistantProviderError || AISDKError.isInstance(error)) {
+    return new Error(code);
+  }
+  return error;
+}
+
 export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependencies): Router {
   const router = Router();
   const previewEmail = dependencies.work?.previewAiEmail?.bind(dependencies.work);
@@ -246,7 +264,6 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
   const now = () => (dependencies.now ?? (() => new Date()))();
   // One guard per router (one per process): a duplicate request id inside a
   // minute is refused rather than spending a second turn's budget.
-  const replay = new ReplayGuard();
 
   // Nothing the assistant answers may be cached — refusals included.
   router.use((req, res, next) => {
@@ -401,8 +418,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       res.json(proposal);
-    } catch {
-      dependencies.reportFailure(req, new Error('assistant_revision_failed'));
+    } catch (error) {
+      dependencies.reportFailure(req, reportableAssistantError(error, 'assistant_revision_failed'));
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   });
@@ -583,8 +600,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           requestId: req.id,
         }),
       );
-    } catch {
-      dependencies.reportFailure(req, new Error('assistant_action_failed'));
+    } catch (error) {
+      dependencies.reportFailure(req, reportableAssistantError(error, 'assistant_action_failed'));
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   });
@@ -648,6 +665,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       // be reached refuses the request rather than letting usage go unbounded.
       let actorLimit: RateLimitResult;
       let siteLimit: RateLimitResult;
+      let siteDayLimit: RateLimitResult;
       try {
         actorLimit = await wait(
           dependencies.rateLimit({
@@ -663,21 +681,50 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             maxCount: AI_ASSISTANT_LIMITS.perSitePerMinute,
           }),
         );
+        // A daily ceiling per site stops a runaway site inside the CRM, beside
+        // the Gateway's own spend budget.
+        siteDayLimit = await wait(
+          dependencies.rateLimit({
+            bucketKey: `ai_site_day:${workspaceId.data}`,
+            windowSeconds: 86_400,
+            maxCount: AI_ASSISTANT_LIMITS.perSitePerDay,
+          }),
+        );
       } catch (error) {
         dependencies.reportFailure(req, error);
         await refuseDisabled(res, req.id);
         return;
       }
-      if (!actorLimit.allowed || !siteLimit.allowed) {
-        const retryAfter = Math.max(actorLimit.retryAfterSeconds, siteLimit.retryAfterSeconds);
+      if (!actorLimit.allowed || !siteLimit.allowed || !siteDayLimit.allowed) {
+        const retryAfter = Math.max(
+          actorLimit.retryAfterSeconds,
+          siteLimit.retryAfterSeconds,
+          siteDayLimit.retryAfterSeconds,
+        );
         res.setHeader('retry-after', String(retryAfter));
         sendDomainError(res, req.id, 'ai_rate_limited', 429);
         return;
       }
 
-      // A duplicate client request id inside a minute is the same question
-      // twice: refuse it instead of spending a second turn.
-      if (!replay.claim(`${actor.actorId}:${workspaceId.data}:${body.requestId}`)) {
+      // A duplicate client request id is the same question twice (two tabs, a
+      // retried fetch): refuse it instead of spending a second turn. The claim
+      // lives in the shared limiter so every replica sees it. Request ids are
+      // fresh UUIDs, so an hour-long window costs nothing legitimate.
+      let replayClaim: RateLimitResult;
+      try {
+        replayClaim = await wait(
+          dependencies.rateLimit({
+            bucketKey: `ai_replay:${actor.actorId}:${workspaceId.data}:${body.requestId}`,
+            windowSeconds: AI_REPLAY_WINDOW_SECONDS,
+            maxCount: 1,
+          }),
+        );
+      } catch (error) {
+        dependencies.reportFailure(req, error);
+        await refuseDisabled(res, req.id);
+        return;
+      }
+      if (!replayClaim.allowed) {
         sendDomainError(res, req.id, 'conflict', 409);
         return;
       }
@@ -986,8 +1033,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               }
               if (!recoveredDraft) {
                 outcome = 'failed';
-                // The tracker gets a fixed code, not the provider's own error body.
-                dependencies.reportFailure(req, new Error('assistant_provider_error'));
+                // A provider failure is reported by a fixed code, never its body.
+                dependencies.reportFailure(
+                  req,
+                  reportableAssistantError(error, 'assistant_provider_error'),
+                );
                 writePart({
                   type: 'error',
                   code:
@@ -999,7 +1049,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           } finally {
             activeTurns.delete(controller);
             clearTimeout(timer);
-            logAiTurn({
+            const turnRecord: AiTurnLog = {
               requestId: req.id,
               workspaceId: workspaceId.data,
               actorId: actor.actorId,
@@ -1012,7 +1062,15 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               ...budget.usage,
               ...(failureCode ? { failureCode } : {}),
               ...(recoveredDraft ? { recoveredDraft: true } : {}),
-            });
+            };
+            logAiTurn(turnRecord);
+            // The usage record never fails the turn: a write error is reported
+            // and the log line above still carries the same fields.
+            if (dependencies.turns) {
+              await dependencies.turns.record(turnRecord).catch((error: unknown) => {
+                dependencies.reportFailure(req, error);
+              });
+            }
           }
         },
         onError: () => 'Ask AI could not answer just now.',
@@ -1029,8 +1087,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         clearTimeout(timer);
         res.off('close', onClose);
       }
-    } catch {
-      dependencies.reportFailure(req, new Error('assistant_request_failed'));
+    } catch (error) {
+      dependencies.reportFailure(req, reportableAssistantError(error, 'assistant_request_failed'));
       if (!res.headersSent) sendStaffAuthError(res, req.id, 'internal_error', 503);
       else if (!res.writableEnded) res.end();
     } finally {

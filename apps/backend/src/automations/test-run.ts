@@ -1,7 +1,9 @@
 import { auditEvents, type TenantTransaction } from '@gt-sales/db';
 import {
   initialLeadStage,
+  isStageMoveAllowed,
   leadTypeSchema,
+  stageGates,
   triggerLeadTypes,
   type AutomationKey,
   type AutomationReason,
@@ -74,6 +76,30 @@ function seedFromGroup(
       }
     }
   }
+}
+
+/** Why the sample lead could not move to `to`, as the live engine would say; null when it could. */
+function sampleStageRefusal(
+  lead: SampleLeadState,
+  to: string,
+): { reason: AutomationReason; detail: string } | null {
+  if (lead.stage === to) return null;
+  if (!isStageMoveAllowed(lead.leadType, lead.stage, to)) {
+    return { reason: 'illegal_stage_move', detail: `${lead.stage} to ${to}` };
+  }
+  for (const gate of stageGates(lead.leadType, to)) {
+    if (gate === 'dispatch') {
+      return { reason: 'dispatch_details_required', detail: 'the sample lead has no courier' };
+    }
+    if (gate === 'documents') {
+      return {
+        reason: 'documents_incomplete',
+        detail: 'the sample lead has no approved documents',
+      };
+    }
+    // `activation` dates itself today when a flow moves the lead.
+  }
+  return null;
 }
 
 function seedFromSteps(steps: readonly FlowStep[], site: FlowSite, lead: SampleLeadState): void {
@@ -317,6 +343,19 @@ export async function runFlowTest(
           break;
         }
         case 'assign_lead': {
+          // As live: an owned lead is only taken over with `reassign` (AUTH-2).
+          if (lead.assignedActorId !== null && !step.reassign) {
+            steps.push({
+              stepId: step.id,
+              stepKind: 'assign_lead',
+              outcome: 'skipped',
+              branch: null,
+              reason: 'already_assigned',
+              detail: null,
+              at,
+            });
+            break;
+          }
           if (!site.memberIds.has(step.actorId)) {
             steps.push({
               stepId: step.id,
@@ -343,6 +382,22 @@ export async function runFlowTest(
         }
         case 'update_lead': {
           if (step.change.kind === 'stage') {
+            // As live (AUTH-2, ENG-L5): the type's allowed moves, then its
+            // gates. The sample lead has no courier and no documents, so a
+            // move gated on them is skipped for it, as it would be live.
+            const refusal = sampleStageRefusal(lead, step.change.stage);
+            if (refusal) {
+              steps.push({
+                stepId: step.id,
+                stepKind: 'update_lead',
+                outcome: 'skipped',
+                branch: null,
+                reason: refusal.reason,
+                detail: refusal.detail,
+                at,
+              });
+              break;
+            }
             lead.stage = step.change.stage;
             steps.push({
               stepId: step.id,

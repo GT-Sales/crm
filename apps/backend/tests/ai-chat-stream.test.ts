@@ -1,6 +1,7 @@
 import { DatabaseFlowStore, type FlowStore } from '../src/automations/flow-store.js';
 import { AutomationAuthoringStore } from '../src/ai/automation-authoring.js';
 import { AssistantProviderError } from '../src/ai/engine.js';
+import { APICallError } from 'ai';
 import type { AiAutomationProposal } from '@gt-sales/contracts';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,10 @@ import {
 } from '@gt-sales/contracts';
 
 import { createApp } from '../src/app.js';
+import { AI_REPLAY_WINDOW_SECONDS, reportableAssistantError } from '../src/routes/ai-assistant.js';
+import type { RateLimitInput } from '@gt-sales/db';
+import type { AiTurnStore } from '../src/ai/turn-store.js';
+import type { AiTurnLog } from '../src/ai/logging.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
 import type { AiAssistantConfig } from '../src/ai/config.js';
 import {
@@ -157,6 +162,19 @@ let server: Server;
 let baseUrl: string;
 let staff: MemoryStaffStore;
 
+/** The shared limiter as the database runs it: a count per bucket key. */
+function countingLimiter(seen: RateLimitInput[] = []) {
+  const counts = new Map<string, number>();
+  return async (input: RateLimitInput) => {
+    seen.push(input);
+    const count = (counts.get(input.bucketKey) ?? 0) + 1;
+    counts.set(input.bucketKey, count);
+    return count <= input.maxCount
+      ? { allowed: true, retryAfterSeconds: 0 }
+      : { allowed: false, retryAfterSeconds: input.windowSeconds };
+  };
+}
+
 function appWith(
   options: {
     work?: DatabaseLeadWorkStore;
@@ -164,8 +182,9 @@ function appWith(
     config?: AiAssistantConfig;
     engine?: AssistantEngine;
     turns?: readonly FakeTurn[];
-    rateLimit?: () => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
+    rateLimit?: (input: RateLimitInput) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
     loadAccess?: () => Promise<StaffAccessSnapshot | undefined>;
+    turnStore?: AiTurnStore;
   } = {},
 ) {
   staff = new MemoryStaffStore();
@@ -189,7 +208,8 @@ function appWith(
         engine:
           options.engine ??
           createFakeEngine(options.turns ?? [{ chunks: ['You received ', '1 SIM order.'] }]),
-        rateLimit: options.rateLimit ?? (async () => ({ allowed: true, retryAfterSeconds: 0 })),
+        rateLimit: options.rateLimit ?? countingLimiter(),
+        ...(options.turnStore ? { turns: options.turnStore } : {}),
         now: () => NOW,
       },
     },
@@ -1077,8 +1097,70 @@ describe('POST /workspaces/:id/ai/chat', () => {
     );
   });
 
-  it('refuses the same client request id twice inside a minute', async () => {
-    await start();
+  it('holds each site to a daily turn ceiling beside the per-minute ones', async () => {
+    const seen: RateLimitInput[] = [];
+    const limiter = countingLimiter(seen);
+    await start(
+      appWith({
+        rateLimit: async (input) =>
+          input.bucketKey.startsWith('ai_site_day:')
+            ? { allowed: false, retryAfterSeconds: 3_600 }
+            : limiter(input),
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('3600');
+  });
+
+  it('records each turn as counts only, never the question or the answer', async () => {
+    const recorded: AiTurnLog[] = [];
+    await start(appWith({ turnStore: { record: async (turn) => void recorded.push(turn) } }));
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      engine: 'fake',
+      outcome: 'completed',
+    });
+    const serialized = JSON.stringify(recorded[0]);
+    expect(serialized).not.toContain('SIM order');
+    expect(serialized).not.toContain(body().message);
+  });
+
+  it('still answers when the usage record cannot be written', async () => {
+    await start(
+      appWith({
+        turnStore: {
+          record: async () => {
+            throw new Error('ai_turns unavailable');
+          },
+        },
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body()),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"type":"done"');
+  });
+
+  it('refuses the same client request id twice, through the shared limiter', async () => {
+    const seen: RateLimitInput[] = [];
+    await start(appWith({ rateLimit: countingLimiter(seen) }));
     const send = () =>
       fetch(chatUrl(), {
         method: 'POST',
@@ -1091,6 +1173,19 @@ describe('POST /workspaces/:id/ai/chat', () => {
     expect((await apiErrorResponseSchema.parse(await duplicate.json())).error.code).toBe(
       'conflict',
     );
+    // Every replica shares the claim: it is a limiter bucket, not process memory.
+    expect(seen.filter((input) => input.bucketKey.startsWith('ai_replay:'))).toEqual([
+      {
+        bucketKey: `ai_replay:${ACTOR}:${WORKSPACE}:${REQUEST_ID}`,
+        windowSeconds: AI_REPLAY_WINDOW_SECONDS,
+        maxCount: 1,
+      },
+      {
+        bucketKey: `ai_replay:${ACTOR}:${WORKSPACE}:${REQUEST_ID}`,
+        windowSeconds: AI_REPLAY_WINDOW_SECONDS,
+        maxCount: 1,
+      },
+    ]);
   });
 
   it('sends a typed error part when the provider fails, never a fabricated answer', async () => {
@@ -1360,4 +1455,29 @@ it('does not publish clarification cards asking for the signed-in staff UUID', a
   const parts = await readParts(response);
   expect(parts.some((p) => p.type === 'follow_up')).toBe(false);
   expect(parts.at(-1)?.type).toBe('done');
+});
+
+describe('reportableAssistantError', () => {
+  it('reports a provider failure by its fixed code, never the provider body', () => {
+    const reported = reportableAssistantError(
+      new AssistantProviderError('rate_limited'),
+      'assistant_provider_error',
+    );
+    expect(reported).toBeInstanceOf(Error);
+    expect(reported).toHaveProperty('message', 'assistant_provider_error');
+    const sdk = reportableAssistantError(
+      new APICallError({
+        message: 'provider said: the customer Nadia Khan asked…',
+        url: 'https://gateway.example/v1',
+        requestBodyValues: {},
+      }),
+      'assistant_provider_error',
+    );
+    expect(sdk).toHaveProperty('message', 'assistant_provider_error');
+  });
+
+  it('reports any other failure as itself so it stays diagnosable', () => {
+    const database = new Error('relation "app.leads" does not exist');
+    expect(reportableAssistantError(database, 'assistant_request_failed')).toBe(database);
+  });
 });

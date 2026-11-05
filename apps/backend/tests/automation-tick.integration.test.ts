@@ -7,7 +7,13 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { cancelFlowWork } from '../src/automations/records.js';
-import { runAutomationTick, type AutomationTickResult } from '../src/automations/tick.js';
+import { DatabaseFlowStore } from '../src/automations/flow-store.js';
+import {
+  initialAutomationAlertState,
+  runAutomationTick,
+  type AutomationTickResult,
+} from '../src/automations/tick.js';
+import { FakeOwnerAlertChannel } from '@gt-sales/adapters';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
@@ -28,7 +34,19 @@ const DELAY_SITE = '18000000-0000-4000-8000-000000008604'; // a delay re-activat
 const RACE_SITE = '18000000-0000-4000-8000-000000008605'; // two ticks at once
 const FAIL_SITE = '18000000-0000-4000-8000-000000008606'; // failures and a killed tick
 const GUARD_SITE = '18000000-0000-4000-8000-000000008607'; // loops, races, archive, activators
-const SITES = [WAIT_SITE, TIME_SITE, VOID_SITE, DELAY_SITE, RACE_SITE, FAIL_SITE, GUARD_SITE];
+const DRAIN_SITE = '18000000-0000-4000-8000-000000008608'; // bursts, budget and backlog
+const UNLISTED_SITE = '18000000-0000-4000-8000-000000008609'; // no scheduler lists it
+const SITES = [
+  WAIT_SITE,
+  TIME_SITE,
+  VOID_SITE,
+  DELAY_SITE,
+  RACE_SITE,
+  FAIL_SITE,
+  GUARD_SITE,
+  DRAIN_SITE,
+  UNLISTED_SITE,
+];
 const LEFT = '28000000-0000-4000-8000-000000008604'; // a member who has since left
 const STAFF = '28000000-0000-4000-8000-000000008601';
 const CREDENTIAL = '28000000-0000-4000-8000-000000008602';
@@ -826,5 +844,126 @@ databaseTest('the automations scheduler task', () => {
       where lead_id = ${leadId} and kind = 'system' and data ->> 'event' = 'customer_emailed'
     `;
     expect(mailed).toEqual([{ actorId: RUNNER }]);
+  });
+  it('a burst drains in passes, timers keep half of each pass, and a backlog alerts once', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: DRAIN_SITE,
+      key: flowKey('8608', 1),
+      name: 'Wait an hour',
+      enabled: true,
+      definition: flow(entered('contacted'), [
+        wait('s_wait', 1, 'hours'),
+        send('s_after', 'information_needed'),
+      ]),
+      actorId: STAFF,
+    });
+    await insertActiveFlow(admin, {
+      workspaceId: DRAIN_SITE,
+      key: flowKey('8608', 2),
+      name: 'An hour in Contacted',
+      enabled: true,
+      definition: flow(inStage('contacted', { amount: 1, unit: 'hours' }), [
+        send('s_nudge', 'information_needed'),
+      ]),
+      actorId: STAFF,
+    });
+    for (let index = 0; index < 5; index += 1) {
+      await move(DRAIN_SITE, await insertLead(DRAIN_SITE), 'contacted');
+    }
+    const at = Date.now() + 2 * HOUR;
+    const alerts = new FakeOwnerAlertChannel();
+    const alertState = initialAutomationAlertState();
+    let clock = 0;
+    const run = (budgetMs: number) =>
+      runAutomationTick(
+        {
+          database,
+          environment,
+          now: () => new Date(at),
+          alerts,
+          alertState,
+          batch: 4,
+          budgetMs,
+          elapsed: () => (clock += 1_000),
+        },
+        { authorizedWorkspaceIds: [DRAIN_SITE], actorId: RUNNER },
+      );
+    const backlogAlerts = () =>
+      alerts.sent.filter(
+        (alert) => alert.kind === 'automation_backlog' && alert.detail.includes(DRAIN_SITE),
+      );
+
+    // The budget is spent after the first pass: half waits, half timers.
+    expect(await run(1)).toMatchObject({ resumed: 2, fired: 2 });
+    expect(backlogAlerts()).toEqual([
+      expect.objectContaining({ detail: `site:${DRAIN_SITE},waits:3,timers:3` }),
+    ]);
+    // Still behind: logged again, but the owner is not alerted twice.
+    expect(await run(1)).toMatchObject({ resumed: 2, fired: 2 });
+    expect(backlogAlerts()).toHaveLength(1);
+    // With time to spare the tick keeps passing until nothing is left.
+    expect(await run(60_000)).toMatchObject({ resumed: 1, fired: 1 });
+    expect(alertState.backlog.has(DRAIN_SITE)).toBe(false);
+  });
+
+  it('overdue work on a site no scheduler lists alerts the owner and flags its flow', async () => {
+    const key = flowKey('8609', 1);
+    await insertActiveFlow(admin, {
+      workspaceId: UNLISTED_SITE,
+      key,
+      name: 'Waits on an unlisted site',
+      enabled: true,
+      definition: flow(entered('contacted'), [
+        wait('s_wait', 1, 'hours'),
+        send('s_after', 'information_needed'),
+      ]),
+      actorId: STAFF,
+    });
+    await move(UNLISTED_SITE, await insertLead(UNLISTED_SITE), 'contacted');
+    // The wait fell due an hour ago and no tick has worked this site since.
+    await admin`
+      update app.automation_waits set resume_at = now() - interval '1 hour'
+      where workspace_id = ${UNLISTED_SITE} and status = 'pending'
+    `;
+    const alerts = new FakeOwnerAlertChannel();
+    const alertState = initialAutomationAlertState();
+    const elsewhere = () =>
+      runAutomationTick(
+        { database, environment, alerts, alertState },
+        { authorizedWorkspaceIds: [WAIT_SITE], actorId: RUNNER },
+      );
+    const unscheduled = () =>
+      alerts.sent.filter(
+        (alert) =>
+          alert.kind === 'automation_site_unscheduled' && alert.detail.includes(UNLISTED_SITE),
+      );
+
+    await elsewhere();
+    expect(unscheduled()).toEqual([
+      expect.objectContaining({ detail: `site:${UNLISTED_SITE},waits:1,timers:0` }),
+    ]);
+    await elsewhere();
+    expect(unscheduled()).toHaveLength(1);
+
+    const flows = new DatabaseFlowStore(database);
+    const listed = await flows.list(
+      { workspaceId: UNLISTED_SITE, actorId: STAFF },
+      { archived: false },
+    );
+    expect(listed.needsAttention.get(key)).toEqual({
+      path: 'schedule',
+      code: 'work_overdue',
+      ref: '',
+    });
+
+    // Once a scheduler works the site, the condition clears.
+    expect(await tick(UNLISTED_SITE, Date.now())).toMatchObject({ resumed: 1 });
+    await elsewhere();
+    expect(alertState.unscheduled.has(UNLISTED_SITE)).toBe(false);
+    const after = await flows.list(
+      { workspaceId: UNLISTED_SITE, actorId: STAFF },
+      { archived: false },
+    );
+    expect(after.needsAttention.get(key)).toBeUndefined();
   });
 });

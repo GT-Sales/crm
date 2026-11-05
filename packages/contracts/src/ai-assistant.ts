@@ -52,6 +52,8 @@ export const AI_ASSISTANT_LIMITS = {
   perActorPerMinute: 10,
   /** Chat requests per site in a rolling minute. */
   perSitePerMinute: 60,
+  /** Chat requests per site in a UTC day: the runaway stop beside the Gateway budget. */
+  perSitePerDay: 500,
 } as const;
 
 export type AiAssistantLimits = typeof AI_ASSISTANT_LIMITS;

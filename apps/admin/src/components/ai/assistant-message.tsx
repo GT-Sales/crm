@@ -129,7 +129,12 @@ function AssistantAnswer({
       <AssistantSources sources={message.sources} />
       {message.status === 'complete'
         ? message.automationProposals?.map((proposal) => (
-            <AssistantAutomation key={proposal.id} initial={proposal} />
+            <AssistantAutomation
+              key={proposal.id}
+              messageId={message.id}
+              initial={proposal}
+              stored={message.automationCards?.[proposal.id]}
+            />
           ))
         : null}
       {message.status === 'complete' && message.followUp ? (

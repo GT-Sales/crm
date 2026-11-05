@@ -1,3 +1,4 @@
+import { DatabaseAiTurnStore, type AiTurnStore } from '../ai/turn-store.js';
 import { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
@@ -157,6 +158,8 @@ export interface StaffRouteDependencies {
     reads?: AiReadService;
     engine?: AssistantEngine;
     rateLimit?: (input: RateLimitInput) => Promise<RateLimitResult>;
+    /** Per-turn usage records; the default dependencies write `app.ai_turns`. */
+    turns?: AiTurnStore;
     now?: () => Date;
   };
 }
@@ -206,6 +209,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
           }
         : {}),
       rateLimit: rateLimitHit,
+      turns: new DatabaseAiTurnStore(),
     },
   };
 }
@@ -1709,6 +1713,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       reports: dependencies.reportStore ?? unconfiguredReportStore,
       ...(ai.engine === undefined ? {} : { engine: ai.engine }),
       rateLimit: ai.rateLimit ?? rateLimitHit,
+      ...(ai.turns === undefined ? {} : { turns: ai.turns }),
       ...(ai.now === undefined ? {} : { now: ai.now }),
       reportFailure,
     }),

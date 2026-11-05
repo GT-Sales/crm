@@ -785,6 +785,49 @@ ALTER COLUMN created_at SET DEFAULT now();` (the code keeps working).
   `1793899404943`. Before: tracker at 0022, default `now()`. After: default
   `clock_timestamp()`, Drizzle row id 24; the migrator then finds nothing to do.
 
+## 0024_ai_turns and 0025_ai_turns_and_automation_overdue_runtime (2026-11-05)
+
+Phase C of the AI and automation review. Apply both **before** deploying the
+code that uses them.
+
+- `0024_ai_turns`: the new `app.ai_turns` table (one row of counts per Ask AI
+  turn, no text), tenant RLS and the backup read policy.
+- `0025_…_runtime`: `FORCE ROW LEVEL SECURITY` on it and `SELECT, INSERT` for
+  `app_runtime` (no update or delete); `prune_operational_rows` replaced with
+  the same windows plus `ai_turns` after 90 days; and
+  `app.automation_overdue_sites(p_before)`, `SECURITY DEFINER`, which returns
+  the site ids with pending automation waits or timers due before `p_before`
+  (ids and counts only), for the scheduler's unscheduled-site check.
+
+Without them the code degrades rather than fails: a turn record is reported
+to the error tracker and the answer still streams, and the tick logs
+`automation_overdue_check_failed` after doing its work. Rollback: the code
+keeps working without the table rows; drop the function and the table only
+after reverting the code.
+
+- **0024 applied in production 2026-11-05** through the Supabase tool with its
+  Drizzle tracker row (hash
+  `c243e70ad47af932a4a4330f471e05ca42bea928e43a8223e8483b47c44f7129`, `when`
+  `1793902088184`). The tool's confirm prompt for 0025 timed out twice; apply it
+  from the SQL editor with
+  [`manual/0025-ai-turns-runtime.sql`](manual/0025-ai-turns-runtime.sql), which
+  records both tracker rows (Drizzle hash
+  `eeb2ce5ca4cb53d8582a127049f7a7ab9a3498c7861067f1454747a4e4f30482`, `when`
+  `1793902130131`).
+- **0025 applied in production 2026-11-05** by the owner from the SQL editor
+  with that file. Verified against the catalog: `ai_turns` forces RLS,
+  `app_runtime` may insert but not delete, `automation_overdue_sites` is
+  SECURITY DEFINER and executable by `app_runtime`, `prune_operational_rows`
+  prunes `ai_turns`, and both trackers list 0024 and 0025.
+
+Verify after applying:
+
+```sql
+select relforcerowsecurity from pg_class where oid = 'app.ai_turns'::regclass;  -- true
+select has_table_privilege('app_runtime', 'app.ai_turns', 'delete');            -- false
+select proname, prosecdef from pg_proc where proname = 'automation_overdue_sites'; -- t
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,
@@ -813,6 +856,12 @@ insert into app.permissions (workspace_id, name)
 Then invite the first owner from the admin (or insert a pending membership
 with the `owner` role) and create the site's key under Settings so the
 website can send leads.
+
+Add the site's id to the scheduler entry's `workspaceIds` in
+`MACHINE_REGISTRY_JSON` (docs/ENV.md) and redeploy the backend. Without it the
+site's automation waits and time triggers never run; the scheduler logs
+`automation_site_unscheduled` and alerts the owner once its work is two ticks
+overdue, and its flows show "running late".
 
 ## Local database
 

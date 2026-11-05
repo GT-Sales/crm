@@ -2505,3 +2505,41 @@ Phase B of [the architecture review](review/2026-11-05-ai-and-automation-archite
 - **Signing secret (CHAT-3).** New `AI_ACTION_SIGNING_SECRET` (docs/ENV.md)
   signs AI cards and proposals; until it is set the Gateway key is used, with
   a startup warning. Proposal tokens now bind the member and site (v2).
+
+### AI and automation review, phase C (5 Nov 2026)
+
+Phase C of [the architecture review](review/2026-11-05-ai-and-automation-architecture-review.md).
+Migrations **0024** and **0025** go with it (docs/RUNBOOKS/database.md); apply
+them before the deploy.
+
+- **Tick drain loop (ENG-9).** A tick takes passes per site, in turn, until no
+  site has a full pass (200 items) or four minutes are spent; timers keep at
+  least half of each pass, and an item tried once waits for the next tick. A
+  site still behind logs `automation_tick_backlog` and alerts the owner once
+  (`automation_backlog`) until it catches up.
+- **Unscheduled sites (ENG-4).** After the passes the tick asks
+  `app.automation_overdue_sites` for every site with work two ticks overdue;
+  one the scheduler's machine entry does not list logs
+  `automation_site_unscheduled` and alerts the owner once. Flows holding
+  overdue work show "its waits or time triggers are running late"
+  (`work_overdue`) under Needs attention. The "Add a site" runbook now says to
+  add the site to the scheduler entry.
+- **Error reports (CHAT-5).** Ask AI reports a failed request's own error
+  (scrubbed by the tracker); only a provider failure is still reported by a
+  fixed code.
+- **Usage records and daily ceiling (CHAT-6).** `app.ai_turns` keeps one row of
+  counts per turn (no text, 90 days, insert and read only) and each site may
+  ask 500 questions a UTC day. A failed record never fails the answer.
+  Queries in docs/RUNBOOKS/ai-assistant.md §4.
+- **Replay guard (CHAT-7).** A repeated chat request id is refused through
+  the shared limiter (`ai_replay:` keys, one hour), so every replica sees it.
+- **Authoring (AUTH-1, AUTH-2, AUTH-3, ENG-L5).** "Assignee is" conditions in
+  a trigger or a branch take "me" or a member's name (prompt version 10).
+  Simulation and the builder's Test run apply the lead type's allowed moves
+  and stage gates (the sample lead has no courier or documents) and keep an
+  owned lead without `reassign`. A simulated edit is parsed with the schema of
+  the flow it edits.
+- **Admin (UI-1, UI-3).** An Ask AI automation card keeps its edits, save,
+  dismissal and simulation when the panel is closed and opened again. The flow
+  page saves an edit still inside the autosave delay when it is left, and a
+  reload with an unsaved edit asks first.
