@@ -614,6 +614,7 @@ const app = createApp({
       config: {
         enabled: true,
         apiKey: 'synthetic-e2e-signing-key',
+        signingKey: 'synthetic-e2e-signing-key',
         automationWorkspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
         workspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
       },

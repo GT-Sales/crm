@@ -2472,3 +2472,36 @@ Items 2, 3 and 4 of [the admin UI review](review/2026-11-05-admin-ui-review.md):
 Also fixed: the e2e harness's scripted model now reads the question after the
 open-record data block that phase A added, so the Ask AI journeys with a lead
 open pass again. No migration.
+
+### AI and automation review, phase B (5 Nov 2026)
+
+Phase B of [the architecture review](review/2026-11-05-ai-and-automation-architecture-review.md):
+
+- **Flow oscillation (ENG-2).** A flow set off by an automation (a
+  `time_in_stage` timer, or another flow's move) runs at most
+  `AUTOMATION_MAX_AUTOMATED_RUNS_PER_DAY` (3) times per lead in a rolling day;
+  the next is skipped `run_limit_reached`. Moves made by people or the website
+  are never limited.
+- **Switch-off race (ENG-3).** Switching a flow off (and archiving it) takes a
+  per-flow transaction advisory lock before its row (`takeFlowSwitch` in
+  `automations/records.ts`); a tick resuming a wait or firing a timer takes it
+  shared before reading the flow, so a switch in progress is never overtaken.
+  Ticks never wait on each other.
+- **Archive (ENG-6).** Archiving a lead cancels its waiting runs and voids its
+  timers at once (`lead_archived`); restoring does not revive them.
+- **Once per stay (ENG-7).** A stay timer fires only while its entry is still
+  the lead's latest move. Migration **0023** makes
+  `lead_activities.created_at` default to `clock_timestamp()` so moves chained
+  into one write keep their order. Apply it with the deploy
+  (docs/RUNBOOKS/database.md); until then a stay timer behaves as before.
+- **Departed activator (ENG-8).** Resumed and timed runs act as the scheduler
+  once the activator has left the site (lead-changing steps still need the
+  activator's own Leads rights and are skipped), and the list flags the flow
+  `activator_unavailable` until someone activates it again.
+- **Revised AI cards (ACT-2).** A revision signs the draft's first card id
+  (`rootId`); every version confirms under it and records its card in the
+  audit (`aiCardId`), so a draft saves once. Confirming a second version
+  answers 409 `conflict` with `details.reason: 'superseded'`.
+- **Signing secret (CHAT-3).** New `AI_ACTION_SIGNING_SECRET` (docs/ENV.md)
+  signs AI cards and proposals; until it is set the Gateway key is used, with
+  a startup warning. Proposal tokens now bind the member and site (v2).

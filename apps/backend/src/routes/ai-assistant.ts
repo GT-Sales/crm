@@ -4,7 +4,7 @@ import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import type { FlowStore } from '../automations/flow-store.js';
 import { tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
-import { createActionProposalTools, verifyAiAction } from '../ai/actions.js';
+import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import { Router, type Response } from 'express';
 import {
@@ -121,6 +121,7 @@ export interface AiAssistantRouteDependencies {
     | 'previewAiEmail'
     | 'previewAiLeadUpdate'
     | 'confirmAiLeadUpdate'
+    | 'aiCardOf'
   >;
   listAssignees?: (scope: Scope) => Promise<{ actorId: string; displayName: string | null }[]>;
   config: AiAssistantConfig;
@@ -303,7 +304,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           undefined,
           Boolean(
             dependencies.work &&
-            dependencies.config.apiKey &&
+            dependencies.config.signingKey &&
             decideAccess(access, 'lead.manage').allowed,
           ),
           Boolean(
@@ -338,12 +339,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       const config = dependencies.config;
-      if (!config.enabled || !config.apiKey || !config.workspaceIds.has(workspaceId.data)) {
+      if (!config.enabled || !config.signingKey || !config.workspaceIds.has(workspaceId.data)) {
         sendDomainError(res, req.id, 'ai_unavailable', 503);
         return;
       }
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const original = verifyAiAction(body.data.token, config.apiKey, scope, now());
+      const original = verifyAiAction(body.data.token, config.signingKey, scope, now());
       if (
         !original ||
         original.draft.kind !== body.data.draft.kind ||
@@ -363,7 +364,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const tools = createActionProposalTools({
         scope,
         site,
-        key: config.apiKey,
+        key: config.signingKey,
+        // The new card is a version of the same draft: it saves under one id.
+        rootId: aiActionRootId(original),
         leadUpdatePreview: (leadId, field) => leadUpdatePreview(scope, leadId, field),
         reads: dependencies.reads,
         emailPreview: previewEmail
@@ -424,7 +427,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const config = dependencies.config;
       if (
         !config.enabled ||
-        !config.apiKey ||
+        !config.signingKey ||
         !config.workspaceIds.has(workspaceId.data) ||
         !dependencies.work
       ) {
@@ -432,11 +435,22 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const action = verifyAiAction(body.data.token, config.apiKey, scope, now());
+      const action = verifyAiAction(body.data.token, config.signingKey, scope, now());
       if (!action) {
         sendDomainError(res, req.id, 'invalid_request', 400);
         return;
       }
+      // Every version of one draft saves under its first card's id, so the
+      // draft saves once; the saved record says which card did it.
+      const rootId = aiActionRootId(action);
+      const work = dependencies.work;
+      /** True (and answered) when another version of this draft was already saved. */
+      const superseded = async (): Promise<boolean> => {
+        const savedBy = await work.aiCardOf?.({ ...scope, rootId });
+        if (!savedBy || savedBy === action.id) return false;
+        sendDomainError(res, req.id, 'conflict', 409, { reason: 'superseded' });
+        return true;
+      };
       if (action.draft.kind === 'lead_update') {
         if (!dependencies.work.confirmAiLeadUpdate || !action.leadUpdateContext) {
           sendDomainError(res, req.id, 'ai_unavailable', 503);
@@ -446,7 +460,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           ...scope,
           requestId: req.id,
           draft: action.draft,
-          creationId: action.id,
+          creationId: rootId,
+          aiCardId: action.id,
           version: action.leadUpdateContext.version,
         });
         if (outcome.status === 'refused') {
@@ -472,6 +487,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           );
           return;
         }
+        if (await superseded()) return;
         res.json(
           confirmAiActionResponseSchema.parse({
             status: 'saved',
@@ -492,7 +508,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           ...scope,
           requestId: req.id,
           leadId: action.draft.leadId,
-          creationId: action.id,
+          creationId: rootId,
+          aiCardId: action.id,
           draft: action.draft,
           emailContext: action.emailContext,
         });
@@ -511,6 +528,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           );
           return;
         }
+        if (await superseded()) return;
         res.json(
           confirmAiActionResponseSchema.parse({
             status: 'saved',
@@ -526,7 +544,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         ...scope,
         requestId: req.id,
         leadId: action.draft.leadId,
-        creationId: action.id,
+        creationId: rootId,
+        aiCardId: action.id,
       };
       const outcome =
         action.draft.kind === 'note'
@@ -549,6 +568,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'assignee_not_found', 409);
         return;
       }
+      if (await superseded()) return;
       res.json(
         confirmAiActionResponseSchema.parse({
           status: 'saved',
@@ -667,12 +687,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const budget = new TurnBudget();
       const actionTools =
         dependencies.work &&
-        dependencies.config.apiKey &&
+        dependencies.config.signingKey &&
         decideAccess(access, 'lead.manage').allowed
           ? createActionProposalTools({
               scope,
               site,
-              key: dependencies.config.apiKey,
+              key: dependencies.config.signingKey,
               leadUpdatePreview: (leadId, field) => wait(leadUpdatePreview(scope, leadId, field)),
               reads: dependencies.reads,
               emailPreview: previewEmail
@@ -686,13 +706,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const automationTools =
         dependencies.automationAuthoring &&
         dependencies.flows &&
-        dependencies.config.apiKey &&
+        dependencies.config.signingKey &&
         dependencies.config.automationWorkspaceIds?.has(scope.workspaceId) &&
         decideAccess(access, 'integration.manage').allowed
           ? createAutomationTools({
               scope,
               site,
-              key: dependencies.config.apiKey,
+              key: dependencies.config.signingKey,
               flows: dependencies.flows,
               store: dependencies.automationAuthoring,
               loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),

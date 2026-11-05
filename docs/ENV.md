@@ -110,11 +110,14 @@ The neutral answer's floor (500 ms) is fixed in code, not a variable.
 ### Ask AI (staff assistant)
 
 Tasks and notes require an explicit confirmation card and `lead.manage`; other
-writes remain unavailable. No additional variable is needed. Confirmation
-tokens use a domain-separated HMAC key derived from `AI_GATEWAY_API_KEY` and
-expire after ten minutes. Rotating the key invalidates outstanding cards; the
-existing feature switch and Site allowlist also gate confirmation. Tokens are
-never sent to the provider or stored in logs.
+writes remain unavailable. Confirmation cards and automation proposals are
+signed with `AI_ACTION_SIGNING_SECRET` (domain-separated HMAC) and expire after
+ten minutes. Until that secret is set the backend signs with
+`AI_GATEWAY_API_KEY`, as before, and logs `ai_signing_secret_missing` at
+startup; set the secret so a provider-key exposure cannot forge cards and a
+provider-key rotation does not void them. Changing either key voids outstanding
+cards (at most ten minutes of work). The feature switch and Site allowlist also
+gate confirmation. Tokens are never sent to the provider or stored in logs.
 
 Off by default and per site. A missing, partial or invalid configuration disables
 the assistant only — the rest of the CRM boots and behaves as before, and
@@ -122,12 +125,13 @@ the assistant only — the rest of the CRM boots and behaves as before, and
 (`disabled`, `not_configured`, `site_not_enabled`). No value is ever returned to
 the browser, and the key must never be a `NEXT_PUBLIC_*` variable.
 
-| Variable                     | Purpose                                                                                                                                                                                                                                                                                                    |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AI_ASSISTANT_ENABLED`       | `true` (exactly) switches the feature on for the sites allowed below. Any other value, or unset, keeps it off.                                                                                                                                                                                             |
-| `AI_GATEWAY_API_KEY`         | Secret. The Vercel AI Gateway key the backend uses for the model request. Required when enabled; unset means `not_configured`. Use a dedicated key so it can be revoked and budgeted on its own.                                                                                                           |
-| `AI_GATEWAY_MODEL`           | The exact Gateway model id (for example a `vendor/model` string), required when enabled. Must support streaming and tool calls. There is no default and no fallback model, so an unset or wrong value fails closed with `not_configured` (or a provider error) rather than silently picking another model. |
-| `AI_ASSISTANT_WORKSPACE_IDS` | Comma-separated site ids allowed to use the assistant. Empty or unset means no site is enabled. Entries that are not uuids are ignored (a typo enables nothing). Only list a site after the operator has reviewed provider data handling; start with a synthetic/staging site.                             |
+| Variable                     | Purpose                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AI_ASSISTANT_ENABLED`       | `true` (exactly) switches the feature on for the sites allowed below. Any other value, or unset, keeps it off.                                                                                                                                                                                                                                                                       |
+| `AI_GATEWAY_API_KEY`         | Secret. The Vercel AI Gateway key the backend uses for the model request. Required when enabled; unset means `not_configured`. Use a dedicated key so it can be revoked and budgeted on its own.                                                                                                                                                                                     |
+| `AI_ACTION_SIGNING_SECRET`   | Secret, 32+ random characters (for example `openssl rand -base64 48`). Signs AI confirmation cards and automation proposals, separate from the provider key. Unset: the Gateway key is used and the startup log says `ai_signing_secret_missing`. Set but shorter than 32: nothing can be signed, so AI actions and automation drafts are unavailable (`ai_signing_secret_invalid`). |
+| `AI_GATEWAY_MODEL`           | The exact Gateway model id (for example a `vendor/model` string), required when enabled. Must support streaming and tool calls. There is no default and no fallback model, so an unset or wrong value fails closed with `not_configured` (or a provider error) rather than silently picking another model.                                                                           |
+| `AI_ASSISTANT_WORKSPACE_IDS` | Comma-separated site ids allowed to use the assistant. Empty or unset means no site is enabled. Entries that are not uuids are ignored (a typo enables nothing). Only list a site after the operator has reviewed provider data handling; start with a synthetic/staging site.                                                                                                       |
 
 The request limits (5 model steps, 6 tool calls, 50 records, 6 KiB per tool result,
 24 KiB per turn, 1,200 output tokens, 60 s per turn, 10 requests per actor per

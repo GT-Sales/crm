@@ -589,6 +589,49 @@ databaseTest('DatabaseLeadWorkStore', () => {
     }
   });
 
+  test('an AI draft saves under its first card and remembers which card saved it', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'AI Root',
+      email: 'ai.root@example.test',
+      phone: '403 555 0133',
+    });
+    try {
+      const rootId = randomUUID();
+      const firstCard = rootId;
+      const revision = randomUUID();
+      const first = await work.addNote({
+        ...writeScope,
+        leadId,
+        body: 'First version',
+        creationId: rootId,
+        aiCardId: firstCard,
+      });
+      expect(first).toMatchObject({ status: 'created', activity: { id: rootId } });
+      expect(await work.aiCardOf({ ...scope, rootId })).toBe(firstCard);
+      // A second version of the same draft reuses the record and changes nothing.
+      const second = await work.addNote({
+        ...writeScope,
+        leadId,
+        body: 'Edited version',
+        creationId: rootId,
+        aiCardId: revision,
+      });
+      expect(second).toMatchObject({
+        status: 'created',
+        activity: { id: rootId, body: 'First version' },
+      });
+      expect(await work.aiCardOf({ ...scope, rootId })).toBe(firstCard);
+      const [notes] =
+        await admin`select count(*)::int as count from app.lead_activities where lead_id=${leadId} and kind='note'`;
+      expect(notes?.count).toBe(1);
+      // Nothing saved under an unknown root, and no card on another site.
+      expect(await work.aiCardOf({ ...scope, rootId: randomUUID() })).toBeNull();
+      expect(await work.aiCardOf({ ...scope, workspaceId: OTHER_WORKSPACE, rootId })).toBeNull();
+    } finally {
+      await admin`delete from app.leads where id = ${leadId}`;
+    }
+  });
+
   test('AI stage previews name unmet gates and a gated confirmation says what is missing', async () => {
     const leadId = await createInternetLead({
       fullName: 'AI Gate',

@@ -624,7 +624,12 @@ export function AssistantProvider({
             setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
             return;
           }
-          const gate = error instanceof BackendError ? leadUpdateRefusalText(error) : undefined;
+          const gate =
+            error instanceof BackendError
+              ? error.code === 'conflict' && error.details?.['reason'] === 'superseded'
+                ? 'Not saved: another version of this draft was already saved. Check the lead.'
+                : leadUpdateRefusalText(error)
+              : undefined;
           updateAction(messageId, actionId, {
             status: 'error',
             error: gate

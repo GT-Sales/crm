@@ -68,7 +68,7 @@ import { templatePropertyKeys } from '../email/markup.js';
 import { loadPlanOptions } from '../plans/options.js';
 import { loadPropertyCatalog } from '../properties/catalog.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
-import { cancelFlowWork } from './records.js';
+import { cancelFlowWork, takeFlowSwitch } from './records.js';
 import { loadFlowSite } from './site.js';
 
 /**
@@ -381,6 +381,19 @@ async function lockFlow(
   };
 }
 
+/** `takeFlowSwitch` for a flow named by key, taken before its row is locked. */
+async function takeFlowSwitchByKey(
+  tx: TenantTransaction,
+  workspaceId: string,
+  key: string,
+): Promise<void> {
+  const [row] = await tx
+    .select({ id: automations.id })
+    .from(automations)
+    .where(and(eq(automations.workspaceId, workspaceId), eq(automations.key, key)));
+  if (row) await takeFlowSwitch(tx, workspaceId, row.id);
+}
+
 /** Serialises the 50-flow count of one site (P14). */
 async function lockFlowCount(tx: TenantTransaction, workspaceId: string): Promise<void> {
   await tx.execute(
@@ -543,7 +556,16 @@ export function flowAttention(flow: StoredFlow, site: FlowSite): FlowIssue | nul
   if (!flow.activeVersion) return null;
   const definition = parsedActiveDefinition(flow);
   if (!definition) return DEFINITION_INVALID;
-  return checkFlowAgainstSite(definition, site)[0] ?? null;
+  const issue = checkFlowAgainstSite(definition, site)[0];
+  if (issue) return issue;
+  // A version activated by someone who has since left still runs, as the
+  // scheduler, but its lead-changing steps need its activator: say so, so
+  // someone who may activate it does.
+  const activator = flow.activeVersion.activatedBy;
+  if (activator !== null && !site.memberIds.has(activator)) {
+    return { path: 'activatedBy', code: 'activator_unavailable', ref: '' };
+  }
+  return null;
 }
 
 /** Built-ins in `BUILT_IN_AUTOMATION_KEYS` order, then custom flows by creation, then id. */
@@ -1163,6 +1185,8 @@ export class DatabaseFlowStore implements FlowStore {
   ): Promise<FlowStoreOutcome<StoredFlow>> {
     return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
       await ensureBuiltInFlows(tx, ctx);
+      // Before the row: a tick resuming this flow then waits for the switch (P7).
+      await takeFlowSwitchByKey(tx, ctx.workspaceId, key);
       const locked = await lockFlow(tx, ctx.workspaceId, key);
       if (!locked) return { status: 'not_found' };
       if (locked.enabled === enabled) return this.okFlow(tx, ctx.workspaceId, key);
@@ -1186,6 +1210,7 @@ export class DatabaseFlowStore implements FlowStore {
   archive(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>> {
     return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
       if (isBuiltInAutomationKey(key)) return { status: 'builtin' };
+      await takeFlowSwitchByKey(tx, ctx.workspaceId, key);
       const locked = await lockFlow(tx, ctx.workspaceId, key);
       if (!locked) return { status: 'not_found' };
       if (locked.origin !== 'custom') return { status: 'builtin' };

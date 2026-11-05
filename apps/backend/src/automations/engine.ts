@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { automationRuns, automationWaits, type TenantTransaction } from '@gt-sales/db';
 import {
+  AUTOMATION_MAX_AUTOMATED_RUNS_PER_DAY,
   AUTOMATION_MAX_CHAIN_DEPTH,
   BUILT_IN_AUTOMATION_KEYS,
   automationKeySchema,
@@ -28,9 +29,15 @@ import {
 import type { CustomerEmailEnvironment } from '../email/senders.js';
 import { sanitizeLogIdentifier } from '../http/logger.js';
 import { intakeCheckCode } from '../intake-check/check.js';
-import { emailSkippedFor, runActionStep, type StepContext, type StepResult } from './actions.js';
+import {
+  emailSkippedFor,
+  isActiveMember,
+  runActionStep,
+  type StepContext,
+  type StepResult,
+} from './actions.js';
 import { evaluateConditionGroup } from './conditions.js';
-import { cancelWaitingRun, detailOf, finishRun, insertStepRun } from './records.js';
+import { cancelWaitingRun, detailOf, finishRun, holdFlowSwitch, insertStepRun } from './records.js';
 import { readAutomationLead } from './run.js';
 import { loadFlowSite } from './site.js';
 import type { StaffNotificationEnvironment } from './staff-notification.js';
@@ -438,6 +445,23 @@ export async function startFlowRun(
     await runInsert({ reason: 'loop_prevented', detail: flow.key });
     return emptyResult();
   }
+  // The chain guard above sees one write. A flow set off by an automation (a
+  // stage timer, or another flow's move) can still loop across writes: two
+  // flows moving a lead back and forth each hour. Those runs stop at a daily
+  // count per flow and lead; a person's or the website's own moves never do.
+  if (start.triggerKind === 'time_in_stage' || start.depth > 0) {
+    const since = new Date((fire.now?.() ?? new Date()).getTime() - 24 * 60 * 60 * 1000);
+    const [recent] = await tx.execute<{ count: number }>(sql`
+      select count(*)::int as count from app.automation_runs
+      where workspace_id = ${workspaceId} and automation_id = ${flow.id}
+        and lead_id = ${start.leadId} and status in ('completed', 'waiting', 'failed')
+        and created_at > ${since.toISOString()}::timestamptz
+    `);
+    if ((recent?.count ?? 0) >= AUTOMATION_MAX_AUTOMATED_RUNS_PER_DAY) {
+      await runInsert({ reason: 'run_limit_reached', detail: flow.key });
+      return emptyResult();
+    }
+  }
   const issue = firstIssue(issues, false);
   if (issue) {
     await runInsert({ reason: issue.code, detail: issue.ref });
@@ -777,7 +801,24 @@ async function lockItemLead(
   return lead;
 }
 
-/** A flow's row with one version of it (never locked: the switch locks it, P7). */
+/**
+ * Who a resumed or timed run acts as: the member who activated the version
+ * while they are still an active member of the site, else the scheduler. A
+ * flow keeps mailing after its activator leaves, but never in their name; its
+ * lead-changing steps still need the activator's own `lead.manage` (R5) and
+ * are skipped without it, and the list says so ("Needs attention").
+ */
+async function actingActor(
+  tx: TenantTransaction,
+  workspaceId: string,
+  activatedBy: string | null,
+  fallback: string,
+): Promise<string> {
+  if (activatedBy === null) return fallback;
+  return (await isActiveMember(tx, workspaceId, activatedBy)) ? activatedBy : fallback;
+}
+
+/** A flow's row with one version of it (unlocked: read after `holdFlowSwitch`). */
 async function readVersionedFlow(
   tx: TenantTransaction,
   workspaceId: string,
@@ -882,14 +923,15 @@ export async function resumeRun(
   }
   const lead = await lockItemLead(tx, workspaceId, wait.leadId);
   if (!lead || lead.gone) return cancel('lead_archived');
+  await holdFlowSwitch(tx, workspaceId, wait.automationId);
   const flow = await readVersionedFlow(tx, workspaceId, wait.automationId, run.versionId);
   if (!flow || !flow.enabled || flow.archived) return cancel('flow_switched_off');
   const parsed = flowDefinitionSchemaFor(flow.origin).safeParse(flow.definition);
   if (!parsed.success) return cancel('definition_invalid');
   const fire: FireFlowsContext = {
     ...context,
-    // P19: the activator's writes, else the scheduler's.
-    actorId: flow.activatedBy ?? context.actorId,
+    // P19: the activator's writes, else the scheduler's; a former member's never.
+    actorId: await actingActor(tx, workspaceId, flow.activatedBy, context.actorId),
     now: () => now,
     siteHolder: context.siteHolder ?? flowSiteHolder(workspaceId, context.catalog),
   };
@@ -1016,14 +1058,21 @@ export async function fireTimer(
   if (!lead || lead.gone || !lead.submitted) return settle('void');
   if (timer.triggerKind === 'time_in_stage') {
     if (lead.stage !== timer.stage) return settle('void');
-    // A later move ended the stay. The entry itself is not one: its time was kept to the
-    // millisecond as `event_at`, so it is left out by id and compared at that precision.
+    // The stay is this timer's only while its entry is the lead's latest move:
+    // any move recorded after the entry ended it. Entries keep clock time
+    // (migration 0023), so moves a flow chains into one write are ordered too;
+    // without the entry row, the entry's time kept as `event_at` is used.
     const entryId = timer.occurrence.startsWith('stay:') ? timer.occurrence.slice(5) : '';
     const moved = await tx.execute(sql`
       select 1 from app.lead_activities a
+      left join app.lead_activities e
+        on e.workspace_id = a.workspace_id and e.id::text = ${entryId}
       where a.workspace_id = ${workspaceId} and a.lead_id = ${timer.leadId}
         and a.kind = 'status_change' and a.id::text <> ${entryId}
-        and date_trunc('milliseconds', a.created_at) > ${eventAt.toISOString()}::timestamptz
+        and (
+          (e.id is not null and a.created_at > e.created_at)
+          or (e.id is null and date_trunc('milliseconds', a.created_at) > ${eventAt.toISOString()}::timestamptz)
+        )
       limit 1
     `);
     if (moved.length > 0) return settle('void');
@@ -1040,6 +1089,7 @@ export async function fireTimer(
     if (open.length === 0) return settle('void');
   }
 
+  await holdFlowSwitch(tx, workspaceId, timer.automationId);
   const flow = (await readLiveFlows(tx, workspaceId)).find(
     (live) => live.id === timer.automationId,
   );
@@ -1054,7 +1104,7 @@ export async function fireTimer(
 
   const fire: FireFlowsContext = {
     ...context,
-    actorId: flow.activatedBy ?? context.actorId,
+    actorId: await actingActor(tx, workspaceId, flow.activatedBy, context.actorId),
     now: () => now,
     siteHolder: context.siteHolder ?? flowSiteHolder(workspaceId, context.catalog),
   };

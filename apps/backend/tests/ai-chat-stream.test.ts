@@ -146,6 +146,7 @@ function config(overrides: Partial<AiAssistantConfig> = {}): AiAssistantConfig {
   return {
     enabled: true,
     apiKey: 'test-key-not-real',
+    signingKey: 'test-key-not-real',
     modelId: 'test/model',
     workspaceIds: new Set([WORKSPACE]),
     ...overrides,
@@ -169,6 +170,9 @@ function appWith(
 ) {
   staff = new MemoryStaffStore();
   staff.loader = options.loadAccess;
+  // No card has saved anything unless a test says so (it reads the audit otherwise).
+  if (options.work && !vi.isMockFunction(options.work.aiCardOf))
+    vi.spyOn(options.work, 'aiCardOf').mockResolvedValue(null);
   return createApp({
     staff: {
       ...(options.flows ? { flowStore: options.flows } : {}),
@@ -627,6 +631,92 @@ describe('POST /workspaces/:id/ai/chat', () => {
         draft,
       }),
     );
+  });
+
+  it('saves one version of a revised draft and refuses the other as superseded', async () => {
+    const work = new DatabaseLeadWorkStore();
+    const savedBy = new Map<string, string>();
+    const add = vi.spyOn(work, 'addNote').mockImplementation(async (input) => {
+      // The store keeps the first card that saved a root; a later one reuses its record.
+      if (input.creationId && input.aiCardId && !savedBy.has(input.creationId))
+        savedBy.set(input.creationId, input.aiCardId);
+      return {
+        status: 'created',
+        activity: {
+          id: input.creationId ?? REQUEST_ID,
+          actorId: ACTOR,
+          createdAt: NOW.toISOString(),
+          kind: 'note',
+          body: input.body,
+        },
+      };
+    });
+    vi.spyOn(work, 'aiCardOf').mockImplementation(
+      async ({ rootId }) => savedBy.get(rootId) ?? null,
+    );
+    const hint = vi.spyOn(reads, 'leadHint').mockResolvedValue({
+      leadId: LEAD,
+      reference: 'MS-101',
+      name: 'Test',
+      stage: 'pending',
+      leadType: 'sim_order',
+    });
+    try {
+      await start(
+        appWith({
+          work,
+          turns: [
+            {
+              toolCalls: [{ name: 'prepareNote', input: { leadId: LEAD, body: 'First words.' } }],
+              chunks: ['Draft ready.'],
+            },
+          ],
+        }),
+      );
+      const parts = await readParts(
+        await fetch(chatUrl(), {
+          method: 'POST',
+          headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+          body: JSON.stringify(body()),
+        }),
+      );
+      const actions = parts.find((part) => part.type === 'actions');
+      if (actions?.type !== 'actions' || !actions.actions[0]) throw new Error('expected card');
+      const original = actions.actions[0];
+      const post = (path: string, payload: unknown) =>
+        fetch(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/${path}`, {
+          method: 'POST',
+          headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      const revised = await (
+        await post('revise', {
+          token: original.token,
+          draft: { kind: 'note', leadId: LEAD, body: 'Edited words.' },
+        })
+      ).json();
+      expect(revised.id).not.toBe(original.id);
+
+      // The original is confirmed first (say, in another tab)...
+      expect((await post('confirm', { token: original.token })).status).toBe(200);
+      // ...its retry is still the same save...
+      expect((await post('confirm', { token: original.token })).status).toBe(200);
+      // ...and the revision, a second version of the same draft, is refused.
+      const second = await post('confirm', { token: revised.token });
+      expect(second.status).toBe(409);
+      expect((await second.json()).error).toMatchObject({
+        code: 'conflict',
+        details: { reason: 'superseded' },
+      });
+      // Every version saved under the draft's first card.
+      expect(add.mock.calls.map(([input]) => [input.creationId, input.aiCardId])).toEqual([
+        [original.id, original.id],
+        [original.id, original.id],
+        [original.id, revised.id],
+      ]);
+    } finally {
+      hint.mockRestore();
+    }
   });
 
   it('prepares a note without writing and saves only the signed content on confirmation', async () => {

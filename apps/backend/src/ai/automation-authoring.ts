@@ -65,20 +65,26 @@ function digestOf(value: unknown) {
     .update(JSON.stringify(canonical(value)))
     .digest('hex');
 }
-function mac(payload: string, key: string) {
+/**
+ * The token's MAC binds the proposal id and digest to the member and site it
+ * was made for (v2), so a token is worthless anywhere else even before its
+ * row is read. A v1 token (id and digest only) no longer verifies: it lived
+ * ten minutes at most.
+ */
+function mac(payload: string, key: string, scope: Scope) {
   return createHmac('sha256', key)
-    .update('gt-sales/ai-automation/v1:' + payload)
+    .update(`gt-sales/ai-automation/v2:${scope.workspaceId}:${scope.actorId}:${payload}`)
     .digest('base64url');
 }
-function sign(id: string, digest: string, key: string) {
+function sign(id: string, digest: string, key: string, scope: Scope) {
   const payload = id + '.' + digest;
-  return payload + '.' + mac(payload, key);
+  return payload + '.' + mac(payload, key, scope);
 }
-function verify(token: string, key: string) {
+function verify(token: string, key: string, scope: Scope) {
   const [id, digest, signature, extra] = token.split('.');
   if (!id || !digest || !signature || extra !== undefined)
     throw new AutomationAuthoringError('invalid');
-  const expected = Buffer.from(mac(id + '.' + digest, key));
+  const expected = Buffer.from(mac(id + '.' + digest, key, scope));
   const actual = Buffer.from(signature);
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
     throw new AutomationAuthoringError('invalid');
@@ -221,7 +227,7 @@ export class AutomationAuthoringStore {
       });
       return {
         id,
-        token: sign(id, digest, key),
+        token: sign(id, digest, key, scope),
         expiresAt: expiresAt.toISOString(),
         siteName,
         draft,
@@ -250,7 +256,9 @@ export class AutomationAuthoringStore {
       await tx
         .update(aiAutomationProposals)
         .set({ expiresAt: now })
-        .where(and(ownProposals(scope), eq(aiAutomationProposals.id, verify(token, key).id)));
+        .where(
+          and(ownProposals(scope), eq(aiAutomationProposals.id, verify(token, key, scope).id)),
+        );
       return next;
     });
   }
@@ -260,7 +268,7 @@ export class AutomationAuthoringStore {
     key: string,
     now: Date,
   ): Promise<AiAutomationProposalInput> {
-    const signed = verify(token, key);
+    const signed = verify(token, key, scope);
     return this.database.withTenantTx(scope, async (tx) => {
       const [row] = await tx
         .select()
@@ -286,7 +294,7 @@ export class AutomationAuthoringStore {
     key: string,
     now: Date,
   ): Promise<AiAutomationSaveResponse> {
-    const signed = verify(token, key);
+    const signed = verify(token, key, scope);
     return this.database.withTenantTx(scope, async (tx) => {
       const [row] = await tx
         .select()

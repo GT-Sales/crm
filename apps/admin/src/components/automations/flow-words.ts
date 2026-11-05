@@ -341,6 +341,8 @@ const REASONS: Readonly<Record<AutomationReason, string>> = {
   lead_archived: 'the lead was archived',
   flow_switched_off: 'the flow was switched off',
   resume_failed: 'it could not carry on after the wait',
+  run_limit_reached: 'it already ran several times for this lead today',
+  activator_unavailable: 'the member who activated it has left this site; activate it again',
 };
 
 /** Why a run or a step stopped: "names a stage that no longer exists (paid)". */

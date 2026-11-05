@@ -127,6 +127,12 @@ export const AUTOMATION_REASONS = [
   'lead_archived',
   'flow_switched_off',
   'resume_failed',
+  // A flow that keeps re-firing itself on one lead (a timer or another flow's
+  // move set it off) stops at `AUTOMATION_MAX_AUTOMATED_RUNS_PER_DAY`.
+  'run_limit_reached',
+  // The member who activated the version is no longer on the site: the flow
+  // still runs (as the scheduler), but its lead-changing steps cannot.
+  'activator_unavailable',
 ] as const;
 export const automationReasonSchema = z.enum(AUTOMATION_REASONS);
 export type AutomationReason = z.infer<typeof automationReasonSchema>;
@@ -148,6 +154,13 @@ export const AUTOMATION_MAX_WAITS = 5;
 export const AUTOMATION_MAX_CONDITIONS = 30;
 export const AUTOMATION_MAX_GROUP_ITEMS = 10;
 export const AUTOMATION_MAX_CHAIN_DEPTH = 3;
+/**
+ * Runs one flow may make for one lead in a rolling day when an automation,
+ * not a person or the website, set it off (a `time_in_stage` timer, or another
+ * flow's move). Two flows moving a lead back and forth stop here instead of
+ * mailing the customer every hour; the run says `run_limit_reached`.
+ */
+export const AUTOMATION_MAX_AUTOMATED_RUNS_PER_DAY = 3;
 export const AUTOMATION_RUN_PAGE = 50;
 export const AUTOMATION_MAX_DEFINITION_BYTES = 65_536;
 export const AUTOMATION_MAX_PATH_WAIT_DAYS = 90;
@@ -552,6 +565,7 @@ export const FLOW_ISSUE_CODES = [
   'lead_type_unavailable',
   'invalid_variable',
   'definition_invalid',
+  'activator_unavailable',
 ] as const;
 export const flowIssueCodeSchema = z.enum(FLOW_ISSUE_CODES);
 export type FlowIssueCode = z.infer<typeof flowIssueCodeSchema>;

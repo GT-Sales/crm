@@ -21,9 +21,21 @@ export interface AiAssistantConfig {
   readonly modelId?: string;
   /** Gateway API key; server-only, never logged or returned. */
   readonly apiKey?: string;
+  /**
+   * The key that signs reviewed action cards and automation proposals:
+   * `AI_ACTION_SIGNING_SECRET` when set (32+ characters), else, so a deploy
+   * before the secret is configured keeps working, the Gateway key as before
+   * (`signingKeySource: 'gateway'`, reported at startup). A secret that is
+   * set but too short leaves it unset: no card can be signed or confirmed.
+   */
+  readonly signingKey?: string;
+  readonly signingKeySource?: 'dedicated' | 'gateway';
   /** Sites the owner has enabled by id. Empty means none. */
   readonly workspaceIds: ReadonlySet<string>;
 }
+
+/** The shortest `AI_ACTION_SIGNING_SECRET` accepted, in characters. */
+export const AI_SIGNING_SECRET_MIN = 32;
 
 /** The model id's shape; the Gateway catalogue is authoritative for existence. */
 const modelIdSchema = z.string().trim().min(1).max(120);
@@ -55,10 +67,18 @@ export function loadAiAssistantConfig(
   if (!apiKey || !modelId.success) {
     return { enabled: false, reason: 'not_configured', workspaceIds };
   }
+  const secret = env['AI_ACTION_SIGNING_SECRET']?.trim();
+  const signing =
+    secret === undefined || secret === ''
+      ? { signingKey: apiKey, signingKeySource: 'gateway' as const }
+      : secret.length >= AI_SIGNING_SECRET_MIN
+        ? { signingKey: secret, signingKeySource: 'dedicated' as const }
+        : {};
   return {
     enabled: true,
     apiKey,
     modelId: modelId.data,
+    ...signing,
     workspaceIds,
     ...(env['AI_AUTOMATION_WORKSPACE_IDS']
       ? { automationWorkspaceIds: parseWorkspaceIds(env['AI_AUTOMATION_WORKSPACE_IDS']) }

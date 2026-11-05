@@ -494,7 +494,12 @@ export const leadActivities = appSchema
       kind: text('kind').notNull(),
       body: text('body'),
       data: jsonb('data'),
-      createdAt: createdAt(),
+      // The clock, not the transaction's start: one write can record several
+      // moves (a flow's move chained after a person's), and a stage timer
+      // tells which move came last by this time.
+      createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+        .default(sql`clock_timestamp()`)
+        .notNull(),
     },
     (table) => [
       unique('lead_activities_workspace_id_id_unique').on(table.workspaceId, table.id),
