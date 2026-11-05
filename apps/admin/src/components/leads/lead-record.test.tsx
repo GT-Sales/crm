@@ -266,7 +266,7 @@ describe('LeadRecord', () => {
     expect(screen.queryByLabelText('Add a note')).toBeNull();
     expect(screen.queryByRole('button', { name: /archive/i })).toBeNull();
     // The path still shows where the lead stands, with no move offered.
-    const path = screen.getByRole('region', { name: 'Stage path' });
+    const path = screen.getByRole('region', { name: 'Lead progress' });
     expect(path.querySelector('[aria-current="step"]')?.textContent).toBe('New');
     expect(within(path).queryByRole('button')).toBeNull();
   });
@@ -279,7 +279,7 @@ describe('LeadRecord', () => {
       requestId: NOW,
     });
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
-    const path = await screen.findByRole('region', { name: 'Stage path' });
+    const path = await screen.findByRole('region', { name: 'Lead progress' });
     fireEvent.click(within(path).getByRole('button', { name: 'Move to Contacted' }));
     await waitFor(() =>
       expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {

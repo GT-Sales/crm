@@ -26,7 +26,7 @@ export function StagePathBar({
 }) {
   const { next } = path;
   return (
-    <section aria-label="Stage path" className="flex w-full flex-col gap-2">
+    <section aria-label="Lead progress" className="flex w-full flex-col gap-2">
       <ol className="flex flex-wrap items-center gap-x-1 gap-y-1.5 text-xs">
         {path.steps.map((step, index) => (
           <li key={step.key} className="flex items-center gap-1">
