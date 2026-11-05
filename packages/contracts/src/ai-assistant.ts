@@ -104,7 +104,12 @@ export const aiCapabilitiesResponseSchema = z.object({
 
 export type AiCapabilitiesResponse = z.infer<typeof aiCapabilitiesResponseSchema>;
 
-/** One earlier turn, as text only: the model never receives stored tool data. */
+/**
+ * One earlier turn, as text only: the model never receives stored tool data.
+ * An assistant turn carries the `signature` its `done` part gave it (CHAT-2):
+ * the server only replays answers it wrote, so a client cannot put words in
+ * the model's mouth.
+ */
 export const aiHistoryMessageSchema = z
   .object({
     role: z.enum(['user', 'assistant']),
@@ -116,8 +121,30 @@ export const aiHistoryMessageSchema = z
         (text) => Array.from(text).length <= AI_ASSISTANT_LIMITS.maxMessageChars,
         'message character limit',
       ),
+    signature: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{43}$/)
+      .optional(),
   })
   .strict();
+
+/**
+ * The text an answer is replayed as in history: a follow-up question and its
+ * choices first, then the answer, clipped to the message limit. Both ends
+ * build it here, so the text the server signs is the text the client sends.
+ */
+export function aiAssistantHistoryText(answer: {
+  text: string;
+  followUp?: { question: string; choices: readonly string[] } | undefined;
+}): string {
+  const text = answer.followUp
+    ? `${answer.followUp.question} Options: ${answer.followUp.choices.join('; ')}\n${answer.text}`
+    : answer.text;
+  const characters = Array.from(text);
+  return characters.length <= AI_ASSISTANT_LIMITS.maxMessageChars
+    ? text
+    : characters.slice(0, AI_ASSISTANT_LIMITS.maxMessageChars).join('');
+}
 
 export type AiHistoryMessage = z.infer<typeof aiHistoryMessageSchema>;
 
@@ -331,7 +358,16 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('follow_up'), followUp: aiFollowUpSchema }).strict(),
-  z.object({ type: z.literal('done') }).strict(),
+  z
+    .object({
+      type: z.literal('done'),
+      /** The answer's history signature (CHAT-2); absent when signing is not configured. */
+      signature: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]{43}$/)
+        .optional(),
+    })
+    .strict(),
 ]);
 
 export type AiStreamPart = z.infer<typeof aiStreamPartSchema>;

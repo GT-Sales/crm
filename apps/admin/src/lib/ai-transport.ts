@@ -23,6 +23,8 @@ export type AiUiError =
 export interface AiHistoryEntry {
   role: 'user' | 'assistant';
   text: string;
+  /** An answer's signature from its `done` part (CHAT-2); the server replays only signed answers. */
+  signature?: string;
 }
 
 /** The capability limits the composer and the request builder must obey. */
@@ -87,6 +89,7 @@ function groupTurns(history: readonly AiHistoryEntry[]): AiHistoryEntry[][] {
 }
 
 function clipped(entry: AiHistoryEntry, maxChars: number): AiHistoryEntry {
+  // A shortened answer no longer matches its signature, so it travels without one.
   return Array.from(entry.text).length <= maxChars
     ? entry
     : { role: entry.role, text: Array.from(entry.text).slice(0, maxChars).join('') };
@@ -141,7 +144,11 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
     return {
       requestId: input.requestId,
       message,
-      history: conversation.map((entry) => ({ role: entry.role, text: entry.text })),
+      history: conversation.map((entry) => ({
+        role: entry.role,
+        text: entry.text,
+        ...(entry.signature === undefined ? {} : { signature: entry.signature }),
+      })),
       ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
     };
   }

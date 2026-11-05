@@ -476,7 +476,7 @@ suite('AI automation proposals and atomic draft saves', () => {
       messages: [{ role: 'user', text: 'Assign new SIM orders to me' }],
       tools: tools.definitions,
       automationAuthoring: true,
-      hasPreparedAutomation: () => tools.proposals.length > 0,
+      hasPreparedDraft: () => tools.proposals.length > 0,
       signal: new AbortController().signal,
     })) {
       if (event.type === 'tool-end') expect(event.ok).toBe(true);

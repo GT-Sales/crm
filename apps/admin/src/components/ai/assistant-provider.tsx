@@ -18,6 +18,7 @@ import {
 } from 'react';
 import {
   AI_ASSISTANT_LIMITS,
+  aiAssistantHistoryText,
   type AiCapabilitiesResponse,
   type AiSource,
   type AiStreamPart,
@@ -100,6 +101,8 @@ export interface AiAssistantMessage {
   sources: readonly AiSource[];
   /** The current tool's plain-language label, never announced as a live region. */
   progress?: string;
+  /** The finished answer's history signature (CHAT-2), sent back with the next question. */
+  signature?: string;
   error?: AiUiError;
 }
 
@@ -184,15 +187,24 @@ function emptySession(key: string): SessionState {
 
 function toHistory(messages: readonly AiMessage[]): AiHistoryEntry[] {
   const history: AiHistoryEntry[] = [];
-  for (const message of messages) {
-    // A partial answer is visible for the person, but must not become the
-    // model's completed answer on the next turn after Stop or a disconnect.
-    if (message.role === 'assistant' && message.status !== 'complete') continue;
-    const text =
-      message.role === 'assistant' && message.followUp
-        ? `${message.followUp.question} Options: ${message.followUp.choices.join('; ')}\n${message.text}`
-        : message.text;
-    if (text.length > 0) history.push({ role: message.role, text });
+  for (let index = 0; index < messages.length; index += 1) {
+    const question = messages[index];
+    const answer = messages[index + 1];
+    // Whole turns only (UI-7): a question whose answer was stopped, failed or
+    // is still streaming stays on screen but never reaches the model, so the
+    // history always alternates question, answer.
+    if (question?.role !== 'user' || answer?.role !== 'assistant') continue;
+    if (answer.status !== 'complete') continue;
+    const text = aiAssistantHistoryText({ text: answer.text, followUp: answer.followUp });
+    if (question.text.length === 0 || text.length === 0) continue;
+    history.push(
+      { role: 'user', text: question.text },
+      {
+        role: 'assistant',
+        text,
+        ...(answer.signature === undefined ? {} : { signature: answer.signature }),
+      },
+    );
   }
   return history;
 }
@@ -337,6 +349,8 @@ export function AssistantProvider({
         if (part.type === 'automation_proposals')
           return { ...message, automationProposals: part.proposals };
         if (part.type === 'follow_up') return { ...message, followUp: part.followUp };
+        if (part.type === 'done' && part.signature !== undefined)
+          return { ...message, signature: part.signature };
         if (part.type === 'actions')
           return {
             ...message,

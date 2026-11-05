@@ -5,6 +5,7 @@ import type { FlowStore } from '../automations/flow-store.js';
 import { AISDKError, tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
 import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
+import { signAssistantTurn, trustedHistory } from '../ai/history.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import type { AiTurnStore } from '../ai/turn-store.js';
 import { Router, type Response } from 'express';
@@ -12,6 +13,8 @@ import {
   reviseAiActionRequestSchema,
   aiFollowUpSchema,
   aiAutomationProposalSchema,
+  aiActionProposalSchema,
+  aiAssistantHistoryText,
   type AiFollowUp,
   AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
@@ -219,6 +222,9 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
     signal.removeEventListener('abort', onAbort);
   }
 }
+
+/** The longest text part the stream sends; a longer provider chunk is split. */
+const AI_TEXT_PART_CHARS = 8_000;
 
 /** How long a chat request id stays claimed in the shared limiter. */
 export const AI_REPLAY_WINDOW_SECONDS = 3600;
@@ -798,11 +804,45 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const engine = dependencies.engine;
       const stream = createUIMessageStream({
         execute: async ({ writer }) => {
+          // The answer as the client will hold it, for its history signature.
+          let answered = '';
           const writePart = (part: AiStreamPart) => {
+            if (part.type === 'text') {
+              answered += part.text;
+              // CHAT-11: a provider chunk over the part limit goes out in pieces.
+              const characters = Array.from(part.text);
+              for (let at = 0; at < characters.length; at += AI_TEXT_PART_CHARS) {
+                writer.write({
+                  type: 'data-assistant',
+                  data: aiStreamPartSchema.parse({
+                    type: 'text',
+                    text: characters.slice(at, at + AI_TEXT_PART_CHARS).join(''),
+                  }),
+                  transient: true,
+                });
+              }
+              return;
+            }
             writer.write({
               type: 'data-assistant',
               data: aiStreamPartSchema.parse(part),
               transient: true,
+            });
+          };
+          // CHAT-2: the finished answer is signed so the next turn can replay it.
+          const writeDone = () => {
+            const key = dependencies.config.signingKey;
+            writePart({
+              type: 'done',
+              ...(key === undefined
+                ? {}
+                : {
+                    signature: signAssistantTurn(
+                      key,
+                      scope,
+                      aiAssistantHistoryText({ text: answered, followUp }),
+                    ),
+                  }),
             });
           };
           writePart({ type: 'progress', label: 'Getting ready' });
@@ -855,8 +895,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 }),
           });
           const openLeadData = leadHint === undefined ? undefined : openLeadDataBlock(leadHint);
+          // CHAT-2: only whole turns whose answer this server signed are replayed.
+          const history = trustedHistory(body.history, dependencies.config.signingKey, scope);
           const messages = [
-            ...body.history.map((message) => ({ role: message.role, text: message.text })),
+            ...history.messages,
             {
               role: 'user' as const,
               text:
@@ -875,7 +917,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               system,
               messages,
               automationAuthoring: automationTools !== undefined,
-              hasPreparedAutomation: () => (automationTools?.proposals.length ?? 0) > 0,
+              // CHAT-4: a turn that ends on a prepared card's tool call is done.
+              hasPreparedDraft: () =>
+                (automationTools?.proposals.length ?? 0) > 0 ||
+                (actionTools?.proposals.length ?? 0) > 0,
               tools: {
                 ...toolset.definitions,
                 ...actionTools?.definitions,
@@ -977,7 +1022,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               )
                 writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
               if (followUp) writePart({ type: 'follow_up', followUp });
-              writePart({ type: 'done' });
+              writeDone();
             }
           } catch (error) {
             if (revoked || error instanceof AssistantAccessRevokedError) {
@@ -998,19 +1043,24 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               outcome = 'cancelled';
             } else {
               failureCode = error instanceof AssistantProviderError ? error.code : 'internal_error';
-              const ready = aiAutomationProposalSchema
+              // CHAT-4: cards already prepared (signed drafts that save nothing
+              // until confirmed) are released with a note, not lost with the turn.
+              const readyAutomations = aiAutomationProposalSchema
                 .array()
                 .max(3)
                 .safeParse(automationTools?.proposals ?? []);
-              if (ready.success && ready.data.length > 0) {
+              const readyActions = aiActionProposalSchema
+                .array()
+                .max(3)
+                .safeParse(actionTools?.proposals ?? []);
+              const automations = readyAutomations.success ? readyAutomations.data : [];
+              const actions = readyActions.success ? readyActions.data : [];
+              if (automations.length > 0 || actions.length > 0) {
                 try {
                   const finalAccess = await wait(
                     dependencies.loadAccess(actor.actorId, workspaceId.data),
                   );
-                  if (
-                    !decideAiAccess(finalAccess).allowed ||
-                    !decideAccess(finalAccess, 'integration.manage').allowed
-                  ) {
+                  if (!decideAiAccess(finalAccess).allowed) {
                     outcome = 'access_lost';
                     writePart({
                       type: 'error',
@@ -1019,14 +1069,23 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                     });
                     return;
                   }
-                  writePart({
-                    type: 'text',
-                    text: '\n\nThe explanation could not finish, but a draft is ready for your review. Nothing has been saved.',
-                  });
-                  writePart({ type: 'automation_proposals', proposals: ready.data });
-                  writePart({ type: 'done' });
-                  recoveredDraft = true;
-                  outcome = 'completed';
+                  const releaseActions =
+                    actions.length > 0 && decideAccess(finalAccess, 'lead.manage').allowed;
+                  const releaseAutomations =
+                    automations.length > 0 &&
+                    decideAccess(finalAccess, 'integration.manage').allowed;
+                  if (releaseActions || releaseAutomations) {
+                    writePart({
+                      type: 'text',
+                      text: '\n\nThe explanation could not finish, but a draft is ready for your review. Nothing has been saved.',
+                    });
+                    if (releaseActions) writePart({ type: 'actions', actions });
+                    if (releaseAutomations)
+                      writePart({ type: 'automation_proposals', proposals: automations });
+                    writeDone();
+                    recoveredDraft = true;
+                    outcome = 'completed';
+                  }
                 } catch {
                   // A failed access check or invalid stream must not release a card.
                 }
