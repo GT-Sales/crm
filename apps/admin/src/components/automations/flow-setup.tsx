@@ -56,8 +56,8 @@ export function FlowSetup({
               steps.length === 0
                 ? 'Add your first action below'
                 : incomplete.length > 0
-                  ? `${incomplete.length} of ${steps.length} steps need setup`
-                  : `${steps.length} steps configured`,
+                  ? `${incomplete.length} of ${steps.length} ${steps.length === 1 ? 'step needs' : 'steps need'} setup`
+                  : `${steps.length} ${steps.length === 1 ? 'step' : 'steps'} configured`,
             done: actionsReady,
             selected: steps.some((node) => node.id === selectedId),
             click: () => onSelect(firstAction?.id ?? 'trigger'),

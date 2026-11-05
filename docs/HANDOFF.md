@@ -2419,3 +2419,29 @@ No migration and no new environment variable. `ADMIN_ORIGIN` must already be
 the admin's https origin in production (CORS needs it too). The contract change
 to the test route ships the admin and backend together, as every push to `main`
 does.
+
+### Admin UI review, first batch (5 Nov 2026)
+
+From [the admin UI review](review/2026-11-05-admin-ui-review.md), items 1 and 5
+and the quick fixes:
+
+- **Needs attention strip** on the lead page and side panel
+  (`components/leads/lead-attention.tsx`): a waiting change request, required
+  documents missing, rejected or not reviewed (against the frozen plan),
+  overdue tasks, and an arrival within a week for an order not yet dispatched.
+  Each item scrolls to, and focuses, its card; in the panel it opens the right
+  tab first. Archived leads show nothing; requests and tasks only for members
+  with contact access.
+- **Leads inbox:** the search box is always visible; a site with one lead type
+  opens on that type's tab with no repeated "All leads" tab (the archive and
+  saved views keep their own address); sources read as words (`Google · paid`)
+  with the raw label as a tooltip (`lib/source-label.ts`; Reports → Sources is
+  unchanged); the NEW pill is a dot with "New" for screen readers; the sidebar
+  count has a tooltip.
+- **Quick fixes:** Plans no longer repeats its intro, and order types with no
+  plans fold into one "Other order types" list once the site has a plan; "1
+  step configured"; countries read as names (`lib/countries.ts`); an empty
+  record section says which fields are not recorded yet instead of showing a
+  bare heading.
+
+No backend or contract change.

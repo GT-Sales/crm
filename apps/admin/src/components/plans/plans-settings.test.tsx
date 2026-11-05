@@ -124,9 +124,21 @@ describe('PlansSettings list', () => {
 
     expect(screen.getByRole('heading', { name: 'SIM order' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Internet' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Mobility' })).toBeTruthy();
     expect(within(list('Internet plans')).getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByText('No plans yet.')).toBeTruthy();
+    // A type the site has no plans for folds into one short list, still one click to add.
+    expect(screen.queryByRole('heading', { name: 'Mobility' })).toBeNull();
+    expect(within(list('Order types without plans')).getByText('Mobility')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add Mobility plan' })).toBeTruthy();
+    expect(screen.queryByText('No plans yet.')).toBeNull();
+  });
+
+  it('shows every type in full while the site has no plans at all', async () => {
+    mocks.listPlans.mockResolvedValue(answer([]));
+    render(<PlansSettings workspaceSlug="canadawide" />);
+    expect(await screen.findByRole('heading', { name: 'Mobility' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'SIM order' })).toBeTruthy();
+    expect(screen.getAllByText('No plans yet.')).toHaveLength(3);
+    expect(screen.queryByRole('list', { name: 'Order types without plans' })).toBeNull();
   });
 
   it('shows the price in dollars and the billing period in words', async () => {

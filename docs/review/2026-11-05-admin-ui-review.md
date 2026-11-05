@@ -1,5 +1,12 @@
 # Admin UI review (5 Nov 2026)
 
+Status: items 1 and 5 and the quick fixes are implemented (see the HANDOFF
+entry "Admin UI review, first batch"). The General settings email finding was
+a false positive: production reads the address from the Supabase sign-in
+token, and only the local test session had none. Item 5's "humanize Source"
+applies to the leads list and lead page; Reports → Sources still shows labels
+as received, by design.
+
 Method: the real backend (e2e harness, synthetic Get Canada Sim and CanadaWide
 data) and the production admin build, driven with Playwright at 1440 px and
 390 px, light and dark, plus a read of the relevant components. Every screen

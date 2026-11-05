@@ -29,6 +29,7 @@ import type { InboxQuery } from './inbox-query';
 import { TableRowsSkeleton } from '../crm/loading-skeleton';
 import { CountdownLabel, leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
 import { propertyColumnLabel, propertyColumnProperty } from './lead-fields';
+import { readableSource } from '../../lib/source-label';
 
 const PAGE_SIZE = 50;
 
@@ -467,7 +468,9 @@ export function LeadsTable({
                     })}
                     {showCol('source') ? (
                       <td className={cn(CELL, 'max-w-[180px] truncate')}>
-                        <code className="text-xs text-muted-foreground">{lead.source}</code>
+                        <span className="text-muted-foreground" title={lead.source}>
+                          {readableSource(lead.source)}
+                        </span>
                       </td>
                     ) : null}
                     {showCol('created') ? (

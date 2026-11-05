@@ -277,14 +277,12 @@ describe('LeadsInbox', () => {
     const filters = screen.getByRole('button', { name: 'Filters' });
     const view = screen.getByRole('button', { name: 'View options' });
     const saved = screen.getByRole('button', { name: 'Saved views' });
-    const searchButton = screen.getByRole('button', { name: 'Search leads' });
     expect(tabs.parentElement?.contains(filters)).toBe(true);
-    expect(filters.parentElement?.contains(searchButton)).toBe(true);
-    expect(screen.queryByRole('searchbox', { name: 'Search leads' })).toBeNull();
-    fireEvent.click(searchButton);
-    expect(
-      filters.parentElement?.contains(screen.getByRole('searchbox', { name: 'Search leads' })),
-    ).toBe(true);
+    // The search box is always on screen, beside the menus, and takes no focus by itself.
+    const search = screen.getByRole('searchbox', { name: 'Search leads' });
+    expect(filters.parentElement?.contains(search)).toBe(true);
+    expect(document.activeElement).not.toBe(search);
+    expect(screen.queryByRole('button', { name: 'Search leads' })).toBeNull();
     expect(filters.parentElement?.contains(view)).toBe(true);
     expect(filters.parentElement?.contains(saved)).toBe(true);
     expect(screen.queryByLabelText('Assignee')).toBeNull();
@@ -586,7 +584,6 @@ describe('LeadsInbox', () => {
     navigation.search = 'type=internet&page=3';
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<LeadsInbox workspaceSlug="canadawide" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Search leads' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search leads' }), {
       target: { value: 'avery' },
     });
@@ -701,6 +698,36 @@ describe('LeadsInbox', () => {
       '/w/canadawide/leads?type=internet&cols=city',
       { scroll: false },
     );
+  });
+
+  it('opens a one-type site on its type tab, with no All leads tab repeating it', async () => {
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'sim_order', total: 6 }],
+      archived: 0,
+      trash: 0,
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = '';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalled());
+    expect(String(navigation.replace.mock.calls.at(-1)?.[0])).toContain('type=sim_order');
+    expect(await screen.findByRole('tab', { name: /SIM order\s*6/ })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /All leads/ })).toBeNull();
+  });
+
+  it('keeps the archive and a saved view where they were opened on a one-type site', async () => {
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'sim_order', total: 6 }],
+      archived: 1,
+      trash: 1,
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = 'archived=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('tab', { name: /Archive/ });
+    expect(
+      navigation.replace.mock.calls.some((call) => String(call[0]).includes('type=sim_order')),
+    ).toBe(false);
   });
 
   it('keeps contact-property filtering and ordering unavailable without contact access', async () => {

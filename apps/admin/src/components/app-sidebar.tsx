@@ -113,6 +113,7 @@ export function AppSidebar({ workspace }: { workspace: string }) {
                             <span
                               className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground group-data-[collapsible=icon]:hidden"
                               aria-hidden="true"
+                              title={`${unopened} new ${unopened === 1 ? 'lead' : 'leads'} not opened yet`}
                             >
                               {unopened}
                             </span>

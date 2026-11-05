@@ -108,16 +108,19 @@ export function CountdownDay({
   );
 }
 
-/** A lead no one who works leads has opened yet. */
+/**
+ * A lead no one who works leads has opened yet: a small dot rather than a pill,
+ * so a page of new leads does not become a wall of badges. Screen readers hear
+ * "New"; a pointer shows what the dot means.
+ */
 export function NewBadge({ className }: { className?: string }) {
   return (
     <span
-      className={cn(
-        'inline-flex shrink-0 items-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground',
-        className,
-      )}
+      title="New: not opened yet"
+      className={cn('inline-flex shrink-0 items-center', className)}
     >
-      New
+      <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
+      <span className="sr-only">New</span>
     </span>
   );
 }

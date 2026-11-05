@@ -51,7 +51,6 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   await expect(page.getByRole('tab', { name: /Mobility\s*1/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Ellis Mobile' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Search leads' }).click();
   await page.getByRole('searchbox', { name: 'Search leads' }).fill('blake');
   await expect(page).toHaveURL(/q=blake/);
   await expect(page.getByRole('link', { name: 'Blake Sample' })).toBeVisible();
@@ -1226,7 +1225,7 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
     .toBeLessThanOrEqual(391);
   await sheet.getByRole('button', { name: 'Close panel' }).click();
   await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Search leads', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search leads', exact: true })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(391);
