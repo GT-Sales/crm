@@ -137,7 +137,8 @@ describe('LeadRecord', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Avery Example' })).toBeTruthy();
     expect(screen.getByText('avery@example.test')).toBeTruthy();
     expect(screen.getByText('12 Example Street')).toBeTruthy();
-    expect(screen.getByText('utm:google/cpc')).toBeTruthy();
+    // Read as words, with the raw label kept as the tooltip.
+    expect(screen.getByText('Google · paid').getAttribute('title')).toBe('utm:google/cpc');
     expect(mocks.getStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD);
   });
 
@@ -264,7 +265,27 @@ describe('LeadRecord', () => {
     expect(screen.queryByLabelText('Stage')).toBeNull();
     expect(screen.queryByLabelText('Add a note')).toBeNull();
     expect(screen.queryByRole('button', { name: /archive/i })).toBeNull();
-    expect(screen.getByText('New')).toBeTruthy();
+    // The path still shows where the lead stands, with no move offered.
+    const path = screen.getByRole('region', { name: 'Lead progress' });
+    expect(path.querySelector('[aria-current="step"]')?.textContent).toBe('New');
+    expect(within(path).queryByRole('button')).toBeNull();
+  });
+
+  it('offers the next stage on the path and moves the lead with it', async () => {
+    mocks.updateStaffLead.mockResolvedValue({
+      lead: { ...lead, stage: 'contacted' },
+      activities: [],
+      allowedMoves: [],
+      requestId: NOW,
+    });
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const path = await screen.findByRole('region', { name: 'Lead progress' });
+    fireEvent.click(within(path).getByRole('button', { name: 'Move to Contacted' }));
+    await waitFor(() =>
+      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        stage: 'contacted',
+      }),
+    );
   });
 
   it('archives the lead from the header and says so', async () => {
@@ -803,6 +824,23 @@ describe('LeadRecord order details', () => {
       );
     });
 
+    it('flags the waiting request under the header and takes staff to its card', async () => {
+      mocks.getStaffLead.mockResolvedValue(loaded());
+      render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+      const strip = await screen.findByRole('region', { name: 'Needs attention' });
+      const original = Element.prototype.scrollIntoView;
+      const scrolled = vi.fn();
+      Element.prototype.scrollIntoView = scrolled;
+      try {
+        fireEvent.click(within(strip).getByRole('button', { name: 'Change request #70 waiting' }));
+        await waitFor(() => expect(scrolled).toHaveBeenCalled());
+        const card = screen.getByRole('heading', { name: 'Change request #70' });
+        expect(document.activeElement?.contains(card)).toBe(true);
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
     it('has no card when the lead has no pending request', async () => {
       mocks.getStaffLead.mockResolvedValue(loaded({ changeRequest: null, activities: [] }));
       render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
@@ -968,6 +1006,8 @@ describe('LeadRecord order details', () => {
     expect(screen.getByText('Call after 6pm')).toBeTruthy();
     const staff = screen.getByRole('region', { name: 'Staff details' });
     expect(within(staff).queryByText('SIM number')).toBeNull();
+    // An empty section says what can be recorded instead of showing a bare heading.
+    expect(within(staff).getByText('Not recorded yet: SIM number.')).toBeTruthy();
     fireEvent.click(within(staff).getByRole('button', { name: 'Edit' }));
     expect(within(staff).getByLabelText('SIM number')).toBeTruthy();
   });

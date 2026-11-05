@@ -33,3 +33,12 @@ No migration, new secret or mailbox integration is required. Existing AI and
 outbox configuration applies. Payment, email address, plan/order, custom/form
 fields, archive and bulk edits are outside this version. Those changes continue
 through the manual CRM controls.
+
+Gates before Confirm (5 Nov 2026): the stage preview plans each move as the
+confirmation will, without an order edit or an override, and marks a choice
+that still needs dispatch details, an activation date or approved documents
+(`needs`, with `missingDocuments`). `getLeadUpdateOptions` returns those marks,
+`prepareLeadUpdate` answers `needs_lead_page` instead of making a card for such
+a move, and the card shows those stages disabled. If a gate still refuses at
+Confirm (the lead changed since the preview), the answer is the same error a
+staff edit gets, mapped by `http/lead-update-errors.ts`, never `conflict`.

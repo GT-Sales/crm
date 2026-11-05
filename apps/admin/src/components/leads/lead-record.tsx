@@ -67,13 +67,18 @@ import { IdentityCheck } from './identity-check';
 import { LeadDocuments, linkFailure } from './lead-documents';
 import type { PropertyEdits } from './lead-form-editor';
 import { leadSummaryText } from './lead-summary';
+import { LeadAttentionStrip, leadAttention, type LeadAttentionTarget } from './lead-attention';
 import { LeadTasks } from './lead-tasks';
+import { StagePathBar } from './stage-path';
 import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
 import { emailSkippedText, StageMoveDialog, stageMoveRefusal } from './stage-move-dialog';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
+import { countryName } from '../../lib/countries';
+import { readableSource } from '../../lib/source-label';
+import { stagePath } from '../../lib/stage-path';
 
 const ATTRIBUTION_LABELS: Record<string, string> = {
   utmSource: 'UTM source',
@@ -569,6 +574,43 @@ export function LeadRecord({
     }));
   }
 
+  // The order details travel with contact access; without them the path still
+  // shows where the lead stands, and the move's dialog checks the rest.
+  const guidedPath = stagePath({
+    leadType: lead.leadType,
+    stage: lead.stage,
+    ...(lead.order ? { order: lead.order } : {}),
+    documents,
+  });
+  const attention = leadAttention({
+    lead,
+    formPayload: payload,
+    documents,
+    tasks,
+    changeRequestNo: record.data.changeRequest?.requestNo,
+    contacts: access.contacts,
+  });
+  const anchorId = (target: LeadAttentionTarget) => `lead-${lead.id}-${target}`;
+  // In the panel a card may sit on another tab: open it first, then scroll
+  // once that tab has rendered. Focus moves to the card for keyboard users.
+  function jumpTo(target: LeadAttentionTarget) {
+    if (inPanel)
+      setPanelTab(target === 'documents' ? 'files' : target === 'tasks' ? 'tasks' : 'home');
+    requestAnimationFrame(() => {
+      const element = document.getElementById(anchorId(target));
+      if (!element) return;
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+      element.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+      element.focus({ preventScroll: true });
+    });
+  }
+  const anchored = (target: LeadAttentionTarget, node: ReactNode) =>
+    node ? (
+      <div id={anchorId(target)} tabIndex={-1} className="scroll-mt-16 outline-none">
+        {node}
+      </div>
+    ) : null;
+
   const header = (
     <div
       className={cn('flex flex-col gap-4', !inPanel && 'rounded-2xl border bg-card p-5 md:p-6')}
@@ -663,6 +705,15 @@ export function LeadRecord({
             <StageBadge leadType={lead.leadType} stage={lead.stage} />
           )}
         </div>
+        {guidedPath ? (
+          <StagePathBar
+            path={guidedPath}
+            canWrite={canWrite}
+            saving={saving}
+            onMove={changeStage}
+            compact={inPanel}
+          />
+        ) : null}
         <div className="flex w-full flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
           {access.contacts ? (
             <Button type="button" variant="outline" size="sm" onClick={() => void copySummary()}>
@@ -703,6 +754,7 @@ export function LeadRecord({
           again.
         </p>
       ) : null}
+      <LeadAttentionStrip items={attention} onJump={jumpTo} />
       {waitingChange ? (
         <p
           role="status"
@@ -814,7 +866,11 @@ export function LeadRecord({
               )}
             </Field>
             {lead.contact.countryCode ? (
-              <Field label="Country">{lead.contact.countryCode}</Field>
+              <Field label="Country">
+                <span title={lead.contact.countryCode}>
+                  {countryName(lead.contact.countryCode)}
+                </span>
+              </Field>
             ) : null}
           </dl>
         )}
@@ -923,7 +979,7 @@ export function LeadRecord({
         <h2 className="text-base font-semibold">Source</h2>
         <dl>
           <Field label="Source">
-            <code className="text-xs">{lead.source}</code>
+            <span title={lead.source}>{readableSource(lead.source)}</span>
           </Field>
           {attribution.map(([key, value]) => (
             <Field key={key} label={ATTRIBUTION_LABELS[key] ?? key}>
@@ -1032,17 +1088,17 @@ export function LeadRecord({
           className="flex flex-col gap-4 p-4"
         >
           {contactSection}
-          {propertiesSection}
+          {anchored('order', propertiesSection)}
           {simEmailSection}
           {identitySection}
           {relatedSection}
-          {access.contacts ? changeRequestSection : null}
+          {access.contacts ? anchored('change-request', changeRequestSection) : null}
           {sourceSection}
         </TabsContent>
         {access.contacts ? (
           <>
             <TabsContent value="tasks" hidden={activeTab !== 'tasks'} forceMount className="p-4">
-              {tasksSection}
+              {anchored('tasks', tasksSection)}
             </TabsContent>
             <TabsContent value="notes" hidden={activeTab !== 'notes'} forceMount className="p-4">
               <Card>
@@ -1065,7 +1121,7 @@ export function LeadRecord({
         ) : null}
         <TabsContent value="files" hidden={activeTab !== 'files'} forceMount className="p-4">
           {documents.length > 0 ? (
-            documentsSection
+            anchored('documents', documentsSection)
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
@@ -1099,16 +1155,16 @@ export function LeadRecord({
         <div className="flex flex-col gap-4">
           {contactSection}
           {identitySection}
-          {documentsSection}
+          {anchored('documents', documentsSection)}
           {relatedSection}
-          {propertiesSection}
+          {anchored('order', propertiesSection)}
           {simEmailSection}
           {sourceSection}
         </div>
         {access.contacts ? (
           <div className="flex flex-col gap-4">
-            {tasksSection}
-            {changeRequestSection}
+            {anchored('tasks', tasksSection)}
+            {anchored('change-request', changeRequestSection)}
             {timelineSection}
           </div>
         ) : null}

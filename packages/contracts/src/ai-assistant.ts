@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import { leadTypeSchema } from './leads';
+import { documentChecklistKeySchema } from './domain';
 
 /**
  * The staff AI assistant ("Ask AI"): its capability document, the one chat
@@ -171,6 +172,14 @@ export const aiSourceSchema = z.object({
 
 export type AiSource = z.infer<typeof aiSourceSchema>;
 
+/** What blocks an AI-prepared stage move until it is completed on the lead page. */
+export const aiStageMoveNeedSchema = z.enum([
+  'dispatch_details',
+  'activation_details',
+  'documents',
+]);
+export type AiStageMoveNeed = z.infer<typeof aiStageMoveNeedSchema>;
+
 /** A proposed write is data for a confirmation card, never a model-executed write. */
 export const aiLeadUpdateContextSchema = z
   .object({
@@ -179,7 +188,21 @@ export const aiLeadUpdateContextSchema = z
     beforeLabel: z.string().max(200),
     choices: z
       .array(
-        z.object({ value: z.string().max(100).nullable(), label: z.string().max(160) }).strict(),
+        z
+          .object({
+            value: z.string().max(100).nullable(),
+            label: z.string().max(160),
+            /**
+             * What a stage move still needs before it can be saved, from the
+             * same gates staff pass: a courier on the lead (`dispatch_details`),
+             * an activation date (`activation_details`) or approved documents
+             * (`documents`, with `missingDocuments`). Absent when nothing is
+             * missing. A preview, not a promise: confirmation rechecks.
+             */
+            needs: aiStageMoveNeedSchema.optional(),
+            missingDocuments: z.array(documentChecklistKeySchema).max(16).optional(),
+          })
+          .strict(),
       )
       .max(100),
   })

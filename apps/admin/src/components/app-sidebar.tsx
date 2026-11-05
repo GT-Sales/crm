@@ -18,7 +18,8 @@ import {
   useSidebar,
 } from '@gt-sales/ui';
 
-import { getLeadsSummary } from '../lib/api';
+import { getLeadsSummary, listDocumentReviewQueue } from '../lib/api';
+import { DOCUMENTS_REVIEWED } from '../lib/lead-work-events';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
 import { WorkspaceSwitcher } from './workspace-switcher';
@@ -49,6 +50,38 @@ function useUnopenedLeads(workspace: string, pathname: string): number | undefin
   return count;
 }
 
+/**
+ * Documents waiting for a first review, refreshed on navigation and after any
+ * review. Undefined for a role that cannot see customer documents (the queue
+ * answers 403) or while unknown: no count rather than a wrong one.
+ */
+function useDocumentsToReview(workspace: string, pathname: string): number | undefined {
+  const { accessToken, workspaces } = useStaffSession();
+  const workspaceId = workspaces.find((entry) => entry.slug === workspace)?.id;
+  const [count, setCount] = useState<number>();
+  const [reviewed, setReviewed] = useState(0);
+  useEffect(() => {
+    const onReviewed = () => setReviewed((value) => value + 1);
+    window.addEventListener(DOCUMENTS_REVIEWED, onReviewed);
+    return () => window.removeEventListener(DOCUMENTS_REVIEWED, onReviewed);
+  }, []);
+  useEffect(() => {
+    if (!accessToken || !workspaceId) return;
+    let live = true;
+    listDocumentReviewQueue(accessToken, workspaceId, { status: 'to_review' })
+      .then((queue) => {
+        if (live) setCount(queue.counts.toReview);
+      })
+      .catch(() => {
+        if (live) setCount(undefined);
+      });
+    return () => {
+      live = false;
+    };
+  }, [accessToken, workspaceId, pathname, reviewed]);
+  return count;
+}
+
 export function AppSidebar({ workspace }: { workspace: string }) {
   const pathname = usePathname();
   const { workspaces } = useStaffSession();
@@ -56,6 +89,22 @@ export function AppSidebar({ workspace }: { workspace: string }) {
   const workspaceName = currentWorkspace?.name ?? workspace;
   const { isMobile, setOpenMobile } = useSidebar();
   const unopened = useUnopenedLeads(workspace, pathname);
+  const toReview = useDocumentsToReview(workspace, pathname);
+  // What a menu entry is waiting on, said beside it and to screen readers.
+  const badgeOf = (section: string) =>
+    section === 'leads' && unopened
+      ? {
+          count: unopened,
+          words: `${unopened} new`,
+          title: `${unopened} new ${unopened === 1 ? 'lead' : 'leads'} not opened yet`,
+        }
+      : section === 'documents' && toReview
+        ? {
+            count: toReview,
+            words: `${toReview} to review`,
+            title: `${toReview} ${toReview === 1 ? 'document' : 'documents'} to review`,
+          }
+        : undefined;
 
   return (
     <Sidebar collapsible="icon" className="crm-sidebar">
@@ -100,7 +149,7 @@ export function AppSidebar({ workspace }: { workspace: string }) {
                         <Link
                           href={href}
                           aria-label={
-                            section === 'leads' && unopened ? `${label}, ${unopened} new` : label
+                            badgeOf(section) ? `${label}, ${badgeOf(section)?.words}` : label
                           }
                           aria-current={isActive ? 'page' : undefined}
                           onClick={() => {
@@ -109,12 +158,13 @@ export function AppSidebar({ workspace }: { workspace: string }) {
                         >
                           <Icon />
                           <span>{label}</span>
-                          {section === 'leads' && unopened ? (
+                          {badgeOf(section) ? (
                             <span
                               className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground group-data-[collapsible=icon]:hidden"
                               aria-hidden="true"
+                              title={badgeOf(section)?.title}
                             >
-                              {unopened}
+                              {badgeOf(section)?.count}
                             </span>
                           ) : null}
                         </Link>

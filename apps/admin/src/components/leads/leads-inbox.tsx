@@ -302,6 +302,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const tabTypes = [...types].sort(
     (a, b) => Number(b.leadType === 'sim_order') - Number(a.leadType === 'sim_order'),
   );
+  // A site that holds one lead type opens on that type's tab: an "All leads"
+  // tab beside it would only repeat the same list, without the board.
+  const soleType = summary.data && tabTypes.length === 1 ? tabTypes[0]?.leadType : undefined;
   const access = summary.data?.access;
   const canUseProperties = access?.contacts === true && !query.archived;
   const totalActive = types.reduce((sum, entry) => sum + entry.total, 0);
@@ -456,16 +459,11 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   }, [urlKey, workspaceId, pathname, router]);
 
   // The search box answers as staff type, without a request per keystroke.
+  // Always on screen: the most used control should not hide behind an icon.
   const [searchText, setSearchText] = useState(query.q ?? '');
-  const [searchOpen, setSearchOpen] = useState(Boolean(query.q));
-  const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     setSearchText(query.q ?? '');
-    if (query.q) setSearchOpen(true);
   }, [query.q]);
-  useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
   useEffect(() => {
     const trimmed = searchText.trim();
     if (trimmed === (query.q ?? '')) return;
@@ -478,6 +476,14 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     // current search are what should restart the timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchText, query.q]);
+
+  useEffect(() => {
+    // A saved view or the archive keeps the address it was opened with.
+    if (!soleType || query.type || query.archived || query.view || !catalogSettled) return;
+    update({ type: soleType, ...propertiesFor(soleType) });
+    // `update` and `propertiesFor` read the latest query through the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soleType, query.type, query.archived, query.view, catalogSettled]);
 
   // A saved view as the inbox would open it: before the site's catalogue is
   // here nothing can be judged, so the state goes in as saved.
@@ -1247,20 +1253,22 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           aria-label="Lead types"
           className="flex w-full min-w-0 overflow-x-auto overflow-y-hidden lg:w-auto lg:flex-1"
         >
-          <TabButton
-            active={!query.type && !query.archived}
-            onClick={() =>
-              update({
-                type: undefined,
-                archived: false,
-                stage: undefined,
-                layout: 'table',
-                ...propertiesFor(undefined),
-              })
-            }
-          >
-            All leads <Count value={summary.data ? totalActive : undefined} />
-          </TabButton>
+          {soleType ? null : (
+            <TabButton
+              active={!query.type && !query.archived}
+              onClick={() =>
+                update({
+                  type: undefined,
+                  archived: false,
+                  stage: undefined,
+                  layout: 'table',
+                  ...propertiesFor(undefined),
+                })
+              }
+            >
+              All leads <Count value={summary.data ? totalActive : undefined} />
+            </TabButton>
+          )}
           {tabTypes.map((entry) => (
             <TabButton
               key={entry.leadType}
@@ -1297,56 +1305,27 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
             </TabButton>
           ) : null}
         </div>
-        <div
-          className={cn(
-            'ml-auto flex min-w-0 items-center gap-2 pb-2 lg:w-auto lg:shrink-0 lg:pb-0',
-            searchOpen ? 'w-full' : '',
-          )}
-        >
-          {searchOpen ? (
-            <label className="relative min-w-0 flex-1 lg:w-64 lg:flex-none">
-              <span className="sr-only">Search leads</span>
-              <SearchIcon
-                aria-hidden="true"
-                className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                ref={searchInputRef}
-                type="search"
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                onBlur={() => {
-                  if (!searchText.trim() && !query.q) setSearchOpen(false);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape' && !searchText.trim()) {
-                    setSearchOpen(false);
-                  }
-                }}
-                placeholder={
-                  access && !access.contacts
-                    ? 'Search needs contact access'
-                    : 'Search name, email, phone…'
-                }
-                disabled={access ? !access.contacts : false}
-                className="pl-8"
-                maxLength={100}
-              />
-            </label>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              aria-label="Search leads"
-              title={access && !access.contacts ? 'Search needs contact access' : 'Search leads'}
+        <div className="ml-auto flex w-full min-w-0 items-center gap-2 pb-2 lg:w-auto lg:shrink-0 lg:pb-0">
+          <label className="relative min-w-0 flex-1 lg:w-64 lg:flex-none">
+            <span className="sr-only">Search leads</span>
+            <SearchIcon
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              type="search"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder={
+                access && !access.contacts
+                  ? 'Search needs contact access'
+                  : 'Search name, email, phone…'
+              }
               disabled={access ? !access.contacts : false}
-              onClick={() => setSearchOpen(true)}
-              className={TOOLBAR_BUTTON}
-            >
-              <SearchIcon aria-hidden="true" className={TOOLBAR_ICON} />
-            </Button>
-          )}
+              className="pl-8"
+              maxLength={100}
+            />
+          </label>
           {filterMenu}
           {viewMenu}
           <SavedViewSwitcher

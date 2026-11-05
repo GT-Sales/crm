@@ -151,11 +151,25 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
     ? (plans.find((entry) => entry.id === dialog.plan?.id) ?? dialog.plan)
     : undefined;
 
+  // A type with plans gets its own section. Once the site sells something,
+  // the types it has no plans for fold into one short list, so a SIM-only
+  // site is not shown two empty Internet and Mobility sections; a site with
+  // no plans at all still sees every type.
+  const typesWithPlans = orderLeadTypes.filter((leadType) =>
+    plans.some((plan) => plan.leadType === leadType),
+  );
+  const shownTypes = typesWithPlans.length === 0 ? orderLeadTypes : typesWithPlans;
+  const otherTypes = orderLeadTypes.filter((leadType) => !shownTypes.includes(leadType));
+  const openNew = (leadType: (typeof orderLeadTypes)[number]) => {
+    setNotice(undefined);
+    setDialogNotice(undefined);
+    setDialog({ leadType });
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground">
-        The plans this site sells, for each kind of order. A change to a plan never rewrites an
-        order already taken.
+        A change to a plan never rewrites an order already taken.
       </p>
       {loadError ? (
         <p role="alert" className="text-sm text-destructive">
@@ -171,7 +185,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
         <p className="text-sm text-muted-foreground">This site already has {PLAN_LIMIT} plans.</p>
       ) : null}
 
-      {orderLeadTypes.map((leadType) => {
+      {shownTypes.map((leadType) => {
         const label = leadTypeLabel(leadType);
         const ofType = activeFirst(plans.filter((plan) => plan.leadType === leadType));
         const activeCount = ofType.filter((plan) => plan.active).length;
@@ -199,11 +213,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
                   size="sm"
                   disabled={atLimit}
                   aria-label={`Add ${label} plan`}
-                  onClick={() => {
-                    setNotice(undefined);
-                    setDialogNotice(undefined);
-                    setDialog({ leadType });
-                  }}
+                  onClick={() => openNew(leadType)}
                 >
                   Add plan
                 </Button>
@@ -269,6 +279,45 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
           </section>
         );
       })}
+
+      {otherTypes.length > 0 ? (
+        <section
+          aria-labelledby="plans-heading-other"
+          className="overflow-hidden rounded-xl border border-dashed border-border/80"
+        >
+          <h2
+            id="plans-heading-other"
+            className="border-b border-border/70 px-5 py-3 text-sm font-medium text-muted-foreground"
+          >
+            Other order types
+          </h2>
+          <ul aria-label="Order types without plans" className="divide-y divide-border/70">
+            {otherTypes.map((leadType) => {
+              const label = leadTypeLabel(leadType);
+              return (
+                <li key={leadType} className="flex items-center justify-between gap-3 px-5 py-3">
+                  <span className="text-sm text-foreground">
+                    {label}
+                    <span className="ml-2 text-xs text-muted-foreground">No plans</span>
+                  </span>
+                  {canWrite ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={atLimit}
+                      aria-label={`Add ${label} plan`}
+                      onClick={() => openNew(leadType)}
+                    >
+                      Add plan
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       <Dialog open={dialog !== undefined} onOpenChange={(open) => !open && setDialog(undefined)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">

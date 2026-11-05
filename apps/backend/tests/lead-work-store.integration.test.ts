@@ -539,7 +539,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
           version: latest.version,
           draft: { kind: 'lead_update', leadId, field: 'assignedActorId', value: STRANGER },
         }),
-      ).toEqual({ status: 'invalid' });
+      ).toEqual({ status: 'refused', refusal: { status: 'assignee_not_found' } });
       const assigned = {
         ...input,
         creationId: randomUUID(),
@@ -564,7 +564,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
           version: current.version,
           draft: { kind: 'lead_update', leadId, field: 'stage', value: 'activated' },
         }),
-      ).toEqual({ status: 'invalid' });
+      ).toEqual({ status: 'refused', refusal: { status: 'invalid_stage' } });
       expect(
         await work.confirmAiLeadUpdate({
           ...input,
@@ -584,6 +584,68 @@ databaseTest('DatabaseLeadWorkStore', () => {
       });
       await admin`update app.leads set customer_data_restricted_at=now() where id=${leadId}`;
       expect(await work.confirmAiLeadUpdate(input)).toEqual({ status: 'not_found' });
+    } finally {
+      await admin`delete from app.leads where id=${leadId}`;
+    }
+  });
+
+  test('AI stage previews name unmet gates and a gated confirmation says what is missing', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'AI Gate',
+      email: 'ai.gate@example.test',
+      phone: '403 555 0122',
+    });
+    try {
+      // A mobility order whose frozen plan needs an approved passport: its move
+      // to Activated passes the activation gate (the date defaults to today)
+      // but not the documents gate.
+      const plan = {
+        planId: randomUUID(),
+        name: 'Gate plan',
+        priceMinor: 0,
+        currency: 'CAD',
+        billingPeriod: 'month',
+        paymentRequired: false,
+        requiredDocuments: ['passport'],
+        properties: {},
+        frozenAt: '2026-11-01T12:00:00.000Z',
+      };
+      await admin`
+        update app.leads
+        set lead_type = 'mobility', stage = 'contacted',
+            order_details = ${admin.json({ planId: plan.planId, plan, quantity: 1 })}
+        where id = ${leadId}
+      `;
+      const preview = await work.previewAiLeadUpdate({ ...scope, leadId, field: 'stage' });
+      if (!preview) throw new Error('missing stage preview');
+      expect(preview.choices.find((choice) => choice.value === 'activated')).toEqual({
+        value: 'activated',
+        label: 'Activated',
+        needs: 'documents',
+        missingDocuments: ['passport'],
+      });
+      expect(preview.choices.find((choice) => choice.value === 'qualified')).toEqual({
+        value: 'qualified',
+        label: 'Qualified',
+      });
+      const before = await admin`select stage, updated_at from app.leads where id=${leadId}`;
+      expect(
+        await work.confirmAiLeadUpdate({
+          ...writeScope,
+          creationId: randomUUID(),
+          version: preview.version,
+          draft: { kind: 'lead_update', leadId, field: 'stage', value: 'activated' },
+        }),
+      ).toEqual({
+        status: 'refused',
+        refusal: { status: 'documents_incomplete', missing: ['passport'] },
+      });
+      // The refusal rolled back: no stage change, no receipt, no timeline entry.
+      const after = await admin`select stage, updated_at from app.leads where id=${leadId}`;
+      expect(after).toEqual(before);
+      const [activities] =
+        await admin`select count(*)::int as count from app.lead_activities where lead_id=${leadId} and kind='status_change'`;
+      expect(activities?.count).toBe(0);
     } finally {
       await admin`delete from app.leads where id=${leadId}`;
     }

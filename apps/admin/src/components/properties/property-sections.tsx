@@ -199,6 +199,12 @@ function PropertySection({
                 setEditing(false);
               }}
             />
+          ) : rows.length === 0 && extras.length === 0 ? (
+            // Only editable fields reach here: say what can be recorded rather
+            // than showing a bare heading.
+            <p className="text-sm text-muted-foreground">
+              Not recorded yet: {editable.map((property) => property.label).join(', ')}.
+            </p>
           ) : (
             <dl>
               {rows.map((property) => (

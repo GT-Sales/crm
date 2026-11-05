@@ -641,6 +641,7 @@ export {
   type ReviewFileResponse,
   type StaffFile,
 } from './files';
+export * from './document-review';
 
 export {
   createExportRequestSchema,
@@ -737,6 +738,8 @@ export {
   type ReviseAiActionRequest,
   aiFollowUpSchema,
   aiLeadUpdateContextSchema,
+  aiStageMoveNeedSchema,
+  type AiStageMoveNeed,
   type AiFollowUp,
   aiActionDraftSchema,
   aiActionProposalSchema,

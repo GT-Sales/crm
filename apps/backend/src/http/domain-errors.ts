@@ -99,6 +99,7 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
     'This site already has 50 email templates of its own. Archive one first.',
   ai_unavailable: 'Ask AI is not available here.',
   ai_rate_limited: 'Too many Ask AI questions just now. Try again shortly.',
+  rate_limited: 'Too many requests just now. Try again shortly.',
 };
 
 export function sendDomainError(

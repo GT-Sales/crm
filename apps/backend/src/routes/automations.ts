@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   AUTOMATION_MAX_FLOWS,
+  AUTOMATION_TEST_RUNS_PER_MINUTE,
   activateFlowRequestSchema,
   automationKeySchema,
   createFlowRequestSchema,
@@ -18,7 +19,12 @@ import {
   type FlowListResponse,
   type FlowSummary,
 } from '@gt-sales/contracts';
-import { withTenantTx, type DatabaseClient } from '@gt-sales/db';
+import {
+  withTenantTx,
+  type DatabaseClient,
+  type RateLimitInput,
+  type RateLimitResult,
+} from '@gt-sales/db';
 import { z } from 'zod';
 
 import {
@@ -28,7 +34,7 @@ import {
   type FlowStoreOutcome,
   type StoredFlow,
 } from '../automations/flow-store.js';
-import { runFlowTest } from '../automations/test-run.js';
+import { recordFlowTest, runFlowTest } from '../automations/test-run.js';
 import type { CustomerEmail } from '../email/senders.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
@@ -46,6 +52,13 @@ export interface AutomationRouteDependencies {
   reportFailure: PlanRouteDependencies['reportFailure'];
   /** Whether the caller may see a lead's name, email and phone. */
   canSeeContacts(access: StaffAccessSnapshot): boolean;
+  /**
+   * The distributed limiter. A test run can queue real mail from the site's
+   * sender, so each member gets a small per-minute budget; a limiter that
+   * cannot be reached refuses the run rather than letting mail go unbounded.
+   * Absent only in route tests that do not exercise it.
+   */
+  rateLimit?: (input: RateLimitInput) => Promise<RateLimitResult>;
 }
 
 /** A flow as the list and every flow answer show it. */
@@ -468,11 +481,34 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
       return;
     }
     try {
-      const caller = await allowed(req, res, workspaceId, 'integration.manage');
-      if (!caller) return;
+      const { actor, decision } = await dependencies.decide(req, workspaceId, 'integration.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const scope: WriteScope = { workspaceId, actorId: actor.actorId, requestId: req.id };
       const key = keyOf(req, res);
       if (!key) return;
-      const detail = await store.detail(caller.scope, key);
+      if (dependencies.rateLimit) {
+        let limit: RateLimitResult;
+        try {
+          limit = await dependencies.rateLimit({
+            bucketKey: `automation_test:${actor.actorId}:${workspaceId}`,
+            windowSeconds: 60,
+            maxCount: AUTOMATION_TEST_RUNS_PER_MINUTE,
+          });
+        } catch (error) {
+          dependencies.reportFailure(req, error);
+          sendDomainError(res, req.id, 'feature_not_ready', 503);
+          return;
+        }
+        if (!limit.allowed) {
+          res.setHeader('retry-after', String(limit.retryAfterSeconds));
+          sendDomainError(res, req.id, 'rate_limited', 429);
+          return;
+        }
+      }
+      const detail = await store.detail(scope, key);
       if (!detail) {
         sendDomainError(res, req.id, 'automation_not_found', 404);
         return;
@@ -487,15 +523,23 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
         return;
       }
       const runTenantTx = dependencies.withTenantTx ?? withTenantTx;
-      const result = await runTenantTx(caller.scope, (tx) =>
-        runFlowTest(tx, {
-          scope: caller.scope,
+      const result = await runTenantTx(scope, async (tx) => {
+        const outcome = await runFlowTest(tx, {
+          scope,
           flowKey: key,
           definition: parsedDefinition.data,
-          ...(body.data.email ? { email: body.data.email } : {}),
+          // Only ever the caller's own verified sign-in address, never a body value.
+          ...(body.data.sendEmail === true ? { email: actor.verifiedEmail } : {}),
           customerEmailEnvironment: dependencies.customerEmail?.environment,
-        }),
-      );
+        });
+        await recordFlowTest(tx, {
+          scope,
+          flowId: detail.flow.id,
+          flowKey: key,
+          emailsQueued: outcome.emailsQueued,
+        });
+        return outcome;
+      });
       res.json({ ...result, requestId: req.id });
     } catch (error) {
       failed(req, res, error);

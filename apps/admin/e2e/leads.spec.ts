@@ -51,7 +51,6 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   await expect(page.getByRole('tab', { name: /Mobility\s*1/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Ellis Mobile' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Search leads' }).click();
   await page.getByRole('searchbox', { name: 'Search leads' }).fill('blake');
   await expect(page).toHaveURL(/q=blake/);
   await expect(page.getByRole('link', { name: 'Blake Sample' })).toBeVisible();
@@ -62,6 +61,26 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   await expect(page).toHaveURL(/type=mobility/);
   await expect(page.getByRole('link', { name: 'Ellis Mobile' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Avery Example' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Documents lists the files waiting on staff, and the lead flags them', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/documents');
+  // Nadia Khan's passport is attached and not reviewed; Rogers 60GB requires it.
+  const queue = page.getByRole('list', { name: 'To review documents' });
+  const row = queue.getByRole('listitem').filter({ hasText: 'Nadia Khan' }).first();
+  await expect(row.getByText('Required by plan')).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Approve Passport for Nadia Khan' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Documents, \d+ to review$/ })).toBeVisible();
+  // Her lead says what waits on staff and takes them to it.
+  await row.getByRole('link', { name: 'Nadia Khan' }).click();
+  const attention = page.getByRole('region', { name: 'Needs attention' });
+  await expect(attention.getByRole('button', { name: 'Change request #1 waiting' })).toBeVisible();
+  await expect(attention.getByRole('button', { name: 'Passport not reviewed' })).toBeVisible();
+  const path = page.getByRole('region', { name: 'Lead progress' });
+  await expect(path.locator('[aria-current="step"]')).toHaveText('Pending');
+  await expect(path.getByRole('button', { name: 'Move to Verified' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -936,8 +955,13 @@ test('the redesigned workspace supports page finding, persistent themes and narr
   await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await page.keyboard.press('Control+k');
-  const finder = page.getByRole('dialog', { name: 'Go to a page' });
-  await finder.getByRole('textbox', { name: 'Find a page' }).fill('settings');
+  const finder = page.getByRole('dialog', { name: 'Search' });
+  // A lead by name, from the real search, opens its page.
+  await finder.getByRole('textbox', { name: 'Search leads and pages' }).fill('nadia');
+  await finder.getByRole('link', { name: /Nadia Khan/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Nadia Khan' })).toBeVisible();
+  await page.keyboard.press('Control+k');
+  await finder.getByRole('textbox', { name: 'Search leads and pages' }).fill('settings');
   await finder.getByRole('link', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
   await page.getByRole('button', { name: 'Switch to dark mode' }).click();
@@ -1226,7 +1250,7 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
     .toBeLessThanOrEqual(391);
   await sheet.getByRole('button', { name: 'Close panel' }).click();
   await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Search leads', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search leads', exact: true })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(391);

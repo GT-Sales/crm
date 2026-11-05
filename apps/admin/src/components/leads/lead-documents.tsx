@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardContent, cn } from '@gt-sales/ui';
 import { createFileDownloadLink, reviewFile } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
+import { notifyDocumentsReviewed } from '../../lib/lead-work-events';
 import { errorReason } from '../../lib/use-resource';
 
 /** Names for each document type, in the order the card lists them. */
@@ -127,12 +128,18 @@ export function LeadDocuments({
   );
 }
 
-function DocumentRow({
+/**
+ * One document with its review state and actions. `subject` names whose
+ * document it is (the Documents queue lists many leads), so each button says
+ * "Approve Passport for Nadia Khan" rather than repeating "Approve Passport".
+ */
+export function DocumentRow({
   accessToken,
   workspaceId,
   document,
   canDownload,
   canReview,
+  subject,
   onReviewed,
 }: {
   accessToken: string;
@@ -140,11 +147,13 @@ function DocumentRow({
   document: LeadDocument;
   canDownload: boolean;
   canReview: boolean;
+  subject?: string;
   onReviewed(): Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
   const label = documentLabel(document.documentType);
+  const named = subject ? `${label} for ${subject}` : label;
   const badge = reviewBadge(document.review);
 
   async function view() {
@@ -172,6 +181,7 @@ function DocumentRow({
     setMessage(undefined);
     try {
       await reviewFile(accessToken, workspaceId, document.id, { decision });
+      notifyDocumentsReviewed(workspaceId);
     } catch (error) {
       setMessage(`The review was not saved. Reason: ${errorReason(error)}.`);
       setBusy(false);
@@ -222,7 +232,7 @@ function DocumentRow({
                   variant="outline"
                   size="sm"
                   disabled={busy || document.review?.decision === 'approved'}
-                  aria-label={`Approve ${label}`}
+                  aria-label={`Approve ${named}`}
                   onClick={() => void review('approved')}
                 >
                   Approve
@@ -231,7 +241,7 @@ function DocumentRow({
                   variant="outline"
                   size="sm"
                   disabled={busy || document.review?.decision === 'rejected'}
-                  aria-label={`Reject ${label}`}
+                  aria-label={`Reject ${named}`}
                   onClick={() => void review('rejected')}
                 >
                   Reject
@@ -244,7 +254,7 @@ function DocumentRow({
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  aria-label={`View ${label}`}
+                  aria-label={`View ${named}`}
                   onClick={() => void view()}
                 >
                   View
@@ -253,7 +263,7 @@ function DocumentRow({
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  aria-label={`Download ${label}`}
+                  aria-label={`Download ${named}`}
                   onClick={() => void download()}
                 >
                   Download

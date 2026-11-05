@@ -220,15 +220,20 @@ export type FlowRunResponse = z.infer<typeof flowRunResponseSchema>;
 
 /**
  * `POST …/automations/:key/test`: runs the flow (or the provided draft
- * definition) against sample lead data without modifying real leads, and
- * queues any email step to `email` when provided.
+ * definition) against sample lead data without modifying real leads. With
+ * `sendEmail`, any email step reached is queued to the caller's own verified
+ * sign-in address; the request never names a recipient, so the site's sender
+ * cannot be pointed at an arbitrary address.
  */
 export const testFlowRequestSchema = z
   .object({
-    email: z.email().trim().max(254).optional(),
+    sendEmail: z.boolean().optional(),
     definition: flowDefinitionSchemaFor('builtin').optional(),
   })
   .strict();
+
+/** Test runs one member may start per minute on one site; each may queue real mail. */
+export const AUTOMATION_TEST_RUNS_PER_MINUTE = 5;
 export type TestFlowRequest = z.infer<typeof testFlowRequestSchema>;
 
 export const testFlowResponseSchema = z.object({

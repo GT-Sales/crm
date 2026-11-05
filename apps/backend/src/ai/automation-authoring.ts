@@ -138,6 +138,14 @@ export function automationChanges(
   return changes.length ? changes.slice(0, 100) : ['No changes'];
 }
 
+/** The proposals one member made on one site: the only rows any statement here may touch. */
+function ownProposals(scope: Scope) {
+  return and(
+    eq(aiAutomationProposals.workspaceId, scope.workspaceId),
+    eq(aiAutomationProposals.actorId, scope.actorId),
+  );
+}
+
 export class AutomationAuthoringStore {
   constructor(private readonly database: Pick<DatabaseClient, 'withTenantTx'> = { withTenantTx }) {}
   private flows(tx: TenantTransaction) {
@@ -155,12 +163,21 @@ export class AutomationAuthoringStore {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${'ai-automation:' + scope.workspaceId + ':' + scope.actorId}, 0))`,
       );
+      // Every statement names its actor and site explicitly. Row-level security
+      // enforces the same rule; the predicates keep housekeeping and the cap
+      // correct even if that policy is ever widened (for an audit view, say).
       await tx
         .delete(aiAutomationProposals)
-        .where(lt(aiAutomationProposals.createdAt, new Date(now.getTime() - 24 * 60 * 60_000)));
+        .where(
+          and(
+            ownProposals(scope),
+            lt(aiAutomationProposals.createdAt, new Date(now.getTime() - 24 * 60 * 60_000)),
+          ),
+        );
       const rows = await tx
         .select({ id: aiAutomationProposals.id })
         .from(aiAutomationProposals)
+        .where(ownProposals(scope))
         .limit(101);
       if (rows.length >= 100) throw new AutomationAuthoringError('limit_reached');
       const flows = this.flows(tx);
@@ -233,7 +250,7 @@ export class AutomationAuthoringStore {
       await tx
         .update(aiAutomationProposals)
         .set({ expiresAt: now })
-        .where(eq(aiAutomationProposals.id, verify(token, key).id));
+        .where(and(ownProposals(scope), eq(aiAutomationProposals.id, verify(token, key).id)));
       return next;
     });
   }
@@ -327,7 +344,7 @@ export class AutomationAuthoringStore {
       await tx
         .update(aiAutomationProposals)
         .set({ result })
-        .where(eq(aiAutomationProposals.id, row.id));
+        .where(and(ownProposals(scope), eq(aiAutomationProposals.id, row.id)));
       return result;
     });
   }

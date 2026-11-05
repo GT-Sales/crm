@@ -28,6 +28,8 @@ import {
   type LeadDetail,
   type LeadListItem,
   type PropertyCatalog,
+  DOCUMENT_REVIEW_PAGE_SIZE,
+  documentReviewQueueQuerySchema,
 } from '@gt-sales/contracts';
 import {
   rateLimitHit,
@@ -50,6 +52,7 @@ import {
   type StaffSessionVerifier,
 } from '../auth/session.js';
 import { isConnectionLevelError, logRequestError } from '../http/logger.js';
+import { sendLeadUpdateRefusal } from '../http/lead-update-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
@@ -86,6 +89,10 @@ import {
   type WebsiteCredentialStore,
 } from '../website/store.js';
 
+import {
+  DatabaseDocumentReviewQueue,
+  type DocumentReviewQueueStore,
+} from '../documents/review-queue.js';
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
@@ -130,6 +137,8 @@ export interface StaffRouteDependencies {
   reportStore?: ReportStore;
   /** The site's automation flows, their versions and runs; omitted in route tests that do not reach them. */
   flowStore?: FlowStore;
+  /** Documents → review queue; the database store when absent. */
+  documentReviewQueue?: DocumentReviewQueueStore;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
@@ -771,58 +780,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         documentsOverrideReason: body.data.documentsOverrideReason,
         catalog: await siteCatalog(req, params.workspaceId, actor.actorId),
       });
-      switch (outcome.status) {
-        case 'updated':
-          res.json({
-            lead: outcome.lead,
-            activities: outcome.activities,
-            allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
-            ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
-            requestId: req.id,
-          });
-          return;
-        case 'illegal_stage_move':
-          sendDomainError(res, req.id, 'illegal_stage_move', 409, {
-            from: outcome.from,
-            to: outcome.to,
-            allowed: outcome.allowed,
-          });
-          return;
-        case 'dispatch_details_required':
-          sendDomainError(res, req.id, 'dispatch_details_required', 400, { field: 'courier' });
-          return;
-        case 'activation_details_required':
-          sendDomainError(res, req.id, 'activation_details_required', 400, {
-            field: 'activatedAt',
-          });
-          return;
-        case 'documents_incomplete':
-          sendDomainError(res, req.id, 'documents_incomplete', 409, { missing: outcome.missing });
-          return;
-        case 'document_override_reason_required':
-          sendDomainError(res, req.id, 'document_override_reason_required', 400);
-          return;
-        case 'invalid_field':
-          sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
-          return;
-        case 'not_found':
-          sendDomainError(res, req.id, 'lead_not_found', 404);
-          return;
-        case 'trashed':
-          sendDomainError(res, req.id, 'lead_trashed', 409);
-          return;
-        case 'invalid_stage':
-          sendDomainError(res, req.id, 'validation_error', 400, { field: 'stage' });
-          return;
-        case 'assignee_not_found':
-          sendDomainError(res, req.id, 'assignee_not_found', 422);
-          return;
-        default: {
-          // A new outcome fails typecheck here; at runtime it answers 500, never hangs.
-          const _unhandled: never = outcome;
-          throw new Error('unhandled lead update outcome');
-        }
+      if (outcome.status !== 'updated') {
+        sendLeadUpdateRefusal(res, req.id, outcome);
+        return;
       }
+      res.json({
+        lead: outcome.lead,
+        activities: outcome.activities,
+        allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
+        ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
+        requestId: req.id,
+      });
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);
@@ -1533,6 +1501,47 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   // Downloading an original requires the separately-grantable
   // `document.download` permission; approve/reject is a lead-management action.
 
+  // The site's documents waiting on staff (Documents page). It names customers,
+  // so it needs contact access; reviewing and downloading recheck their own.
+  router.get('/workspaces/:workspaceId/documents/review-queue', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = documentReviewQueueQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      if (!leadAccessOf(decision.access).contacts) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const page = query.data.page ?? 1;
+      const queue = dependencies.documentReviewQueue ?? new DatabaseDocumentReviewQueue();
+      const result = await queue.list(
+        { workspaceId: workspaceId.data, actorId: actor.actorId },
+        { status: query.data.status ?? 'to_review', page },
+      );
+      res.json({
+        items: result.items,
+        counts: result.counts,
+        page: { page, pageSize: DOCUMENT_REVIEW_PAGE_SIZE, total: result.total },
+        access: {
+          review: decideAccess(decision.access, 'order.manage').allowed,
+          download: decideAccess(decision.access, 'document.download').allowed,
+        },
+        requestId: req.id,
+      });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
   router.post('/workspaces/:workspaceId/files/:fileId/review', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const fileId = z.uuid().safeParse(req.params['fileId']);
@@ -1656,6 +1665,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       decide,
       canSeeContacts,
       reportFailure,
+      ...(dependencies.rateLimit === undefined ? {} : { rateLimit: dependencies.rateLimit }),
     }),
   );
 

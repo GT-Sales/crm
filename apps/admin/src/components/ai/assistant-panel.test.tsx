@@ -62,10 +62,17 @@ vi.mock('../../lib/api', () => ({
   ...mocks,
   BackendError: class BackendError extends Error {
     readonly code: string;
+    readonly details?: Record<string, unknown>;
 
-    constructor(code: string) {
+    constructor(
+      code: string,
+      _status?: number,
+      _requestId?: string,
+      details?: Record<string, unknown>,
+    ) {
       super(code);
       this.code = code;
+      this.details = details;
     }
   },
 }));
@@ -226,6 +233,51 @@ describe('Ask AI panel', () => {
       field: 'fullName',
       value: 'Reviewed name',
     });
+  });
+
+  it('disables stage choices that need lead-page work and explains a gated refusal', async () => {
+    const update: AiActionProposal = {
+      ...proposal,
+      draft: { kind: 'lead_update', leadId: LEAD_ID, field: 'stage', value: 'on_hold' },
+      leadUpdateContext: {
+        version: 'v1',
+        before: 'verified',
+        beforeLabel: 'Verified',
+        choices: [
+          { value: 'on_hold', label: 'On hold' },
+          { value: 'delivered', label: 'Delivered', needs: 'dispatch_details' },
+          {
+            value: 'activated',
+            label: 'Activated',
+            needs: 'documents',
+            missingDocuments: ['passport'],
+          },
+        ],
+      },
+    };
+    propose(update);
+    mocks.confirmAiAction.mockRejectedValue(
+      new BackendError('documents_incomplete', 409, 'req_gate', { missing: ['passport'] }),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Move it on');
+    const region = await screen.findByRole('region', { name: 'Confirm lead update' });
+    fireEvent.click(within(region).getByRole('button', { name: 'Edit' }));
+    const select = within(region).getByRole('combobox', { name: 'Proposed value' });
+    const options = within(select).getAllByRole('option');
+    expect(options.map((option) => [option.textContent, option.hasAttribute('disabled')])).toEqual([
+      ['On hold', false],
+      ['Delivered — needs dispatch details on the lead page', true],
+      ['Activated — needs documents approved on the lead page', true],
+    ]);
+    fireEvent.click(within(region).getByRole('button', { name: 'Discard edits' }));
+    fireEvent.click(await within(region).findByRole('button', { name: 'Confirm' }));
+    expect(
+      await within(region).findByText(
+        'Not saved. These documents must be approved on the lead page first: passport.',
+      ),
+    ).toBeTruthy();
   });
 
   it('edits a note into a fresh signed draft before confirming', async () => {

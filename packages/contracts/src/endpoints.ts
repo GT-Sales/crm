@@ -91,6 +91,10 @@ import {
   resolveChangeRequestResponseSchema,
 } from './lead-work';
 import {
+  documentReviewQueueQuerySchema,
+  documentReviewQueueResponseSchema,
+} from './document-review';
+import {
   TRACKING_GRANT_HEADER,
   createTrackedChangeRequestSchema,
   trackedChangeResponseSchema,
@@ -527,6 +531,17 @@ export const endpoints: readonly EndpointDef[] = [
     query: listWorkspaceTasksQuerySchema,
     response: listWorkspaceTasksResponseSchema,
   },
+  {
+    operationId: 'listDocumentReviewQueue',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/documents/review-queue',
+    summary:
+      "The site's current documents on active leads that are not yet reviewed (`to_review`, the default) or were rejected, required-by-plan first then oldest first, with both totals. Needs contact access; the review and download routes recheck their own permissions.",
+    auth: 'staff',
+    successStatus: 200,
+    query: documentReviewQueueQuerySchema,
+    response: documentReviewQueueResponseSchema,
+  },
 
   // Staff — properties, record layouts and saved views
   {
@@ -899,7 +914,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}/test',
     summary:
-      'Run a test of a flow against sample lead data, sending any email steps to the given test address (integration management).',
+      "Run a test of a flow against sample lead data; with sendEmail, email steps are queued to the caller's own verified address only (integration management, rate limited).",
     auth: 'staff',
     successStatus: 200,
     request: testFlowRequestSchema,

@@ -16,6 +16,7 @@ import {
   allowedStageMoves,
   leadStageLabel,
   type AiActionDraft,
+  type AiStageMoveNeed,
   ORDER_PROPERTY_KEYS,
   ORDER_STORAGE_KEYS,
   applyCustomValueEdits,
@@ -159,15 +160,32 @@ export interface UpdateLeadWorkInput extends WriteScope {
   documentsOverrideReason?: string;
 }
 
-class AiLeadUpdateRefused extends Error {}
+/** Rolls back an AI-confirmed update the store refused, carrying the refusal out. */
+class AiLeadUpdateRefused extends Error {
+  constructor(readonly outcome: Exclude<UpdateLeadWorkOutcome, { status: 'updated' }>) {
+    super('ai lead update refused');
+  }
+}
 
 export type AiLeadUpdateDraft = Extract<AiActionDraft, { kind: 'lead_update' }>;
 export type AiLeadUpdatePreview = {
   version: string;
   before: string | null;
   beforeLabel: string;
-  choices: { value: string | null; label: string }[];
+  choices: {
+    value: string | null;
+    label: string;
+    /** What a stage move still needs on the lead page first; absent when nothing. */
+    needs?: AiStageMoveNeed;
+    missingDocuments?: string[];
+  }[];
 };
+
+/** A confirmed AI lead update: saved, or why not (a refusal carries the same outcome a staff edit gets). */
+export type AiLeadUpdateConfirmOutcome =
+  | { status: 'saved'; recordId: string }
+  | { status: 'conflict' | 'not_found' | 'trashed' | 'invalid' }
+  | { status: 'refused'; refusal: Exclude<UpdateLeadWorkOutcome, { status: 'updated' }> };
 
 export interface CreateTaskInput extends WriteScope {
   /** Server-signed AI proposal id; retries reuse the existing record under the lead lock. */
@@ -214,10 +232,7 @@ export interface LeadWorkStore {
   ): Promise<AiLeadUpdatePreview | undefined>;
   confirmAiLeadUpdate?(
     input: WriteScope & { draft: AiLeadUpdateDraft; creationId: string; version: string },
-  ): Promise<{
-    status: 'saved' | 'conflict' | 'not_found' | 'trashed' | 'invalid';
-    recordId?: string;
-  }>;
+  ): Promise<AiLeadUpdateConfirmOutcome>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
   /** Archives a lead (or restores one); the timeline and audit keep the `trashed`/`restored` names. */
   setArchived(
@@ -1198,6 +1213,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           assignedActorId: leads.assignedActorId,
           fullName: leads.fullName,
           phone: leads.phone,
+          orderDetails: leads.orderDetails,
           version: sql<string>`updated_at::text`,
         })
         .from(leads)
@@ -1211,6 +1227,46 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         );
       if (!row) return undefined;
       const before = row[input.field];
+      const choices: AiLeadUpdatePreview['choices'] = [];
+      if (input.field === 'stage') {
+        // Each move is planned exactly as a confirmation would plan it (no
+        // order edit, no override), so a gate the assistant cannot satisfy is
+        // named before a card is made rather than refused after Confirm.
+        const current = toLeadOrder(row.orderDetails);
+        const today = todayInToronto(new Date());
+        let missing: string[] | undefined;
+        for (const value of allowedStageMoves(row.leadType, row.stage)) {
+          const choice: AiLeadUpdatePreview['choices'][number] = {
+            value,
+            label: leadStageLabel(row.leadType, value),
+          };
+          const move = planStageMove({
+            leadType: row.leadType,
+            from: row.stage,
+            to: value,
+            current,
+            edit: undefined,
+            today,
+          });
+          if (!move.ok) {
+            if (move.refusal.status === 'dispatch_details_required')
+              choice.needs = 'dispatch_details';
+            else if (move.refusal.status === 'activation_details_required')
+              choice.needs = 'activation_details';
+          } else if (move.gates.includes('documents')) {
+            missing ??= await findMissingDocuments(tx, {
+              workspaceId: input.workspaceId,
+              leadId: input.leadId,
+              required: current.plan?.requiredDocuments ?? [],
+            });
+            if (missing.length > 0) {
+              choice.needs = 'documents';
+              choice.missingDocuments = [...missing];
+            }
+          }
+          choices.push(choice);
+        }
+      }
       return {
         version: row.version,
         before,
@@ -1218,91 +1274,77 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           input.field === 'stage'
             ? leadStageLabel(row.leadType, row.stage)
             : (before ?? 'Unassigned / not recorded'),
-        choices:
-          input.field === 'stage'
-            ? allowedStageMoves(row.leadType, row.stage).map((value) => ({
-                value,
-                label: leadStageLabel(row.leadType, value),
-              }))
-            : [],
+        choices,
       };
     });
   }
 
   confirmAiLeadUpdate(
     input: WriteScope & { draft: AiLeadUpdateDraft; creationId: string; version: string },
-  ): Promise<{
-    status: 'saved' | 'conflict' | 'not_found' | 'trashed' | 'invalid';
-    recordId?: string;
-  }> {
+  ): Promise<AiLeadUpdateConfirmOutcome> {
     return this.database
-      .withTenantTx(
-        input,
-        async (
-          tx,
-        ): Promise<{
-          status: 'saved' | 'conflict' | 'not_found' | 'trashed' | 'invalid';
-          recordId?: string;
-        }> => {
-          const lead = await lockLead(tx, input.workspaceId, input.draft.leadId);
-          if (!lead) return { status: 'not_found' };
-          if (lead.trashed) return { status: 'trashed' };
-          const [receipt] = await tx
-            .select({ id: auditEvents.id })
-            .from(auditEvents)
-            .where(
-              and(
-                eq(auditEvents.workspaceId, input.workspaceId),
-                eq(auditEvents.id, input.creationId),
-                eq(auditEvents.actorId, input.actorId),
-                eq(auditEvents.entityId, input.draft.leadId),
-                eq(auditEvents.action, 'ai.lead_updated'),
-              ),
-            );
-          if (receipt) return { status: 'saved', recordId: input.draft.leadId };
-          const [row] = await tx
-            .select({ version: sql<string>`updated_at::text` })
-            .from(leads)
-            .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.draft.leadId)));
-          if (row?.version !== input.version) return { status: 'conflict' };
-          const { field, value } = input.draft;
-          if (field === 'assignedActorId' && value !== null && !z.uuid().safeParse(value).success)
-            return { status: 'invalid' };
-          if (
-            (field !== 'assignedActorId' && value === null) ||
-            (field === 'phone' && (value?.length ?? 0) > 40)
-          )
-            return { status: 'invalid' };
-          const outcome = await applyLeadUpdate(
-            tx,
-            { emailEnvironment: this.emailEnvironment, aiActionId: input.creationId },
-            {
-              ...input,
-              leadId: input.draft.leadId,
-              catalog: codePropertyCatalog,
-              ...(field === 'stage' && value !== null ? { stage: value } : {}),
-              ...(field === 'assignedActorId' ? { assignedActorId: value } : {}),
-              ...(field === 'fullName' && value !== null ? { contact: { fullName: value } } : {}),
-              ...(field === 'phone' && value !== null ? { contact: { phone: value } } : {}),
-            },
+      .withTenantTx(input, async (tx): Promise<AiLeadUpdateConfirmOutcome> => {
+        const lead = await lockLead(tx, input.workspaceId, input.draft.leadId);
+        if (!lead) return { status: 'not_found' };
+        if (lead.trashed) return { status: 'trashed' };
+        const [receipt] = await tx
+          .select({ id: auditEvents.id })
+          .from(auditEvents)
+          .where(
+            and(
+              eq(auditEvents.workspaceId, input.workspaceId),
+              eq(auditEvents.id, input.creationId),
+              eq(auditEvents.actorId, input.actorId),
+              eq(auditEvents.entityId, input.draft.leadId),
+              eq(auditEvents.action, 'ai.lead_updated'),
+            ),
           );
-          if (outcome.status !== 'updated') throw new AiLeadUpdateRefused();
-          await tx.insert(auditEvents).values({
-            id: input.creationId,
-            workspaceId: input.workspaceId,
-            actorId: input.actorId,
-            actorLabel: 'staff actor',
-            action: 'ai.lead_updated',
-            entity: 'lead',
-            entityId: input.draft.leadId,
-            requestId: input.requestId,
-            after: { field },
-          });
-          return { status: 'saved', recordId: input.draft.leadId };
-        },
-      )
-      .catch((error: unknown) => {
-        if (error instanceof AiLeadUpdateRefused) return { status: 'invalid' };
+        if (receipt) return { status: 'saved', recordId: input.draft.leadId };
+        const [row] = await tx
+          .select({ version: sql<string>`updated_at::text` })
+          .from(leads)
+          .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.draft.leadId)));
+        if (row?.version !== input.version) return { status: 'conflict' };
+        const { field, value } = input.draft;
+        if (field === 'assignedActorId' && value !== null && !z.uuid().safeParse(value).success)
+          return { status: 'invalid' };
+        if (
+          (field !== 'assignedActorId' && value === null) ||
+          (field === 'phone' && (value?.length ?? 0) > 40)
+        )
+          return { status: 'invalid' };
+        const outcome = await applyLeadUpdate(
+          tx,
+          { emailEnvironment: this.emailEnvironment, aiActionId: input.creationId },
+          {
+            ...input,
+            leadId: input.draft.leadId,
+            catalog: codePropertyCatalog,
+            ...(field === 'stage' && value !== null ? { stage: value } : {}),
+            ...(field === 'assignedActorId' ? { assignedActorId: value } : {}),
+            ...(field === 'fullName' && value !== null ? { contact: { fullName: value } } : {}),
+            ...(field === 'phone' && value !== null ? { contact: { phone: value } } : {}),
+          },
+        );
+        // Throwing rolls back any partial work (a rescue's freeze included);
+        // the refusal itself is returned below, not swallowed.
+        if (outcome.status !== 'updated') throw new AiLeadUpdateRefused(outcome);
+        await tx.insert(auditEvents).values({
+          id: input.creationId,
+          workspaceId: input.workspaceId,
+          actorId: input.actorId,
+          actorLabel: 'staff actor',
+          action: 'ai.lead_updated',
+          entity: 'lead',
+          entityId: input.draft.leadId,
+          requestId: input.requestId,
+          after: { field },
+        });
+        return { status: 'saved', recordId: input.draft.leadId };
+      })
+      .catch((error: unknown): AiLeadUpdateConfirmOutcome => {
+        if (error instanceof AiLeadUpdateRefused)
+          return { status: 'refused', refusal: error.outcome };
         throw error;
       });
   }
