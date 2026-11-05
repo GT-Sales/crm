@@ -31,7 +31,7 @@ import {
   type RawAttribution,
 } from '@gt-sales/contracts';
 
-import { fireFlows } from '../automations/engine.js';
+import { fireFlows, runQueuedStarts } from '../automations/engine.js';
 import { writeTimers } from '../automations/timers.js';
 import {
   customerEmailEnvironmentFromEnv,
@@ -430,6 +430,7 @@ export class DatabaseLeadStore implements LeadStore {
     input: { workspaceId: string; actorId: string; requestId: string },
     lead: { id: string; leadType: string; stage: string },
     moved: { id: string; createdAt: Date } | undefined,
+    queued: string[],
   ): Promise<void> {
     const at = moved?.createdAt ?? new Date();
     const base = { leadId: lead.id, leadType: lead.leadType, stage: lead.stage, depth: 0 };
@@ -441,7 +442,8 @@ export class DatabaseLeadStore implements LeadStore {
       ...timers,
       event: { kind: 'stage_entered', stage: lead.stage, occurrence, at },
     });
-    await fireFlows(tx, { ...input, environment: this.emailEnvironment }, [
+    // ENG-5: the runs are queued here and run after the submit commits.
+    await fireFlows(tx, { ...input, environment: this.emailEnvironment, queued }, [
       {
         ...base,
         kind: 'lead_submitted',
@@ -530,8 +532,27 @@ export class DatabaseLeadStore implements LeadStore {
     }
   }
 
+  /** ENG-5: the submit's flows, after it committed; the tick runs any left behind. */
+  private async runSubmitFlows(
+    input: { workspaceId: string; actorId: string; requestId: string },
+    queued: readonly string[],
+  ): Promise<void> {
+    if (queued.length === 0) return;
+    await runQueuedStarts(
+      this.database,
+      {
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        requestId: input.requestId,
+        environment: this.emailEnvironment,
+      },
+      queued,
+    );
+  }
+
   private async createLeadInTransaction(input: CreateLeadInput): Promise<CreateLeadResult> {
-    return this.database.withTenantTx(
+    const queued: string[] = [];
+    const result = await this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
         const now = new Date();
@@ -611,6 +632,7 @@ export class DatabaseLeadStore implements LeadStore {
             input,
             { id: leadRow.id, leadType: input.leadType, stage },
             moved,
+            queued,
           );
         }
 
@@ -635,6 +657,8 @@ export class DatabaseLeadStore implements LeadStore {
         };
       },
     );
+    await this.runSubmitFlows(input, queued);
+    return result;
   }
 
   async updateLead(input: UpdateLeadInput): Promise<UpdateLeadOutcome> {
@@ -647,7 +671,8 @@ export class DatabaseLeadStore implements LeadStore {
   }
 
   private async updateLeadInTransaction(input: UpdateLeadInput): Promise<UpdateLeadOutcome> {
-    return this.database.withTenantTx(
+    const queued: string[] = [];
+    const outcome = await this.database.withTenantTx<UpdateLeadOutcome>(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
         const tokenHash = hashDraftGrantToken(input.grantToken);
@@ -849,6 +874,7 @@ export class DatabaseLeadStore implements LeadStore {
               stage: updates.stage ?? grant.leadStage,
             },
             moved,
+            queued,
           );
         }
 
@@ -864,6 +890,8 @@ export class DatabaseLeadStore implements LeadStore {
         return { status: 'updated', lead: toSummary(row) };
       },
     );
+    await this.runSubmitFlows(input, queued);
+    return outcome;
   }
 
   async listLeads(input: ListLeadsInput): Promise<ListLeadsResult> {

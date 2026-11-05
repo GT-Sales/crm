@@ -1,5 +1,10 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { automationRuns, automationWaits, type TenantTransaction } from '@gt-sales/db';
+import {
+  automationRuns,
+  automationWaits,
+  type DatabaseClient,
+  type TenantTransaction,
+} from '@gt-sales/db';
 import {
   AUTOMATION_MAX_AUTOMATED_RUNS_PER_DAY,
   AUTOMATION_MAX_CHAIN_DEPTH,
@@ -92,7 +97,17 @@ export interface FireFlowsContext {
   startedRuns?: string[];
   /** What staff notification mail needs; read from the environment when absent. */
   staffNotifications?: StaffNotificationEnvironment;
+  /**
+   * ENG-5: when set, a run that starts is queued here instead of run in this
+   * write: its row and a start wait due now are written, and the caller runs
+   * it after the write commits (`runQueuedStarts`). The scheduler runs any the
+   * caller does not reach. Only a person's or the website's own write sets it.
+   */
+  queued?: string[];
 }
+
+/** The wait step id a queued start resumes from: before the first step. */
+export const START_STEP_ID = '__start';
 
 export interface FireFlowsResult {
   skipped: EmailSkipped[];
@@ -471,6 +486,11 @@ export async function startFlowRun(
   const runId = await runInsert();
   if (!runId) return emptyResult();
   fire.startedRuns?.push(runId);
+  if (fire.queued) {
+    await queueStart(tx, fire, { runId, automationId: flow.id, leadId: start.leadId });
+    fire.queued.push(runId);
+    return emptyResult();
+  }
   const run: RunState = {
     id: runId,
     flow,
@@ -623,6 +643,32 @@ async function startWait(
     .where(and(eq(automationRuns.workspaceId, context.workspaceId), eq(automationRuns.id, run.id)));
 }
 
+/**
+ * A queued start (ENG-5): the run waits at {@link START_STEP_ID}, due now, so
+ * its steps run after the write commits, by its caller or else by the tick.
+ */
+async function queueStart(
+  tx: TenantTransaction,
+  context: FireFlowsContext,
+  run: { runId: string; automationId: string; leadId: string },
+): Promise<void> {
+  const now = context.now?.() ?? new Date();
+  await tx.insert(automationWaits).values({
+    workspaceId: context.workspaceId,
+    runId: run.runId,
+    automationId: run.automationId,
+    leadId: run.leadId,
+    stepId: START_STEP_ID,
+    resumeAt: now,
+  });
+  await tx
+    .update(automationRuns)
+    .set({ status: 'waiting', updatedAt: now })
+    .where(
+      and(eq(automationRuns.workspaceId, context.workspaceId), eq(automationRuns.id, run.runId)),
+    );
+}
+
 /** One action step in its own savepoint; a throw is the step `failed`, recorded outside it. */
 async function runAction(
   tx: TenantTransaction,
@@ -739,6 +785,10 @@ export interface ItemHooks {
   insideResume?: () => Promise<void>;
   /** Told of a resume that threw (the tick logs it by code). */
   onFailure?: (error: unknown) => void;
+  /** Where a resume's skipped mail and activities go (a queued start's caller). */
+  collect?: FireFlowsResult;
+  /** A queued start keeps its write's actor instead of the activator's (P19). */
+  keepActor?: boolean;
 }
 
 const RESUME_MAX_ATTEMPTS = 5;
@@ -931,14 +981,18 @@ export async function resumeRun(
   const fire: FireFlowsContext = {
     ...context,
     // P19: the activator's writes, else the scheduler's; a former member's never.
-    actorId: await actingActor(tx, workspaceId, flow.activatedBy, context.actorId),
+    // A queued start its own write runs keeps that write's actor, as it would inline.
+    actorId: hooks.keepActor
+      ? context.actorId
+      : await actingActor(tx, workspaceId, flow.activatedBy, context.actorId),
     now: () => now,
     siteHolder: context.siteHolder ?? flowSiteHolder(workspaceId, context.catalog),
   };
   const site = await siteOf(tx, fire);
   const [issue] = checkFlowAgainstSite(parsed.data, site);
   if (issue) return cancel(issue.code, issue.ref);
-  const position = positionAfter(parsed.data.steps, wait.stepId);
+  const starting = wait.stepId === START_STEP_ID;
+  const position = starting ? [] : positionAfter(parsed.data.steps, wait.stepId);
   if (!position) return cancel('definition_invalid', wait.stepId);
 
   const state: RunState = {
@@ -955,18 +1009,22 @@ export async function resumeRun(
   try {
     await tx.transaction(async (savepoint) => {
       await hooks.insideResume?.();
-      await insertStepRun(savepoint, workspaceId, {
-        runId: wait.runId,
-        stepId: wait.stepId,
-        stepKind: 'wait',
-        outcome: 'done',
-      });
+      // A queued start has no wait step of its own to mark done.
+      if (!starting) {
+        await insertStepRun(savepoint, workspaceId, {
+          runId: wait.runId,
+          stepId: wait.stepId,
+          stepKind: 'wait',
+          outcome: 'done',
+        });
+      }
       await savepoint
         .update(automationWaits)
         .set({ status: 'resumed', updatedAt: now })
         .where(and(eq(automationWaits.workspaceId, workspaceId), eq(automationWaits.id, wait.id)));
       await countingRuns(savepoint, fire, async (counted) => {
         const ran = await runSteps(savepoint, counted, state, position);
+        if (hooks.collect) mergeInto(hooks.collect, ran);
         if (ran.ended !== 'waiting') {
           await finishRun(savepoint, workspaceId, wait.runId, {
             status: ran.ended,
@@ -985,14 +1043,17 @@ export async function resumeRun(
       .set({ attempts, updatedAt: now, ...(givenUp ? { status: 'cancelled' } : {}) })
       .where(and(eq(automationWaits.workspaceId, workspaceId), eq(automationWaits.id, wait.id)));
     if (givenUp) {
-      // The wait step's own row says so, as a cancelled wait's does (P25).
-      await insertStepRun(tx, workspaceId, {
-        runId: wait.runId,
-        stepId: wait.stepId,
-        stepKind: 'wait',
-        outcome: 'failed',
-        reason: 'resume_failed',
-      });
+      // The wait step's own row says so, as a cancelled wait's does (P25); a
+      // queued start has no wait step.
+      if (!starting) {
+        await insertStepRun(tx, workspaceId, {
+          runId: wait.runId,
+          stepId: wait.stepId,
+          stepKind: 'wait',
+          outcome: 'failed',
+          reason: 'resume_failed',
+        });
+      }
       await finishRun(tx, workspaceId, wait.runId, { status: 'failed', reason: 'resume_failed' });
     }
     return 'failed';
@@ -1148,4 +1209,42 @@ export async function fireTimer(
     }),
   );
   return 'fired';
+}
+
+/**
+ * ENG-5: runs the starts a write queued (`FireFlowsContext.queued`), after it
+ * committed, each in its own transaction through the resume path, as the
+ * write's actor. What they skipped and wrote is returned for the write's
+ * response. A start that fails here is left to the tick, which retries it as
+ * it retries any due wait; one already claimed elsewhere is skipped.
+ */
+export async function runQueuedStarts(
+  database: Pick<DatabaseClient, 'withTenantTx'>,
+  context: FireFlowsContext,
+  runIds: readonly string[],
+): Promise<FireFlowsResult> {
+  const collect = emptyResult();
+  for (const runId of runIds) {
+    try {
+      await database.withTenantTx(
+        { workspaceId: context.workspaceId, actorId: context.actorId },
+        async (tx) => {
+          const [wait] = await tx.execute<{ id: string }>(sql`
+            select id from app.automation_waits
+            where workspace_id = ${context.workspaceId} and run_id = ${runId}
+              and step_id = ${START_STEP_ID} and status = 'pending'
+          `);
+          if (!wait) return;
+          await resumeRun(tx, context, wait.id, context.now?.() ?? new Date(), {
+            collect,
+            keepActor: true,
+            onFailure: (error) => logFlowFailure(context, runId, error),
+          });
+        },
+      );
+    } catch (error) {
+      logFlowFailure(context, runId, error);
+    }
+  }
+  return collect;
 }

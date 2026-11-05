@@ -16,7 +16,7 @@ import {
 import { FakeOwnerAlertChannel } from '@gt-sales/adapters';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
-import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { applyLeadUpdate, DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import {
   addActiveVersion,
   disposableTestDatabaseUrl,
@@ -36,6 +36,7 @@ const FAIL_SITE = '18000000-0000-4000-8000-000000008606'; // failures and a kill
 const GUARD_SITE = '18000000-0000-4000-8000-000000008607'; // loops, races, archive, activators
 const DRAIN_SITE = '18000000-0000-4000-8000-000000008608'; // bursts, budget and backlog
 const UNLISTED_SITE = '18000000-0000-4000-8000-000000008609'; // no scheduler lists it
+const QUEUE_SITE = '18000000-0000-4000-8000-000000008610'; // flows run after the write
 const SITES = [
   WAIT_SITE,
   TIME_SITE,
@@ -46,6 +47,7 @@ const SITES = [
   GUARD_SITE,
   DRAIN_SITE,
   UNLISTED_SITE,
+  QUEUE_SITE,
 ];
 const LEFT = '28000000-0000-4000-8000-000000008604'; // a member who has since left
 const STAFF = '28000000-0000-4000-8000-000000008601';
@@ -965,5 +967,69 @@ databaseTest('the automations scheduler task', () => {
       { archived: false },
     );
     expect(after.needsAttention.get(key)).toBeUndefined();
+  });
+  it("a move's flows run after it commits, and the response carries what they wrote", async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: QUEUE_SITE,
+      key: flowKey('8610', 1),
+      name: 'Ask on contact',
+      enabled: true,
+      definition: flow(entered('contacted'), [send('s_ask', 'information_needed')]),
+      actorId: STAFF,
+    });
+    const leadId = await insertLead(QUEUE_SITE);
+    const outcome = await move(QUEUE_SITE, leadId, 'contacted');
+    // The mail the flow queued is in the move's own response.
+    expect(outcome.activities.map((activity) => activity.kind)).toContain('system');
+    expect(await jobs(leadId)).toEqual([
+      { dedupeKey: expect.stringContaining(':s_ask'), template: 'information_needed' },
+    ]);
+    const [run] = await runs(leadId);
+    expect(run).toMatchObject({ status: 'completed' });
+    // It ran from a start queued in the move, not inside it.
+    const starts = await admin<{ stepId: string; status: string }[]>`
+      select step_id as "stepId", status from app.automation_waits where run_id = ${run?.id ?? ''}
+    `;
+    expect(starts).toEqual([{ stepId: '__start', status: 'resumed' }]);
+    expect(await steps(run?.id ?? '')).toEqual([
+      { stepId: 's_ask', outcome: 'done', reason: null },
+    ]);
+  });
+
+  it('a queued start its write did not run is run by the next tick', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: QUEUE_SITE,
+      key: flowKey('8610', 2),
+      name: 'Ask on qualify',
+      enabled: true,
+      definition: flow(entered('qualified'), [send('s_ask', 'information_needed')]),
+      actorId: STAFF,
+    });
+    const leadId = await insertLead(QUEUE_SITE);
+    // The write commits with its start queued; the process stops before running it.
+    const queued: string[] = [];
+    await database.withTenantTx({ workspaceId: QUEUE_SITE, actorId: STAFF }, (tx) =>
+      applyLeadUpdate(
+        tx,
+        { emailEnvironment: environment, queued },
+        {
+          workspaceId: QUEUE_SITE,
+          actorId: STAFF,
+          requestId: randomUUID(),
+          leadId,
+          stage: 'qualified',
+          catalog: codePropertyCatalog,
+        },
+      ),
+    );
+    expect(queued).toHaveLength(1);
+    expect((await runs(leadId))[0]).toMatchObject({ status: 'waiting' });
+    expect(await jobs(leadId)).toEqual([]);
+
+    expect(await tick(QUEUE_SITE, Date.now() + 60_000)).toMatchObject({ resumed: 1 });
+    expect((await runs(leadId))[0]).toMatchObject({ status: 'completed' });
+    expect(await jobs(leadId)).toEqual([
+      { dedupeKey: expect.stringContaining(':s_ask'), template: 'information_needed' },
+    ]);
   });
 });
