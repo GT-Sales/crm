@@ -9,6 +9,8 @@ import type {
   AiActionProposal,
   AiActionDraft,
   ConfirmAiActionResponse,
+  AiAutomationProposal,
+  AiAutomationSaveResponse,
 } from '@gt-sales/contracts';
 import { BackendError } from '../../lib/api';
 
@@ -56,6 +58,16 @@ const mocks = vi.hoisted(() => ({
     >(),
   getAiCapabilities: vi.fn<CapabilitiesFn>(),
   askAiAssistant: vi.fn<AskAiFn>(),
+  saveAiAutomation:
+    vi.fn<
+      (
+        token: string,
+        workspaceId: string,
+        proposalToken: string,
+      ) => Promise<AiAutomationSaveResponse>
+    >(),
+  reviseAiAutomation: vi.fn(),
+  simulateAiAutomation: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -816,5 +828,70 @@ describe('Ask AI panel', () => {
     ask('Count leads');
     await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalled());
     expect(mocks.askAiAssistant.mock.calls[0]?.[2].context).toBeUndefined();
+  });
+});
+
+describe('Ask AI automation proposal cards', () => {
+  const automation: AiAutomationProposal = {
+    id: '70000000-0000-4000-8000-000000000001',
+    token: 'automation-proposal-token',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    siteName: 'CanadaWide',
+    draft: {
+      name: 'Follow up new SIM orders',
+      description: '',
+      definition: {
+        schemaVersion: 1,
+        trigger: { kind: 'lead_submitted', leadTypes: ['sim_order'], when: null },
+        steps: [{ id: 's_wait', kind: 'wait', for: { amount: 1, unit: 'days' } }],
+      },
+    },
+    issues: [],
+    changes: ['Add Wait 1 day'],
+    catalog: {
+      leadTypes: [
+        { key: 'sim_order', label: 'SIM order', stages: [{ key: 'pending', label: 'Pending' }] },
+      ],
+      templates: [],
+      members: [],
+      plans: [],
+      properties: [],
+      taskVariables: [],
+    },
+  };
+
+  beforeEach(() => {
+    mocks.getAiCapabilities.mockReset();
+    mocks.askAiAssistant.mockReset();
+    mocks.saveAiAutomation.mockReset();
+    mocks.getAiCapabilities.mockResolvedValue(capabilities());
+  });
+
+  it('keeps a saved card saved when the panel is closed and opened again (UI-1)', async () => {
+    mocks.askAiAssistant.mockImplementation(() =>
+      streamOf([
+        { type: 'text', text: 'Here is a draft.' },
+        { type: 'automation_proposals', proposals: [automation] },
+        { type: 'done' },
+      ]),
+    );
+    mocks.saveAiAutomation.mockResolvedValue({
+      status: 'saved',
+      key: 'flow_abcdefghijklmnop',
+      revision: 1,
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Follow up new SIM orders after a day');
+    fireEvent.click(await screen.findByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByText(/Draft saved\./)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Ask AI' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull());
+    await openPanel();
+
+    expect(await screen.findByText(/Draft saved\./)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save draft' })).toBeNull();
+    expect(mocks.saveAiAutomation).toHaveBeenCalledTimes(1);
   });
 });

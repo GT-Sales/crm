@@ -10,7 +10,7 @@ import {
   type AiAutomationSimulation,
   type AiAutomationDraft,
 } from '@gt-sales/contracts';
-import { useAssistant } from './assistant-provider';
+import { useAssistant, type AutomationCardState } from './assistant-provider';
 import { BackendError } from '../../lib/api';
 import dynamic from 'next/dynamic';
 const FlowCanvas = dynamic(
@@ -45,18 +45,28 @@ function simulationStepText(step: AiAutomationSimulation['steps'][number]): stri
   return `${stepKindLabel(value.stepKind)}: ${outcome}`;
 }
 
-export function AssistantAutomation({ initial }: { initial: AiAutomationProposal }) {
-  const { automationApi, workspaceSlug } = useAssistant();
-  const [proposal, setProposal] = useState(initial);
-  const [draft, setDraft] = useState<AiAutomationDraft>(initial.draft);
+export function AssistantAutomation({
+  messageId,
+  initial,
+  stored,
+}: {
+  messageId: string;
+  initial: AiAutomationProposal;
+  /** What this card has come to so far; it outlives the panel (UI-1). */
+  stored?: AutomationCardState;
+}) {
+  const { automationApi, workspaceSlug, updateAutomationCard } = useAssistant();
+  const card: AutomationCardState = stored ?? { proposal: initial, draft: initial.draft };
+  const { proposal, draft, savedKey, simulation } = card;
+  const cancelled = card.cancelled === true;
+  const update = (change: Partial<AutomationCardState>) =>
+    updateAutomationCard(messageId, initial.id, change);
+  const setDraft = (next: AiAutomationDraft) => update({ draft: next });
   const [editing, setEditing] = useState(false),
     [selected, setSelected] = useState<string>();
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState(''),
-    [cancelled, setCancelled] = useState(false);
-  const [savedKey, setSavedKey] = useState<string>();
+    [error, setError] = useState('');
   const [canvas, setCanvas] = useState(false);
-  const [simulation, setSimulation] = useState<AiAutomationSimulation>();
   const firstType = proposal.catalog.leadTypes[0]?.key ?? 'sim_order';
   const [scenario, setScenario] = useState<{
     leadType: string;
@@ -93,11 +103,9 @@ export function AssistantAutomation({ initial }: { initial: AiAutomationProposal
     setError('');
     try {
       const next = await automationApi.revise(proposal.token, draft);
-      setProposal(next);
-      setDraft(next.draft);
+      update({ proposal: next, draft: next.draft, simulation: undefined });
       setEditing(false);
       setSelected(undefined);
-      setSimulation(undefined);
     } catch (cause) {
       setError(failure(cause));
     } finally {
@@ -109,7 +117,7 @@ export function AssistantAutomation({ initial }: { initial: AiAutomationProposal
     setError('');
     try {
       const saved = await automationApi.save(proposal.token);
-      setSavedKey(saved.key);
+      update({ savedKey: saved.key });
     } catch (cause) {
       setError(failure(cause));
     } finally {
@@ -133,7 +141,7 @@ export function AssistantAutomation({ initial }: { initial: AiAutomationProposal
           properties: scenario.properties,
         },
       });
-      setSimulation(await automationApi.simulate(body));
+      update({ simulation: await automationApi.simulate(body) });
     } catch (cause) {
       setError(failure(cause));
     } finally {
@@ -270,7 +278,7 @@ export function AssistantAutomation({ initial }: { initial: AiAutomationProposal
               Edit draft
             </Button>
           )}
-          <Button variant="ghost" disabled={busy} onClick={() => setCancelled(true)}>
+          <Button variant="ghost" disabled={busy} onClick={() => update({ cancelled: true })}>
             Discard
           </Button>
           {proposal.target ? (

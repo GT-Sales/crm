@@ -1,5 +1,9 @@
 'use client';
-import type { AiAutomationProposal } from '@gt-sales/contracts';
+import type {
+  AiAutomationDraft,
+  AiAutomationProposal,
+  AiAutomationSimulation,
+} from '@gt-sales/contracts';
 import { saveAiAutomation, reviseAiAutomation, simulateAiAutomation } from '../../lib/api';
 
 import {
@@ -71,8 +75,22 @@ export interface AiUserMessage {
   text: string;
 }
 
+/**
+ * What an automation proposal card has come to, kept with its message so a
+ * closed and reopened panel shows the same card (UI-1): the re-signed
+ * proposal, the person's edits, a save, a dismissal and the last simulation.
+ */
+export interface AutomationCardState {
+  proposal: AiAutomationProposal;
+  draft: AiAutomationDraft;
+  savedKey?: string;
+  cancelled?: boolean;
+  simulation?: AiAutomationSimulation;
+}
+
 export interface AiAssistantMessage {
   automationProposals?: readonly AiAutomationProposal[];
+  automationCards?: Readonly<Record<string, AutomationCardState>>;
   followUp?: AiFollowUp;
   actions?: readonly AiActionView[];
   id: string;
@@ -125,6 +143,11 @@ export interface AssistantContextValue {
       body: Parameters<typeof simulateAiAutomation>[2],
     ) => ReturnType<typeof simulateAiAutomation>;
   };
+  updateAutomationCard(
+    messageId: string,
+    proposalId: string,
+    change: Partial<AutomationCardState>,
+  ): void;
   reviseAction(messageId: string, actionId: string, draft: AiActionDraft): void;
   confirmAction(messageId: string, actionId: string): void;
   cancelAction(messageId: string, actionId: string): void;
@@ -523,6 +546,29 @@ export function AssistantProvider({
     [commitSession],
   );
 
+  const updateAutomationCard = useCallback(
+    (messageId: string, proposalId: string, change: Partial<AutomationCardState>) => {
+      const current = sessionRef.current;
+      commitSession({
+        ...current,
+        messages: current.messages.map((message) => {
+          if (message.id !== messageId || message.role !== 'assistant') return message;
+          const initial = message.automationProposals?.find((p) => p.id === proposalId);
+          if (!initial) return message;
+          const card = message.automationCards?.[proposalId] ?? {
+            proposal: initial,
+            draft: initial.draft,
+          };
+          return {
+            ...message,
+            automationCards: { ...message.automationCards, [proposalId]: { ...card, ...change } },
+          };
+        }),
+      });
+    },
+    [commitSession],
+  );
+
   const reviseAction = useCallback(
     (messageId: string, actionId: string, draft: AiActionDraft) => {
       const current = sessionRef.current;
@@ -701,11 +747,13 @@ export function AssistantProvider({
       send,
       stop,
       retry,
+      updateAutomationCard,
       reviseAction,
       confirmAction,
       cancelAction,
     }),
     [
+      updateAutomationCard,
       activeLeadId,
       contextLeadId,
       historyTrimmed,

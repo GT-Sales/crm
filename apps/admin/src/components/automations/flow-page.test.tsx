@@ -583,6 +583,47 @@ describe('FlowPage', () => {
     expect(mocks.saveAutomationDraft).not.toHaveBeenCalled();
   });
 
+  it('saves an edit still waiting for autosave when the page is left, and guards a reload (UI-3)', async () => {
+    mocks.saveAutomationDraft.mockImplementation(
+      async (_token: string, _ws: string, _key: string, body: { definition: FlowDraft }) =>
+        detail({ revision: 4, draft: { version: 2, definition: body.definition, issues: [] } }),
+    );
+    const { unmount } = render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Wait 2 days' }));
+    const panel = await screen.findByRole('complementary', { name: 'Wait' });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Move down' }));
+
+    // Inside the autosave delay a reload asks first.
+    const reload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(reload);
+    expect(reload.defaultPrevented).toBe(true);
+
+    // Leaving the page before the delay ends still saves the edit, once.
+    unmount();
+    await waitFor(() => expect(mocks.saveAutomationDraft).toHaveBeenCalledTimes(1));
+    expect(mocks.saveAutomationDraft).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      FLOW,
+      expect.objectContaining({
+        definition: expect.objectContaining({
+          steps: [
+            expect.objectContaining({
+              else: [
+                expect.objectContaining({ id: 's_mail' }),
+                expect.objectContaining({ id: 's_wait' }),
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
+    const after = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
+  });
+
   it('edits and moves steps from List view using the same side panel', async () => {
     mocks.saveAutomationDraft.mockImplementation(
       async (_token: string, _ws: string, _key: string, body: { definition: FlowDraft }) =>
