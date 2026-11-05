@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
   aiAutomationProposalInputSchema,
   aiAutomationTargetSchema,
-  conditionGroupSchema,
+  conditionSchema,
   STEP_ID_PATTERN,
   type AiAutomationProposalInput,
 } from '@gt-sales/contracts';
@@ -16,6 +16,31 @@ const reference = z
   .describe(
     'Use me for the signed-in person, a catalog member ID, or an exact staff display name. Never ask the user for an ID.',
   );
+// The stored condition names a member by UUID; the model names them the way a
+// person would ("Sarah", "me") and the server resolves it (AUTH-1).
+const modelAssigneeCondition = z
+  .object({
+    kind: z.literal('assignee'),
+    op: z.enum(['none', 'any', 'is']),
+    actorId: reference.optional(),
+  })
+  .strict();
+const modelCondition = z.union([modelAssigneeCondition, conditionSchema]);
+const modelMatch = z.enum(['all', 'any']);
+const modelInnerConditionGroup = z
+  .object({ match: modelMatch, items: z.array(modelCondition).min(1).max(10) })
+  .strict();
+const modelConditionGroup = z
+  .object({
+    match: modelMatch,
+    items: z
+      .array(z.union([modelCondition, modelInnerConditionGroup]))
+      .min(1)
+      .max(10),
+  })
+  .strict();
+type ModelConditionGroup = z.infer<typeof modelConditionGroup>;
+
 const step: z.ZodType<Record<string, unknown>> = z.lazy(() =>
   z
     .object({
@@ -49,7 +74,7 @@ const step: z.ZodType<Record<string, unknown>> = z.lazy(() =>
       toAssignee: z.boolean().optional(),
       actorIds: z.array(reference).optional(),
       note: z.string().optional(),
-      condition: conditionGroupSchema.nullable().optional(),
+      condition: modelConditionGroup.nullable().optional(),
       then: z.array(step).optional(),
       else: z.array(step).optional(),
       for: duration.nullable().optional(),
@@ -88,7 +113,7 @@ export const automationModelProposalSchema = z
                 leadType: z.string().nullable().optional(),
                 stage: z.string().nullable().optional(),
                 after: duration.nullable().optional(),
-                when: conditionGroupSchema.nullable().optional(),
+                when: modelConditionGroup.nullable().optional(),
               })
               .strict()
               .nullable(),
@@ -131,6 +156,20 @@ export function normalizeAutomationProposal(
       );
     return matches[0]?.actorId;
   }
+  // `assignee is` names a member: resolve it like any other member reference.
+  function conditions(group: ModelConditionGroup | null | undefined): unknown {
+    if (!group) return group ?? null;
+    return {
+      match: group.match,
+      items: group.items.map((item) => {
+        if ('match' in item) return conditions(item);
+        if (item.kind === 'assignee' && item.op === 'is') {
+          return { ...item, actorId: member(item.actorId) };
+        }
+        return item;
+      }),
+    };
+  }
   function normalizeStep(rawStep: Record<string, unknown>): Record<string, unknown> {
     const s: Record<string, unknown> = {
       ...rawStep,
@@ -167,7 +206,7 @@ export function normalizeAutomationProposal(
       case 'if_else':
         return {
           ...base,
-          condition: s.condition ?? null,
+          condition: conditions(modelConditionGroup.nullable().optional().parse(s.condition)),
           then: Array.isArray(s.then) ? s.then.map((x) => normalizeStep(record.parse(x))) : [],
           else: Array.isArray(s.else) ? s.else.map((x) => normalizeStep(record.parse(x))) : [],
         };
@@ -181,7 +220,7 @@ export function normalizeAutomationProposal(
   }
   const definition = input.draft.definition;
   const t = definition.trigger;
-  const when = t?.when ?? null;
+  const when = conditions(t?.when);
   const trigger = !t
     ? null
     : t.kind === 'lead_submitted'

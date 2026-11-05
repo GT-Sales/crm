@@ -28,13 +28,22 @@ export async function simulateAutomation(
   database: Pick<DatabaseClient, 'withTenantTx'> = { withTenantTx },
 ): Promise<AiAutomationSimulation> {
   const proposal = await input.store.load(input.scope, input.token, input.key, input.now);
-  const definition = flowDefinitionSchemaFor(proposal.target ? 'builtin' : 'custom').safeParse(
-    proposal.draft.definition,
-  );
-  if (!definition.success) throw new AutomationAuthoringError('invalid');
   const scenario = aiAutomationScenarioSchema.parse(input.scenario);
   return database.withTenantTx(input.scope, async (tx) => {
     await tx.execute(sql`set transaction read only`);
+    // AUTH-3: an edit is parsed as the flow it edits is (a custom flow cannot
+    // gain a built-in's `main` step); a new flow is always custom.
+    let origin: 'builtin' | 'custom' = 'custom';
+    if (proposal.target) {
+      const [flow] = await tx.execute<{ origin: string }>(sql`
+        select origin from app.automations
+        where workspace_id = ${input.scope.workspaceId} and key = ${proposal.target.key}
+      `);
+      if (!flow) throw new AutomationAuthoringError('not_found');
+      origin = flow.origin === 'builtin' ? 'builtin' : 'custom';
+    }
+    const definition = flowDefinitionSchemaFor(origin).safeParse(proposal.draft.definition);
+    if (!definition.success) throw new AutomationAuthoringError('invalid');
     const site = await loadFlowSite(tx, input.scope.workspaceId);
     if (checkFlowAgainstSite(definition.data, site).length)
       throw new AutomationAuthoringError('invalid');
