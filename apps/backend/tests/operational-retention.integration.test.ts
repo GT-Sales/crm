@@ -154,6 +154,17 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     await timer('fired_recent', 'fired', daysAgo(89));
     await timer('pending_old', 'pending', daysAgo(200));
 
+    // Ask AI turn records after 90 days.
+    await admin`delete from app.ai_turns where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
+    const turn = (workspace: string, label: number, createdAt: Date) => admin`
+      insert into app.ai_turns
+        (workspace_id, actor_id, request_id, engine, prompt_version, outcome, duration_ms, output_tokens, created_at)
+      values (${workspace}, ${ACTOR}, gen_random_uuid(), 'fake', 9, 'completed', 10, ${label}, ${createdAt})
+    `;
+    await turn(WORKSPACE, 1, daysAgo(91));
+    await turn(WORKSPACE, 2, daysAgo(89));
+    await turn(OTHER_WORKSPACE, 3, daysAgo(200));
+
     // Tracking challenges 24 hours after they expire; change requests are kept.
     await admin`delete from app.tracking_challenges where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE})`;
     const challenge = (workspace: string, emailDigit: string, expiresAt: Date) => admin`
@@ -194,9 +205,11 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
     expect(result).toContainEqual({ tableName: 'automation_runs', deleted: 2 });
     expect(result).toContainEqual({ tableName: 'automation_timers', deleted: 2 });
     expect(result).toContainEqual({ tableName: 'tracking_challenges', deleted: 1 });
+    expect(result).toContainEqual({ tableName: 'ai_turns', deleted: 1 });
     expect(result.map((row) => row.tableName).sort()).toEqual(
       [
         'ai_automation_proposals',
+        'ai_turns',
         'automation_runs',
         'automation_timers',
         'email_provider_events',
@@ -261,6 +274,11 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
       { workspace_id: WORKSPACE, email_hash: 'b'.repeat(64) },
       { workspace_id: OTHER_WORKSPACE, email_hash: 'd'.repeat(64) },
     ]);
+    const turns = await admin<{ output_tokens: number }[]>`
+      select output_tokens from app.ai_turns
+      where workspace_id in (${WORKSPACE}, ${OTHER_WORKSPACE}) order by output_tokens
+    `;
+    expect(turns.map((row) => row.output_tokens)).toEqual([2, 3]);
     const requests = await admin<{ request_no: number }[]>`
       select request_no from app.change_requests where workspace_id = ${WORKSPACE}
     `;
@@ -288,6 +306,7 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
         steps: boolean;
         waits: boolean;
         timers: boolean;
+        turns: boolean;
       }[]
     >`
       select
@@ -298,7 +317,8 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
         has_table_privilege('app_runtime', 'app.tracking_challenges', 'delete') as challenges,
         has_table_privilege('app_runtime', 'app.automation_step_runs', 'delete') as steps,
         has_table_privilege('app_runtime', 'app.automation_waits', 'delete') as waits,
-        has_table_privilege('app_runtime', 'app.automation_timers', 'delete') as timers
+        has_table_privilege('app_runtime', 'app.automation_timers', 'delete') as timers,
+        has_table_privilege('app_runtime', 'app.ai_turns', 'delete') as turns
     `;
     expect(grants).toEqual({
       jobs: false,
@@ -309,6 +329,7 @@ databaseTest('operational retention (app.prune_operational_rows)', () => {
       steps: false,
       waits: false,
       timers: false,
+      turns: false,
     });
   });
 });

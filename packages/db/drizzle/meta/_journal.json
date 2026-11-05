@@ -169,6 +169,20 @@
       "when": 1793899404943,
       "tag": "0023_lead_activity_clock_time",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793902088184,
+      "tag": "0024_ai_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793902130131,
+      "tag": "0025_ai_turns_and_automation_overdue_runtime",
+      "breakpoints": true
     }
   ]
 }
