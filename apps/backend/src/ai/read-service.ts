@@ -181,8 +181,9 @@ export class DatabaseAiReadService implements AiReadService {
    */
   private read<T>(scope: Scope, work: (tx: TenantTransaction) => Promise<T>): Promise<T> {
     return this.database.withTenantTx(scope, async (tx) => {
+      await tx.execute(sql`set transaction read only`);
       await tx.execute(
-        sql.raw(`set local statement_timeout = ${AI_ASSISTANT_LIMITS.toolQueryTimeoutMs}`),
+        sql`select set_config('statement_timeout', ${String(AI_ASSISTANT_LIMITS.toolQueryTimeoutMs)}, true)`,
       );
       return work(tx);
     });

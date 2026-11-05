@@ -2371,3 +2371,16 @@ lets the timeline and Notes show the actual approving member followed by
 cannot choose provenance. Automation-generated entries retain flow attribution.
 Historical activity is not relabelled from guesses, and existing audit records
 remain unchanged. No migration or new environment variable is needed.
+
+### AI infrastructure capability restrictions (5 Nov 2026)
+
+The staff assistant has a fixed reviewed tool allowlist: CRM reads and proposal
+preparation only, with signed explicit confirmation for business writes. SQL,
+schema administration, OS/filesystem/Git/deployment tools and provider-executed
+capabilities are rejected before model contact. AI reads/site context and the
+source report use read-only transactions. Assistant modules have CI import and
+execution restrictions; runtime code/dependencies are root-owned and non-writable
+by the app user. Production runtime permissions were checked without changing
+roles or schema. Scope, evidence and local container-build limits:
+[AI security review](review/2026-11-05-ai-security.md). No new environment variable
+or migration is required.

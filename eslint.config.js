@@ -1,5 +1,6 @@
 import { baseConfig, reactConfig } from './packages/config/eslint.js';
 import { boundaryConfig } from './packages/config/boundaries.js';
+import { aiBoundaryConfig } from './packages/config/ai-boundary.js';
 
 export default [
   {
@@ -17,4 +18,5 @@ export default [
   ...baseConfig,
   reactConfig,
   boundaryConfig,
+  aiBoundaryConfig,
 ];

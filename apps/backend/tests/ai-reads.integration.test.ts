@@ -603,6 +603,59 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
   /** Every id of a page, sorted so an ordering tie is not the test's subject. */
   const sortedIds = (rows: readonly { id: string }[]): string[] => rows.map((row) => row.id).sort();
 
+  test.each([
+    "' OR 1=1 --",
+    "'; DROP TABLE app.leads; --",
+    "'; ALTER TABLE app.leads ADD injected text; --",
+    "'; UPDATE app.leads SET stage='won'; --",
+    "'; SELECT pg_sleep(20); --",
+    "O'Brien_%\\",
+  ])('search treats SQL syntax as literal data: %s', async (search) => {
+    const before = await reads.findLeads(scopeA, { limit: 10, offset: 0 });
+    const result = await reads.findLeads(scopeA, { search, limit: 10, offset: 0 });
+    expect(result).toEqual({ rows: [], total: 0 });
+    const after = await reads.findLeads(scopeA, { limit: 10, offset: 0 });
+    expect(sortedIds(after.rows)).toEqual(sortedIds(before.rows));
+    expect(after.total).toBe(before.total);
+  });
+
+  test('Postgres refuses writes inside the assistant read transaction', async () => {
+    const injectedDatabase = {
+      withTenantTx<T>(
+        scope: TenantContext,
+        work: (tx: TenantTransaction) => Promise<T> | T,
+      ): Promise<T> {
+        return database.withTenantTx(scope, async (tx) => {
+          await work(tx);
+          await tx.execute(
+            sql`update app.leads set external_ref = 'unexpected-write' where workspace_id = ${SITE_A}::uuid`,
+          );
+          // Roll back if this regression ever makes the write possible.
+          throw new Error('read transaction unexpectedly allowed writes');
+        });
+      },
+    };
+    const guarded = new DatabaseAiReadService(injectedDatabase);
+    await expect(guarded.isActiveMember(scopeA, ACTOR)).rejects.toMatchObject({
+      cause: { code: '25006' },
+    });
+  });
+
+  test.each([
+    'create table app.ai_ddl_probe (id integer)',
+    'alter table app.leads add column ai_ddl_probe text',
+    'drop table app.leads',
+    'truncate app.leads',
+  ])('the real runtime role cannot change persistent structure: %s', async (statement) => {
+    await expect(
+      database.withTenantTx(scopeA, async (tx) => {
+        await tx.execute(sql.raw(statement));
+        // Never commit a DDL probe, even if a privilege regression permits it.
+        throw new Error('runtime unexpectedly allowed structure changes');
+      }),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+  });
+
   test('the same person and order number in another site never cross the tenant', async () => {
     const byName = await reads.findLeads(scopeA, {
       search: 'Dana Duplicate',
@@ -979,9 +1032,9 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
                 if (property !== 'execute') return Reflect.get(target, property, receiver);
                 return async (query: SQLWrapper) => {
                   statements += 1;
-                  // The first statement is the service's own `set local`; every
-                  // later one is a read that must already be bounded by it.
-                  if (statements > 1) {
+                  // The first two statements set read-only mode and the timeout;
+                  // later statements must already be bounded by both.
+                  if (statements > 2) {
                     const [row] = await target.execute<{ seconds: number }>(sql`
                     select extract(epoch from current_setting('statement_timeout')::interval)::int
                       as "seconds"
@@ -1019,7 +1072,7 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
       });
 
       expect(totals.received).toBe(4);
-      // `overview` is one `set local` and then one statement.
+      // `overview` initializes read-only mode and its timeout before the query.
       expect(deadlinesBeforeRead).toEqual([STATEMENT_DEADLINE_MS / 1_000]);
       expect(slowStatementCancelled).toBe(true);
       expect(slowStatementMs).toBeGreaterThanOrEqual(STATEMENT_DEADLINE_MS - 1_000);

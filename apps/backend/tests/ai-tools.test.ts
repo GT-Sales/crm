@@ -128,6 +128,18 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
 const parse = (value: string) => JSON.parse(value) as Record<string, unknown>;
 
 describe('tool catalogue', () => {
+  it.each(['sql', 'query', 'table', 'schema', 'workspaceId', 'actorId'])(
+    'rejects model-supplied %s arguments before calling a read store',
+    async (field) => {
+      const reads = fakeReads();
+      const toolset = createAssistantTools(context({ reads }));
+      await expect(
+        toolset.execute('findLeads', { [field]: "'; DROP TABLE app.leads; --" }),
+      ).rejects.toThrow();
+      expect(reads.findLeads).not.toHaveBeenCalled();
+    },
+  );
+
   it('exposes exactly the five version-1 tools', () => {
     const toolset = createAssistantTools(context());
     expect(Object.keys(toolset.definitions).sort()).toEqual([

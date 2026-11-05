@@ -198,6 +198,7 @@ export class DatabaseReportStore implements ReportStore {
     return this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
       async (tx) => {
+        await tx.execute(sql`set transaction read only`);
         if (input.queryTimeoutMs !== undefined) {
           await tx.execute(
             sql`select set_config('statement_timeout', ${String(input.queryTimeoutMs)}, true)`,
