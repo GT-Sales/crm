@@ -17,6 +17,13 @@ import { TurnBudget } from './limits.js';
 const signedActionSchema = z
   .object({
     id: z.uuid(),
+    /**
+     * The first card of this draft, when this one is a revision of it. Every
+     * version of one draft confirms under the root's id, so a draft saves at
+     * most once however many versions were signed (absent: the card is its
+     * own root).
+     */
+    rootId: z.uuid().optional(),
     workspaceId: z.uuid(),
     actorId: z.uuid(),
     expiresAt: z.iso.datetime(),
@@ -99,6 +106,8 @@ export function createActionProposalTools(input: {
   loadAccess(): Promise<StaffAccessSnapshot | undefined>;
   now(): Date;
   budget: TurnBudget;
+  /** Set when revising: the draft's first card, signed into the new one. */
+  rootId?: string;
 }) {
   const proposals: AiActionProposal[] = [];
   async function prepare(raw: unknown): Promise<string> {
@@ -173,6 +182,7 @@ export function createActionProposalTools(input: {
       {
         ...input.scope,
         id,
+        ...(input.rootId ? { rootId: input.rootId } : {}),
         expiresAt,
         draft,
         ...(emailContext ? { emailContext } : {}),
@@ -297,4 +307,9 @@ export function createActionProposalTools(input: {
       });
     },
   };
+}
+
+/** The id a confirmation saves under: the draft's first card (`rootId`), else the card's own. */
+export function aiActionRootId(action: SignedAiAction): string {
+  return action.rootId ?? action.id;
 }

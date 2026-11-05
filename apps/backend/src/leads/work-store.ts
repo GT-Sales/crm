@@ -191,6 +191,8 @@ export type AiLeadUpdateConfirmOutcome =
 export interface CreateTaskInput extends WriteScope {
   /** Server-signed AI proposal id; retries reuse the existing record under the lead lock. */
   creationId?: string;
+  /** The AI card that confirmed it (a version of `creationId`'s draft), kept in the audit. */
+  aiCardId?: string;
   leadId: string;
   title: string;
   dueAt?: string | null;
@@ -232,8 +234,19 @@ export interface LeadWorkStore {
     input: Scope & { leadId: string; field: AiLeadUpdateDraft['field'] },
   ): Promise<AiLeadUpdatePreview | undefined>;
   confirmAiLeadUpdate?(
-    input: WriteScope & { draft: AiLeadUpdateDraft; creationId: string; version: string },
+    input: WriteScope & {
+      draft: AiLeadUpdateDraft;
+      creationId: string;
+      version: string;
+      aiCardId?: string;
+    },
   ): Promise<AiLeadUpdateConfirmOutcome>;
+  /**
+   * The AI card that saved a draft (by the draft's root id), or null when the
+   * save predates card ids or nothing was saved: a confirmation compares it
+   * with its own card to tell a retry from a second version of the draft.
+   */
+  aiCardOf?(input: Scope & { rootId: string }): Promise<string | null>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
   /** Archives a lead (or restores one); the timeline and audit keep the `trashed`/`restored` names. */
   setArchived(
@@ -244,7 +257,7 @@ export interface LeadWorkStore {
     input: WriteScope & { leadId: string },
   ): Promise<{ status: 'opened'; activity: LeadActivity | null } | { status: 'not_found' }>;
   addNote(
-    input: WriteScope & { leadId: string; body: string; creationId?: string },
+    input: WriteScope & { leadId: string; body: string; creationId?: string; aiCardId?: string },
   ): Promise<NoteOutcome>;
   /** Resolves addresses for an authorized browser preview; returns no model-visible data. */
   previewAiEmail?(
@@ -254,6 +267,7 @@ export interface LeadWorkStore {
     input: WriteScope & {
       leadId: string;
       creationId: string;
+      aiCardId?: string;
       draft: Extract<AiActionDraft, { kind: 'email' }>;
       emailContext: { toAddress: string; fromAddress: string };
     },
@@ -528,6 +542,7 @@ export async function insertLeadTask(
     assignedActorId: string | null;
     automation?: AutomationAttribution;
     creationId?: string;
+    aiCardId?: string;
   },
 ): Promise<{ taskId: string }> {
   const [row] = await tx
@@ -548,6 +563,7 @@ export async function insertLeadTask(
     dueAt: input.dueAt,
     assignedActorId: input.assignedActorId,
     ...(input.creationId === undefined ? {} : { aiActionId: input.creationId }),
+    ...(input.aiCardId === undefined ? {} : { aiCardId: input.aiCardId }),
   };
   await tx.insert(auditEvents).values({
     workspaceId: input.workspaceId,
@@ -1283,7 +1299,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   confirmAiLeadUpdate(
-    input: WriteScope & { draft: AiLeadUpdateDraft; creationId: string; version: string },
+    input: WriteScope & {
+      draft: AiLeadUpdateDraft;
+      creationId: string;
+      version: string;
+      aiCardId?: string;
+    },
   ): Promise<AiLeadUpdateConfirmOutcome> {
     return this.database
       .withTenantTx(input, async (tx): Promise<AiLeadUpdateConfirmOutcome> => {
@@ -1341,7 +1362,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           entity: 'lead',
           entityId: input.draft.leadId,
           requestId: input.requestId,
-          after: { field },
+          after: { field, ...(input.aiCardId ? { aiCardId: input.aiCardId } : {}) },
         });
         return { status: 'saved', recordId: input.draft.leadId };
       })
@@ -1350,6 +1371,20 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           return { status: 'refused', refusal: error.outcome };
         throw error;
       });
+  }
+
+  aiCardOf(input: Scope & { rootId: string }): Promise<string | null> {
+    return this.database.withTenantTx(input, async (tx) => {
+      const [row] = await tx.execute<{ card: string | null }>(sql`
+        select after ->> 'aiCardId' as card from app.audit_events
+        where workspace_id = ${input.workspaceId}
+          and action in ('ai.lead_updated', 'lead.note_added', 'lead.task_created', 'lead.customer_emailed')
+          and (id::text = ${input.rootId} or after ->> 'aiActionId' = ${input.rootId})
+        order by created_at
+        limit 1
+      `);
+      return row?.card ?? null;
+    });
   }
 
   previewAiEmail(
@@ -1383,6 +1418,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     input: WriteScope & {
       leadId: string;
       creationId: string;
+      aiCardId?: string;
       draft: Extract<AiActionDraft, { kind: 'email' }>;
       emailContext: { toAddress: string; fromAddress: string };
     },
@@ -1436,6 +1472,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         automation: null,
         templateName: 'AI email',
         aiActionId: input.creationId,
+        ...(input.aiCardId ? { aiCardId: input.aiCardId } : {}),
       });
       if (!queued.jobId) throw new Error('AI email queue did not return a job');
       return { status: 'queued', recordId: queued.jobId };
@@ -1479,7 +1516,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   addNote(
-    input: WriteScope & { leadId: string; body: string; creationId?: string },
+    input: WriteScope & { leadId: string; body: string; creationId?: string; aiCardId?: string },
   ): Promise<NoteOutcome> {
     return this.database.withTenantTx(input, async (tx) => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
@@ -1530,6 +1567,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         after: {
           activityId: entry.id,
           ...(input.creationId === undefined ? {} : { aiActionId: input.creationId }),
+          ...(input.aiCardId === undefined ? {} : { aiCardId: input.aiCardId }),
         },
       });
 
@@ -1566,6 +1604,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
 
       const { taskId } = await insertLeadTask(tx, {
         ...(input.creationId === undefined ? {} : { creationId: input.creationId }),
+        ...(input.aiCardId === undefined ? {} : { aiCardId: input.aiCardId }),
         workspaceId: input.workspaceId,
         actorId: input.actorId,
         requestId: input.requestId,

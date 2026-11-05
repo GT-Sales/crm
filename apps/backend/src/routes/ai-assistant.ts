@@ -4,7 +4,7 @@ import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import type { FlowStore } from '../automations/flow-store.js';
 import { tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
-import { createActionProposalTools, verifyAiAction } from '../ai/actions.js';
+import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import { Router, type Response } from 'express';
 import {
@@ -121,6 +121,7 @@ export interface AiAssistantRouteDependencies {
     | 'previewAiEmail'
     | 'previewAiLeadUpdate'
     | 'confirmAiLeadUpdate'
+    | 'aiCardOf'
   >;
   listAssignees?: (scope: Scope) => Promise<{ actorId: string; displayName: string | null }[]>;
   config: AiAssistantConfig;
@@ -364,6 +365,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         scope,
         site,
         key: config.signingKey,
+        // The new card is a version of the same draft: it saves under one id.
+        rootId: aiActionRootId(original),
         leadUpdatePreview: (leadId, field) => leadUpdatePreview(scope, leadId, field),
         reads: dependencies.reads,
         emailPreview: previewEmail
@@ -437,6 +440,17 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'invalid_request', 400);
         return;
       }
+      // Every version of one draft saves under its first card's id, so the
+      // draft saves once; the saved record says which card did it.
+      const rootId = aiActionRootId(action);
+      const work = dependencies.work;
+      /** True (and answered) when another version of this draft was already saved. */
+      const superseded = async (): Promise<boolean> => {
+        const savedBy = await work.aiCardOf?.({ ...scope, rootId });
+        if (!savedBy || savedBy === action.id) return false;
+        sendDomainError(res, req.id, 'conflict', 409, { reason: 'superseded' });
+        return true;
+      };
       if (action.draft.kind === 'lead_update') {
         if (!dependencies.work.confirmAiLeadUpdate || !action.leadUpdateContext) {
           sendDomainError(res, req.id, 'ai_unavailable', 503);
@@ -446,7 +460,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           ...scope,
           requestId: req.id,
           draft: action.draft,
-          creationId: action.id,
+          creationId: rootId,
+          aiCardId: action.id,
           version: action.leadUpdateContext.version,
         });
         if (outcome.status === 'refused') {
@@ -472,6 +487,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           );
           return;
         }
+        if (await superseded()) return;
         res.json(
           confirmAiActionResponseSchema.parse({
             status: 'saved',
@@ -492,7 +508,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           ...scope,
           requestId: req.id,
           leadId: action.draft.leadId,
-          creationId: action.id,
+          creationId: rootId,
+          aiCardId: action.id,
           draft: action.draft,
           emailContext: action.emailContext,
         });
@@ -511,6 +528,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           );
           return;
         }
+        if (await superseded()) return;
         res.json(
           confirmAiActionResponseSchema.parse({
             status: 'saved',
@@ -526,7 +544,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         ...scope,
         requestId: req.id,
         leadId: action.draft.leadId,
-        creationId: action.id,
+        creationId: rootId,
+        aiCardId: action.id,
       };
       const outcome =
         action.draft.kind === 'note'
@@ -549,6 +568,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'assignee_not_found', 409);
         return;
       }
+      if (await superseded()) return;
       res.json(
         confirmAiActionResponseSchema.parse({
           status: 'saved',
