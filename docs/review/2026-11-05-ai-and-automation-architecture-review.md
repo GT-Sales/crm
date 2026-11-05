@@ -4,6 +4,10 @@ Read-only review. No code was changed. This document records what was reviewed,
 how the two features are built, what is wrong or fragile, and how each item
 should be fixed, so the owner can choose what to implement and in which order.
 
+Status: phase A (ENG-1, CHAT-1, ACT-1, AUTH-4, ENG-L6) implemented on
+5 Nov 2026; see the HANDOFF entry "AI and automation review, phase A". Phases
+B to D remain open.
+
 ## 1. Scope and method
 
 Reviewed in full, as a senior architect would, with every suspected defect

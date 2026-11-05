@@ -66,6 +66,40 @@ suite('AI automation proposals and atomic draft saves', () => {
   });
   const prepare = (value: AiAutomationProposalInput = input) =>
     store.prepare(scope, value, 'AI Automation', key, now);
+  it('applies the 100-proposal cap and daily housekeeping to one member only', async () => {
+    const colleague = '28000000-0000-4000-8000-000000009409';
+    const stale = new Date(now.getTime() - 48 * 60 * 60_000);
+    try {
+      // A colleague on the same site at the cap, with stale rows of their own.
+      await admin`
+        insert into app.ai_automation_proposals (workspace_id, actor_id, payload, digest, expires_at, created_at)
+        select ${SITE}, ${colleague}, '{}'::jsonb, 'digest', ${now}, case when g <= 5 then ${stale}::timestamptz else ${now}::timestamptz end
+        from generate_series(1, 100) g
+      `;
+      // This member's own stale row is cleared by their next proposal.
+      await admin`
+        insert into app.ai_automation_proposals (workspace_id, actor_id, payload, digest, expires_at, created_at)
+        values (${SITE}, ${ACTOR}, '{}'::jsonb, 'digest', ${stale}, ${stale})
+      `;
+      await expect(prepare()).resolves.toMatchObject({ draft: { name: 'AI follow-up' } });
+      const [theirs] =
+        await admin`select count(*)::int as count from app.ai_automation_proposals where actor_id=${colleague}`;
+      expect(theirs?.count).toBe(100);
+      const [ownStale] =
+        await admin`select count(*)::int as count from app.ai_automation_proposals where actor_id=${ACTOR} and created_at=${stale}`;
+      expect(ownStale?.count).toBe(0);
+
+      // At this member's own cap the next proposal is refused.
+      await admin`
+        insert into app.ai_automation_proposals (workspace_id, actor_id, payload, digest, expires_at)
+        select ${SITE}, ${ACTOR}, '{}'::jsonb, 'digest', ${now} from generate_series(1, 100)
+      `;
+      await expect(prepare()).rejects.toMatchObject({ code: 'limit_reached' });
+    } finally {
+      await admin`delete from app.ai_automation_proposals where workspace_id=${SITE}`;
+    }
+  });
+
   it('prepares a valid visual proposal without creating a custom automation', async () => {
     const before =
       await admin`select id from app.automations where workspace_id=${SITE} and origin='custom'`;

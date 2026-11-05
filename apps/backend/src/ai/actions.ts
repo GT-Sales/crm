@@ -7,6 +7,7 @@ import {
   aiActionProposalSchema,
   leadTypeLabel,
   type AiActionProposal,
+  type AiStageMoveNeed,
 } from '@gt-sales/contracts';
 import type { Scope } from '../tenant-scope.js';
 import type { AiReadService } from './read-service.js';
@@ -26,6 +27,16 @@ const signedActionSchema = z
   .strict();
 export type SignedAiAction = z.infer<typeof signedActionSchema>;
 const TTL_MS = 10 * 60 * 1000;
+
+/** Why a stage move cannot be prepared yet, in words the model can relay. */
+const STAGE_NEED_MESSAGES: Record<AiStageMoveNeed, string> = {
+  dispatch_details:
+    'No card was prepared. This move needs dispatch details (a courier) entered on the lead page first.',
+  activation_details:
+    'No card was prepared. This move needs an activation date entered on the lead page first.',
+  documents:
+    'No card was prepared. This move needs the listed required documents approved on the lead page first.',
+};
 
 // Domain-separated signing key; rotation of the Gateway key invalidates old cards.
 function signature(payload: string, key: string): Buffer {
@@ -127,13 +138,20 @@ export function createActionProposalTools(input: {
         : undefined;
     if (draft.kind === 'lead_update') {
       if (!leadUpdateContext) return JSON.stringify({ status: 'not_available' });
-      if (
-        (draft.field === 'stage' || draft.field === 'assignedActorId') &&
-        !leadUpdateContext.choices.some((choice) => choice.value === draft.value)
-      )
+      const choice = leadUpdateContext.choices.find((entry) => entry.value === draft.value);
+      if ((draft.field === 'stage' || draft.field === 'assignedActorId') && !choice)
         return JSON.stringify({
           status: 'not_available',
           message: 'Choose an available stage or active member.',
+        });
+      // A move whose gate is unmet would only be refused after Confirm: say
+      // what it needs instead, so the person completes it on the lead page.
+      if (draft.field === 'stage' && choice?.needs !== undefined)
+        return JSON.stringify({
+          status: 'needs_lead_page',
+          needs: choice.needs,
+          ...(choice.missingDocuments ? { missingDocuments: choice.missingDocuments } : {}),
+          message: STAGE_NEED_MESSAGES[choice.needs],
         });
       if (draft.field !== 'assignedActorId' && draft.value === null)
         return JSON.stringify({ status: 'not_available' });
@@ -218,7 +236,7 @@ export function createActionProposalTools(input: {
   const definitions: ToolSet = {
     getLeadUpdateOptions: tool({
       description:
-        'Read available stage moves or active assignees for one lead before preparing a lead update. Returns choices only, never contact values.',
+        'Read available stage moves or active assignees for one lead before preparing a lead update. Returns choices only, never contact values. A stage choice with `needs` cannot be prepared yet: tell the person what it needs (dispatch details, an activation date, or the listed documents approved) and that it is done on the lead page.',
       inputSchema: z
         .object({ leadId: z.uuid(), field: z.enum(['stage', 'assignedActorId']) })
         .strict(),

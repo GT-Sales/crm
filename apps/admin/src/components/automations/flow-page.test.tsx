@@ -47,6 +47,7 @@ vi.mock('../../lib/api', () => ({ ...mocks, BackendError: mocks.FakeBackendError
 vi.mock('../staff-session-provider', () => ({
   useStaffSession: () => ({
     accessToken: 'staff-token',
+    email: 'owner@example.com',
     workspaces: [{ id: WORKSPACE, slug: 'canadawide', roles: mocks.roles }],
   }),
 }));
@@ -654,7 +655,7 @@ describe('FlowPage', () => {
     expect(mocks.archiveAutomation).not.toHaveBeenCalled();
   });
 
-  it('asks for a test email address when the flow has an email step and shows test run outcomes', async () => {
+  it('sends test email only to the signed-in member and never asks for an address', async () => {
     mocks.testAutomation.mockResolvedValue({
       status: 'completed',
       reason: null,
@@ -688,11 +689,10 @@ describe('FlowPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Test run' }));
     const dialog = await screen.findByRole('dialog', { name: 'Test run Verified follow-up' });
-    const emailInput = within(dialog).getByLabelText('Test email address');
+    expect(within(dialog).queryByLabelText('Test email address')).toBeNull();
+    expect(within(dialog).getByText('owner@example.com')).toBeTruthy();
     const runBtn = within(dialog).getByRole('button', { name: 'Run test' });
-    expect(runBtn.hasAttribute('disabled')).toBe(true);
-
-    fireEvent.change(emailInput, { target: { value: 'tester@example.com' } });
+    expect(runBtn.hasAttribute('disabled')).toBe(false);
     fireEvent.click(runBtn);
 
     await waitFor(() =>
@@ -700,11 +700,12 @@ describe('FlowPage', () => {
         'staff-token',
         WORKSPACE,
         FLOW,
-        expect.objectContaining({ email: 'tester@example.com' }),
+        expect.objectContaining({ sendEmail: true }),
       ),
     );
     expect(await within(dialog).findByText('Test run completed')).toBeTruthy();
-    expect(within(dialog).getByText('1 test email queued to tester@example.com')).toBeTruthy();
+    expect(within(dialog).getByText('1 test email queued to owner@example.com')).toBeTruthy();
+    expect(mocks.testAutomation.mock.calls.at(-1)?.[3]).not.toHaveProperty('email');
     expect(within(dialog).getByText('Sample took No branch')).toBeTruthy();
   });
 });

@@ -39,8 +39,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Input,
-  Label,
 } from '@gt-sales/ui';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -267,7 +265,6 @@ function FlowPageEditor({
 
   const permissionNoteId = useId();
   const activateReasonId = useId();
-  const testEmailInputId = useId();
   const parsedKey = automationKeySchema.safeParse(flowKey);
   const key: AutomationKey | undefined = parsedKey.success ? parsedKey.data : undefined;
 
@@ -328,7 +325,6 @@ function FlowPageEditor({
   }>();
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
-  const [testEmail, setTestEmail] = useState('');
   const [testBusy, setTestBusy] = useState(false);
   const [testError, setTestError] = useState<string>();
   const [testResult, setTestResult] = useState<TestFlowResponse>();
@@ -725,18 +721,15 @@ function FlowPageEditor({
   const hasEmailStep = hasCustomerEmailDraftStep(workingDraft.steps);
   const needsLeadsPermission = hasLeadChangingDraftStep(workingDraft.steps) && !canManageLeads;
 
-  async function handleRunTest(emailOverride?: string): Promise<void> {
+  async function handleRunTest(): Promise<void> {
     if (!accessToken || !workspaceId || !key || !activationCheck.success) return;
-    const trimmedEmail = (emailOverride ?? testEmail).trim();
-    if (hasEmailStep && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      setTestError('Enter a valid email address to receive the test email.');
-      return;
-    }
     setTestBusy(true);
     setTestError(undefined);
     try {
+      // The backend sends test mail only to the signed-in member's own verified
+      // address; the request never names a recipient.
       const response = await testAutomation(accessToken, workspaceId, key, {
-        ...(hasEmailStep && trimmedEmail ? { email: trimmedEmail } : {}),
+        ...(hasEmailStep ? { sendEmail: true } : {}),
         definition: activationCheck.data,
       });
       setTestResult(response);
@@ -750,9 +743,6 @@ function FlowPageEditor({
   function handleOpenTestDialog(): void {
     setTestError(undefined);
     setTestResult(undefined);
-    if (!testEmail && staff.email) {
-      setTestEmail(staff.email);
-    }
     setTestDialogOpen(true);
   }
   const hasSiteIssues = (detail.draft?.issues.length ?? 0) > 0 && !isDirty;
@@ -1283,26 +1273,16 @@ function FlowPageEditor({
             <DialogTitle>Test run {flow.name}</DialogTitle>
             <DialogDescription>
               {hasEmailStep
-                ? 'Uses sample lead data and leaves real leads unchanged. Customer email steps may send real test emails only to the address below. Staff notifications and lead changes are simulated. Waits are simulated; live stage and document checks still apply when the flow runs.'
+                ? 'Uses sample lead data and leaves real leads unchanged. Customer email steps send real test emails only to your own sign-in address. Staff notifications and lead changes are simulated. Waits are simulated; live stage and document checks still apply when the flow runs.'
                 : 'Uses sample lead data and leaves real leads unchanged. Waits are simulated.'}
             </DialogDescription>
           </DialogHeader>
 
           {hasEmailStep ? (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={testEmailInputId}>Test email address</Label>
-              <Input
-                id={testEmailInputId}
-                type="email"
-                placeholder="you@example.com"
-                value={testEmail}
-                disabled={testBusy}
-                onChange={(event) => {
-                  setTestEmail(event.target.value);
-                  if (testError) setTestError(undefined);
-                }}
-              />
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Test emails go to{' '}
+              {staff.email ? <strong>{staff.email}</strong> : 'your sign-in address'}.
+            </p>
           ) : null}
 
           {testError ? (
@@ -1330,7 +1310,8 @@ function FlowPageEditor({
                 {testResult.emailsQueued > 0 ? (
                   <Badge variant="secondary">
                     {testResult.emailsQueued} test email
-                    {testResult.emailsQueued === 1 ? '' : 's'} queued to {testEmail.trim()}
+                    {testResult.emailsQueued === 1 ? '' : 's'} queued to{' '}
+                    {staff.email || 'your sign-in address'}
                   </Badge>
                 ) : null}
               </div>
@@ -1361,11 +1342,7 @@ function FlowPageEditor({
             >
               Close
             </Button>
-            <Button
-              type="button"
-              disabled={testBusy || (hasEmailStep && testEmail.trim().length === 0)}
-              onClick={() => void handleRunTest()}
-            >
+            <Button type="button" disabled={testBusy} onClick={() => void handleRunTest()}>
               {testBusy ? 'Running test…' : testResult ? 'Run test again' : 'Run test'}
             </Button>
           </DialogFooter>

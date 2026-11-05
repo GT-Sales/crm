@@ -46,9 +46,30 @@ export interface StaffNotificationEnvironment {
 const DEFAULT_ADMIN_ORIGIN = 'http://localhost:3000';
 
 /**
+ * The admin origin a notification links to. Outside production an unset value
+ * is the local admin. In production it must be set to an https origin: a
+ * missing or malformed value returns undefined so the step is skipped and the
+ * Runs tab says so, rather than mailing staff a link to localhost.
+ */
+function adminOriginFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  const production = env.NODE_ENV === 'production';
+  const raw = env.ADMIN_ORIGIN?.trim();
+  if (!raw) return production ? undefined : DEFAULT_ADMIN_ORIGIN;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'https:' && (production || url.protocol !== 'http:')) return undefined;
+  return url.origin;
+}
+
+/**
  * Ready only with `EMAIL_PROVIDER=resend` and its key and `RESEND_FROM_NAME`
- * / `RESEND_FROM_EMAIL`, or the fake outside production; and the contact
- * hash secret, as every mail needs. `adminOrigin` is `ADMIN_ORIGIN`.
+ * / `RESEND_FROM_EMAIL`, or the fake outside production; the contact hash
+ * secret, as every mail needs; and, in production, an https `ADMIN_ORIGIN`
+ * for the lead link. `adminOrigin` is that origin, without a path.
  */
 export function staffNotificationEnvironmentFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -61,9 +82,10 @@ export function staffNotificationEnvironmentFromEnv(
     env.EMAIL_PROVIDER === 'resend'
       ? Boolean(env.RESEND_API_KEY) && sender !== null
       : env.EMAIL_PROVIDER === 'fake' && env.NODE_ENV !== 'production';
+  const adminOrigin = adminOriginFromEnv(env);
   return {
-    ready: providerReady && customer.providerReady,
-    adminOrigin: (env.ADMIN_ORIGIN?.trim() || DEFAULT_ADMIN_ORIGIN).replace(/\/+$/, ''),
+    ready: providerReady && customer.providerReady && adminOrigin !== undefined,
+    adminOrigin: adminOrigin ?? DEFAULT_ADMIN_ORIGIN,
     sender,
     contactHash: (address) => customer.contactHash(address),
   };

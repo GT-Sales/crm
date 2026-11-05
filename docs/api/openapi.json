@@ -97603,7 +97603,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/automations/{key}/test": {
       "post": {
         "operationId": "testAutomation",
-        "summary": "Run a test of a flow against sample lead data, sending any email steps to the given test address (integration management).",
+        "summary": "Run a test of a flow against sample lead data; with sendEmail, email steps are queued to the caller's own verified address only (integration management, rate limited).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -97931,12 +97931,7 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "email": {
-                    "type": "string",
-                    "maxLength": 254,
-                    "format": "email",
-                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
-                  },
+                  "sendEmail": { "type": "boolean" },
                   "definition": {
                     "type": "object",
                     "properties": {
@@ -105685,7 +105680,25 @@
                                                 { "type": "null" }
                                               ]
                                             },
-                                            "label": { "type": "string", "maxLength": 160 }
+                                            "label": { "type": "string", "maxLength": 160 },
+                                            "needs": {
+                                              "type": "string",
+                                              "enum": [
+                                                "dispatch_details",
+                                                "activation_details",
+                                                "documents"
+                                              ]
+                                            },
+                                            "missingDocuments": {
+                                              "maxItems": 16,
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[a-z0-9_]+$"
+                                              }
+                                            }
                                           },
                                           "required": ["value", "label"],
                                           "additionalProperties": false
@@ -114833,7 +114846,21 @@
                                   { "type": "null" }
                                 ]
                               },
-                              "label": { "type": "string", "maxLength": 160 }
+                              "label": { "type": "string", "maxLength": 160 },
+                              "needs": {
+                                "type": "string",
+                                "enum": ["dispatch_details", "activation_details", "documents"]
+                              },
+                              "missingDocuments": {
+                                "maxItems": 16,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                }
+                              }
                             },
                             "required": ["value", "label"],
                             "additionalProperties": false

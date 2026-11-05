@@ -198,4 +198,34 @@ describe('the staff notification mail', () => {
     ).toBe(false);
     expect(staffNotificationEnvironmentFromEnv({}).ready).toBe(false);
   });
+
+  it('never links staff to localhost in production', () => {
+    const resend = {
+      EMAIL_CONTACT_HASH_SECRET: 'ci-email-contact-hash-secret-0123456789',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_test',
+      RESEND_FROM_NAME: 'GT Sales CRM',
+      RESEND_FROM_EMAIL: 'crm@gt.example',
+      NODE_ENV: 'production',
+    };
+    // Unset, malformed or plain http: the step is skipped (no_staff_sender), not sent.
+    expect(staffNotificationEnvironmentFromEnv(resend).ready).toBe(false);
+    expect(
+      staffNotificationEnvironmentFromEnv({ ...resend, ADMIN_ORIGIN: 'not a url' }).ready,
+    ).toBe(false);
+    expect(
+      staffNotificationEnvironmentFromEnv({ ...resend, ADMIN_ORIGIN: 'http://crm.example' }).ready,
+    ).toBe(false);
+    // A path or query on the variable never reaches the link.
+    expect(
+      staffNotificationEnvironmentFromEnv({
+        ...resend,
+        ADMIN_ORIGIN: 'https://crm.example/admin?x=1',
+      }),
+    ).toMatchObject({ ready: true, adminOrigin: 'https://crm.example' });
+    // Outside production the local admin remains the default.
+    expect(
+      staffNotificationEnvironmentFromEnv({ ...resend, NODE_ENV: 'development' }),
+    ).toMatchObject({ ready: true, adminOrigin: 'http://localhost:3000' });
+  });
 });

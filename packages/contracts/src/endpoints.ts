@@ -899,7 +899,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'POST',
     path: '/api/v1/staff/workspaces/{workspaceId}/automations/{key}/test',
     summary:
-      'Run a test of a flow against sample lead data, sending any email steps to the given test address (integration management).',
+      "Run a test of a flow against sample lead data; with sendEmail, email steps are queued to the caller's own verified address only (integration management, rate limited).",
     auth: 'staff',
     successStatus: 200,
     request: testFlowRequestSchema,

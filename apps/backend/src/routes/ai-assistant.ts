@@ -21,11 +21,14 @@ import {
   type AiCapabilitiesResponse,
   type AiChatRequest,
   type AiStreamPart,
+  leadStageLabel,
+  leadTypeLabel,
 } from '@gt-sales/contracts';
 import type { RateLimitInput, RateLimitResult } from '@gt-sales/db';
 import { z } from 'zod';
 
 import { sendDomainError } from '../http/domain-errors.js';
+import { sendLeadUpdateRefusal } from '../http/lead-update-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import {
   decideAccess,
@@ -38,7 +41,7 @@ import type { AiAssistantConfig } from '../ai/config.js';
 import type { AssistantEngine } from '../ai/engine.js';
 import { logAiTurn } from '../ai/logging.js';
 import { TurnBudget } from '../ai/limits.js';
-import { buildSystemPrompt, AI_PROMPT_VERSION } from '../ai/prompt.js';
+import { buildSystemPrompt, openLeadDataBlock, AI_PROMPT_VERSION } from '../ai/prompt.js';
 import { ReplayGuard } from '../ai/replay-guard.js';
 import { serializedBytes } from '../ai/projections.js';
 import type { AiReadService } from '../ai/read-service.js';
@@ -446,6 +449,16 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           creationId: action.id,
           version: action.leadUpdateContext.version,
         });
+        if (outcome.status === 'refused') {
+          // The same answer a staff edit gets: which detail or documents the
+          // move still needs, or which moves are allowed — never "conflict".
+          sendLeadUpdateRefusal(res, req.id, outcome.refusal);
+          return;
+        }
+        if (outcome.status === 'invalid') {
+          sendDomainError(res, req.id, 'validation_error', 400, { field: action.draft.field });
+          return;
+        }
         if (outcome.status !== 'saved') {
           sendDomainError(
             res,
@@ -761,21 +774,27 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             automationsAvailable: automationTools !== undefined,
             actionsAvailable:
               actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
+            // Only the verified id and the catalogue's labels reach the system
+            // prompt; the customer-typed name and reference travel as data in
+            // the person's own message below.
             ...(leadHint === undefined
               ? {}
               : {
                   openLead: {
                     leadId: leadHint.leadId,
-                    reference: leadHint.reference,
-                    name: leadHint.name,
-                    stageLabel: leadHint.stage,
-                    leadType: leadHint.leadType,
+                    leadTypeLabel: leadTypeLabel(leadHint.leadType),
+                    stageLabel: leadStageLabel(leadHint.leadType, leadHint.stage),
                   },
                 }),
           });
+          const openLeadData = leadHint === undefined ? undefined : openLeadDataBlock(leadHint);
           const messages = [
             ...body.history.map((message) => ({ role: message.role, text: message.text })),
-            { role: 'user' as const, text: body.message },
+            {
+              role: 'user' as const,
+              text:
+                openLeadData === undefined ? body.message : `${openLeadData}\n\n${body.message}`,
+            },
           ];
 
           let recoveredDraft = false;

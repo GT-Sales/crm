@@ -2,11 +2,18 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { aiActionDraftSchema, type AiActionDraft } from '@gt-sales/contracts';
+import { aiActionDraftSchema, type AiActionDraft, type AiStageMoveNeed } from '@gt-sales/contracts';
 import { Button, Input, Textarea } from '@gt-sales/ui';
 import type { AiActionView } from './assistant-provider';
 import { safeInternalHref } from './assistant-sources';
 import { dateTimeLabel } from '../../lib/dates';
+
+/** Why a stage cannot be chosen on the card: it is completed on the lead page first. */
+const STAGE_NEED_LABELS: Record<AiStageMoveNeed, string> = {
+  dispatch_details: 'needs dispatch details on the lead page',
+  activation_details: 'needs an activation date on the lead page',
+  documents: 'needs documents approved on the lead page',
+};
 
 export function AssistantAction({
   action,
@@ -119,8 +126,14 @@ export function AssistantAction({
                   onChange={(event) => setEdited({ ...edited, value: event.target.value || null })}
                 >
                   {proposal.leadUpdateContext?.choices.map((choice) => (
-                    <option key={choice.value ?? ''} value={choice.value ?? ''}>
-                      {choice.label}
+                    <option
+                      key={choice.value ?? ''}
+                      value={choice.value ?? ''}
+                      disabled={choice.needs !== undefined}
+                    >
+                      {choice.needs === undefined
+                        ? choice.label
+                        : `${choice.label} — ${STAGE_NEED_LABELS[choice.needs]}`}
                     </option>
                   ))}
                 </select>

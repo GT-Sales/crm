@@ -1,4 +1,4 @@
-import type { TenantTransaction } from '@gt-sales/db';
+import { auditEvents, type TenantTransaction } from '@gt-sales/db';
 import {
   initialLeadStage,
   leadTypeSchema,
@@ -205,6 +205,27 @@ export function evaluateSampleConditionGroup(
   return checkGroup(group);
 }
 
+/**
+ * Records that a member ran a flow test. A test can queue real mail from the
+ * site's sender, so who ran it, which flow and how many mails it queued are
+ * audited — never the address or any content.
+ */
+export async function recordFlowTest(
+  tx: TenantTransaction,
+  input: { scope: WriteScope; flowId: string; flowKey: AutomationKey; emailsQueued: number },
+): Promise<void> {
+  await tx.insert(auditEvents).values({
+    workspaceId: input.scope.workspaceId,
+    actorId: input.scope.actorId,
+    actorLabel: 'staff actor',
+    action: 'automation.tested',
+    entity: 'automation',
+    entityId: input.flowId,
+    requestId: input.scope.requestId,
+    after: { key: input.flowKey, emailsQueued: input.emailsQueued },
+  });
+}
+
 export interface FlowTestRunResult {
   status: AutomationRunStatus;
   reason: AutomationReason | null;
@@ -216,7 +237,8 @@ export interface FlowTestRunResult {
 /**
  * Runs a flow definition against sample lead data without changing real leads.
  * Any `send_email` step reached is composed with sample fill-ins and queued to
- * `email` when provided.
+ * `email` when provided. The route passes only the caller's own verified
+ * sign-in address here, never a request value.
  */
 export async function runFlowTest(
   tx: TenantTransaction,

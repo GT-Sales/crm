@@ -28,6 +28,37 @@ import { getAiCapabilities, confirmAiAction, reviseAiAction, BackendError } from
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
 
 /**
+ * Words for a lead update the backend refused at Confirm because a stage rule
+ * was not met, the same refusals a staff edit gets. Undefined for any other
+ * error. Nothing was saved in any of these cases.
+ */
+export function leadUpdateRefusalText(error: BackendError): string | undefined {
+  switch (error.code) {
+    case 'dispatch_details_required':
+      return 'Not saved. This move needs dispatch details (a courier) on the lead page first.';
+    case 'activation_details_required':
+      return 'Not saved. This move needs an activation date on the lead page first.';
+    case 'documents_incomplete': {
+      const listed: unknown = error.details?.['missing'];
+      const missing = Array.isArray(listed)
+        ? listed.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+      return missing.length > 0
+        ? `Not saved. These documents must be approved on the lead page first: ${missing.join(', ')}.`
+        : 'Not saved. The required documents must be approved on the lead page first.';
+    }
+    case 'illegal_stage_move':
+      return 'Not saved. The lead can no longer move to that stage from where it is now. Check the lead page.';
+    case 'assignee_not_found':
+      return 'Not saved. That member can no longer be assigned. Ask for a fresh draft.';
+    case 'validation_error':
+      return 'Not saved. The proposed value is not valid for this lead. Ask for a fresh draft.';
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Ask AI's client state. The conversation lives in memory only: no storage,
  * no provider key, nothing that survives a sign-out. One composite key
  * (site + credential) owns it, and a generation counter makes every late
@@ -593,10 +624,12 @@ export function AssistantProvider({
             setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
             return;
           }
+          const gate = error instanceof BackendError ? leadUpdateRefusalText(error) : undefined;
           updateAction(messageId, actionId, {
             status: 'error',
-            error:
-              error instanceof BackendError && error.code === 'conflict'
+            error: gate
+              ? gate
+              : error instanceof BackendError && error.code === 'conflict'
                 ? action.proposal.draft.kind === 'lead_update'
                   ? 'The lead changed or this update needs additional details. Check the lead page and request a fresh draft.'
                   : 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
