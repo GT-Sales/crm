@@ -767,6 +767,17 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
   `apps/backend/tests/operational-retention.integration.test.ts` the new
   prune blocks.
 
+## 0023_lead_activity_clock_time (2026-11-05)
+
+One statement: `lead_activities.created_at` defaults to `clock_timestamp()`
+instead of the transaction start, so moves a flow chains into one write keep
+their order (a stage timer fires only while its entry is the latest move).
+Metadata-only (`ALTER COLUMN … SET DEFAULT`): no table rewrite. Safe in
+either order with the deploy: until it is applied, moves chained into one write
+share a time and a stay timer behaves as before (a stay a chain left and
+re-entered can still fire twice). Rollback: `ALTER TABLE app.lead_activities
+ALTER COLUMN created_at SET DEFAULT now();` (the code keeps working).
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

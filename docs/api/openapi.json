@@ -22963,7 +22963,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -25246,7 +25247,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -27504,7 +27506,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -32870,7 +32873,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -35055,7 +35059,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -37313,7 +37318,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -42661,7 +42667,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -44919,7 +44926,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -48397,7 +48405,9 @@
                                   "member_has_no_address",
                                   "lead_archived",
                                   "flow_switched_off",
-                                  "resume_failed"
+                                  "resume_failed",
+                                  "run_limit_reached",
+                                  "activator_unavailable"
                                 ]
                               },
                               { "type": "null" }
@@ -48518,7 +48528,9 @@
                                         "member_has_no_address",
                                         "lead_archived",
                                         "flow_switched_off",
-                                        "resume_failed"
+                                        "resume_failed",
+                                        "run_limit_reached",
+                                        "activator_unavailable"
                                       ]
                                     },
                                     { "type": "null" }
@@ -51124,7 +51136,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -53382,7 +53395,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -61233,7 +61247,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -63491,7 +63506,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -68841,7 +68857,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -71099,7 +71116,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -76468,7 +76486,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -78726,7 +78745,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -84076,7 +84096,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -86334,7 +86355,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -91684,7 +91706,8 @@
                                     "member_unavailable",
                                     "lead_type_unavailable",
                                     "invalid_variable",
-                                    "definition_invalid"
+                                    "definition_invalid",
+                                    "activator_unavailable"
                                   ]
                                 },
                                 "ref": { "type": "string", "maxLength": 200 }
@@ -93942,7 +93965,8 @@
                                       "member_unavailable",
                                       "lead_type_unavailable",
                                       "invalid_variable",
-                                      "definition_invalid"
+                                      "definition_invalid",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   "ref": { "type": "string", "maxLength": 200 }
@@ -97611,7 +97635,9 @@
                                 "member_has_no_address",
                                 "lead_archived",
                                 "flow_switched_off",
-                                "resume_failed"
+                                "resume_failed",
+                                "run_limit_reached",
+                                "activator_unavailable"
                               ]
                             },
                             { "type": "null" }
@@ -97732,7 +97758,9 @@
                                       "member_has_no_address",
                                       "lead_archived",
                                       "flow_switched_off",
-                                      "resume_failed"
+                                      "resume_failed",
+                                      "run_limit_reached",
+                                      "activator_unavailable"
                                     ]
                                   },
                                   { "type": "null" }
@@ -98004,7 +98032,9 @@
                             "member_has_no_address",
                             "lead_archived",
                             "flow_switched_off",
-                            "resume_failed"
+                            "resume_failed",
+                            "run_limit_reached",
+                            "activator_unavailable"
                           ]
                         },
                         { "type": "null" }
@@ -98079,7 +98109,9 @@
                                   "member_has_no_address",
                                   "lead_archived",
                                   "flow_switched_off",
-                                  "resume_failed"
+                                  "resume_failed",
+                                  "run_limit_reached",
+                                  "activator_unavailable"
                                 ]
                               },
                               { "type": "null" }
@@ -105647,7 +105679,8 @@
                                             "member_unavailable",
                                             "lead_type_unavailable",
                                             "invalid_variable",
-                                            "definition_invalid"
+                                            "definition_invalid",
+                                            "activator_unavailable"
                                           ]
                                         },
                                         "ref": { "type": "string", "maxLength": 200 }
@@ -111338,7 +111371,8 @@
                               "member_unavailable",
                               "lead_type_unavailable",
                               "invalid_variable",
-                              "definition_invalid"
+                              "definition_invalid",
+                              "activator_unavailable"
                             ]
                           },
                           "ref": { "type": "string", "maxLength": 200 }

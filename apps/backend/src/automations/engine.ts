@@ -1058,11 +1058,10 @@ export async function fireTimer(
   if (!lead || lead.gone || !lead.submitted) return settle('void');
   if (timer.triggerKind === 'time_in_stage') {
     if (lead.stage !== timer.stage) return settle('void');
-    // The stay is this timer's only while its entry is the lead's latest move.
-    // Compared by the entries' own times (clock time, so moves a flow chains
-    // into one write keep their order): any other move at or after the entry
-    // ended the stay, and a tie is not trusted to be this stay. Without the
-    // entry row, the entry's time kept as `event_at` is compared instead.
+    // The stay is this timer's only while its entry is the lead's latest move:
+    // any move recorded after the entry ended it. Entries keep clock time
+    // (migration 0023), so moves a flow chains into one write are ordered too;
+    // without the entry row, the entry's time kept as `event_at` is used.
     const entryId = timer.occurrence.startsWith('stay:') ? timer.occurrence.slice(5) : '';
     const moved = await tx.execute(sql`
       select 1 from app.lead_activities a
@@ -1071,7 +1070,7 @@ export async function fireTimer(
       where a.workspace_id = ${workspaceId} and a.lead_id = ${timer.leadId}
         and a.kind = 'status_change' and a.id::text <> ${entryId}
         and (
-          (e.id is not null and a.created_at >= e.created_at)
+          (e.id is not null and a.created_at > e.created_at)
           or (e.id is null and date_trunc('milliseconds', a.created_at) > ${eventAt.toISOString()}::timestamptz)
         )
       limit 1
