@@ -346,16 +346,26 @@ export function AssistantProvider({
           for (const source of part.sources) byId.set(source.id, source);
           return { ...message, sources: [...byId.values()] };
         }
-        if (part.type === 'automation_proposals')
-          return { ...message, automationProposals: part.proposals };
+        // UI-2: a turn may send its cards in more than one part; merge by id
+        // (a repeated id is replaced) rather than dropping earlier cards.
+        if (part.type === 'automation_proposals') {
+          const byId = new Map<string, AiAutomationProposal>();
+          for (const proposal of message.automationProposals ?? []) byId.set(proposal.id, proposal);
+          for (const proposal of part.proposals) byId.set(proposal.id, proposal);
+          return { ...message, automationProposals: [...byId.values()] };
+        }
         if (part.type === 'follow_up') return { ...message, followUp: part.followUp };
         if (part.type === 'done' && part.signature !== undefined)
           return { ...message, signature: part.signature };
-        if (part.type === 'actions')
-          return {
-            ...message,
-            actions: part.actions.map((proposal) => ({ proposal, status: 'pending' as const })),
-          };
+        if (part.type === 'actions') {
+          const byId = new Map<string, AiActionView>();
+          for (const action of message.actions ?? []) byId.set(action.proposal.id, action);
+          for (const proposal of part.actions) {
+            // A card already being worked on keeps its state.
+            if (!byId.has(proposal.id)) byId.set(proposal.id, { proposal, status: 'pending' });
+          }
+          return { ...message, actions: [...byId.values()] };
+        }
         if (part.type === 'error') {
           return {
             ...message,

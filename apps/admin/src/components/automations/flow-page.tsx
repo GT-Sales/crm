@@ -106,8 +106,9 @@ const SIGNED_OUT = 'You are signed out. Sign in again to continue.';
 const AUTOSAVE_DELAY_MS = 600;
 export const NEEDS_LEADS_FOR_ACTIVATION =
   'Activating a flow that changes leads or creates tasks needs the Leads role (the owner has it).';
+// UI-4: Reload replaces this page's unsaved edits with the saved flow; say so.
 export const CONFLICT_RELOAD_MESSAGE =
-  'Someone else changed this flow. Reload to see their changes.';
+  'Someone else changed this flow. Reload to see their changes; your unsaved edits here will be discarded.';
 
 interface FlowPageData {
   detail: FlowDetailResponse;
@@ -504,7 +505,12 @@ function FlowPageEditor({
     if (!beginAction()) return 'Wait for the current change to finish.';
     try {
       await saveQueueRef.current;
-      const { automation } = await updateAutomation(accessToken, workspaceId, key, { enabled });
+      // ENG-L4: switching on acts on the flow as this page last saw it;
+      // switching off is always allowed, conflict or not.
+      const { automation } = await updateAutomation(accessToken, workspaceId, key, {
+        enabled,
+        ...(enabled && !saveConflictRef.current ? { expectedRevision: revisionRef.current } : {}),
+      });
       mutate((current) => ({ ...current, detail: { ...current.detail, automation } }));
       await refreshWarnings();
       return undefined;

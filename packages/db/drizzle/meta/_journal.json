@@ -183,6 +183,13 @@
       "when": 1793902130131,
       "tag": "0025_ai_turns_and_automation_overdue_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793908019352,
+      "tag": "0026_automation_run_chain",
+      "breakpoints": true
     }
   ]
 }

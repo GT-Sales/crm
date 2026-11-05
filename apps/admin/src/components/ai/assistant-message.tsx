@@ -25,6 +25,10 @@ export function aiErrorText(error: AiUiError): string {
       return 'Too many questions right now. Wait a minute and then try again.';
     case 'cancelled':
       return 'Stopped.';
+    case 'timeout':
+      return 'That took too long. Ask about a shorter period or one lead at a time.';
+    case 'too_long':
+      return 'That question needed more work than one answer allows. Split it into smaller questions.';
     case 'failed':
     default:
       return 'Something went wrong while answering. Try again.';

@@ -144,7 +144,15 @@ export const updateFlowDetailsRequestSchema = z
 export type UpdateFlowDetailsRequest = z.infer<typeof updateFlowDetailsRequestSchema>;
 
 /** `PUT …/automations/:key` (kept as phase 4 made it): switch on or off. */
-export const toggleFlowRequestSchema = z.object({ enabled: z.boolean() }).strict();
+/**
+ * The switch. `expectedRevision` (ENG-L4), when sent with `enabled: true`, is
+ * the flow's revision the page last saw: a flow changed since (a draft, an
+ * activation) answers 409 `revision_conflict` instead of switching on a
+ * version nobody looked at. Switching off never checks it.
+ */
+export const toggleFlowRequestSchema = z
+  .object({ enabled: z.boolean(), expectedRevision: z.int().nonnegative().optional() })
+  .strict();
 export type ToggleFlowRequest = z.infer<typeof toggleFlowRequestSchema>;
 
 export const flowToggleResponseSchema = z.object({

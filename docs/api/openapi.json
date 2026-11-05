@@ -33080,7 +33080,14 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": { "enabled": { "type": "boolean" } },
+                "properties": {
+                  "enabled": { "type": "boolean" },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
                 "required": ["enabled"],
                 "additionalProperties": false
               }

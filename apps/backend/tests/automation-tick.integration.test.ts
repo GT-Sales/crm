@@ -7,7 +7,7 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 
 import { cancelFlowWork } from '../src/automations/records.js';
-import { DatabaseFlowStore } from '../src/automations/flow-store.js';
+import { BUILT_IN_SEED_ACTOR_ID, DatabaseFlowStore } from '../src/automations/flow-store.js';
 import {
   initialAutomationAlertState,
   runAutomationTick,
@@ -614,8 +614,10 @@ databaseTest('the automations scheduler task', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     try {
       for (let attempt = 1; attempt <= 5; attempt += 1) {
+        // Each retry waits longer (ENG-L2): 5, 10, 20, 40 minutes.
+        const at = Date.now() + 2 * attempt * HOUR;
         expect(
-          await tick(FAIL_SITE, Date.now() + 2 * HOUR, {
+          await tick(FAIL_SITE, at, {
             insideResume: async () => {
               throw new Error('resume broke');
             },
@@ -625,6 +627,12 @@ databaseTest('the automations scheduler task', () => {
           attempts: attempt,
           status: attempt < 5 ? 'pending' : 'cancelled',
         });
+        if (attempt < 5) {
+          const [due] = await admin<{ resumeAt: Date }[]>`
+            select resume_at as "resumeAt" from app.automation_waits where run_id = ${run?.id ?? ''}
+          `;
+          expect(due?.resumeAt.getTime()).toBe(at + 5 * 60_000 * 2 ** (attempt - 1));
+        }
       }
     } finally {
       warn.mockRestore();
@@ -637,10 +645,13 @@ databaseTest('the automations scheduler task', () => {
       reason: 'resume_failed',
     });
     expect(await jobs(leadId)).toEqual([]);
-    expect(await tick(FAIL_SITE, Date.now() + 3 * HOUR)).toMatchObject({ resumed: 0, failed: 0 });
+    expect(await tick(FAIL_SITE, Date.now() + 20 * HOUR)).toMatchObject({
+      resumed: 0,
+      failed: 0,
+    });
   });
 
-  it('a tick killed mid-item leaves it to the next, which completes it once', async () => {
+  it('a tick killed mid-item counts the attempt and leaves it to a later tick, which completes it once', async () => {
     await insertActiveFlow(admin, {
       workspaceId: FAIL_SITE,
       key: flowKey('8606', 2),
@@ -667,11 +678,13 @@ databaseTest('the automations scheduler task', () => {
     } finally {
       warn.mockRestore();
     }
-    expect(await waitOf(run?.id ?? '')).toEqual({ status: 'pending', attempts: 0 });
+    // The attempt counts though the whole item was lost (ENG-L2), and the
+    // retry waits its five minutes.
+    expect(await waitOf(run?.id ?? '')).toEqual({ status: 'pending', attempts: 1 });
     expect(await jobs(leadId)).toEqual([]);
-    expect(await tick(FAIL_SITE, Date.now() + 2 * HOUR)).toMatchObject({ resumed: 1 });
+    expect(await tick(FAIL_SITE, Date.now() + 3 * HOUR)).toMatchObject({ resumed: 1 });
     expect(await jobs(leadId)).toHaveLength(1);
-    expect(await tick(FAIL_SITE, Date.now() + 3 * HOUR)).toMatchObject({ resumed: 0 });
+    expect(await tick(FAIL_SITE, Date.now() + 4 * HOUR)).toMatchObject({ resumed: 0 });
     expect(await jobs(leadId)).toHaveLength(1);
   });
 
@@ -1031,5 +1044,53 @@ databaseTest('the automations scheduler task', () => {
     expect(await jobs(leadId)).toEqual([
       { dedupeKey: expect.stringContaining(':s_ask'), template: 'information_needed' },
     ]);
+  });
+
+  it('seeds the built-in flows as the system, with one audit row naming who opened them (ENG-L3)', async () => {
+    await new DatabaseFlowStore(database).list(
+      { workspaceId: QUEUE_SITE, actorId: STAFF },
+      { archived: false },
+    );
+    const owners = await admin<{ createdBy: string }[]>`
+      select distinct created_by as "createdBy" from app.automations
+      where workspace_id = ${QUEUE_SITE} and origin = 'builtin'
+    `;
+    expect(owners).toEqual([{ createdBy: BUILT_IN_SEED_ACTOR_ID }]);
+    const audits = await admin<{ actorId: string; openedBy: string }[]>`
+      select actor_id as "actorId", after ->> 'openedBy' as "openedBy" from app.audit_events
+      where workspace_id = ${QUEUE_SITE} and action = 'automation.builtins_seeded'
+    `;
+    expect(audits).toEqual([{ actorId: BUILT_IN_SEED_ACTOR_ID, openedBy: STAFF }]);
+    // A second look seeds nothing more.
+    await new DatabaseFlowStore(database).list(
+      { workspaceId: QUEUE_SITE, actorId: STAFF },
+      { archived: false },
+    );
+    const again = await admin<{ count: number }[]>`
+      select count(*)::int as count from app.audit_events
+      where workspace_id = ${QUEUE_SITE} and action = 'automation.builtins_seeded'
+    `;
+    expect(again[0]?.count).toBe(1);
+  });
+
+  it('switching on checks the revision the caller saw; switching off never does (ENG-L4)', async () => {
+    const key = flowKey('8610', 3);
+    await insertActiveFlow(admin, {
+      workspaceId: QUEUE_SITE,
+      key,
+      name: 'Switch with care',
+      enabled: false,
+      definition: flow(entered('won'), [send('s_mail', 'information_needed')]),
+      actorId: STAFF,
+    });
+    const flows = new DatabaseFlowStore(database);
+    const scope = { workspaceId: QUEUE_SITE, actorId: STAFF, requestId: randomUUID() };
+    const seen = await flows.get(scope, key);
+    if (!seen) throw new Error('missing flow');
+    expect(await flows.setEnabled(scope, key, true, seen.revision + 1)).toEqual({
+      status: 'revision_conflict',
+    });
+    expect((await flows.setEnabled(scope, key, true, seen.revision)).status).toBe('ok');
+    expect((await flows.setEnabled(scope, key, false, seen.revision + 5)).status).toBe('ok');
   });
 });

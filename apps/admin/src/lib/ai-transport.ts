@@ -17,7 +17,14 @@ import { BackendError, askAiAssistant } from './api';
 
 /** Why an answer did not arrive, in the terms the panel can show. */
 export type AiUiError =
-  'unavailable' | 'session_expired' | 'denied' | 'rate_limited' | 'failed' | 'cancelled';
+  | 'unavailable'
+  | 'session_expired'
+  | 'denied'
+  | 'rate_limited'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+  | 'too_long';
 
 /** One earlier turn as text only: the model never receives stored tool data. */
 export interface AiHistoryEntry {
@@ -200,6 +207,11 @@ export function uiErrorForStreamCode(code: string): AiUiError {
       return 'unavailable';
     case 'access_lost':
       return 'denied';
+    // UI-10: what the person can do differs, so the words do too.
+    case 'timeout':
+      return 'timeout';
+    case 'budget_exceeded':
+      return 'too_long';
     default:
       return 'failed';
   }

@@ -103,6 +103,8 @@ describe('UI error mapping', () => {
     expect(uiErrorForBackendCode('internal_error')).toBe('failed');
     expect(uiErrorForStreamCode('cancelled')).toBe('cancelled');
     expect(uiErrorForStreamCode('provider_unavailable')).toBe('unavailable');
-    expect(uiErrorForStreamCode('timeout')).toBe('failed');
+    // UI-10: a timeout and an over-budget turn get their own advice.
+    expect(uiErrorForStreamCode('timeout')).toBe('timeout');
+    expect(uiErrorForStreamCode('budget_exceeded')).toBe('too_long');
   });
 });

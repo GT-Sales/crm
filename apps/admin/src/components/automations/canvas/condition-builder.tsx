@@ -45,6 +45,11 @@ function defaultStage(
   return matching[0]?.stages[0]?.key ?? types[0]?.stages[0]?.key ?? 'pending';
 }
 
+/** UI-6: a new condition starts on a kind the site has data for. */
+function newConditionKind(catalog: FlowCatalogResponse | undefined): Condition['kind'] {
+  return catalog?.plans.length ? 'plan' : 'stage';
+}
+
 function defaultCondition(
   kind: Condition['kind'],
   catalog: FlowCatalogResponse | undefined,
@@ -61,7 +66,10 @@ function defaultCondition(
         triggerLeadTypes.length > 0
           ? plans.filter((plan) => triggerLeadTypes.includes(plan.leadType))
           : plans;
-      const firstId = matching[0]?.id ?? plans[0]?.id ?? '00000000-0000-4000-8000-000000000001';
+      const firstId = matching[0]?.id ?? plans[0]?.id;
+      // UI-6: no plan to name, no plan condition: never a placeholder id.
+      if (firstId === undefined)
+        return { kind: 'stage', op: 'in', stages: [defaultStage(catalog, triggerLeadTypes)] };
       return { kind: 'plan', op: 'in', planIds: [firstId] };
     }
     case 'assignee':
@@ -146,7 +154,9 @@ function ConditionRow({
             onChange={(event) => handleKindChange(event.target.value)}
             className="h-8 rounded-md border bg-background px-2 text-xs"
           >
-            <option value="plan">Plan</option>
+            <option value="plan" disabled={!catalog?.plans.length}>
+              Plan
+            </option>
             <option value="stage">Stage</option>
             <option value="lead_type">Lead type</option>
             <option value="assignee">Owner</option>
@@ -309,16 +319,18 @@ function ConditionRow({
               if (op === 'none' || op === 'any') {
                 onChange({ kind: 'assignee', op });
               } else if (op === 'is') {
-                const firstMember =
-                  catalog?.members[0]?.actorId ?? '00000000-0000-4000-8000-000000000001';
-                onChange({ kind: 'assignee', op: 'is', actorId: firstMember });
+                const firstMember = catalog?.members[0]?.actorId;
+                if (firstMember !== undefined)
+                  onChange({ kind: 'assignee', op: 'is', actorId: firstMember });
               }
             }}
             className="h-8 rounded-md border bg-background px-2 text-xs"
           >
             <option value="any">Someone owns the lead</option>
             <option value="none">No one owns the lead</option>
-            <option value="is">Specific member owns the lead</option>
+            <option value="is" disabled={!catalog?.members.length}>
+              Specific member owns the lead
+            </option>
           </select>
           {condition.op === 'is' ? (
             <select
@@ -546,7 +558,7 @@ export function ConditionBuilder({
               onClick={() =>
                 onChange({
                   match: 'all',
-                  items: [defaultCondition('plan', catalog, triggerLeadTypes)],
+                  items: [defaultCondition(newConditionKind(catalog), catalog, triggerLeadTypes)],
                 })
               }
             >
@@ -684,7 +696,7 @@ export function ConditionBuilder({
                           ...item,
                           items: [
                             ...item.items,
-                            defaultCondition('plan', catalog, triggerLeadTypes),
+                            defaultCondition(newConditionKind(catalog), catalog, triggerLeadTypes),
                           ],
                         })
                       }
@@ -722,7 +734,10 @@ export function ConditionBuilder({
             onClick={() =>
               onChange({
                 ...value,
-                items: [...value.items, defaultCondition('plan', catalog, triggerLeadTypes)],
+                items: [
+                  ...value.items,
+                  defaultCondition(newConditionKind(catalog), catalog, triggerLeadTypes),
+                ],
               })
             }
           >
@@ -739,7 +754,7 @@ export function ConditionBuilder({
                   ...value.items,
                   {
                     match: 'any',
-                    items: [defaultCondition('plan', catalog, triggerLeadTypes)],
+                    items: [defaultCondition(newConditionKind(catalog), catalog, triggerLeadTypes)],
                   },
                 ],
               })

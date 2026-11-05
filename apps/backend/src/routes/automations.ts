@@ -352,7 +352,12 @@ export function createAutomationRoutes(dependencies: AutomationRouteDependencies
       if (!caller) return;
       const key = keyOf(req, res);
       if (!key) return;
-      const outcome = await store.setEnabled(caller.scope, key, body.data.enabled);
+      const outcome = await store.setEnabled(
+        caller.scope,
+        key,
+        body.data.enabled,
+        body.data.expectedRevision,
+      );
       if (outcome.status !== 'ok') {
         await answer(req, res, caller.scope, caller.access, outcome);
         return;
