@@ -814,6 +814,11 @@ after reverting the code.
   records both tracker rows (Drizzle hash
   `eeb2ce5ca4cb53d8582a127049f7a7ab9a3498c7861067f1454747a4e4f30482`, `when`
   `1793902130131`).
+- **0025 applied in production 2026-11-05** by the owner from the SQL editor
+  with that file. Verified against the catalog: `ai_turns` forces RLS,
+  `app_runtime` may insert but not delete, `automation_overdue_sites` is
+  SECURITY DEFINER and executable by `app_runtime`, `prune_operational_rows`
+  prunes `ai_turns`, and both trackers list 0024 and 0025.
 
 Verify after applying:
 
