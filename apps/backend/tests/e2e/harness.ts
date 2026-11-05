@@ -468,7 +468,12 @@ await seed();
 const assistantEngine: AssistantEngine = {
   kind: 'fake',
   async *stream(input) {
-    const question = input.messages.at(-1)?.text ?? '';
+    // With a lead open, the person's message starts with the record's labelled
+    // data block (prompt.ts `openLeadDataBlock`); the question follows it.
+    const question = (input.messages.at(-1)?.text ?? '').replace(
+      /^\[Open record[^\n]*\n[^\n]*\n\[End of open record\]\n\n/,
+      '',
+    );
     if (question === 'Guided follow-up') {
       if (!input.executeTool) throw new Error('executor missing');
       await input.executeTool('askFollowUp', {
@@ -582,7 +587,7 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 12 };
       return;
     }
-    if (input.messages.at(-1)?.text === 'Slow test') {
+    if (question === 'Slow test') {
       yield* createFakeEngine([{ hangMs: 10000, chunks: ['Late test answer'] }]).stream(input);
       return;
     }
