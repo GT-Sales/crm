@@ -81,6 +81,7 @@ import {
 } from './staff-queries.js';
 import type { Scope, WriteScope } from '../tenant-scope.js';
 import { upsertContact } from './store.js';
+import { cancelLeadWork } from '../automations/records.js';
 
 /**
  * Staff working a lead: the lead page's reads and every write a staff member
@@ -1169,6 +1170,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         .update(leads)
         .set({ deletedAt: input.archived ? new Date() : null })
         .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.leadId)));
+      // Its flows' waits and timers end with it; a restore does not revive them.
+      if (input.archived) await cancelLeadWork(tx, input.workspaceId, input.leadId);
       const [entry] = await tx
         .insert(leadActivities)
         .values({

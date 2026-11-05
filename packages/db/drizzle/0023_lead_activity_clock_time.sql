@@ -1,0 +1,1 @@
+ALTER TABLE "app"."lead_activities" ALTER COLUMN "created_at" SET DEFAULT clock_timestamp();

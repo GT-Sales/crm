@@ -121,7 +121,7 @@ export async function activatorMayChangeLeads(
 }
 
 /** Whether `actorId` is an active staff member of the site now. */
-async function isActiveMember(
+export async function isActiveMember(
   tx: TenantTransaction,
   workspaceId: string,
   actorId: string,

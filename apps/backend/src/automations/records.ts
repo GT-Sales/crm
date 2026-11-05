@@ -167,6 +167,35 @@ export async function cancelWaitingRun(
  * pending timer becomes `void`. A wait or timer another transaction holds
  * (a tick resuming it) is skipped (P7); the tick re-checks the flow itself.
  */
+/**
+ * The lock between switching a flow off and the scheduler running it (P7).
+ * A switch takes it exclusively before it touches the flow's row; a resume or
+ * a timer takes it shared before reading the flow. A tick that claimed an item
+ * while a switch was in progress so waits for it and then reads the flow
+ * switched off; ticks never wait on each other, and the switch never waits on
+ * an item a tick holds (it skips those). Per flow id, for this transaction.
+ */
+const flowSwitchKey = (workspaceId: string, automationId: string) =>
+  sql`hashtextextended(${`automation-switch:${workspaceId}:${automationId}`}, 0)`;
+
+export async function holdFlowSwitch(
+  tx: TenantTransaction,
+  workspaceId: string,
+  automationId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(${flowSwitchKey(workspaceId, automationId)})`,
+  );
+}
+
+export async function takeFlowSwitch(
+  tx: TenantTransaction,
+  workspaceId: string,
+  automationId: string,
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${flowSwitchKey(workspaceId, automationId)})`);
+}
+
 export async function cancelFlowWork(
   tx: TenantTransaction,
   workspaceId: string,
@@ -189,6 +218,46 @@ export async function cancelFlowWork(
       select id from app.automation_timers
       where workspace_id = ${workspaceId} and automation_id = ${automationId}
         and status = 'pending'
+      for update skip locked
+    ),
+    voided as (
+      update app.automation_timers t
+      set status = 'void', updated_at = now()
+      from claimed c
+      where t.id = c.id
+      returning t.id
+    )
+    select count(*)::int as voided from voided
+  `);
+  return { cancelledRuns, voidedTimers: timers[0]?.voided ?? 0 };
+}
+
+/**
+ * A lead's archived: its waiting runs are cancelled `lead_archived` and its
+ * pending timers voided, now rather than when each falls due, so the Runs tab
+ * stops showing them waiting and a restore does not quietly resume them (a
+ * restored lead starts afresh: later moves set flows off as usual). Items a
+ * tick holds are skipped; that tick finds the lead archived and does the same.
+ */
+export async function cancelLeadWork(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadId: string,
+): Promise<{ cancelledRuns: number; voidedTimers: number }> {
+  const cancelledRuns = await cancelClaimedWaits(
+    tx,
+    workspaceId,
+    sql`
+      select id from app.automation_waits
+      where workspace_id = ${workspaceId} and lead_id = ${leadId} and status = 'pending'
+      for update skip locked
+    `,
+    { reason: 'lead_archived', detail: null },
+  );
+  const timers = await tx.execute<{ voided: number }>(sql`
+    with claimed as (
+      select id from app.automation_timers
+      where workspace_id = ${workspaceId} and lead_id = ${leadId} and status = 'pending'
       for update skip locked
     ),
     voided as (

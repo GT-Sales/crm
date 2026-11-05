@@ -27,7 +27,9 @@ const VOID_SITE = '18000000-0000-4000-8000-000000008603'; // back-fill and voide
 const DELAY_SITE = '18000000-0000-4000-8000-000000008604'; // a delay re-activated
 const RACE_SITE = '18000000-0000-4000-8000-000000008605'; // two ticks at once
 const FAIL_SITE = '18000000-0000-4000-8000-000000008606'; // failures and a killed tick
-const SITES = [WAIT_SITE, TIME_SITE, VOID_SITE, DELAY_SITE, RACE_SITE, FAIL_SITE];
+const GUARD_SITE = '18000000-0000-4000-8000-000000008607'; // loops, races, archive, activators
+const SITES = [WAIT_SITE, TIME_SITE, VOID_SITE, DELAY_SITE, RACE_SITE, FAIL_SITE, GUARD_SITE];
+const LEFT = '28000000-0000-4000-8000-000000008604'; // a member who has since left
 const STAFF = '28000000-0000-4000-8000-000000008601';
 const CREDENTIAL = '28000000-0000-4000-8000-000000008602';
 const RUNNER = '28000000-0000-4000-8000-000000008603'; // the scheduler's identity
@@ -61,6 +63,11 @@ const inStage = (stage: string, after: { amount: number; unit: string }) => ({
   when: null,
 });
 const send = (id: string, template: string) => ({ id, kind: 'send_email', template });
+const toStage = (id: string, stage: string) => ({
+  id,
+  kind: 'update_lead',
+  change: { kind: 'stage', stage },
+});
 const wait = (id: string, amount: number, unit = 'days') => ({
   id,
   kind: 'wait',
@@ -185,6 +192,19 @@ databaseTest('the automations scheduler task', () => {
         )
       `;
     }
+
+    // Lead-changing steps need an activator with Leads rights now (R5).
+    await admin`insert into app.roles (workspace_id, name) values (${GUARD_SITE}, 'owner')`;
+    await admin`
+      insert into app.membership_roles (workspace_id, membership_id, role_id)
+      select m.workspace_id, m.id, r.id from app.memberships m
+      join app.roles r on r.workspace_id = m.workspace_id and r.name = 'owner'
+      where m.workspace_id = ${GUARD_SITE} and m.user_id = ${STAFF}
+    `;
+    await admin`
+      insert into app.memberships (workspace_id, user_id, membership_type, status, revoked_at)
+      values (${GUARD_SITE}, ${LEFT}, 'staff', 'revoked', now())
+    `;
 
     const runtimeUrl = new URL(migrationUrl);
     runtimeUrl.username = 'app_runtime';
@@ -633,5 +653,178 @@ databaseTest('the automations scheduler task', () => {
     expect(await jobs(leadId)).toHaveLength(1);
     expect(await tick(FAIL_SITE, Date.now() + 3 * HOUR)).toMatchObject({ resumed: 0 });
     expect(await jobs(leadId)).toHaveLength(1);
+  });
+
+  it('two flows moving a lead back and forth stop at the daily run limit', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 1),
+      name: 'Back after an hour',
+      enabled: true,
+      definition: flow(inStage('qualified', { amount: 1, unit: 'hours' }), [
+        toStage('s_back', 'contacted'),
+      ]),
+      actorId: STAFF,
+    });
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 2),
+      name: 'Forward again',
+      enabled: true,
+      definition: flow(entered('contacted'), [toStage('s_forward', 'qualified')]),
+      actorId: STAFF,
+    });
+    const leadId = await insertLead(GUARD_SITE);
+    await move(GUARD_SITE, leadId, 'qualified');
+    // Each tick, the timer moves it back and the other flow moves it forward,
+    // which starts a new stay: without the limit this never ends.
+    for (let hour = 2; hour <= 10; hour += 2) await tick(GUARD_SITE, Date.now() + hour * HOUR);
+    const all = await runs(leadId);
+    const back = all.filter((run) => run.automationKey === flowKey('8607', 1));
+    const forward = all.filter((run) => run.automationKey === flowKey('8607', 2));
+    expect(back.map((run) => run.status)).toEqual([
+      'completed',
+      'completed',
+      'completed',
+      'skipped',
+    ]);
+    expect(back[3]?.reason).toBe('run_limit_reached');
+    expect(forward.map((run) => run.status)).toEqual(['completed', 'completed', 'completed']);
+    const [lead] = await admin<
+      { stage: string }[]
+    >`select stage from app.leads where id = ${leadId}`;
+    expect(lead?.stage).toBe('qualified');
+  });
+
+  it('a switch-off in progress when a wait resumes keeps it from running', async () => {
+    const racing = await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 3),
+      name: 'Off mid-resume',
+      enabled: true,
+      definition: flow(entered('old_due'), [wait('s_wait', 1), send('s_after', 'cancelled')]),
+      actorId: STAFF,
+    });
+    const leadId = await insertLead(GUARD_SITE);
+    await move(GUARD_SITE, leadId, 'old_due');
+    // The switch is in progress while the tick claims the wait; it commits a
+    // moment later. The tick must wait for it and read the flow off.
+    let locked: () => void = () => {};
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    const toggle = admin.begin(async (tx) => {
+      // What `setEnabled(false)` takes first (records.ts `takeFlowSwitch`).
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`automation-switch:${GUARD_SITE}:${racing.id}`}, 0))`;
+      await tx`update app.automations set enabled = false where id = ${racing.id}`;
+      locked();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    await isLocked;
+    expect(await tick(GUARD_SITE, Date.now() + DAY + 60_000)).toMatchObject({ cancelled: 1 });
+    await toggle;
+    expect((await runs(leadId))[0]).toMatchObject({
+      status: 'cancelled',
+      reason: 'flow_switched_off',
+    });
+    expect(await jobs(leadId)).toEqual([]);
+  });
+
+  it('archiving a lead ends its waits and timers, and a restore does not revive them', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 4),
+      name: 'Wait on existing Shaw',
+      enabled: true,
+      definition: flow(entered('existing_shaw'), [wait('s_wait', 1), send('s_after', 'cancelled')]),
+      actorId: STAFF,
+    });
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 5),
+      name: 'Stay on existing Shaw',
+      enabled: true,
+      definition: flow(inStage('existing_shaw', { amount: 1, unit: 'hours' }), [
+        send('s_stay', 'cancelled'),
+      ]),
+      actorId: STAFF,
+    });
+    const leadId = await insertLead(GUARD_SITE);
+    await move(GUARD_SITE, leadId, 'existing_shaw');
+    const archived = await work.setArchived({
+      workspaceId: GUARD_SITE,
+      actorId: STAFF,
+      requestId: randomUUID(),
+      leadId,
+      archived: true,
+    });
+    expect(archived.status).toBe('changed');
+    expect((await runs(leadId))[0]).toMatchObject({ status: 'cancelled', reason: 'lead_archived' });
+    expect((await timers(leadId)).map((timer) => timer.status)).toEqual(['void']);
+    await work.setArchived({
+      workspaceId: GUARD_SITE,
+      actorId: STAFF,
+      requestId: randomUUID(),
+      leadId,
+      archived: false,
+    });
+    expect(await tick(GUARD_SITE, Date.now() + 2 * DAY)).toMatchObject({ resumed: 0, fired: 0 });
+    expect(await jobs(leadId)).toEqual([]);
+  });
+
+  it('a stay that a chained move left and re-entered in one write fires once', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 6),
+      name: 'Won goes to lost',
+      enabled: true,
+      definition: flow(entered('won'), [toStage('s_lost', 'lost')]),
+      actorId: STAFF,
+    });
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 7),
+      name: 'Lost goes to won',
+      enabled: true,
+      definition: flow(entered('lost'), [toStage('s_won', 'won')]),
+      actorId: STAFF,
+    });
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 8),
+      name: 'An hour in won',
+      enabled: true,
+      definition: flow(inStage('won', { amount: 1, unit: 'hours' }), [send('s_won', 'activated')]),
+      actorId: STAFF,
+    });
+    const leadId = await insertLead(GUARD_SITE);
+    // One write: won (staff), lost (a flow), won again (a flow; the third hop is the loop guard's).
+    await move(GUARD_SITE, leadId, 'won');
+    const stays = (await timers(leadId)).filter((timer) => timer.occurrence.startsWith('stay:'));
+    expect(stays).toHaveLength(2);
+    await tick(GUARD_SITE, Date.now() + 2 * HOUR);
+    expect((await timers(leadId)).map((timer) => timer.status).sort()).toEqual(['fired', 'void']);
+    expect((await jobs(leadId)).filter((job) => job.template === 'activated')).toHaveLength(1);
+  });
+
+  it('a version whose activator has left still runs, never in their name', async () => {
+    await insertActiveFlow(admin, {
+      workspaceId: GUARD_SITE,
+      key: flowKey('8607', 9),
+      name: 'Activated by a former member',
+      enabled: true,
+      definition: flow(entered('contacted'), [
+        wait('s_wait', 1),
+        send('s_after', 'information_needed'),
+      ]),
+      actorId: STAFF,
+      activatedBy: LEFT,
+    });
+    const leadId = await insertLead(GUARD_SITE, 'new');
+    await move(GUARD_SITE, leadId, 'contacted');
+    expect(await tick(GUARD_SITE, Date.now() + DAY + 60_000)).toMatchObject({ resumed: 1 });
+    const mailed = await admin<{ actorId: string }[]>`
+      select actor_id as "actorId" from app.lead_activities
+      where lead_id = ${leadId} and kind = 'system' and data ->> 'event' = 'customer_emailed'
+    `;
+    expect(mailed).toEqual([{ actorId: RUNNER }]);
   });
 });
