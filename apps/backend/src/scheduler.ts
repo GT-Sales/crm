@@ -4,7 +4,11 @@ import { createOwnerAlertChannelFromEnv, type OwnerAlertChannel } from '@gt-sale
 import type { MachineScopeName } from '@gt-sales/types';
 import { z } from 'zod';
 
-import { AUTOMATION_TICK_INTERVAL_MS, runAutomationTick } from './automations/tick.js';
+import {
+  AUTOMATION_TICK_INTERVAL_MS,
+  initialAutomationAlertState,
+  runAutomationTick,
+} from './automations/tick.js';
 import { loadDeploymentEnvironment } from './config/deployment.js';
 import { createDocumentServiceFromEnv } from './documents/factory.js';
 import { customerEmailEnvironmentFromEnv } from './email/senders.js';
@@ -330,7 +334,11 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   let queueHealth = INITIAL_QUEUE_HEALTH_STATE;
   let intakeAlerts: IntakeAlertState = INITIAL_INTAKE_ALERT_STATE;
   const intakeCheck = { leads: new DatabaseLeadStore(), store: new DatabaseIntakeCheckStore() };
-  const automations = { environment: customerEmailEnvironmentFromEnv() };
+  const automations = {
+    environment: customerEmailEnvironmentFromEnv(),
+    alerts,
+    alertState: initialAutomationAlertState(),
+  };
   return {
     registry: jobs.registry,
     runOutbox: (input) =>

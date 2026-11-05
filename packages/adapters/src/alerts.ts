@@ -21,6 +21,8 @@ export const ownerAlertKinds = [
   'catalogue_sync_failed',
   'scheduler_not_started',
   'synthetic_check_recovered',
+  'automation_backlog',
+  'automation_site_unscheduled',
 ] as const;
 export type OwnerAlertKind = (typeof ownerAlertKinds)[number];
 
@@ -72,6 +74,10 @@ function alertSubject(kind: OwnerAlertKind): string {
       return 'GT Sales CRM: catalogue sync is failing';
     case 'scheduler_not_started':
       return 'GT Sales CRM: background scheduler did not start';
+    case 'automation_backlog':
+      return 'GT Sales CRM: automation work is falling behind';
+    case 'automation_site_unscheduled':
+      return 'GT Sales CRM: a site has automation work no scheduler runs';
   }
 }
 

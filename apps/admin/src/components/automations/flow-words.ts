@@ -343,6 +343,7 @@ const REASONS: Readonly<Record<AutomationReason, string>> = {
   resume_failed: 'it could not carry on after the wait',
   run_limit_reached: 'it already ran several times for this lead today',
   activator_unavailable: 'the member who activated it has left this site; activate it again',
+  work_overdue: 'its waits or time triggers are running late',
 };
 
 /** Why a run or a step stopped: "names a stage that no longer exists (paid)". */
