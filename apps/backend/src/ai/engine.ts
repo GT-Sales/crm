@@ -9,6 +9,8 @@ import {
   type LanguageModel,
 } from 'ai';
 
+import { assertAssistantToolPolicy } from './tool-policy.js';
+
 /**
  * The model adapter: one interface, two implementations.
  *
@@ -77,6 +79,7 @@ export function createGatewayEngine(
   return {
     kind: 'gateway',
     async *stream(input) {
+      assertAssistantToolPolicy(input.tools);
       const gateway = createGateway({ apiKey: options.apiKey });
       const result = streamText({
         model: modelForTest ?? gateway(options.modelId),

@@ -37,6 +37,7 @@ export class DatabaseAiSiteContextStore implements AiSiteContextStore {
 
   siteContext(scope: Scope): Promise<AiSiteContext | undefined> {
     return this.database.withTenantTx(scope, async (tx) => {
+      await tx.execute(sql`set transaction read only`);
       await tx.execute(
         sql`select set_config('statement_timeout', ${String(AI_ASSISTANT_LIMITS.toolQueryTimeoutMs)}, true)`,
       );
