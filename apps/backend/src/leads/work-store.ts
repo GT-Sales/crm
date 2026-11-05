@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import {
@@ -237,7 +239,8 @@ export interface LeadWorkStore {
     input: WriteScope & {
       draft: AiLeadUpdateDraft;
       creationId: string;
-      version: string;
+      /** The digest of the field's value the card was prepared against (ACT-3, ACT-5). */
+      before: string;
       aiCardId?: string;
     },
   ): Promise<AiLeadUpdateConfirmOutcome>;
@@ -1073,6 +1076,17 @@ export async function applyLeadUpdate(
   };
 }
 
+/**
+ * A lead field's value as an AI card carries it (ACT-5): a digest, so the
+ * bearer token never holds the customer's name or phone, and confirmation
+ * can still tell whether the value changed since the card was prepared.
+ */
+export function aiLeadValueDigest(value: string | null | undefined): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value ?? null))
+    .digest('hex');
+}
+
 type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 
 const defaultLeadDatabase: LeadDatabase = { withTenantTx };
@@ -1344,7 +1358,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     input: WriteScope & {
       draft: AiLeadUpdateDraft;
       creationId: string;
-      version: string;
+      before: string;
       aiCardId?: string;
     },
   ): Promise<AiLeadUpdateConfirmOutcome> {
@@ -1367,11 +1381,19 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
             ),
           );
         if (receipt) return { status: 'saved', recordId: input.draft.leadId };
+        // ACT-3: only a change to the field itself makes the card stale; a
+        // note, a task or another card on the lead does not.
         const [row] = await tx
-          .select({ version: sql<string>`updated_at::text` })
+          .select({
+            stage: leads.stage,
+            assignedActorId: leads.assignedActorId,
+            fullName: leads.fullName,
+            phone: leads.phone,
+          })
           .from(leads)
           .where(and(eq(leads.workspaceId, input.workspaceId), eq(leads.id, input.draft.leadId)));
-        if (row?.version !== input.version) return { status: 'conflict' };
+        if (!row || aiLeadValueDigest(row[input.draft.field]) !== input.before)
+          return { status: 'conflict' };
         const { field, value } = input.draft;
         if (field === 'assignedActorId' && value !== null && !z.uuid().safeParse(value).success)
           return { status: 'invalid' };

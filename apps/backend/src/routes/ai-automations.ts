@@ -113,6 +113,15 @@ export function createAiAutomationRoutes(
             sendDomainError(res, req.id, 'revision_conflict', 409);
             return;
           }
+          // AUTH-7: a missing proposal or flow is 404, an expired one 410.
+          if (error.code === 'not_found') {
+            sendDomainError(res, req.id, 'not_found', 404, { reason: error.code });
+            return;
+          }
+          if (error.code === 'expired') {
+            sendDomainError(res, req.id, 'invalid_request', 410, { reason: error.code });
+            return;
+          }
           sendDomainError(res, req.id, 'invalid_request', 400, { reason: error.code });
           return;
         }

@@ -44,13 +44,15 @@ export const AI_ASSISTANT_LIMITS = {
   maxToolDataBytes: 24 * 1024,
   /** Output tokens of one model generation. */
   maxOutputTokens: 1_200,
+  /** Output tokens of one generation when automation authoring is on: a draft is long JSON (CHAT-8). */
+  maxAuthoringOutputTokens: 4_800,
   /** The whole turn, tools and model included. */
   requestTimeoutMs: 60_000,
   /** One database tool's statement deadline. */
   toolQueryTimeoutMs: 5_000,
-  /** Chat requests per actor per site in a rolling minute. */
+  /** Chat requests per actor per site in a fixed one-minute window (CHAT-10). */
   perActorPerMinute: 10,
-  /** Chat requests per site in a rolling minute. */
+  /** Chat requests per site in a fixed one-minute window. */
   perSitePerMinute: 60,
   /** Chat requests per site in a UTC day: the runaway stop beside the Gateway budget. */
   perSitePerDay: 500,

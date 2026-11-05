@@ -106326,7 +106326,10 @@
                         },
                         {
                           "type": "object",
-                          "properties": { "type": { "type": "string", "const": "done" } },
+                          "properties": {
+                            "type": { "type": "string", "const": "done" },
+                            "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+                          },
                           "required": ["type"],
                           "additionalProperties": false
                         }
@@ -107072,7 +107075,8 @@
                       "type": "object",
                       "properties": {
                         "role": { "type": "string", "enum": ["user", "assistant"] },
-                        "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+                        "text": { "type": "string", "minLength": 1, "maxLength": 8000 },
+                        "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
                       },
                       "required": ["role", "text"],
                       "additionalProperties": false

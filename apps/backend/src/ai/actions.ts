@@ -3,7 +3,6 @@ import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import {
   aiActionDraftSchema,
-  aiLeadUpdateContextSchema,
   aiActionProposalSchema,
   leadTypeLabel,
   type AiActionProposal,
@@ -13,6 +12,7 @@ import type { Scope } from '../tenant-scope.js';
 import type { AiReadService } from './read-service.js';
 import { decideAccess, type StaffAccessSnapshot } from '../staff/authorization.js';
 import { TurnBudget } from './limits.js';
+import { aiLeadValueDigest } from '../leads/work-store.js';
 
 const signedActionSchema = z
   .object({
@@ -28,12 +28,22 @@ const signedActionSchema = z
     actorId: z.uuid(),
     expiresAt: z.iso.datetime(),
     draft: aiActionDraftSchema,
-    leadUpdateContext: aiLeadUpdateContextSchema.optional(),
+    /**
+     * A lead update's field value when prepared, as `aiLeadValueDigest`
+     * (ACT-3, ACT-5): never the name or phone itself, which the card shows
+     * from the stream and the bearer token does not carry.
+     */
+    leadUpdateBefore: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
     emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
   })
   .strict();
 export type SignedAiAction = z.infer<typeof signedActionSchema>;
 const TTL_MS = 10 * 60 * 1000;
+/** Members the model is shown per options call (ACT-4); a card may name any active member. */
+const MODEL_ASSIGNEE_CHOICES = 24;
 
 /** Why a stage move cannot be prepared yet, in words the model can relay. */
 const STAGE_NEED_MESSAGES: Record<AiStageMoveNeed, string> = {
@@ -102,6 +112,7 @@ export function createActionProposalTools(input: {
   leadUpdatePreview?: (
     leadId: string,
     field: Extract<import('@gt-sales/contracts').AiActionDraft, { kind: 'lead_update' }>['field'],
+    options?: { search?: string; limit?: number },
   ) => Promise<import('../leads/work-store.js').AiLeadUpdatePreview | undefined>;
   loadAccess(): Promise<StaffAccessSnapshot | undefined>;
   now(): Date;
@@ -186,7 +197,9 @@ export function createActionProposalTools(input: {
         expiresAt,
         draft,
         ...(emailContext ? { emailContext } : {}),
-        ...(leadUpdateContext ? { leadUpdateContext } : {}),
+        ...(leadUpdateContext
+          ? { leadUpdateBefore: aiLeadValueDigest(leadUpdateContext.before) }
+          : {}),
       },
       input.key,
     );
@@ -221,9 +234,11 @@ export function createActionProposalTools(input: {
   async function getLeadUpdateOptions({
     leadId,
     field,
+    search,
   }: {
     leadId: string;
     field: 'stage' | 'assignedActorId';
+    search?: string | undefined;
   }) {
     if (!input.budget.reserveToolCall()) return 'Not available';
     const access = await input.loadAccess();
@@ -232,7 +247,11 @@ export function createActionProposalTools(input: {
       !decideAccess(access, 'workspace.read').allowed
     )
       return 'Not available';
-    const preview = await input.leadUpdatePreview?.(leadId, field);
+    // The model sees at most 24 members; a name narrows the list (ACT-4).
+    const preview = await input.leadUpdatePreview?.(leadId, field, {
+      ...(search ? { search } : {}),
+      limit: MODEL_ASSIGNEE_CHOICES,
+    });
     const result = JSON.stringify({ choices: preview?.choices ?? [] });
     if (
       input.budget.acceptResult({
@@ -248,7 +267,15 @@ export function createActionProposalTools(input: {
       description:
         'Read available stage moves or active assignees for one lead before preparing a lead update. Returns choices only, never contact values. A stage choice with `needs` cannot be prepared yet: tell the person what it needs (dispatch details, an activation date, or the listed documents approved) and that it is done on the lead page.',
       inputSchema: z
-        .object({ leadId: z.uuid(), field: z.enum(['stage', 'assignedActorId']) })
+        .object({
+          leadId: z.uuid(),
+          field: z.enum(['stage', 'assignedActorId']),
+          search: z
+            .string()
+            .max(80)
+            .optional()
+            .describe('For assignedActorId: part of a member name, to narrow a long list.'),
+        })
         .strict(),
       execute: getLeadUpdateOptions,
     }),
@@ -283,7 +310,11 @@ export function createActionProposalTools(input: {
     execute(name: string, raw: unknown) {
       if (name === 'getLeadUpdateOptions') {
         const parsed = z
-          .object({ leadId: z.uuid(), field: z.enum(['stage', 'assignedActorId']) })
+          .object({
+            leadId: z.uuid(),
+            field: z.enum(['stage', 'assignedActorId']),
+            search: z.string().max(80).optional(),
+          })
           .strict()
           .parse(raw);
         return getLeadUpdateOptions(parsed);

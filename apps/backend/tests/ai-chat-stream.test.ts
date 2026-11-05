@@ -26,7 +26,7 @@ import {
   type EngineInput,
   type FakeTurn,
 } from '../src/ai/engine.js';
-import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { aiLeadValueDigest, DatabaseLeadWorkStore } from '../src/leads/work-store.js';
 import { signAiAction, verifyAiAction } from '../src/ai/actions.js';
 import type { LeadRow } from '../src/ai/projections.js';
 import type { AiReadService } from '../src/ai/read-service.js';
@@ -375,11 +375,14 @@ describe('POST /workspaces/:id/ai/chat', () => {
     expect(saved.status).toBe(200);
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
-        version: 'v1',
+        before: aiLeadValueDigest('Old'),
         creationId: proposal.id,
         draft: { kind: 'lead_update', leadId: LEAD, field: 'fullName', value: 'New' },
       }),
     );
+    // ACT-5: the bearer token never carries the current name, only its digest.
+    const [payload] = proposal.token.split('.');
+    expect(Buffer.from(payload ?? '', 'base64url').toString('utf8')).not.toContain('Old');
   });
 
   it('names an unmet gate instead of preparing a stage card, and maps a confirm refusal', async () => {
@@ -1549,6 +1552,46 @@ describe('trusted history and recovered cards (CHAT-2, CHAT-4, CHAT-11)', () => 
     const texts = parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
     expect(texts.join('')).toBe(long);
     expect(parts.at(-1)?.type).toBe('done');
+  });
+});
+
+describe('card confirmation limits (CHAT-9)', () => {
+  it('refuses confirm and revise past the per-member card budget', async () => {
+    const seen: RateLimitInput[] = [];
+    await start(
+      appWith({
+        work: new DatabaseLeadWorkStore(),
+        rateLimit: async (input) => {
+          seen.push(input);
+          return input.bucketKey.startsWith('ai_card:')
+            ? { allowed: false, retryAfterSeconds: 30 }
+            : { allowed: true, retryAfterSeconds: 0 };
+        },
+      }),
+    );
+    for (const path of ['confirm', 'revise']) {
+      const response = await fetch(
+        `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/actions/${path}`,
+        {
+          method: 'POST',
+          headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+          body: JSON.stringify(
+            path === 'confirm'
+              ? { token: 'not-checked-before-the-limit' }
+              : {
+                  token: 'not-checked-before-the-limit',
+                  draft: { kind: 'note', leadId: LEAD, body: 'Note' },
+                },
+          ),
+        },
+      );
+      expect(response.status).toBe(429);
+      expect(response.headers.get('retry-after')).toBe('30');
+    }
+    expect(seen.map((input) => input.bucketKey)).toEqual([
+      `ai_card:${ACTOR}:${WORKSPACE}`,
+      `ai_card:${ACTOR}:${WORKSPACE}`,
+    ]);
   });
 });
 

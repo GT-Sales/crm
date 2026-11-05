@@ -2,7 +2,10 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAiAutomationRoutes } from '../src/routes/ai-automations.js';
-import { AutomationAuthoringStore } from '../src/ai/automation-authoring.js';
+import {
+  AutomationAuthoringError,
+  AutomationAuthoringStore,
+} from '../src/ai/automation-authoring.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 const SITE = '18000000-0000-4000-8000-000000009401';
 const ACTOR = '28000000-0000-4000-8000-000000009401';
@@ -128,5 +131,19 @@ describe('AI automation confirmation routes', () => {
     });
     expect(result.status).toBe(429);
     expect(ctx.save).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['not_found', 404],
+    ['expired', 410],
+    ['invalid', 400],
+  ] as const)('answers a %s proposal with %i (AUTH-7)', async (code, status) => {
+    const ctx = await setup();
+    ctx.save.mockRejectedValueOnce(new AutomationAuthoringError(code));
+    const result = await fetch(ctx.url + '/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'signed' }),
+    });
+    expect(result.status).toBe(status);
   });
 });

@@ -89,7 +89,9 @@ export function createGatewayEngine(
         tools: input.tools,
         // Five generations at most, the answer step included.
         stopWhen: stepCountIs(AI_ASSISTANT_LIMITS.maxModelSteps),
-        maxOutputTokens: input.automationAuthoring ? 4800 : AI_ASSISTANT_LIMITS.maxOutputTokens,
+        maxOutputTokens: input.automationAuthoring
+          ? AI_ASSISTANT_LIMITS.maxAuthoringOutputTokens
+          : AI_ASSISTANT_LIMITS.maxOutputTokens,
         // One automatic retry is allowed before any text has been shown; the
         // route never retries a partially streamed answer.
         maxRetries: 1,
