@@ -641,6 +641,7 @@ export {
   type ReviewFileResponse,
   type StaffFile,
 } from './files';
+export * from './document-review';
 
 export {
   createExportRequestSchema,

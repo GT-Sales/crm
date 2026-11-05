@@ -42,7 +42,7 @@ export function TopBar({
       )}
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <AssistantTrigger />
-        <QuickNavigation workspaceSlug={workspace.slug} />
+        <QuickNavigation workspaceSlug={workspace.slug} workspaceId={workspace.id} />
         <ThemeToggle />
         <Button variant="ghost" size="sm" onClick={() => void onSignOut()}>
           <LogOutIcon className="size-4 sm:hidden" aria-hidden="true" />

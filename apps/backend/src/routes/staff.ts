@@ -28,6 +28,8 @@ import {
   type LeadDetail,
   type LeadListItem,
   type PropertyCatalog,
+  DOCUMENT_REVIEW_PAGE_SIZE,
+  documentReviewQueueQuerySchema,
 } from '@gt-sales/contracts';
 import {
   rateLimitHit,
@@ -87,6 +89,10 @@ import {
   type WebsiteCredentialStore,
 } from '../website/store.js';
 
+import {
+  DatabaseDocumentReviewQueue,
+  type DocumentReviewQueueStore,
+} from '../documents/review-queue.js';
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
@@ -131,6 +137,8 @@ export interface StaffRouteDependencies {
   reportStore?: ReportStore;
   /** The site's automation flows, their versions and runs; omitted in route tests that do not reach them. */
   flowStore?: FlowStore;
+  /** Documents → review queue; the database store when absent. */
+  documentReviewQueue?: DocumentReviewQueueStore;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
@@ -1492,6 +1500,47 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   // ---- Documents -----------------------------------------------------------
   // Downloading an original requires the separately-grantable
   // `document.download` permission; approve/reject is a lead-management action.
+
+  // The site's documents waiting on staff (Documents page). It names customers,
+  // so it needs contact access; reviewing and downloading recheck their own.
+  router.get('/workspaces/:workspaceId/documents/review-queue', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = documentReviewQueueQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      if (!leadAccessOf(decision.access).contacts) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const page = query.data.page ?? 1;
+      const queue = dependencies.documentReviewQueue ?? new DatabaseDocumentReviewQueue();
+      const result = await queue.list(
+        { workspaceId: workspaceId.data, actorId: actor.actorId },
+        { status: query.data.status ?? 'to_review', page },
+      );
+      res.json({
+        items: result.items,
+        counts: result.counts,
+        page: { page, pageSize: DOCUMENT_REVIEW_PAGE_SIZE, total: result.total },
+        access: {
+          review: decideAccess(decision.access, 'order.manage').allowed,
+          download: decideAccess(decision.access, 'document.download').allowed,
+        },
+        requestId: req.id,
+      });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
 
   router.post('/workspaces/:workspaceId/files/:fileId/review', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);

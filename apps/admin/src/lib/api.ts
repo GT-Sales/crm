@@ -1,4 +1,6 @@
 import type {
+  DocumentReviewQueueQuery,
+  DocumentReviewQueueResponse,
   AiAutomationDraft,
   AiAutomationProposal,
   AiAutomationSaveResponse,
@@ -716,6 +718,15 @@ export async function reviewFile(
   body: ReviewFileRequest,
 ): Promise<ReviewFileResponse> {
   return client(accessToken).staff.reviewFile(workspaceId, fileId, body);
+}
+
+/** Documents → the site's review queue (contact access; review and download recheck their own). */
+export async function listDocumentReviewQueue(
+  accessToken: string,
+  workspaceId: string,
+  query?: DocumentReviewQueueQuery,
+): Promise<DocumentReviewQueueResponse> {
+  return client(accessToken).staff.listDocumentReviewQueue(workspaceId, query);
 }
 
 /** A download link, or with `inline` one that opens the file in a tab of its own. */

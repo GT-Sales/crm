@@ -1,7 +1,7 @@
 # Admin UI review (5 Nov 2026)
 
-Status: items 1 and 5 and the quick fixes are implemented (see the HANDOFF
-entry "Admin UI review, first batch"). The General settings email finding was
+Status: items 1 to 5 and the quick fixes are implemented (see the HANDOFF
+entries "Admin UI review, first batch" and "second batch"). The General settings email finding was
 a false positive: production reads the address from the Supabase sign-in
 token, and only the local test session had none. Item 5's "humanize Source"
 applies to the leads list and lead page; Reports → Sources still shows labels

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarProvider } from '@gt-sales/ui';
 
@@ -12,8 +12,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 const getLeadsSummary = vi.fn();
+const listDocumentReviewQueue = vi.fn();
 vi.mock('../lib/api', () => ({
   getLeadsSummary: (...args: unknown[]) => getLeadsSummary(...args),
+  listDocumentReviewQueue: (...args: unknown[]) => listDocumentReviewQueue(...args),
 }));
 vi.mock('./staff-session-provider', () => ({
   useStaffSession: () => ({
@@ -47,6 +49,9 @@ describe('AppSidebar', () => {
   beforeEach(() => {
     push.mockReset();
     getLeadsSummary.mockReset();
+    listDocumentReviewQueue.mockReset();
+    // A role without document access: the queue refuses and no count shows.
+    listDocumentReviewQueue.mockRejectedValue(new Error('permission_denied'));
     getLeadsSummary.mockResolvedValue({
       types: [],
       archived: 0,
@@ -125,6 +130,29 @@ describe('AppSidebar', () => {
     const link = screen.getByRole('link', { name: 'Automations' });
     expect(link.getAttribute('href')).toBe('/w/canadawide/automations');
     expect(link.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('counts documents waiting for a first review beside Documents, and refreshes after a review', async () => {
+    listDocumentReviewQueue.mockResolvedValue({ counts: { toReview: 2, rejected: 1 } });
+    renderSidebar('getcanadasim');
+    const link = await screen.findByRole('link', { name: 'Documents, 2 to review' });
+    expect(link.getAttribute('href')).toBe('/w/getcanadasim/documents');
+    expect(listDocumentReviewQueue).toHaveBeenCalledWith(
+      'staff-token',
+      '10000000-0000-4000-8000-000000000001',
+      { status: 'to_review' },
+    );
+    listDocumentReviewQueue.mockResolvedValue({ counts: { toReview: 1, rejected: 1 } });
+    window.dispatchEvent(new CustomEvent('crm:documents-reviewed'));
+    expect(await screen.findByRole('link', { name: 'Documents, 1 to review' })).toBeTruthy();
+  });
+
+  it('shows no Documents count to a role the queue refuses', async () => {
+    renderSidebar('getcanadasim');
+    await waitFor(() => expect(listDocumentReviewQueue).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Documents' }).textContent).toBe('Documents'),
+    );
   });
 
   it('counts the leads no one has opened yet beside Leads', async () => {

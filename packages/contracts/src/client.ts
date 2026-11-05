@@ -1,4 +1,9 @@
 import {
+  documentReviewQueueResponseSchema,
+  type DocumentReviewQueueQuery,
+  type DocumentReviewQueueResponse,
+} from './document-review';
+import {
   aiAutomationTokenRequestSchema,
   aiAutomationReviseRequestSchema,
   aiAutomationSimulateRequestSchema,
@@ -553,6 +558,10 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceTasksQuery,
     ): Promise<ListWorkspaceTasksResponse>;
+    listDocumentReviewQueue(
+      workspaceId: string,
+      query?: DocumentReviewQueueQuery,
+    ): Promise<DocumentReviewQueueResponse>;
     /** `query.object` picks lead (the default) or plan properties on these five. */
     getPropertyModel(
       workspaceId: string,
@@ -1257,6 +1266,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             pageSize: query?.pageSize,
           },
           responseSchema: listWorkspaceTasksResponseSchema,
+        }),
+      listDocumentReviewQueue: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/documents/review-queue`,
+          query: { status: query?.status, page: query?.page },
+          responseSchema: documentReviewQueueResponseSchema,
         }),
       getPropertyModel: (workspaceId, query) =>
         call({

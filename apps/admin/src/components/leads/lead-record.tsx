@@ -69,6 +69,7 @@ import type { PropertyEdits } from './lead-form-editor';
 import { leadSummaryText } from './lead-summary';
 import { LeadAttentionStrip, leadAttention, type LeadAttentionTarget } from './lead-attention';
 import { LeadTasks } from './lead-tasks';
+import { StagePathBar } from './stage-path';
 import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
 import { emailSkippedText, StageMoveDialog, stageMoveRefusal } from './stage-move-dialog';
@@ -77,6 +78,7 @@ import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 import { countryName } from '../../lib/countries';
 import { readableSource } from '../../lib/source-label';
+import { stagePath } from '../../lib/stage-path';
 
 const ATTRIBUTION_LABELS: Record<string, string> = {
   utmSource: 'UTM source',
@@ -572,6 +574,14 @@ export function LeadRecord({
     }));
   }
 
+  // The order details travel with contact access; without them the path still
+  // shows where the lead stands, and the move's dialog checks the rest.
+  const guidedPath = stagePath({
+    leadType: lead.leadType,
+    stage: lead.stage,
+    ...(lead.order ? { order: lead.order } : {}),
+    documents,
+  });
   const attention = leadAttention({
     lead,
     formPayload: payload,
@@ -695,6 +705,15 @@ export function LeadRecord({
             <StageBadge leadType={lead.leadType} stage={lead.stage} />
           )}
         </div>
+        {guidedPath ? (
+          <StagePathBar
+            path={guidedPath}
+            canWrite={canWrite}
+            saving={saving}
+            onMove={changeStage}
+            compact={inPanel}
+          />
+        ) : null}
         <div className="flex w-full flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
           {access.contacts ? (
             <Button type="button" variant="outline" size="sm" onClick={() => void copySummary()}>
