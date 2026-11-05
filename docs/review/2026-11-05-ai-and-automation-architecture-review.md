@@ -4,10 +4,11 @@ Read-only review. No code was changed. This document records what was reviewed,
 how the two features are built, what is wrong or fragile, and how each item
 should be fixed, so the owner can choose what to implement and in which order.
 
-Status: phase A (ENG-1, CHAT-1, ACT-1, AUTH-4, ENG-L6) and phase B (ENG-2,
-ENG-3, ENG-6, ENG-7, ENG-8, ACT-2, CHAT-3) implemented on 5 Nov 2026; see the
-HANDOFF entries "AI and automation review, phase A" and "phase B". Phases C
-and D remain open. Two deliberate differences from the recommendations: the
+Status: phase A (ENG-1, CHAT-1, ACT-1, AUTH-4, ENG-L6), phase B (ENG-2,
+ENG-3, ENG-6, ENG-7, ENG-8, ACT-2, CHAT-3) and phase C (ENG-4, ENG-9, CHAT-5,
+CHAT-6, CHAT-7, AUTH-1, AUTH-2, AUTH-3, UI-1, UI-3, with ENG-L5) implemented
+on 5 Nov 2026; see the HANDOFF entries "AI and automation review, phase A",
+"phase B" and "phase C". Phase D remains open. Two deliberate differences from the recommendations: the
 switch-off race uses a per-flow advisory lock rather than a row lock (a row
 lock deadlocks concurrent ticks or ordinary writes), and the signing secret
 falls back to the Gateway key with a startup warning instead of failing closed,

@@ -68,11 +68,26 @@ Never paste a key into chat, a ticket, a commit or this file.
 
 Per turn: 5 model steps, 6 tool calls, 3 lead summaries, 50 records, 6 KiB per
 tool result, 24 KiB per turn, 1,200 output tokens, 60 seconds.
-Per caller: 10 requests per minute per actor per site; 60 per minute per site.
-Both are enforced through `app.rate_limit_hit`, so they hold across replicas.
+Per caller: 10 requests per minute per actor per site; 60 per minute per site;
+500 per site per UTC day (`AI_ASSISTANT_LIMITS.perSitePerDay`), the in-CRM stop
+for a runaway site beside the Gateway budget. All are enforced through
+`app.rate_limit_hit`, so they hold across replicas; so is the duplicate
+request-id check (`ai_replay:` keys, one hour).
 At most three action drafts fit one turn. Each uses the same tool budget as reads.
-No new secret or migration is required; rotating the Gateway key invalidates
-outstanding signed cards.
+Cards and proposals are signed with `AI_ACTION_SIGNING_SECRET` (docs/ENV.md);
+rotating it invalidates outstanding signed cards.
+
+Usage per site lives in `app.ai_turns` (migration 0024): one row per turn with
+the outcome, model, prompt version, duration, output tokens, tool calls, records
+and bytes, never any text. Rows are kept 90 days. For example, a site's last
+seven days:
+
+```sql
+select outcome, count(*) as turns, sum(output_tokens) as tokens
+from app.ai_turns
+where workspace_id = '<site uuid>' and created_at > now() - interval '7 days'
+group by outcome;
+```
 
 ## 5. Data handling
 
@@ -146,15 +161,15 @@ but all chat/card state clears on Site/member changes or browser reload.
 
 ## 8. Diagnosing
 
-| Symptom                       | Check                                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Button missing for everyone   | Capability: `available: false` → `disabled` (switch), `not_configured` (key/model), `site_not_enabled` (allowlist)                         |
-| Button missing for one person | Their roles: the assistant needs a lead-detail action; Viewer/Content/Partners never see it                                                |
-| 429 / "too many questions"    | Per-actor (10/min) or per-site (60/min); wait a minute. Check `app.rate_limit_buckets` for `ai_actor:`/`ai_site:` keys                     |
-| 503 `ai_unavailable`          | Config incomplete, site not allowlisted, or the limiter could not be reached (the request is refused rather than bypassing the limit)      |
-| "could not answer just now"   | Provider failure or timeout; check `ai_turn` outcome `failed`, then the Gateway status and the key's credit                                |
-| `access_lost`                 | The caller's membership changed during the turn; the panel clears. Expected, not a bug                                                     |
-| Answers with no source cards  | The model answered without reading anything, or every read was empty; the prompt forbids invented facts — rephrase with a record reference |
+| Symptom                       | Check                                                                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button missing for everyone   | Capability: `available: false` → `disabled` (switch), `not_configured` (key/model), `site_not_enabled` (allowlist)                                              |
+| Button missing for one person | Their roles: the assistant needs a lead-detail action; Viewer/Content/Partners never see it                                                                     |
+| 429 / "too many questions"    | Per-actor (10/min), per-site (60/min) or per-site daily (500); see `retry-after`. Check `app.rate_limit_buckets` for `ai_actor:`/`ai_site:`/`ai_site_day:` keys |
+| 503 `ai_unavailable`          | Config incomplete, site not allowlisted, or the limiter could not be reached (the request is refused rather than bypassing the limit)                           |
+| "could not answer just now"   | Provider failure or timeout; check `ai_turn` outcome `failed`, then the Gateway status and the key's credit                                                     |
+| `access_lost`                 | The caller's membership changed during the turn; the panel clears. Expected, not a bug                                                                          |
+| Answers with no source cards  | The model answered without reading anything, or every read was empty; the prompt forbids invented facts — rephrase with a record reference                      |
 
 ## 9. Kill switch and rollback
 
