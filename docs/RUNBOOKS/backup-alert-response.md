@@ -79,7 +79,7 @@ restore because of it.
 3. **If Backup is green but the monitor still alerts**, the two environments
    do not point at the same place. Compare `B2_ARCHIVE_ENDPOINT`,
    `B2_ARCHIVE_REGION` and `B2_ARCHIVE_BUCKET` in `backup-gt-sales` and
-   `backup-monitor-gt-sales`. For `wrong_deployment`, the monitor's bucket is
+   `backup-gt-sales`. For `wrong_deployment`, the monitor's bucket is
    another deployment's: each deployment has its own bucket.
 4. **If Backup did not run at all**, check that the workflow is enabled
    (GitHub disables scheduled workflows after 60 days without a commit in a

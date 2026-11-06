@@ -9,11 +9,11 @@ design rests on. Restoring is in [restore.md](restore.md); what to do when the
 alert fires is in [backup-alert-response.md](backup-alert-response.md); every
 variable is in [docs/ENV.md](../ENV.md) "Backups".
 
-| Workflow                                  | Schedule (UTC) | GitHub Environment              | B2 key                                             |
-| ----------------------------------------- | -------------- | ------------------------------- | -------------------------------------------------- |
-| Backup (`backup.yml`)                     | daily 06:17    | `backup-<deployment>`           | writer: `listFiles`, `writeFiles`                  |
-| Backup monitor (`backup-monitor.yml`)     | hourly at :08  | `backup-monitor-<deployment>`   | reader: `listFiles`, `readFiles`                   |
-| Backup retention (`backup-retention.yml`) | Mondays 07:43  | `backup-retention-<deployment>` | retention: `listFiles`, `readFiles`, `deleteFiles` |
+| Workflow                                  | Schedule (UTC) | GitHub Environment    | B2 key                                             |
+| ----------------------------------------- | -------------- | --------------------- | -------------------------------------------------- |
+| Backup (`backup.yml`)                     | daily 06:17    | `backup-<deployment>` | writer: `listFiles`, `writeFiles`                  |
+| Backup monitor (`backup-monitor.yml`)     | hourly at :08  | `backup-<deployment>` | reader: `listFiles`, `readFiles`                   |
+| Backup retention (`backup-retention.yml`) | Mondays 07:43  | `backup-<deployment>` | retention: `listFiles`, `readFiles`, `deleteFiles` |
 
 The first deployment is `gt-sales`. Three B2 keys, not four: the reader key
 is shared by the monitor and the owner's restore, because both only list and
@@ -356,36 +356,32 @@ cannot be limited to reading, so this key is as strong as the backend's; it
 is a separate key only so it can be revoked on its own. The same page shows
 the S3 endpoint and region.
 
-## 6. GitHub: three environments
+## 6. GitHub: one environment
+
+Owner decision 2026-11-06: one GitHub Environment, `backup-gt-sales`, used by
+all three workflows, with one bucket-only B2 key (Read and Write, restricted
+to `gt-sales-crm-archive`) in place of the three narrow keys of step 3.4.
+Object Lock (step 3.1) is what protects the last 30 days of restore points
+from a leaked key. Never put the B2 master key in GitHub.
 
 In GitHub → `GT-Sales/crm` → Settings → Environments → New environment,
-create `backup-gt-sales`, `backup-monitor-gt-sales` and
-`backup-retention-gt-sales`. On each:
+create `backup-gt-sales`:
 
 - **Deployment branches and tags:** Selected branches and tags → add `main`.
-  The repository is public; this keeps the secrets away from any other branch.
-- **Environment secrets:** add the secrets below. The names must match
-  exactly. Leave the optional ones unset unless there is a reason.
-- No required reviewers on any of them: a scheduled run must never wait for
-  an approval. The protection is the branch limit above and that each
-  environment holds only its own key.
+- No required reviewers: a scheduled run must never wait for an approval.
+- **Environment secrets** (names exact):
 
-| Secret                                                                                              | `backup-gt-sales` | `backup-monitor-gt-sales` | `backup-retention-gt-sales` | Value                                                                                                                                                                  |
-| --------------------------------------------------------------------------------------------------- | ----------------- | ------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `B2_ARCHIVE_ENDPOINT`, `B2_ARCHIVE_REGION`, `B2_ARCHIVE_BUCKET`                                     | yes               | yes                       | yes                         | Step 3: `https://s3.<region>.backblazeb2.com`, `<region>`, `gt-sales-crm-archive`.                                                                                     |
-| `B2_ARCHIVE_WRITER_KEY_ID`, `B2_ARCHIVE_WRITER_APPLICATION_KEY`                                     | yes               |                           |                             | The writer key.                                                                                                                                                        |
-| `B2_ARCHIVE_READER_KEY_ID`, `B2_ARCHIVE_READER_APPLICATION_KEY`                                     |                   | yes                       |                             | The reader key.                                                                                                                                                        |
-| `B2_ARCHIVE_RETENTION_KEY_ID`, `B2_ARCHIVE_RETENTION_APPLICATION_KEY`                               |                   |                           | yes                         | The retention key.                                                                                                                                                     |
-| `RECOVERY_AGE_RECIPIENT`                                                                            | yes               |                           |                             | Step 4: the `age1…` line. Never the private key.                                                                                                                       |
-| `SOURCE_DATABASE_URL`                                                                               | yes               |                           |                             | `postgresql://backup_reader.xykrphbgpwisqacpyeiv:<password from step 5>@aws-1-ap-south-1.pooler.supabase.com:5432/postgres`                                            |
-| `SOURCE_STORAGE_ENDPOINT`, `SOURCE_STORAGE_REGION`, `SOURCE_STORAGE_BUCKET`                         | yes               |                           |                             | `https://xykrphbgpwisqacpyeiv.storage.supabase.co/storage/v1/s3`, `ap-south-1`, `documents`.                                                                           |
-| `SOURCE_STORAGE_ACCESS_KEY_ID`, `SOURCE_STORAGE_SECRET_ACCESS_KEY`                                  | yes               |                           |                             | The "backup" Storage S3 key from step 5.                                                                                                                               |
-| `SUPABASE_PROJECT_REF`                                                                              | yes               |                           |                             | `xykrphbgpwisqacpyeiv`.                                                                                                                                                |
-| `OWNER_ALERT_EMAIL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`                      |                   | yes                       |                             | Where the alert goes and who sends it: the owner's address and the Resend key and sender the backend uses (or a key of its own). Without them an alert is only logged. |
-| Optional: `BACKUP_AUTH_DATA`, `BACKUP_HISTORY`, `BACKUP_MAX_SNAPSHOT_BYTES`                         | optional          |                           |                             | ENV.md. Leave `BACKUP_AUTH_DATA` unset: the matrix already says `skip` for gt-sales (step 5, checks 4 and 5); the secret only overrides the matrix.                    |
-| Optional: `BACKUP_MONITOR_MAX_AGE_SECONDS`, `OWNER_ALERT_WEBHOOK_URL`, `OWNER_ALERT_WEBHOOK_SECRET` |                   | optional                  |                             | ENV.md.                                                                                                                                                                |
-| Optional: `RETENTION_DAILY_POINTS`, `RETENTION_MONTHLY_POINTS`, `RETENTION_GRACE_SECONDS`           |                   |                           | optional                    | ENV.md. Defaults 30, 12 and 24 hours.                                                                                                                                  |
-| Optional: `SENTRY_DSN`                                                                              | optional          | optional                  | optional                    | Error tracking for a failed run.                                                                                                                                       |
+| Secret                                                                         | Value                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `B2_ARCHIVE_ENDPOINT`, `B2_ARCHIVE_REGION`, `B2_ARCHIVE_BUCKET`                | Step 3: `https://s3.<region>.backblazeb2.com`, `<region>`, `gt-sales-crm-archive`.                                                                                                                                                               |
+| `B2_ARCHIVE_KEY_ID`, `B2_ARCHIVE_APPLICATION_KEY`                              | The bucket-only B2 key.                                                                                                                                                                                                                          |
+| `RECOVERY_AGE_RECIPIENT`                                                       | Step 4: the `age1…` line. Never the private key.                                                                                                                                                                                                 |
+| `SOURCE_DATABASE_URL`                                                          | `postgresql://backup_reader.xykrphbgpwisqacpyeiv:<password from step 5>@aws-1-ap-south-1.pooler.supabase.com:5432/postgres`                                                                                                                      |
+| `SOURCE_STORAGE_ENDPOINT`, `SOURCE_STORAGE_REGION`, `SOURCE_STORAGE_BUCKET`    | `https://xykrphbgpwisqacpyeiv.storage.supabase.co/storage/v1/s3`, `ap-south-1`, `documents`.                                                                                                                                                     |
+| `SOURCE_STORAGE_ACCESS_KEY_ID`, `SOURCE_STORAGE_SECRET_ACCESS_KEY`             | The "backup" Storage S3 key from step 5.                                                                                                                                                                                                         |
+| `SUPABASE_PROJECT_REF`                                                         | `xykrphbgpwisqacpyeiv`.                                                                                                                                                                                                                          |
+| `OWNER_ALERT_EMAIL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | Where the monitor's alert goes and who sends it. Without them an alert is only logged.                                                                                                                                                           |
+| Optional                                                                       | `BACKUP_HISTORY`, `BACKUP_MAX_SNAPSHOT_BYTES`, `BACKUP_MONITOR_MAX_AGE_SECONDS`, `RETENTION_DAILY_POINTS`, `RETENTION_MONTHLY_POINTS`, `RETENTION_GRACE_SECONDS`, `SENTRY_DSN`: ENV.md. Leave `BACKUP_AUTH_DATA` unset (the matrix says `skip`). |
 
 The repository is public, so its Actions logs are too. The jobs log ids,
 counts, table names and object keys only, never a value or a row. Object
@@ -407,7 +403,7 @@ GitHub → Actions (enable the three workflows first if they were disabled):
    [backup-alert-response.md](backup-alert-response.md).
 2. **Backup monitor** → Run workflow. The step's log shows
    `{"event":"monitor_status","deployment":"gt-sales","status":"ok",…}`.
-3. **Prove the alert reaches you.** In `backup-monitor-gt-sales` add the
+3. **Prove the alert reaches you.** In `backup-gt-sales` add the
    secret `BACKUP_MONITOR_MAX_AGE_SECONDS` with the value `1`, run Backup
    monitor by hand, and confirm the `backup_stale` email arrives at
    `OWNER_ALERT_EMAIL` (the run itself fails, as it should). Then **delete

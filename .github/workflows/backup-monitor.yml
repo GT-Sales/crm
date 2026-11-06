@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         deployment: [gt-sales]
-    environment: backup-monitor-${{ matrix.deployment }}
+    environment: backup-${{ matrix.deployment }}
     concurrency:
       group: backup-monitor-${{ matrix.deployment }}
       # A newer check makes an older one pointless.
@@ -46,8 +46,8 @@ jobs:
           B2_ARCHIVE_ENDPOINT: ${{ secrets.B2_ARCHIVE_ENDPOINT }}
           B2_ARCHIVE_REGION: ${{ secrets.B2_ARCHIVE_REGION }}
           B2_ARCHIVE_BUCKET: ${{ secrets.B2_ARCHIVE_BUCKET }}
-          B2_ARCHIVE_READER_KEY_ID: ${{ secrets.B2_ARCHIVE_READER_KEY_ID }}
-          B2_ARCHIVE_READER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_READER_APPLICATION_KEY }}
+          B2_ARCHIVE_READER_KEY_ID: ${{ secrets.B2_ARCHIVE_KEY_ID }}
+          B2_ARCHIVE_READER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_APPLICATION_KEY }}
           # The owner alert. Unset, an alert is only logged.
           OWNER_ALERT_EMAIL: ${{ secrets.OWNER_ALERT_EMAIL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

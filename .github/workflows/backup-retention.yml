@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         deployment: [gt-sales]
-    environment: backup-retention-${{ matrix.deployment }}
+    environment: backup-${{ matrix.deployment }}
     concurrency:
       group: backup-retention-${{ matrix.deployment }}
       cancel-in-progress: false
@@ -59,8 +59,8 @@ jobs:
           B2_ARCHIVE_ENDPOINT: ${{ secrets.B2_ARCHIVE_ENDPOINT }}
           B2_ARCHIVE_REGION: ${{ secrets.B2_ARCHIVE_REGION }}
           B2_ARCHIVE_BUCKET: ${{ secrets.B2_ARCHIVE_BUCKET }}
-          B2_ARCHIVE_RETENTION_KEY_ID: ${{ secrets.B2_ARCHIVE_RETENTION_KEY_ID }}
-          B2_ARCHIVE_RETENTION_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_RETENTION_APPLICATION_KEY }}
+          B2_ARCHIVE_RETENTION_KEY_ID: ${{ secrets.B2_ARCHIVE_KEY_ID }}
+          B2_ARCHIVE_RETENTION_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_APPLICATION_KEY }}
           # Optional; unset secrets arrive empty and the defaults apply.
           RETENTION_DAILY_POINTS: ${{ secrets.RETENTION_DAILY_POINTS }}
           RETENTION_MONTHLY_POINTS: ${{ secrets.RETENTION_MONTHLY_POINTS }}

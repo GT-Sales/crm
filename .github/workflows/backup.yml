@@ -93,8 +93,8 @@ jobs:
           B2_ARCHIVE_ENDPOINT: ${{ secrets.B2_ARCHIVE_ENDPOINT }}
           B2_ARCHIVE_REGION: ${{ secrets.B2_ARCHIVE_REGION }}
           B2_ARCHIVE_BUCKET: ${{ secrets.B2_ARCHIVE_BUCKET }}
-          B2_ARCHIVE_WRITER_KEY_ID: ${{ secrets.B2_ARCHIVE_WRITER_KEY_ID }}
-          B2_ARCHIVE_WRITER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_WRITER_APPLICATION_KEY }}
+          B2_ARCHIVE_WRITER_KEY_ID: ${{ secrets.B2_ARCHIVE_KEY_ID }}
+          B2_ARCHIVE_WRITER_APPLICATION_KEY: ${{ secrets.B2_ARCHIVE_APPLICATION_KEY }}
           # Optional; unset secrets arrive empty and the defaults apply.
           # BACKUP_AUTH_DATA falls back to the deployment's matrix value.
           BACKUP_AUTH_DATA: ${{ secrets.BACKUP_AUTH_DATA || matrix.auth_data }}
