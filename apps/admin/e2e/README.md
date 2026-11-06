@@ -46,3 +46,11 @@ database. Only the model is synthetic. Covers both themes at 375/1440 px,
 streaming and sources, Stop/New chat, repeated focus restoration, and preserving
 an unsaved note behind desktop/mobile lead panels. The normal shell config
 excludes this authenticated suite. No Gateway key or live model is needed.
+
+## Automation builder (`automation-builder.spec.ts`)
+
+Included in `test:e2e:leads`, on the seeded "Verified follow-up" flow. It sets
+the flow's switch itself and leaves it off, so it depends on no lead journey.
+It stays out of the serial lead journeys because a serial retry reruns the
+whole file against data the first pass already changed: one slow step there
+would fail journeys that cannot pass a second time.

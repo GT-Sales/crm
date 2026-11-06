@@ -112,6 +112,9 @@ async function alertTerminalJobs(
   }
 }
 
+/** What a job staff marked "not delivered" records as its last error. */
+export const STAFF_CONFIRMED_NOT_DELIVERED = 'staff_confirmed_not_delivered';
+
 export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
   constructor(private readonly database: Pick<DatabaseClient, 'withTenantTx'> = { withTenantTx }) {}
 
@@ -124,7 +127,10 @@ export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
       const rows = await this.database.withTenantTx({ workspaceId, actorId: input.actorId }, (tx) =>
         tx
           .select({
-            failed: sql<number>`count(*) filter (where ${outboxJobs.status} = 'failed')::int`,
+            // A job staff already marked "not delivered" is known and decided:
+            // it stays listed and retryable, but no longer counts as a queue
+            // that is not draining. A retry that fails again counts again.
+            failed: sql<number>`count(*) filter (where ${outboxJobs.status} = 'failed' and ${outboxJobs.lastErrorCode} is distinct from ${STAFF_CONFIRMED_NOT_DELIVERED})::int`,
             uncertain: sql<number>`count(*) filter (where ${outboxJobs.status} = 'uncertain')::int`,
           })
           .from(outboxJobs)
@@ -339,7 +345,7 @@ export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
             completedAt: input.delivered ? now : null,
             lastErrorCode: input.delivered
               ? 'staff_confirmed_delivered'
-              : 'staff_confirmed_not_delivered',
+              : STAFF_CONFIRMED_NOT_DELIVERED,
             updatedAt: now,
           })
           .where(
