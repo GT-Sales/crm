@@ -31,7 +31,7 @@ function stringEnv(source: NodeJS.ProcessEnv): Record<string, string> {
 export default defineConfig({
   ...basePlaywrightConfig,
   testDir: './e2e',
-  testMatch: ['leads.spec.ts', 'ai-assistant.spec.ts'],
+  testMatch: ['leads.spec.ts', 'ai-assistant.spec.ts', 'automation-builder.spec.ts'],
   workers: 1,
   use: { ...basePlaywrightConfig.use, baseURL: `http://127.0.0.1:${ADMIN_PORT}` },
   projects: [{ name: 'desktop', use: { viewport: { width: 1440, height: 900 } } }],
