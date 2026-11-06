@@ -1823,8 +1823,13 @@ If a switch-day step has to be undone, the rollback is in
 `CRM_TRACKING` off is safe; turning `CRM_ORDERS` off once CRM orders exist
 needs the old checkout's order number moved past the CRM's first.
 
-**Intake check (merge phase 6).** Built (§3.9), not deployed; once deployed
-it stays off until these steps. The owner's steps, in order
+**Intake check (merge phase 6).** **Switched on 6 Nov 2026**: test site
+`intake-check` (`abf5dabe-5fcc-4976-a3d1-d4b1838dd39f`, verified empty of
+members, roles, keys, email settings and automations), `synthetic:check` added
+to the `railway-scheduler` entry's scopes, and the first run after the redeploy
+logged `intake_check` `ok` (2.7 s) with no `scheduler_scope_missing`. Still to
+do, with the owner's agreement: the controlled failure (sections C and D).
+The steps as they were taken, in order
 ([RUNBOOKS/intake-check.md](RUNBOOKS/intake-check.md)):
 
 1. **Create the test site**: sections A and B of
