@@ -420,6 +420,11 @@ databaseTest('database outbox store', () => {
       where workspace_id = ${RESOLVE_WORKSPACE} and resolved_at is null
     `;
     expect(openAlerts.map((row) => String(row.job_id))).toEqual([alreadyFailed]);
+    // A job staff marked not delivered is decided: it no longer counts toward
+    // the "queue not draining" alert; the untouched failure still does.
+    expect(
+      await store.queueHealth({ authorizedWorkspaceIds: [RESOLVE_WORKSPACE], actorId: ACTOR }),
+    ).toEqual({ failed: 1, uncertain: 0 });
     // The not-delivered job can now take the normal staff retry.
     expect(
       await store.retry({
