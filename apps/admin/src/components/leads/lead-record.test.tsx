@@ -490,19 +490,19 @@ describe('LeadRecord documents', () => {
     expect(rows[1]?.textContent).toContain('JPEG · 82 KB');
   });
 
-  it('views a document in a tab of its own, through an inline link', async () => {
+  it('previews a document in the page, through an inline link', async () => {
     mocks.getStaffLead.mockResolvedValue(response({ documents: [passport], access: owner }));
     mocks.createFileDownloadLink.mockResolvedValueOnce({
       url: 'https://storage.example.test/view',
       expiresAt: NOW,
       requestId: NOW,
     });
-    const tab = { show: vi.fn(), close: vi.fn() };
-    const openTab = vi.spyOn(downloadNavigation, 'openTab').mockReturnValue(tab);
     render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
     fireEvent.click(await screen.findByRole('button', { name: 'View Passport' }));
-    await waitFor(() => expect(tab.show).toHaveBeenCalledWith('https://storage.example.test/view'));
-    expect(openTab).toHaveBeenCalledTimes(1);
+    const dialog = await screen.findByRole('dialog');
+    // A PDF shows in the browser's own viewer, inside the page.
+    const frame = dialog.querySelector('iframe');
+    expect(frame?.getAttribute('src')).toBe('https://storage.example.test/view');
     expect(mocks.createFileDownloadLink).toHaveBeenCalledWith(
       'staff-token',
       WORKSPACE,
@@ -510,7 +510,16 @@ describe('LeadRecord documents', () => {
       'inline',
     );
 
-    // A refused link closes the tab again and says why.
+    // "Open in new tab" takes the same link to a tab cut off from this page.
+    const tab = { show: vi.fn(), close: vi.fn() };
+    const openTab = vi.spyOn(downloadNavigation, 'openTab').mockReturnValue(tab);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open in new tab' }));
+    expect(tab.show).toHaveBeenCalledWith('https://storage.example.test/view');
+    openTab.mockRestore();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // A refused link opens nothing and says why.
     const { BackendError } = await import('../../lib/api');
     mocks.createFileDownloadLink.mockRejectedValueOnce(
       new BackendError('file_not_available', 409, NOW),
@@ -519,15 +528,7 @@ describe('LeadRecord documents', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(
       'This document is not available yet.',
     );
-    expect(tab.close).toHaveBeenCalledTimes(1);
-
-    // A blocked tab asks for nothing from the backend.
-    openTab.mockReturnValueOnce(undefined);
-    const calls = mocks.createFileDownloadLink.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'View Passport' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('blocked the new tab');
-    expect(mocks.createFileDownloadLink.mock.calls.length).toBe(calls);
-    openTab.mockRestore();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('downloads a document through a signed link', async () => {
