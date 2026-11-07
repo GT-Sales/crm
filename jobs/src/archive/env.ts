@@ -6,10 +6,14 @@
  * testable without mutating `process.env`.
  */
 
-/** A set, non-blank value; throws `NAME is required` otherwise. */
+/**
+ * A set, non-blank value, trimmed: a secret pasted into GitHub's form often
+ * keeps a trailing newline, which would break request signing or a URL.
+ * Throws `NAME is required` otherwise.
+ */
 export function requiredEnv(name: string, env: NodeJS.ProcessEnv = process.env): string {
-  const value = env[name];
-  if (!value || !value.trim()) throw new Error(`${name} is required`);
+  const value = env[name]?.trim();
+  if (!value) throw new Error(`${name} is required`);
   return value;
 }
 
