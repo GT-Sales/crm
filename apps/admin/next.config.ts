@@ -28,6 +28,20 @@ const apiOrigin = originOf(process.env.NEXT_PUBLIC_API_BASE_URL);
 const supabaseOrigin = originOf(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const sentryOrigin = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
 
+/**
+ * Where signed document links point: Supabase Storage's own host,
+ * `<ref>.storage.supabase.co`, next to the project's `<ref>.supabase.co`.
+ * Previews show a document in an <img> or a PDF <iframe> from there.
+ */
+function storageOriginOf(supabaseUrl: string | undefined): string | undefined {
+  const origin = originOf(supabaseUrl);
+  if (!origin) return undefined;
+  const url = new URL(origin);
+  const match = /^([a-z0-9]+)\.supabase\.co$/.exec(url.hostname);
+  return match ? `https://${match[1]}.storage.supabase.co` : undefined;
+}
+const storageOrigin = storageOriginOf(process.env.NEXT_PUBLIC_SUPABASE_URL);
+
 // With connect-src pinned to these origins, a production deployment missing
 // either would silently block the API or sign-in at runtime: fail the build.
 if (process.env.VERCEL_ENV === 'production' && (!apiOrigin || !supabaseOrigin)) {
@@ -44,8 +58,10 @@ function buildCsp(): string {
     'object-src': ["'none'"],
     'frame-ancestors': ["'none'"],
     'form-action': ["'self'"],
-    // Admin loads only its own icon; data: and blob: cover inline previews.
-    'img-src': ["'self'", 'data:', 'blob:'],
+    // Its own icon, data:/blob: previews, and document previews from Storage.
+    'img-src': dedupe(["'self'", 'data:', 'blob:', storageOrigin]),
+    // A PDF document preview embeds the signed Storage link; nothing else frames.
+    'frame-src': dedupe(["'self'", storageOrigin]),
     'font-src': ["'self'", 'data:'],
     'style-src': ["'self'", "'unsafe-inline'"],
     'script-src': dedupe(["'self'", "'unsafe-inline'", ...scriptExtra]),

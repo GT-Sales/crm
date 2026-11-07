@@ -2,7 +2,19 @@
 
 import { useState } from 'react';
 import type { FileReviewDecision, LeadDocument } from '@gt-sales/contracts';
-import { Badge, Button, Card, CardContent, cn } from '@gt-sales/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  cn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@gt-sales/ui';
 
 import { createFileDownloadLink, reviewFile } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
@@ -156,24 +168,31 @@ export function DocumentRow({
   const named = subject ? `${label} for ${subject}` : label;
   const badge = reviewBadge(document.review);
 
+  // The preview's signed inline link; it lives about as long as the link does.
+  const [preview, setPreview] = useState<string>();
+  const [previewFailed, setPreviewFailed] = useState(false);
+
   async function view() {
     setMessage(undefined);
-    // Opened now, inside the click: once the link is back, a popup blocker would refuse it.
+    setPreviewFailed(false);
+    setBusy(true);
+    try {
+      const link = await createFileDownloadLink(accessToken, workspaceId, document.id, 'inline');
+      setPreview(link.url);
+    } catch (error) {
+      setMessage(linkFailure(errorReason(error)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openInTab() {
     const tab = downloadNavigation.openTab();
     if (!tab) {
       setMessage('Your browser blocked the new tab. Allow pop-ups for this site, or download it.');
       return;
     }
-    setBusy(true);
-    try {
-      const link = await createFileDownloadLink(accessToken, workspaceId, document.id, 'inline');
-      tab.show(link.url);
-    } catch (error) {
-      tab.close();
-      setMessage(linkFailure(errorReason(error)));
-    } finally {
-      setBusy(false);
-    }
+    if (preview) tab.show(preview);
   }
 
   async function review(decision: FileReviewDecision) {
@@ -278,6 +297,47 @@ export function DocumentRow({
           {message}
         </p>
       ) : null}
+      <Dialog
+        open={preview !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setPreview(undefined);
+        }}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{named}</DialogTitle>
+            <DialogDescription>
+              {FORMAT_LABELS[document.contentType]} · {sizeLabel(document.sizeBytes)}
+            </DialogDescription>
+          </DialogHeader>
+          {preview ? (
+            previewFailed ? (
+              <p className="text-sm text-muted-foreground">
+                This preview could not be shown here. Open it in a new tab or download it.
+              </p>
+            ) : document.contentType === 'application/pdf' ? (
+              <iframe src={preview} title={named} className="h-[75vh] w-full rounded-md border" />
+            ) : (
+              // A short-lived signed link to a private object: next/image would
+              // proxy and cache it, so a plain <img> is the right element here.
+              <img
+                src={preview}
+                alt={named}
+                onError={() => setPreviewFailed(true)}
+                className="max-h-[75vh] w-full rounded-md bg-muted object-contain"
+              />
+            )
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={openInTab}>
+              Open in new tab
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void download()}>
+              Download
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </li>
   );
 }
