@@ -148,6 +148,17 @@ The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`
 The import runs one last time on switch day, when the checkout moves to the
 CRM; see [The final run (switch day)](#the-final-run-switch-day) below.
 
+**Nightly sync (since 2026-11-07).** Until switch day the old admin stays the
+working system (owner decision, "Option A"), and the CRM is kept current every
+night: pg_cron job `gcs-legacy-sync` runs `app.sync_getcanadasim_legacy()` at
+20:00 UTC (02:00 Bangladesh), the script above wrapped in a function
+([manual/gcs-nightly-sync.sql](manual/gcs-nightly-sync.sql), applied as the
+Supabase migration `gcs_nightly_sync`). Same re-run rules: a lead worked in the
+CRM keeps the CRM's version, so staff only view orders in the CRM until the
+switch. Its runs are in `cron.job_run_details`. **On switch day, after the
+final import:** `select cron.unschedule('gcs-legacy-sync');`. If the script
+changes, re-apply the function from the changed script.
+
 **Documents** are not copied by the script itself: it queues one
 `legacy_document_import` outbox job per file Get Canada Sim keeps in the
 `documents` bucket (only where Supabase's `storage.objects` lists it, and only

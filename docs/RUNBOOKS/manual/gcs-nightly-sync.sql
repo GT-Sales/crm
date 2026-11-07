@@ -1,0 +1,377 @@
+-- Nightly Get Canada Sim -> CRM sync (owner decision 2026-11-07, "Option A":
+-- the old admin stays the working system until switch day; the CRM is kept
+-- current every night so staff can learn it on real data).
+--
+-- The body is packages/db/sql/getcanadasim-legacy-import.sql, unchanged but
+-- for the uuid helper living in `app` instead of pg_temp, wrapped in a
+-- function pg_cron calls at 20:00 UTC (02:00 Bangladesh). Same re-run rules:
+-- anything worked in the CRM keeps the CRM's version.
+--
+-- Stop it on switch day, after the final import:
+--   select cron.unschedule('gcs-legacy-sync');
+create extension if not exists pg_cron;
+
+create or replace function app.gcs_legacy_uuid(seed text) returns uuid
+language sql immutable as $function$
+  select (
+    substr(h, 1, 8) || '-' || substr(h, 9, 4) || '-4' || substr(h, 14, 3) || '-8' ||
+    substr(h, 18, 3) || '-' || substr(h, 21, 12)
+  )::uuid
+  from (select md5(seed) as h) as hashed
+$function$;
+
+create or replace function app.sync_getcanadasim_legacy()
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, pg_temp
+as $import$
+declare
+  -- contracts LEGACY_IMPORT_ACTOR_ID: the admin shows it as "Old admin".
+  v_actor constant uuid := '00000000-0000-4000-8000-00000000a001';
+  v_workspace uuid;
+begin
+  select id into v_workspace from app.workspaces where slug = 'getcanadasim';
+  if v_workspace is null then
+    raise exception 'the getcanadasim site does not exist';
+  end if;
+  if to_regclass('public.orders') is null or to_regclass('public.partners') is null then
+    raise exception 'the Get Canada Sim tables do not exist';
+  end if;
+
+  -- Plan labels as Get Canada Sim's data.ts names them today (`planLabel`);
+  -- a retired plan keeps only its slug.
+  create temporary table gcs_plan_labels (slug text primary key, label text not null) on commit drop;
+  insert into gcs_plan_labels values
+    ('unlimited-data-120gb-rogers', 'Unlimited Data · $50, Rogers'),
+    ('unlimited-data-rogers', 'Unlimited Data · $40, Rogers'),
+    ('75gb-fido', '75GB · $35, Fido'),
+    ('95gb-chatr', '90GB · $40, Chatr'),
+    ('25gb-chatr', '50GB · $35, Chatr'),
+    ('75gb-chatr', '75GB · $75, Chatr');
+
+  -- Both tables in one shape, with the submitted form as the CRM stores it.
+  -- Empty optional fields are left out. Before `shipping_address` existed the
+  -- order form wrote the address into `notes` behind "Shipping address:",
+  -- which Get Canada Sim's `orderShippingAddress` still reads; so does this.
+  create temporary table gcs_legacy_rows on commit drop as
+  select
+    o.id,
+    'sim_order'::text as lead_type,
+    case when o.status = 'incomplete' then 'incomplete' else 'submitted' end as status,
+    case o.status when 'paid' then 'pending' when 'invoiced' then 'completed' else o.status end
+      as stage,
+    nullif(btrim(o.full_name), '') as full_name,
+    nullif(btrim(o.email), '') as email,
+    nullif(btrim(o.phone), '') as phone,
+    case when upper(btrim(o.country_code)) ~ '^[A-Z]{2}$' then upper(btrim(o.country_code)) end as country_code,
+    'MS-' || o.order_no as external_ref,
+    o.created_at,
+    o.archived_at as deleted_at,
+    nullif(btrim(o.admin_note), '') as staff_note,
+    o.admin_note_at as staff_note_at,
+    nullif(btrim(o.partner_note), '') as partner_note,
+    o.partner_note_at,
+    o.reminder_at,
+    nullif(btrim(o.reminder_note), '') as reminder_note,
+    o.reminder_done_at,
+    o.viewed_at as opened_at,
+    case when p.id is null then '{}'::jsonb
+         else jsonb_build_object('partnerCode', 'PT-' || p.partner_no, 'partnerCodeMatched', true)
+    end as attribution,
+    jsonb_build_object('schemaVersion', 1, 'payload', jsonb_strip_nulls(jsonb_build_object(
+      'planId', nullif(btrim(o.plan), ''),
+      'planLabel', pl.label,
+      'delivery', o.delivery,
+      'arrivalDate', to_char(o.arrival, 'YYYY-MM-DD'),
+      'permitType', nullif(btrim(o.permit_type), ''),
+      'gotVisa', o.got_visa,
+      'flightBooked', o.flight_booked,
+      'canadaAddress', nullif(btrim(o.canada_address), ''),
+      'shippingAddress', coalesce(
+        nullif(btrim(o.shipping_address), ''),
+        case when o.notes ~* '^Shipping address:'
+             then nullif(btrim(regexp_replace(o.notes, '^Shipping address:\s*', '', 'i')), '') end
+      ),
+      'reference', nullif(btrim(o.reference), ''),
+      'customerNotes', case when o.notes ~* '^Shipping address:' then null
+                            else nullif(btrim(o.notes), '') end,
+      'simNumber', nullif(btrim(o.sim_number), '')
+    ))) as form,
+    jsonb_build_object(
+      'planId', null,
+      'plan', null,
+      'quantity', 1,
+      'paymentStatus', case
+        when o.status in ('paid', 'verified', 'delivered', 'activated', 'completed', 'invoiced')
+          then 'paid'
+        when o.status in ('cancelled', 'on_hold') then 'not_needed'
+        else 'pending'
+      end,
+      'carrierCommission', case
+        when o.status = 'invoiced' then 'invoiced'
+        else case btrim(o.commission_status)
+          when 'invoiced' then 'invoiced'
+          when 'commission_received' then 'received'
+          when 'claw_back' then 'clawback'
+          else 'not_yet'
+        end
+      end
+    ) as order_details
+  from public.orders as o
+  left join public.partners as p on p.id = o.partner_id
+  left join gcs_plan_labels as pl on pl.slug = o.plan
+  union all
+  select
+    p.id,
+    'partner_application'::text,
+    'submitted'::text,
+    p.status,
+    nullif(btrim(p.contact_name), ''),
+    nullif(btrim(p.email), ''),
+    nullif(btrim(p.phone), ''),
+    null::text,
+    'PT-' || p.partner_no,
+    p.created_at,
+    null::timestamptz,
+    null::text,
+    null::timestamptz,
+    null::text,
+    null::timestamptz,
+    null::date,
+    null::text,
+    null::timestamptz,
+    -- A partner application was handled in the old admin: never "New" here.
+    p.created_at,
+    '{}'::jsonb,
+    jsonb_build_object('schemaVersion', 1, 'payload', jsonb_strip_nulls(jsonb_build_object(
+      'company', nullif(btrim(p.company), ''),
+      'website', nullif(btrim(p.website), ''),
+      'country', nullif(btrim(p.country), ''),
+      'businessType', nullif(btrim(p.business_type), ''),
+      'volume', nullif(btrim(p.volume), ''),
+      'message', nullif(btrim(p.message), '')
+    ))),
+    '{}'::jsonb
+  from public.partners as p;
+
+  -- Contacts, one per normalised email, named from that person's latest row.
+  -- Contacts are shared by every site, so a CanadaWide customer who also
+  -- ordered a SIM is one person here.
+  insert into app.contacts as c (email, full_name, phone, country_code)
+  select distinct on (lower(r.email)) lower(r.email), r.full_name, r.phone, r.country_code
+  from gcs_legacy_rows as r
+  where position('@' in coalesce(r.email, '')) > 1
+  order by lower(r.email), r.created_at desc
+  on conflict (email) do update set
+    full_name = coalesce(c.full_name, excluded.full_name),
+    phone = coalesce(c.phone, excluded.phone),
+    country_code = coalesce(c.country_code, excluded.country_code);
+
+  insert into app.leads as l (
+    id, workspace_id, lead_type, status, stage, full_name, email, phone, country_code,
+    contact_id, external_ref, payload, attribution, order_details, consent_version, deleted_at,
+    created_at, updated_at
+  )
+  select
+    r.id, v_workspace, r.lead_type, r.status, r.stage, r.full_name, r.email, r.phone,
+    r.country_code, c.id, r.external_ref, r.form, r.attribution, r.order_details,
+    'gcs-legacy-import', r.deleted_at, r.created_at,
+    greatest(
+      r.created_at,
+      coalesce(r.staff_note_at, r.created_at),
+      coalesce(r.partner_note_at, r.created_at)
+    )
+  from gcs_legacy_rows as r
+  left join app.contacts as c on c.email = lower(r.email)
+  on conflict (id) do update set
+    stage = excluded.stage,
+    status = case when l.status = 'incomplete' then excluded.status else l.status end,
+    full_name = excluded.full_name,
+    phone = excluded.phone,
+    payload = excluded.payload,
+    attribution = excluded.attribution,
+    order_details = excluded.order_details,
+    deleted_at = excluded.deleted_at,
+    updated_at = greatest(l.updated_at, excluded.updated_at)
+  where l.workspace_id = excluded.workspace_id
+    and l.customer_data_restricted_at is null
+    and (l.stage, l.status, l.full_name, l.phone, l.payload, l.attribution, l.order_details,
+         l.deleted_at)
+        is distinct from
+        (excluded.stage, excluded.status, excluded.full_name, excluded.phone, excluded.payload,
+         excluded.attribution, excluded.order_details, excluded.deleted_at)
+    and not exists (
+      select 1 from app.lead_activities as a
+      where a.workspace_id = l.workspace_id and a.lead_id = l.id and a.actor_id <> v_actor
+        -- Opening a lead is not working it.
+        and not (a.kind = 'system' and a.data ->> 'event' = 'opened')
+    );
+
+  insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, body, data, created_at)
+  select
+    app.gcs_legacy_uuid('gcs-legacy-note:' || r.id || ':' || md5(r.staff_note)),
+    v_workspace, r.id, v_actor, 'note', left(r.staff_note, 4000),
+    jsonb_build_object('source', 'legacy_admin'),
+    coalesce(r.staff_note_at, r.created_at)
+  from gcs_legacy_rows as r
+  join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
+  where r.staff_note is not null
+  union all
+  select
+    app.gcs_legacy_uuid('gcs-legacy-partner-note:' || r.id || ':' || md5(r.partner_note)),
+    v_workspace, r.id, v_actor, 'note', left('Partner note: ' || r.partner_note, 4000),
+    jsonb_build_object('source', 'legacy_partner'),
+    coalesce(r.partner_note_at, r.created_at)
+  from gcs_legacy_rows as r
+  join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
+  where r.partner_note is not null
+  on conflict (id) do nothing;
+
+  -- The old admin's "New" badge: an order someone opened there (`viewed_at`)
+  -- is opened here too, by the old admin, so it carries no badge.
+  insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, data, created_at)
+  select
+    app.gcs_legacy_uuid('gcs-legacy-opened:' || r.id),
+    v_workspace, r.id, v_actor, 'system', jsonb_build_object('event', 'opened'), r.opened_at
+  from gcs_legacy_rows as r
+  join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
+  where r.opened_at is not null
+    and not exists (
+      select 1 from app.lead_activities as opened
+      where opened.workspace_id = v_workspace and opened.lead_id = r.id
+        and opened.kind = 'system' and opened.data ->> 'event' = 'opened'
+    )
+  on conflict (id) do nothing;
+
+  -- Customer change requests from `/track` (`order_edit_requests`): the
+  -- request on the day it came, by the customer, naming the fields and the
+  -- documents it changes (never their values), then the old admin's decision
+  -- on the day it made it. A request still waiting there shows on the lead
+  -- page until a later run brings its decision.
+  if to_regclass('public.order_edit_requests') is not null then
+    insert into app.lead_activities (id, workspace_id, lead_id, actor_id, kind, data, created_at)
+    select
+      app.gcs_legacy_uuid('gcs-legacy-change-request:' || q.id),
+      v_workspace, q.order_id, v_actor, 'system',
+      jsonb_build_object(
+        'event', 'change_requested',
+        'requestNo', q.request_no,
+        'fields', (
+          select coalesce(jsonb_agg(m.field order by m.position), '[]'::jsonb)
+          from (values
+            ('full_name', 'fullName', 1), ('phone', 'phone', 2), ('plan', 'planId', 3),
+            ('delivery', 'delivery', 4), ('arrival', 'arrivalDate', 5),
+            ('permit_type', 'permitType', 6), ('canada_address', 'canadaAddress', 7),
+            ('shipping_address', 'shippingAddress', 8), ('flight_booked', 'flightBooked', 9)
+          ) as m(source, field, position)
+          where q.changes ? m.source
+        ),
+        'documents', (
+          select coalesce(jsonb_agg(m.document order by m.position), '[]'::jsonb)
+          from (values ('passport_path', 'passport', 1), ('permit_path', 'visa', 2))
+            as m(source, document, position)
+          where q.changes ? m.source
+        )
+      ),
+      q.created_at
+    from public.order_edit_requests as q
+    join app.leads as l
+      on l.workspace_id = v_workspace and l.id = q.order_id
+     and l.customer_data_restricted_at is null
+    union all
+    select
+      app.gcs_legacy_uuid('gcs-legacy-change-review:' || q.id),
+      v_workspace, q.order_id, v_actor, 'system',
+      jsonb_build_object(
+        'event', case q.status when 'approved' then 'change_approved' else 'change_rejected' end,
+        'requestNo', q.request_no
+      ),
+      coalesce(q.reviewed_at, q.created_at)
+    from public.order_edit_requests as q
+    join app.leads as l
+      on l.workspace_id = v_workspace and l.id = q.order_id
+     and l.customer_data_restricted_at is null
+    where q.status in ('approved', 'rejected')
+    on conflict (id) do nothing;
+  end if;
+
+  -- A task the CRM has changed has `updated_at` past `created_at`; this
+  -- import never moves `updated_at`, so it can tell its own rows apart.
+  insert into app.lead_tasks as k (
+    id, workspace_id, lead_id, title, due_at, assigned_actor_id, status, completed_at,
+    created_by, created_at, updated_at
+  )
+  select
+    app.gcs_legacy_uuid('gcs-legacy-reminder:' || r.id),
+    v_workspace, r.id, left(coalesce(r.reminder_note, 'Follow up'), 200),
+    case when r.reminder_at is null then null
+         else (to_char(r.reminder_at, 'YYYY-MM-DD') || 'T12:00:00Z')::timestamptz end,
+    null,
+    case when r.reminder_done_at is null then 'open' else 'done' end,
+    r.reminder_done_at,
+    v_actor, r.created_at, r.created_at
+  from gcs_legacy_rows as r
+  join app.leads as l on l.workspace_id = v_workspace and l.id = r.id
+  where r.reminder_at is not null or r.reminder_note is not null
+  on conflict (id) do update set
+    title = excluded.title,
+    due_at = excluded.due_at,
+    status = excluded.status,
+    completed_at = excluded.completed_at
+  where k.workspace_id = excluded.workspace_id and k.updated_at = k.created_at;
+
+  update app.lead_tasks as k
+  set status = 'cancelled', completed_at = null
+  from gcs_legacy_rows as r
+  where k.workspace_id = v_workspace
+    and k.id = app.gcs_legacy_uuid('gcs-legacy-reminder:' || r.id)
+    and r.reminder_at is null and r.reminder_note is null
+    and k.status <> 'cancelled'
+    and k.updated_at = k.created_at;
+
+  -- Documents: one copy job per file the old admin keeps in the `documents`
+  -- bucket (an order's passport, approval letter, SIM photo and billing
+  -- contract; a partner's licence), for a lead that is not restricted. The
+  -- backend's outbox copies each into the CRM's own part of the bucket,
+  -- verified, and never touches the original. The object's storage version is
+  -- part of the key: a file replaced in the old admin (same name, new bytes)
+  -- is copied again as a newer revision, an unchanged one never twice. Only
+  -- Supabase has the storage schema; elsewhere there are no files to copy.
+  if to_regclass('storage.objects') is not null then
+    insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload)
+    select
+      v_workspace, 'legacy_document_import',
+      'gcs-document:' || d.lead_id || ':' || d.document_type || ':'
+        || md5(d.path || ':' || coalesce(o.version, o.id::text)),
+      jsonb_build_object(
+        'leadId', d.lead_id,
+        'documentType', d.document_type,
+        'sourceKey', d.path,
+        'uploadedAt', to_char(
+          coalesce(o.updated_at, o.created_at) at time zone 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        )
+      )
+    from (
+      select id as lead_id, 'passport' as document_type, passport_path as path from public.orders
+      union all select id, 'visa', permit_path from public.orders
+      union all select id, 'sim_photo', sim_photo_path from public.orders
+      union all select id, 'billing_contract', billing_contract_path from public.orders
+      union all select id, 'business_licence', license_path from public.partners
+    ) as d
+    join app.leads as l
+      on l.workspace_id = v_workspace and l.id = d.lead_id
+     and l.customer_data_restricted_at is null
+    join storage.objects as o on o.bucket_id = 'documents' and o.name = d.path
+    where d.path is not null
+    on conflict (workspace_id, job_type, dedupe_key) do nothing;
+  end if;
+end
+$import$;
+
+
+revoke all on function app.gcs_legacy_uuid(text) from public;
+revoke all on function app.sync_getcanadasim_legacy() from public;
+
+select cron.schedule('gcs-legacy-sync', '0 20 * * *', 'select app.sync_getcanadasim_legacy()');
