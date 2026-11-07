@@ -57,6 +57,15 @@ function signingKey(config: S3SigningConfig, dateStamp: string): Buffer {
   return hmac(kService, 'aws4_request');
 }
 
+/**
+ * The endpoint's own path, without a trailing slash. Supabase Storage serves
+ * S3 under `/storage/v1/s3` (B2 and R2 under none), and SigV4 must sign the
+ * whole path the server sees, prefix included.
+ */
+function endpointPrefix(url: URL): string {
+  return url.pathname.replace(/\/+$/, '');
+}
+
 export interface PresignS3Params {
   method: 'GET' | 'PUT' | 'DELETE';
   key: string;
@@ -70,7 +79,7 @@ export function presignS3Url(config: S3SigningConfig, params: PresignS3Params): 
   const { amzDate, dateStamp } = amzTimestamp(now);
   const url = new URL(config.endpoint);
   const host = url.host;
-  const canonicalUri = `/${encodeRfc3986(config.bucket)}/${encodeKey(params.key)}`;
+  const canonicalUri = `${endpointPrefix(url)}/${encodeRfc3986(config.bucket)}/${encodeKey(params.key)}`;
   const credentialScope = `${dateStamp}/${config.region}/${config.service ?? SERVICE_DEFAULT}/aws4_request`;
 
   const queryParams: Record<string, string> = {
@@ -98,7 +107,7 @@ export function presignS3Url(config: S3SigningConfig, params: PresignS3Params): 
 
   const stringToSign = [ALGORITHM, amzDate, credentialScope, hashHex(canonicalRequest)].join('\n');
   const signature = hmac(signingKey(config, dateStamp), stringToSign).toString('hex');
-  return `${config.endpoint}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+  return `${url.origin}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
 export interface SignS3RequestInput {
@@ -125,7 +134,7 @@ export function signS3Request(
   const { amzDate, dateStamp } = amzTimestamp(now);
   const url = new URL(config.endpoint);
   const host = url.host;
-  const canonicalUri = `/${encodeRfc3986(config.bucket)}${req.key ? `/${encodeKey(req.key)}` : ''}`;
+  const canonicalUri = `${endpointPrefix(url)}/${encodeRfc3986(config.bucket)}${req.key ? `/${encodeKey(req.key)}` : ''}`;
   const payloadHash = req.body ? createHash('sha256').update(req.body).digest('hex') : hashHex('');
 
   const query = req.query ?? {};
@@ -161,7 +170,7 @@ export function signS3Request(
   const signature = hmac(signingKey(config, dateStamp), stringToSign).toString('hex');
 
   return {
-    url: `${config.endpoint}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ''}`,
+    url: `${url.origin}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ''}`,
     headers: {
       ...baseHeaders,
       authorization: `${ALGORITHM} Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
