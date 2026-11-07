@@ -88,3 +88,45 @@ describe('signS3Request', () => {
     expect(headers['x-amz-object-lock-mode']).toBe('COMPLIANCE');
   });
 });
+
+describe('an endpoint with a path of its own (Supabase Storage)', () => {
+  const supabase: S3SigningConfig = {
+    endpoint: 'https://ref.storage.supabase.co/storage/v1/s3/',
+    region: 'ap-south-1',
+    bucket: 'documents',
+    accessKeyId: 'AKID',
+    secretAccessKey: 'SECRET',
+  };
+
+  it('signs and requests the whole path, prefix included', () => {
+    const { url, headers } = signS3Request(supabase, {
+      method: 'GET',
+      key: 'workspaces/w1/candidate/f1',
+      headers: {},
+      now: new Date('2026-11-07T00:00:00Z'),
+    });
+    expect(url).toBe(
+      'https://ref.storage.supabase.co/storage/v1/s3/documents/workspaces/w1/candidate/f1',
+    );
+    const other = signS3Request(
+      { ...supabase, endpoint: 'https://ref.storage.supabase.co' },
+      {
+        method: 'GET',
+        key: 'workspaces/w1/candidate/f1',
+        headers: {},
+        now: new Date('2026-11-07T00:00:00Z'),
+      },
+    );
+    expect(headers.authorization).not.toBe(other.headers.authorization);
+  });
+
+  it('presigns under the prefix too', () => {
+    const url = presignS3Url(supabase, {
+      method: 'GET',
+      key: 'k',
+      expiresInSeconds: 60,
+      now: new Date('2026-11-07T00:00:00Z'),
+    });
+    expect(url.startsWith('https://ref.storage.supabase.co/storage/v1/s3/documents/k?')).toBe(true);
+  });
+});
