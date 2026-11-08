@@ -20,6 +20,31 @@ import {
  * `**`, a `{` with no `}` on its line, brackets that are not a link) stays
  * literal text. The subject and a button's label take fill-ins only.
  *
+ * A paragraph may also be one of these blocks, decided by its shape (else it
+ * stays an ordinary paragraph, its markers literal):
+ *
+ * - `[badge: Label]` (or `[badge success: Label]`) alone on its one line: a
+ *   status pill above the heading; the label takes fill-ins only.
+ * - `[progress: Ordered | >Documents | Active]` alone on its one line: a
+ *   progress tracker of 2 to 5 steps split on `|`. At most one step starts
+ *   with `>`, the current one: the steps before it show as done, the ones
+ *   after it as still to come; with no `>` every step shows as done. Labels
+ *   take fill-ins only.
+ * - A first line starting `# ` (or `## `): a big heading (or a small section
+ *   heading). Every leading line with the same marker joins the heading; the
+ *   lines after it are an ordinary paragraph below it.
+ * - Two or more lines, each `**Label:** value`: a details box, one row a line.
+ * - Every line starting with `>`: a highlighted box (the `>` and one space
+ *   after it are dropped).
+ * - A last line wrapped in backticks, `` `{SIM number}` ``, with at most one
+ *   line above it: a code box, the value large, the line above its label.
+ * - A first line starting `1. ` (any number up to 99, `.` or `)`): steps. A
+ *   line starting with a number starts the next step, the lines after it are
+ *   its words; steps in consecutive paragraphs are one list.
+ *
+ * Every block reads the same inline markup and fill-ins as a paragraph, and a
+ * button inside one is `button_not_alone`.
+ *
  * Pure: no database, no environment. The layout (`layout.ts`) renders the
  * blocks; the settings store validates a template with these parsers.
  */
@@ -38,9 +63,34 @@ export type EmailInline =
 export type EmailTextPart =
   { kind: 'text'; text: string } | { kind: 'fillIn'; key: EmailFillInName };
 
+export interface EmailDetailRow {
+  label: readonly EmailInline[];
+  value: readonly EmailInline[];
+}
+
+export interface EmailStep {
+  /** The number as written, such as `1`. */
+  number: string;
+  title: readonly EmailInline[];
+  /** The step's words below its title; empty when it has none. */
+  body: readonly EmailInline[];
+}
+
 export type EmailBlock =
   | { kind: 'paragraph'; inlines: readonly EmailInline[] }
-  | { kind: 'button'; label: readonly EmailTextPart[]; href: EmailHref };
+  | { kind: 'button'; label: readonly EmailTextPart[]; href: EmailHref }
+  | { kind: 'badge'; tone: 'brand' | 'success'; label: readonly EmailTextPart[] }
+  | {
+      kind: 'progress';
+      steps: readonly (readonly EmailTextPart[])[];
+      /** The index of the current step; `null` when every step is done. */
+      current: number | null;
+    }
+  | { kind: 'heading'; level: 1 | 2; inlines: readonly EmailInline[] }
+  | { kind: 'details'; rows: readonly EmailDetailRow[] }
+  | { kind: 'callout'; inlines: readonly EmailInline[] }
+  | { kind: 'code'; label: readonly EmailInline[] | null; value: readonly EmailInline[] }
+  | { kind: 'steps'; steps: readonly EmailStep[] };
 
 export type MarkupError =
   | { error: 'invalid_fill_in'; fillIn: string; where: 'subject' | 'body' }
@@ -299,13 +349,206 @@ function paragraphsOf(body: string): string[] {
     .filter((paragraph) => paragraph !== '');
 }
 
+/** Inline markup that may not hold a button: a block's text. */
+function readBlockInlines(
+  source: string,
+  reader: Reader,
+): { ok: true; inlines: EmailInline[] } | Failure {
+  const read = readInlines(source, reader, { bold: false, link: false });
+  if (!read.ok) return read;
+  const inlines = read.tokens.filter(isInline);
+  return inlines.length === read.tokens.length
+    ? { ok: true, inlines }
+    : markupError('button_not_alone');
+}
+
+const BADGE = /^\[badge( success)?:([^[\]\n]*)\]$/i;
+const PROGRESS = /^\[progress:([^[\]\n]*)\]$/i;
+const PROGRESS_MAX_STEPS = 5;
+const HEADING = /^(#{1,2}) (.*)$/;
+const CODE_LINE = /^`([^`]+)`$/;
+const STEP_LINE = /^(\d{1,2})[.)] (.*)$/;
+
+/** Splits inlines at their line breaks. */
+function linesOf(inlines: readonly EmailInline[]): EmailInline[][] {
+  const lines: EmailInline[][] = [[]];
+  for (const inline of inlines) {
+    if (inline.kind === 'break') lines.push([]);
+    else lines[lines.length - 1]?.push(inline);
+  }
+  return lines;
+}
+
+/** `**Label:** value` as one row, else `undefined`. */
+function detailRow(line: readonly EmailInline[]): EmailDetailRow | undefined {
+  const [first, ...rest] = line;
+  if (first?.kind !== 'bold') return undefined;
+  const last = first.children[first.children.length - 1];
+  if (last?.kind !== 'text' || !last.text.trimEnd().endsWith(':')) return undefined;
+  const lastText = last.text.trimEnd().slice(0, -1).trimEnd();
+  const label: EmailInline[] = [
+    ...first.children.slice(0, -1),
+    ...(lastText === '' ? [] : [{ kind: 'text' as const, text: lastText }]),
+  ];
+  if (label.length === 0) return undefined;
+  const value = rest.map((inline, index) =>
+    index === 0 && inline.kind === 'text'
+      ? { kind: 'text' as const, text: inline.text.trimStart() }
+      : inline,
+  );
+  const filled = value.filter((inline) => inline.kind !== 'text' || inline.text !== '');
+  return filled.length === 0 ? undefined : { label, value: filled };
+}
+
+type ParagraphBlocks = { ok: true; blocks: EmailBlock[] } | Failure;
+
+/** The blocks one paragraph makes, or `undefined` when it is not one of the shaped blocks. */
+function readShapedParagraph(paragraph: string, reader: Reader): ParagraphBlocks | undefined {
+  const lines = paragraph.split('\n');
+  const [firstLine = ''] = lines;
+
+  const badge = lines.length === 1 ? BADGE.exec(firstLine) : null;
+  const badgeLabel = badge?.[2]?.trim() ?? '';
+  if (badge && badgeLabel !== '') {
+    const label = readTextParts(badgeLabel, reader);
+    if (!label.ok) return label;
+    return {
+      ok: true,
+      blocks: [{ kind: 'badge', tone: badge[1] ? 'success' : 'brand', label: label.parts }],
+    };
+  }
+
+  const progress = lines.length === 1 ? PROGRESS.exec(firstLine) : null;
+  if (progress) {
+    const raw = (progress[1] ?? '').split('|').map((step) => step.trim());
+    const marked = raw.flatMap((step, index) => (step.startsWith('>') ? [index] : []));
+    const labels = raw.map((step) => step.replace(/^>\s*/, ''));
+    if (
+      raw.length >= 2 &&
+      raw.length <= PROGRESS_MAX_STEPS &&
+      marked.length <= 1 &&
+      labels.every((label) => label !== '')
+    ) {
+      const steps: EmailTextPart[][] = [];
+      for (const label of labels) {
+        const parts = readTextParts(label, reader);
+        if (!parts.ok) return parts;
+        steps.push(parts.parts);
+      }
+      return { ok: true, blocks: [{ kind: 'progress', steps, current: marked[0] ?? null }] };
+    }
+  }
+
+  const heading = HEADING.exec(firstLine);
+  if (heading && (heading[2] ?? '').trim() !== '') {
+    const marker = heading[1] ?? '#';
+    const headingLines: string[] = [];
+    let index = 0;
+    for (; index < lines.length; index += 1) {
+      const match = HEADING.exec(lines[index] ?? '');
+      if (!match || match[1] !== marker || (match[2] ?? '').trim() === '') break;
+      headingLines.push((match[2] ?? '').trim());
+    }
+    const title = readBlockInlines(headingLines.join('\n'), reader);
+    if (!title.ok) return title;
+    const blocks: EmailBlock[] = [
+      { kind: 'heading', level: marker === '#' ? 1 : 2, inlines: title.inlines },
+    ];
+    const rest = lines.slice(index).join('\n');
+    if (rest !== '') {
+      const below = readParagraph(rest, reader);
+      if (!below.ok) return below;
+      blocks.push(...below.blocks);
+    }
+    return { ok: true, blocks };
+  }
+
+  if (lines.every((line) => line.startsWith('>'))) {
+    const inner = lines
+      .map((line) => line.replace(/^> ?/, ''))
+      .join('\n')
+      .trim();
+    if (inner !== '') {
+      const read = readBlockInlines(inner, reader);
+      if (!read.ok) return read;
+      return { ok: true, blocks: [{ kind: 'callout', inlines: read.inlines }] };
+    }
+  }
+
+  const code = lines.length <= 2 ? CODE_LINE.exec(lines[lines.length - 1] ?? '') : null;
+  const codeValue = code?.[1]?.trim() ?? '';
+  if (code && codeValue !== '') {
+    const value = readBlockInlines(codeValue, reader);
+    if (!value.ok) return value;
+    const label = lines.length === 2 ? readBlockInlines(firstLine, reader) : undefined;
+    if (label && !label.ok) return label;
+    return {
+      ok: true,
+      blocks: [{ kind: 'code', label: label ? label.inlines : null, value: value.inlines }],
+    };
+  }
+
+  const firstStep = STEP_LINE.exec(firstLine);
+  if (firstStep && (firstStep[2] ?? '').trim() !== '') {
+    const steps: EmailStep[] = [];
+    let current: { number: string; title: string; body: string[] } | undefined;
+    const finish = (): Failure | undefined => {
+      if (!current) return undefined;
+      const title = readBlockInlines(current.title, reader);
+      if (!title.ok) return title;
+      const body = readBlockInlines(current.body.join('\n'), reader);
+      if (!body.ok) return body;
+      steps.push({ number: current.number, title: title.inlines, body: body.inlines });
+      return undefined;
+    };
+    for (const line of lines) {
+      const step = STEP_LINE.exec(line);
+      if (step && (step[2] ?? '').trim() !== '') {
+        const failed = finish();
+        if (failed) return failed;
+        current = { number: step[1] ?? '', title: (step[2] ?? '').trim(), body: [] };
+      } else {
+        current?.body.push(line);
+      }
+    }
+    const failed = finish();
+    if (failed) return failed;
+    return { ok: true, blocks: [{ kind: 'steps', steps }] };
+  }
+
+  return undefined;
+}
+
+/** One paragraph: a shaped block, a button alone, a details box or plain text. */
+function readParagraph(paragraph: string, reader: Reader): ParagraphBlocks {
+  const shaped = readShapedParagraph(paragraph, reader);
+  if (shaped) return shaped;
+  const read = readInlines(paragraph, reader, { bold: false, link: false });
+  if (!read.ok) return read;
+  const buttons = read.tokens.filter((token) => token.kind === 'button');
+  const [button] = buttons;
+  if (button !== undefined) {
+    if (buttons.length > 1) return markupError('two_buttons');
+    if (read.tokens.length > 1) return markupError('button_not_alone');
+    return { ok: true, blocks: [{ kind: 'button', label: button.label, href: button.href }] };
+  }
+  const inlines = read.tokens.filter(isInline);
+  const lines = linesOf(inlines);
+  const rows = lines.length >= 2 ? lines.map(detailRow) : [];
+  const complete = rows.filter((row): row is EmailDetailRow => row !== undefined);
+  if (complete.length >= 2 && complete.length === rows.length) {
+    return { ok: true, blocks: [{ kind: 'details', rows: complete }] };
+  }
+  return { ok: true, blocks: [{ kind: 'paragraph', inlines }] };
+}
+
 /**
  * The blocks of a template's body, or the first problem in it: a fill-in the
  * template may not use (`invalid_fill_in`, naming what was typed in the
  * braces, in the text or a button's label), a link that is not `http(s)://`
  * with no braces or `{tracking link}` (`bad_link`),
- * a second button (`two_buttons`) or a button sharing its paragraph
- * (`button_not_alone`).
+ * a second button (`two_buttons`) or a button sharing its paragraph or inside
+ * another block (`button_not_alone`).
  */
 export function parseEmailBody(
   body: string,
@@ -316,18 +559,20 @@ export function parseEmailBody(
   const blocks: EmailBlock[] = [];
   let hasButton = false;
   for (const paragraph of paragraphsOf(body)) {
-    const read = readInlines(paragraph, reader, { bold: false, link: false });
+    const read = readParagraph(paragraph, reader);
     if (!read.ok) return read;
-    const buttons = read.tokens.filter((token) => token.kind === 'button');
-    const [button] = buttons;
-    if (button === undefined) {
-      blocks.push({ kind: 'paragraph', inlines: read.tokens.filter(isInline) });
-      continue;
+    for (const block of read.blocks) {
+      if (block.kind === 'button') {
+        if (hasButton) return markupError('two_buttons');
+        hasButton = true;
+      }
+      const previous = blocks[blocks.length - 1];
+      if (block.kind === 'steps' && previous?.kind === 'steps') {
+        blocks[blocks.length - 1] = { kind: 'steps', steps: [...previous.steps, ...block.steps] };
+        continue;
+      }
+      blocks.push(block);
     }
-    if (hasButton || buttons.length > 1) return markupError('two_buttons');
-    if (read.tokens.length > 1) return markupError('button_not_alone');
-    hasButton = true;
-    blocks.push({ kind: 'button', label: button.label, href: button.href });
   }
   return { ok: true, blocks };
 }
@@ -352,11 +597,39 @@ function inlineNames(inlines: readonly EmailInline[]): EmailFillInName[] {
       case 'bold':
         return inlineNames(inline.children);
       case 'link':
-        return inlineNames(inline.label);
+        return [
+          ...inlineNames(inline.label),
+          ...(inline.href.kind === 'fillIn' ? [inline.href.key] : []),
+        ];
       default:
         return [];
     }
   });
+}
+
+const partNames = (parts: readonly EmailTextPart[]): EmailFillInName[] =>
+  parts.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : []));
+
+/** Every fill-in one block uses, in reading order (a link's or button's address included). */
+export function blockFillIns(block: EmailBlock): EmailFillInName[] {
+  switch (block.kind) {
+    case 'paragraph':
+    case 'heading':
+    case 'callout':
+      return inlineNames(block.inlines);
+    case 'button':
+      return [...partNames(block.label), ...(block.href.kind === 'fillIn' ? [block.href.key] : [])];
+    case 'badge':
+      return partNames(block.label);
+    case 'progress':
+      return block.steps.flatMap(partNames);
+    case 'details':
+      return block.rows.flatMap((row) => [...inlineNames(row.label), ...inlineNames(row.value)]);
+    case 'code':
+      return [...inlineNames(block.label ?? []), ...inlineNames(block.value)];
+    case 'steps':
+      return block.steps.flatMap((step) => [...inlineNames(step.title), ...inlineNames(step.body)]);
+  }
 }
 
 /** The `{prop:…}` keys a site-made template's subject and body use, sorted, each once; [] when it does not parse. */
@@ -364,14 +637,7 @@ export function templatePropertyKeys(subject: string, body: string): string[] {
   const parsedSubject = parseEmailSubject(subject, ANY_SITE_TEMPLATE);
   const parsedBody = parseEmailBody(body, ANY_SITE_TEMPLATE);
   if (!parsedSubject.ok || !parsedBody.ok) return [];
-  const names = [
-    ...parsedSubject.parts.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : [])),
-    ...parsedBody.blocks.flatMap((block) =>
-      block.kind === 'button'
-        ? block.label.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : []))
-        : inlineNames(block.inlines),
-    ),
-  ];
+  const names = [...partNames(parsedSubject.parts), ...parsedBody.blocks.flatMap(blockFillIns)];
   const keys = names
     .filter((name) => name.startsWith(PROPERTY_FILL_IN_PREFIX))
     .map((name) => name.slice(PROPERTY_FILL_IN_PREFIX.length));

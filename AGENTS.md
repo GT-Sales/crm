@@ -326,7 +326,8 @@ sent. Every save is a new version in the append-only
 version 0 is the starter text that was never saved), and a sent mail records the
 version it was rendered from in `email_messages.template_version`. A template is
 written in a small markup (`email/markup.ts`: paragraphs, `**bold**`, links, one
-`[button: Label](url)`) with **fill-ins** in braces, such as `{first name}`: the
+`[button: Label](url)`, and the badge, progress, heading, details, highlighted
+box, code box and steps blocks) with **fill-ins** in braces, such as `{first name}`: the
 list is `EMAIL_FILL_IN_KEYS` and each template may use only some
 (`fillInsForTemplate`). A misspelt or disallowed fill-in is refused when the
 template is saved. The backend renders a mail when it queues it, so the outbox
