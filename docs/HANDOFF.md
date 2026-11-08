@@ -1943,7 +1943,13 @@ Then the CRM's own owner items:
   env switch (§3.2); the historical import, stages, lead page, timeline, notes,
   tasks, assignment, board, My tasks, trash, related requests, the team list (§3.3).
   Still to do in phase 1:
-- **CanadaWide's ID step** (`/api/mobility-applications`). The CRM side is
+- **CanadaWide's ID step** (`/api/mobility-applications`). **On the owner's
+  list (2026-11-08):** CanadaWide's licence photos (20 files, 12.5 MB on
+  2026-11-08) still sit only in Supabase's `mobility-ids` bucket, outside the
+  CRM and outside the nightly backup (which copies only what `app.files`
+  references). Bringing them in closes that gap. The website already shrinks
+  photos in the browser (longest side 2400 px, JPEG 85%, 4 MB cap). The CRM
+  side is
   built (2026-10-27), waiting on migration 0006 in production
   ([database runbook](RUNBOOKS/database.md#0006_legacy_identity_mirror_result-2026-10-27)):
   - `POST /website/leads/:leadId/identity/uploads` authorises a licence photo
