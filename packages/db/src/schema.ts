@@ -1757,8 +1757,9 @@ export const siteCounters = appSchema
 
 /**
  * A site's customer email identity and look (Settings → Email): the sender,
- * reply-to, logo, brand colour, footer and website link every customer email
- * of the site uses. One row per site, absent until an owner saves it.
+ * reply-to, logo, brand colour, footer, website link, layout style and accent
+ * colour every customer email of the site uses. One row per site, absent until
+ * an owner saves it.
  */
 export const workspaceEmailSettings = appSchema
   .table(
@@ -1774,6 +1775,10 @@ export const workspaceEmailSettings = appSchema
       brandColor: text('brand_color').default('#d72638').notNull(),
       footerText: text('footer_text').default('').notNull(),
       siteUrl: text('site_url'),
+      /** `classic` or `hero` (`EMAIL_STYLES` in the contracts); every existing site is `classic`. */
+      style: text('style').default('classic').notNull(),
+      /** The hero style's status pill colour; null uses a tint of the brand colour. */
+      accentColor: text('accent_color'),
       updatedBy: uuid('updated_by').notNull(),
       updatedAt: updatedAt(),
     },
@@ -1801,6 +1806,11 @@ export const workspaceEmailSettings = appSchema
       check(
         'workspace_email_settings_footer_text_check',
         sql`char_length(${table.footerText}) <= 500`,
+      ),
+      check('workspace_email_settings_style_check', sql`${table.style} in ('classic', 'hero')`),
+      check(
+        'workspace_email_settings_accent_color_check',
+        sql`${table.accentColor} is null or ${table.accentColor} ~ '^#[0-9a-f]{6}$'`,
       ),
       check(
         'workspace_email_settings_site_url_check',

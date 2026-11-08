@@ -872,6 +872,36 @@ select column_name, data_type, column_default from information_schema.columns
 select conname from pg_constraint where conname = 'plans_commission_check';               -- 1 row
 ```
 
+## 0028_email_style (2026-11-08)
+
+A site's customer mail style (Settings → Email → Style). Two columns on
+`app.workspace_email_settings`: `style text not null default 'classic'`
+(`classic` or `hero`, `workspace_email_settings_style_check`) and
+`accent_color text` (null, or `#rrggbb` in lower case,
+`workspace_email_settings_accent_color_check`; the hero style's status pill).
+Every saved site becomes `classic`, which draws exactly the mail it drew
+before. `app_runtime` already holds table-level `SELECT, INSERT, UPDATE` on
+the table (0014), so no grant changes; RLS and policies are untouched. Adding a
+column with a constant default is metadata-only (no rewrite). Rollback, after
+reverting the code: `ALTER TABLE app.workspace_email_settings DROP CONSTRAINT
+workspace_email_settings_style_check, DROP CONSTRAINT
+workspace_email_settings_accent_color_check, DROP COLUMN style, DROP COLUMN
+accent_color;`
+
+- **To apply** (owner), before deploying a backend that reads the columns:
+  run the file through the Supabase tool or the SQL editor, then insert the
+  Drizzle tracker row: hash `35d76dfc60e8fa27d06a42ba10248061270178152fd749aa4d589893bf0a9fd8`, `created_at` `1794159298930`.
+- Verify against the schema:
+
+```sql
+select column_name, data_type, column_default from information_schema.columns
+ where table_schema = 'app' and table_name = 'workspace_email_settings'
+   and column_name in ('style', 'accent_color');                                         -- 2 rows
+select conname from pg_constraint
+ where conname in ('workspace_email_settings_style_check',
+                   'workspace_email_settings_accent_color_check');                       -- 2 rows
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

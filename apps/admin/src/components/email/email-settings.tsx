@@ -3,6 +3,8 @@
 import { useId, useState, type JSX } from 'react';
 import {
   DEFAULT_EMAIL_BRAND_COLOR,
+  DEFAULT_EMAIL_STYLE,
+  EMAIL_STYLES,
   EMAIL_TEMPLATE_MAX_SITE_MADE,
   createEmailTemplateRequestSchema,
   emailFillIns,
@@ -11,6 +13,7 @@ import {
   isSiteTemplateKey,
   updateEmailSettingsRequestSchema,
   type EmailSettingsResponse,
+  type EmailStyle,
   type EmailTemplateKey,
   type PreviewEmailTemplateRequest,
   type SiteEmailTemplate,
@@ -28,6 +31,7 @@ import {
   DialogTitle,
   FormField,
   Input,
+  NativeSelect,
   Textarea,
 } from '@gt-sales/ui';
 
@@ -58,7 +62,29 @@ import { LoadingSkeleton } from '../crm/loading-skeleton';
 const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 type FieldKey =
-  'fromName' | 'fromAddress' | 'replyTo' | 'logoUrl' | 'brandColor' | 'footerText' | 'siteUrl';
+  | 'fromName'
+  | 'fromAddress'
+  | 'replyTo'
+  | 'logoUrl'
+  | 'brandColor'
+  | 'footerText'
+  | 'siteUrl'
+  | 'style'
+  | 'accentColor';
+
+/** The Style choices as the form names them. */
+const STYLE_LABELS: Readonly<Record<EmailStyle, string>> = {
+  classic: 'Classic',
+  hero: 'Website hero',
+};
+
+const STYLE_HINTS: Readonly<Record<EmailStyle, string>> = {
+  classic: 'Logo centred over a brand-colour rule, with a footer band.',
+  hero: 'A brand-colour header with the site name, the status pill and the opening heading. The logo is not shown.',
+};
+
+const isEmailStyle = (value: string): value is EmailStyle =>
+  EMAIL_STYLES.some((entry) => entry === value);
 
 /** What each field needs, said when the value given is not it. */
 const FIELD_HELP: Readonly<Record<FieldKey, string>> = {
@@ -69,6 +95,8 @@ const FIELD_HELP: Readonly<Record<FieldKey, string>> = {
   brandColor: 'Enter a colour as #rrggbb, such as #d72638.',
   footerText: 'Keep the footer to 500 characters or fewer.',
   siteUrl: 'Enter a link that starts with https://, or leave it empty.',
+  style: 'Choose Classic or Website hero.',
+  accentColor: 'Enter a colour as #rrggbb, such as #c0ff72, or leave it empty.',
 };
 
 function fieldKeyOf(value: PropertyKey | undefined): FieldKey | undefined {
@@ -80,6 +108,8 @@ function fieldKeyOf(value: PropertyKey | undefined): FieldKey | undefined {
     'brandColor',
     'footerText',
     'siteUrl',
+    'style',
+    'accentColor',
   ];
   return keys.find((key) => key === value);
 }
@@ -96,6 +126,8 @@ function initialValues({ settings }: EmailSettingsResponse): Values {
       brandColor: settings.brandColor,
       footerText: settings.footerText,
       siteUrl: settings.siteUrl ?? '',
+      style: settings.style,
+      accentColor: settings.accentColor ?? '',
     };
   }
   return {
@@ -106,14 +138,122 @@ function initialValues({ settings }: EmailSettingsResponse): Values {
     brandColor: DEFAULT_EMAIL_BRAND_COLOR,
     footerText: '',
     siteUrl: '',
+    style: DEFAULT_EMAIL_STYLE,
+    accentColor: '',
   };
 }
 
 const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
 
+/** `color` moved toward white by `amount` (0–1), as the mail layout tints the brand. */
+function tint(color: string, amount: number): string {
+  const channel = (index: number) => {
+    const value = Number.parseInt(color.slice(index, index + 2), 16);
+    return Math.round(value + (255 - value) * amount)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
+
+/** `color` moved toward black by `amount` (0–1). */
+function shade(color: string, amount: number): string {
+  const channel = (index: number) =>
+    Math.round(Number.parseInt(color.slice(index, index + 2), 16) * (1 - amount))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
+
+/**
+ * A small sketch of how the chosen style frames a mail, in the colours typed
+ * so far. It follows the form as it changes; the template editor's preview
+ * draws a real mail once the settings are saved.
+ */
+function StyleSketch({
+  style,
+  brandColor,
+  accentColor,
+  siteName,
+}: {
+  style: EmailStyle;
+  brandColor: string;
+  accentColor: string | null;
+  siteName: string;
+}): JSX.Element {
+  const name = siteName.trim() === '' ? 'Your site' : siteName.trim();
+  const lines = (
+    <div aria-hidden="true" className="flex flex-col gap-1.5">
+      <div className="h-1.5 w-11/12 rounded-full bg-slate-200" />
+      <div className="h-1.5 w-3/4 rounded-full bg-slate-200" />
+    </div>
+  );
+  const button = (
+    <div
+      className="mx-auto mt-3 h-4 w-24 rounded-full"
+      style={{ background: brandColor }}
+      aria-hidden="true"
+    />
+  );
+  if (style === 'hero') {
+    const accent = accentColor ?? tint(brandColor, 0.82);
+    return (
+      <div className="rounded-lg p-3" style={{ background: '#eef2f7' }}>
+        <div className="overflow-hidden rounded-lg bg-white">
+          <div
+            className="px-3 pb-3 pt-2.5"
+            style={{
+              background: `linear-gradient(135deg, ${brandColor}, ${shade(brandColor, 0.18)})`,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[9px] font-bold uppercase tracking-wide text-white/80">
+                {name}
+              </span>
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase text-slate-900"
+                style={{ background: accent }}
+              >
+                Order received
+              </span>
+            </div>
+            <div className="mt-2 text-xs font-extrabold text-white">Thanks, Nadia</div>
+          </div>
+          <div className="px-3 py-3">
+            {lines}
+            {button}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg p-3" style={{ background: '#f4ece1' }}>
+      <div className="overflow-hidden rounded-lg bg-white">
+        <div className="truncate px-3 py-2 text-center text-xs font-extrabold text-slate-900">
+          {name}
+        </div>
+        <div className="h-1" style={{ background: brandColor }} aria-hidden="true" />
+        <div className="flex flex-col items-center px-3 py-3">
+          <span
+            className="mb-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold"
+            style={{ background: tint(brandColor, 0.9), color: shade(brandColor, 0.15) }}
+          >
+            Order received
+          </span>
+          <div className="mb-2 text-xs font-extrabold text-slate-900">Thanks, Nadia</div>
+          <div className="w-full">{lines}</div>
+          {button}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The site's sender and the look of its mails: sender name and address,
- * reply-to, logo, brand colour, footer and site address. Until they are saved
+ * reply-to, logo, brand colour, site address, style (with a sketch that
+ * follows the form), accent colour and footer. Until they are saved
  * the form starts empty and says the site sends no email until then. The
  * whole form is sent on save, empty optional fields as null and the colour in
  * lower case. `onSave` answers why a save was refused, or nothing.
@@ -148,6 +288,8 @@ export function EmailSettings({
       brandColor: values.brandColor.trim(),
       footerText: values.footerText,
       siteUrl: orNull(values.siteUrl),
+      style: values.style,
+      accentColor: orNull(values.accentColor),
     });
     if (!parsed.success) {
       const next: Partial<Record<FieldKey, string>> = {};
@@ -168,6 +310,10 @@ export function EmailSettings({
   const pickerValue = COLOR_PATTERN.test(values.brandColor)
     ? values.brandColor.toLowerCase()
     : DEFAULT_EMAIL_BRAND_COLOR;
+  const accentValue = COLOR_PATTERN.test(values.accentColor.trim())
+    ? values.accentColor.trim().toLowerCase()
+    : null;
+  const style: EmailStyle = isEmailStyle(values.style) ? values.style : DEFAULT_EMAIL_STYLE;
 
   return (
     <form
@@ -289,6 +435,50 @@ export function EmailSettings({
               onChange={(event) => set('siteUrl', event.target.value)}
             />
           </FormField>
+          <FormField
+            id={`${id}-style`}
+            label="Style"
+            hint={STYLE_HINTS[style]}
+            {...errorProp('style')}
+          >
+            <NativeSelect
+              value={style}
+              onChange={(event) => {
+                if (isEmailStyle(event.target.value)) set('style', event.target.value);
+              }}
+            >
+              {EMAIL_STYLES.map((entry) => (
+                <option key={entry} value={entry}>
+                  {STYLE_LABELS[entry]}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <FormField
+                id={`${id}-accent-color`}
+                label="Accent colour"
+                hint="The status pill in the Website hero style, as #rrggbb. Leave it empty for a light tint of the brand colour."
+                {...errorProp('accentColor')}
+              >
+                <Input
+                  value={values.accentColor}
+                  maxLength={7}
+                  spellCheck={false}
+                  placeholder="#c0ff72"
+                  onChange={(event) => set('accentColor', event.target.value)}
+                />
+              </FormField>
+            </div>
+            <input
+              type="color"
+              aria-label="Accent colour picker"
+              value={accentValue ?? tint(pickerValue, 0.82)}
+              className="mt-6 h-9 w-12 shrink-0 cursor-pointer rounded-md border bg-transparent p-1 disabled:cursor-not-allowed disabled:opacity-50"
+              onChange={(event) => set('accentColor', event.target.value.toLowerCase())}
+            />
+          </div>
           <div className="md:col-span-2">
             <FormField
               id={`${id}-footer`}
@@ -305,6 +495,18 @@ export function EmailSettings({
             </FormField>
           </div>
         </fieldset>
+        <figure className="flex flex-col gap-2 md:max-w-sm" aria-label="Style preview">
+          <StyleSketch
+            style={style}
+            brandColor={pickerValue}
+            accentColor={accentValue}
+            siteName={values.fromName}
+          />
+          <figcaption className="text-xs text-muted-foreground">
+            {STYLE_LABELS[style]} style, in your colours. Open an email below to preview it in full
+            once saved.
+          </figcaption>
+        </figure>
         {result ? (
           result.ok ? (
             <p role="status" className="text-xs text-muted-foreground">

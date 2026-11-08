@@ -230,6 +230,8 @@ databaseTest('a customer change request, from the tracking code to approval on t
       brandColor: '#123abc',
       footerText: '',
       siteUrl: 'https://tracking-flow.example',
+      style: 'classic',
+      accentColor: null,
     });
     const plan = await planStore.create(setup, {
       leadType: 'sim_order',

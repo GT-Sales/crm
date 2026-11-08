@@ -315,8 +315,11 @@ contact message's Closed) is no rescue: the lead stays unsubmitted, nothing is
 frozen and no flow fires (controller ruling, 2026-10-31).
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
-Settings → Email): from name and address, reply-to, logo, brand colour, footer
-and site address. A **template** is the current copy of one of nine emails
+Settings → Email): from name and address, reply-to, logo, brand colour, footer,
+site address, **style** (`classic`, the Get Canada Sim website's look and the
+default, or `hero`, the CanadaWide website's brand-colour header band; one
+layout, `email/layout.ts`, draws both) and the hero style's **accent colour**
+(its status pill; null is a tint of the brand). A **template** is the current copy of one of nine emails
 (`tracking_code`, `order_received`, `information_needed`, `dispatched`,
 `activated`, `cancelled`, `sim_number_ready`, `change_approved`,
 `change_rejected`; `app.email_templates`): a subject,

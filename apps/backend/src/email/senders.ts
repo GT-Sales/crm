@@ -72,6 +72,8 @@ export async function resolveSiteSender(
       logoUrl: settings.logoUrl,
       brandColor: settings.brandColor,
       footerText: settings.footerText,
+      style: settings.style,
+      accentColor: settings.accentColor,
     },
     siteUrl: settings.siteUrl,
   };

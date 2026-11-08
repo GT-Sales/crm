@@ -18,6 +18,7 @@ import {
   leadTypeCatalog,
   type CreateEmailTemplateRequest,
   type CustomerEmailTemplate,
+  type EmailStyle,
   type EmailTemplateKey,
   type PropertyCatalog,
   type UpdateEmailSettingsRequest,
@@ -53,6 +54,8 @@ export interface StoredEmailSettings {
   brandColor: string;
   footerText: string;
   siteUrl: string | null;
+  style: EmailStyle;
+  accentColor: string | null;
   updatedAt: Date;
   updatedBy: string;
 }
@@ -150,6 +153,8 @@ const SETTINGS_FIELDS = [
   'brandColor',
   'footerText',
   'siteUrl',
+  'style',
+  'accentColor',
 ] as const;
 
 const toSettings = (record: SettingsRecord): StoredEmailSettings => ({
@@ -160,6 +165,9 @@ const toSettings = (record: SettingsRecord): StoredEmailSettings => ({
   brandColor: record.brandColor,
   footerText: record.footerText,
   siteUrl: record.siteUrl,
+  // The column's check allows only these; anything else reads as the default look.
+  style: record.style === 'hero' ? 'hero' : 'classic',
+  accentColor: record.accentColor,
   updatedAt: record.updatedAt,
   updatedBy: record.updatedBy,
 });
@@ -322,6 +330,8 @@ export class DatabaseEmailSettingsStore implements EmailSettingsStore {
         brandColor: input.brandColor.toLowerCase(),
         footerText: input.footerText,
         siteUrl: input.siteUrl,
+        style: input.style,
+        accentColor: input.accentColor?.toLowerCase() ?? null,
       };
       const [saved] = await tx
         .insert(workspaceEmailSettings)

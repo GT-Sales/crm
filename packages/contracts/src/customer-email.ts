@@ -199,6 +199,18 @@ export const brandColorSchema = z
   .regex(/^#[0-9a-fA-F]{6}$/, 'a colour, #rrggbb')
   .overwrite((value) => value.toLowerCase());
 
+/**
+ * How a site's customer mails are laid out (Settings → Email → Style), the
+ * same blocks either way: `classic`, a centred logo over a rule in the brand
+ * colour with a quiet footer band (the Get Canada Sim website's mail), or
+ * `hero`, a header band in the brand colour holding the site's name, the
+ * status pill and the opening heading (the CanadaWide website's mail).
+ */
+export const EMAIL_STYLES = ['classic', 'hero'] as const;
+export const emailStyleSchema = z.enum(EMAIL_STYLES);
+export type EmailStyle = z.infer<typeof emailStyleSchema>;
+export const DEFAULT_EMAIL_STYLE: EmailStyle = 'classic';
+
 /** A link an email may carry (the site's logo, its address): https only. */
 export const httpsUrlSchema = z.url({ protocol: /^https$/ }).max(2048);
 
@@ -291,7 +303,9 @@ export type StaffNotificationJobPayload = z.infer<typeof staffNotificationJobPay
 /**
  * A site's email settings (`app.email_settings`, Settings → Email): who its
  * mails come from and how they look. `replyTo`, `logoUrl` and `siteUrl` are
- * null when left empty.
+ * null when left empty. `accentColor` colours the status pill of the `hero`
+ * style; null uses a light tint of the brand colour (the `classic` style
+ * ignores it).
  */
 export const emailSettingsSchema = z.object({
   fromName: z.string().trim().min(1).max(80),
@@ -301,17 +315,22 @@ export const emailSettingsSchema = z.object({
   brandColor: brandColorSchema,
   footerText: z.string().trim().max(500),
   siteUrl: httpsUrlSchema.nullable(),
+  // Defaulted so an answer from a backend older than the setting reads as the classic look.
+  style: emailStyleSchema.default(DEFAULT_EMAIL_STYLE),
+  accentColor: brandColorSchema.nullable().default(null),
   updatedAt: isoDateTimeSchema,
   updatedBy: z.uuid(),
 });
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
-/** `PUT …/email/settings`: the whole form; colour and footer fall back to the defaults. */
+/** `PUT …/email/settings`: the whole form; colour, footer, style and accent fall back to the defaults. */
 export const updateEmailSettingsRequestSchema = emailSettingsSchema
   .omit({ updatedAt: true, updatedBy: true })
   .extend({
     brandColor: brandColorSchema.default(DEFAULT_EMAIL_BRAND_COLOR),
     footerText: z.string().trim().max(500).default(''),
+    style: emailStyleSchema.default(DEFAULT_EMAIL_STYLE),
+    accentColor: brandColorSchema.nullable().default(null),
   })
   .strict();
 export type UpdateEmailSettingsRequest = z.infer<typeof updateEmailSettingsRequestSchema>;

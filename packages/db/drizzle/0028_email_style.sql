@@ -1,0 +1,4 @@
+ALTER TABLE "app"."workspace_email_settings" ADD COLUMN "style" text DEFAULT 'classic' NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."workspace_email_settings" ADD COLUMN "accent_color" text;--> statement-breakpoint
+ALTER TABLE "app"."workspace_email_settings" ADD CONSTRAINT "workspace_email_settings_style_check" CHECK ("app"."workspace_email_settings"."style" in ('classic', 'hero'));--> statement-breakpoint
+ALTER TABLE "app"."workspace_email_settings" ADD CONSTRAINT "workspace_email_settings_accent_color_check" CHECK ("app"."workspace_email_settings"."accent_color" is null or "app"."workspace_email_settings"."accent_color" ~ '^#[0-9a-f]{6}$');

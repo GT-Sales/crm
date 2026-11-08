@@ -19741,6 +19741,18 @@
                                 { "type": "null" }
                               ]
                             },
+                            "style": {
+                              "default": "classic",
+                              "type": "string",
+                              "enum": ["classic", "hero"]
+                            },
+                            "accentColor": {
+                              "default": null,
+                              "anyOf": [
+                                { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+                                { "type": "null" }
+                              ]
+                            },
                             "updatedAt": {
                               "type": "string",
                               "format": "date-time",
@@ -19760,6 +19772,8 @@
                             "brandColor",
                             "footerText",
                             "siteUrl",
+                            "style",
+                            "accentColor",
                             "updatedAt",
                             "updatedBy"
                           ],
@@ -19990,6 +20004,18 @@
                                 { "type": "null" }
                               ]
                             },
+                            "style": {
+                              "default": "classic",
+                              "type": "string",
+                              "enum": ["classic", "hero"]
+                            },
+                            "accentColor": {
+                              "default": null,
+                              "anyOf": [
+                                { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+                                { "type": "null" }
+                              ]
+                            },
                             "updatedAt": {
                               "type": "string",
                               "format": "date-time",
@@ -20009,6 +20035,8 @@
                             "brandColor",
                             "footerText",
                             "siteUrl",
+                            "style",
+                            "accentColor",
                             "updatedAt",
                             "updatedBy"
                           ],
@@ -20225,6 +20253,14 @@
                   "siteUrl": {
                     "anyOf": [
                       { "type": "string", "maxLength": 2048, "format": "uri" },
+                      { "type": "null" }
+                    ]
+                  },
+                  "style": { "default": "classic", "type": "string", "enum": ["classic", "hero"] },
+                  "accentColor": {
+                    "default": null,
+                    "anyOf": [
+                      { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
                       { "type": "null" }
                     ]
                   }

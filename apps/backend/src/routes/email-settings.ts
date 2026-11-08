@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   DEFAULT_EMAIL_BRAND_COLOR,
+  DEFAULT_EMAIL_STYLE,
   createEmailTemplateRequestSchema,
   emailTemplateKeySchema,
   emailTemplateLabel,
@@ -318,6 +319,8 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
           logoUrl: saved.logoUrl,
           brandColor: saved.brandColor,
           footerText: saved.footerText,
+          style: saved.style,
+          accentColor: saved.accentColor,
         },
         siteUrl: saved.siteUrl,
       };
@@ -328,6 +331,8 @@ export function createEmailSettingsRoutes(dependencies: EmailSettingsRouteDepend
         logoUrl: null,
         brandColor: DEFAULT_EMAIL_BRAND_COLOR,
         footerText: '',
+        style: DEFAULT_EMAIL_STYLE,
+        accentColor: null,
       },
       siteUrl: null,
     };

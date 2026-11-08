@@ -104,6 +104,8 @@ const settings: StoredEmailSettings = {
   brandColor: '#0a7f4f',
   footerText: 'Get Canada Sim, Toronto',
   siteUrl: 'https://getcanadasim.example',
+  style: 'classic',
+  accentColor: null,
   updatedAt: NOW,
   updatedBy: ACTOR,
 };
@@ -237,6 +239,8 @@ const settingsBody = {
   brandColor: '#0A7F4F',
   footerText: 'Get Canada Sim, Toronto',
   siteUrl: 'https://getcanadasim.example',
+  style: 'classic',
+  accentColor: null,
 };
 const templateBody = { expectedVersion: 3, subject: 'We got your order', body: 'Hi {first name}' };
 
@@ -298,6 +302,42 @@ describe('staff email settings routes', () => {
       expect((await errorOf(bad)).code).toBe('invalid_request');
     }
     expect(emails.putSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('PUT settings takes the style and accent colour, defaults them, and refuses bad ones', async () => {
+    const hero = await call(emailUrl('/settings'), {
+      method: 'PUT',
+      body: { ...settingsBody, style: 'hero', accentColor: '#C0FF72' },
+    });
+    expect(hero.status).toBe(200);
+    expect(emails.putSettings).toHaveBeenLastCalledWith(expect.anything(), {
+      ...settingsBody,
+      brandColor: '#0a7f4f',
+      style: 'hero',
+      accentColor: '#c0ff72',
+    });
+
+    // A form from before the setting existed keeps the classic look.
+    const { style: _style, accentColor: _accent, ...older } = settingsBody;
+    expect((await call(emailUrl('/settings'), { method: 'PUT', body: older })).status).toBe(200);
+    expect(emails.putSettings).toHaveBeenLastCalledWith(expect.anything(), {
+      ...settingsBody,
+      brandColor: '#0a7f4f',
+      style: 'classic',
+      accentColor: null,
+    });
+
+    for (const body of [
+      { ...settingsBody, style: 'neon' },
+      { ...settingsBody, style: null },
+      { ...settingsBody, accentColor: 'lime' },
+      { ...settingsBody, accentColor: '#c0ff7' },
+    ]) {
+      const bad = await call(emailUrl('/settings'), { method: 'PUT', body });
+      expect(bad.status).toBe(400);
+      expect((await errorOf(bad)).code).toBe('invalid_request');
+    }
+    expect(emails.putSettings).toHaveBeenCalledTimes(2);
   });
 
   it('GET settings is null until the owner saves, with no fallback sender', async () => {
@@ -423,6 +463,18 @@ describe('staff email settings routes', () => {
     expect(withTenantTx).not.toHaveBeenCalled();
     expect(leadStore.readLead).not.toHaveBeenCalled();
     expect(emails.putTemplate).not.toHaveBeenCalled();
+  });
+
+  it('preview draws the saved style: the hero band with the accent badge', async () => {
+    emails.getSettings.mockResolvedValue({ ...settings, style: 'hero', accentColor: '#c0ff72' });
+    const response = await call(emailUrl('/templates/order_received/preview'), {
+      method: 'POST',
+      body: { subject: 'Hi', body: '[badge success: Order received]\n\n# Thanks, {first name}' },
+    });
+    const body = previewEmailTemplateResponseSchema.parse(await response.json());
+    expect(body.html).toContain('linear-gradient(135deg,#0a7f4f,');
+    expect(body.html).toContain('background:#c0ff72;');
+    expect(body.html).toContain('Thanks, Nadia</h1>');
   });
 
   it('preview brands an unsaved site as "Your site"', async () => {
