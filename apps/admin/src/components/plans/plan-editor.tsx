@@ -2,8 +2,10 @@
 
 import { useState, type JSX } from 'react';
 import {
+  PLAN_COMMISSION_RATE_MAX_BPS,
   PLAN_NAME_MAX,
   createPlanRequestSchema,
+  type PlanCommission,
   updatePlanRequestSchema,
   type CreatePlanRequest,
   type Plan,
@@ -32,6 +34,50 @@ function billingPeriodFromValue(value: string): BillingPeriod | undefined {
 
 const PRICE_HELP = 'Enter the price in dollars, such as 19.99.';
 
+type CommissionType = PlanCommission['type'];
+const COMMISSION_LABELS: Record<CommissionType, string> = {
+  none: 'None',
+  percent: 'Percent of price',
+  fixed: 'Fixed amount',
+};
+
+/** A plan's commission in words, for the plan list: "12.5 % of price", "$25.00 fixed". */
+export function commissionLabel(commission: PlanCommission): string {
+  if (commission.type === 'none') return 'No commission';
+  if (commission.type === 'percent') return `${commission.rateBps / 100}% of price commission`;
+  return `${(commission.amountMinor / 100).toLocaleString('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+  })} commission`;
+}
+
+function commissionText(commission: PlanCommission | undefined): string {
+  if (commission?.type === 'percent') return String(commission.rateBps / 100);
+  if (commission?.type === 'fixed') return (commission.amountMinor / 100).toFixed(2);
+  return '';
+}
+
+/** The typed value as a commission, or an error message. */
+function parseCommission(type: CommissionType, text: string): PlanCommission | string {
+  if (type === 'none') return { type: 'none' };
+  const trimmed = text.trim();
+  if (type === 'fixed') {
+    const amountMinor = trimmed === '' ? undefined : dollarsToCents(trimmed);
+    if (amountMinor === undefined || amountMinor < 0)
+      return 'Enter the commission in dollars, such as 25.00.';
+    return { type: 'fixed', amountMinor };
+  }
+  const percent = /^\d{1,3}(\.\d{1,2})?$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+  const rateBps = Math.round(percent * 100);
+  if (!Number.isFinite(percent) || rateBps > PLAN_COMMISSION_RATE_MAX_BPS)
+    return 'Enter a percent from 0 to 100, such as 12.5.';
+  return { type: 'percent', rateBps };
+}
+
+function sameCommission(a: PlanCommission, b: PlanCommission | undefined): boolean {
+  return JSON.stringify(a) === JSON.stringify(b ?? { type: 'none' });
+}
+
 type Values = Readonly<Record<string, PropertyValue | undefined>>;
 
 function sameDocuments(a: readonly string[], b: readonly string[]): boolean {
@@ -42,13 +88,16 @@ function sameDocuments(a: readonly string[], b: readonly string[]): boolean {
  * Adds a plan for one order lead type, or edits one. The price is typed in
  * dollars and sent as whole cents; an edit sends only what changed, with the
  * version it read. `onSave` answers the reason a save was refused, or nothing
- * when it worked.
+ * when it worked. The commission is money: the control shows only when
+ * `canSetCommission` (the owner; the backend refuses anyone else), and a
+ * save by anyone else never names one.
  */
 export function PlanEditor({
   leadType,
   initial,
   catalog,
   documentTypes,
+  canSetCommission = false,
   onSave,
 }: {
   leadType: string;
@@ -56,6 +105,8 @@ export function PlanEditor({
   /** The site's plan properties (object `plan`). */
   catalog: PropertyCatalog;
   documentTypes: readonly string[];
+  /** The viewer is the owner (`revenue.view`), who sees and sets a plan's commission. */
+  canSetCommission?: boolean;
   onSave(input: CreatePlanRequest | UpdatePlanRequest): Promise<string | undefined>;
 }): JSX.Element {
   const [name, setName] = useState(initial?.name ?? '');
@@ -67,6 +118,10 @@ export function PlanEditor({
   const [active, setActive] = useState(initial?.active ?? true);
   const [documents, setDocuments] = useState<readonly string[]>(initial?.requiredDocuments ?? []);
   const [values, setValues] = useState<Values>(initial?.customValues ?? {});
+  const [commissionType, setCommissionType] = useState<CommissionType>(
+    initial?.commission?.type ?? 'none',
+  );
+  const [commissionValue, setCommissionValue] = useState(commissionText(initial?.commission));
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
@@ -106,6 +161,13 @@ export function PlanEditor({
       setError(PRICE_HELP);
       return;
     }
+    const commission = canSetCommission
+      ? parseCommission(commissionType, commissionValue)
+      : undefined;
+    if (typeof commission === 'string') {
+      setError(commission);
+      return;
+    }
     // Documents go in the order the list offers them, whatever order they were ticked in.
     const requiredDocuments = offered.filter((key) => documents.includes(key));
 
@@ -128,6 +190,7 @@ export function PlanEditor({
           ? { requiredDocuments }
           : {}),
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
+        ...(commission && !sameCommission(commission, initial.commission) ? { commission } : {}),
       };
       if (Object.keys(changes).length === 0) {
         setError('Nothing has changed.');
@@ -157,12 +220,15 @@ export function PlanEditor({
         active,
         requiredDocuments,
         customValues,
+        ...(commission ? { commission } : {}),
       });
       if (!parsed.success) {
         setError('Check the fields and try again.');
         return;
       }
-      input = parsed.data;
+      // The schema defaults the commission to none; only the owner may send one.
+      const { commission: _defaulted, ...rest } = parsed.data;
+      input = commission ? parsed.data : rest;
     }
     setBusy(true);
     try {
@@ -235,6 +301,48 @@ export function PlanEditor({
       <p className="-mt-3 text-sm text-muted-foreground">
         Only active plans are offered on the website.
       </p>
+
+      {canSetCommission ? (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-sm font-medium">Commission</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2" role="radiogroup" aria-label="Commission">
+            {(['none', 'percent', 'fixed'] as const).map((type) => (
+              <label key={type} className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="plan-commission-type"
+                  value={type}
+                  checked={commissionType === type}
+                  onChange={() => setCommissionType(type)}
+                  className="size-4 accent-primary"
+                />
+                {COMMISSION_LABELS[type]}
+              </label>
+            ))}
+          </div>
+          {commissionType === 'none' ? null : (
+            <FormField
+              id="plan-commission-value"
+              label={commissionType === 'percent' ? 'Commission (%)' : 'Commission (CAD)'}
+              hint={
+                commissionType === 'percent'
+                  ? 'Percent of the plan price per unit sold, such as 12.5.'
+                  : 'In dollars per unit sold, such as 25.00.'
+              }
+            >
+              <Input
+                inputMode="decimal"
+                value={commissionValue}
+                onChange={(event) => setCommissionValue(event.target.value)}
+              />
+            </FormField>
+          )}
+          <p className="text-sm text-muted-foreground">
+            What the site earns on each order of this plan. Only the owner sees it; it is never
+            shown on the website.
+          </p>
+        </fieldset>
+      ) : null}
 
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-sm font-medium">Required documents</legend>

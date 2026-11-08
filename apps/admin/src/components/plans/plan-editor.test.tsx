@@ -280,3 +280,78 @@ describe('PlanEditor when editing', () => {
     );
   });
 });
+
+describe('PlanEditor commission', () => {
+  function setupOwner(initial?: Plan, onSave: Save = vi.fn<Save>().mockResolvedValue(undefined)) {
+    render(
+      <PlanEditor
+        leadType={initial?.leadType ?? 'internet'}
+        {...(initial ? { initial } : {})}
+        catalog={catalog}
+        documentTypes={DOCUMENT_TYPES}
+        canSetCommission
+        onSave={onSave}
+      />,
+    );
+    return onSave;
+  }
+
+  it('is hidden from anyone but the owner, and a non-owner create never names one', async () => {
+    const onSave = setup();
+    expect(screen.queryByRole('radiogroup', { name: 'Commission' })).toBeNull();
+    type('Name', 'Fibre');
+    type('Price (CAD)', '50');
+    save();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0]).not.toHaveProperty('commission');
+  });
+
+  it('lets the owner set a percent of the price, in basis points', async () => {
+    const onSave = setupOwner();
+    type('Name', 'Fibre');
+    type('Price (CAD)', '50');
+    fireEvent.click(screen.getByRole('radio', { name: 'Percent of price' }));
+    type('Commission (%)', '12.5');
+    save();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      commission: { type: 'percent', rateBps: 1250 },
+    });
+  });
+
+  it('refuses a percent over 100 and a negative amount', async () => {
+    const onSave = setupOwner();
+    type('Name', 'Fibre');
+    type('Price (CAD)', '50');
+    fireEvent.click(screen.getByRole('radio', { name: 'Percent of price' }));
+    type('Commission (%)', '101');
+    save();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/0 to 100/);
+    fireEvent.click(screen.getByRole('radio', { name: 'Fixed amount' }));
+    type('Commission (CAD)', '-3');
+    save();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/in dollars/);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('sends a changed commission only, as a fixed amount in cents', async () => {
+    const onSave = setupOwner({ ...bronze, commission: { type: 'percent', rateBps: 1000 } });
+    expect(screen.getByLabelText<HTMLInputElement>('Commission (%)').value).toBe('10');
+    fireEvent.click(screen.getByRole('radio', { name: 'Fixed amount' }));
+    type('Commission (CAD)', '25');
+    save();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith({
+      expectedVersion: 4,
+      commission: { type: 'fixed', amountMinor: 2500 },
+    });
+  });
+
+  it('leaves an unchanged commission out of an edit', async () => {
+    const onSave = setupOwner({ ...bronze, commission: { type: 'fixed', amountMinor: 500 } });
+    type('Name', 'Bronze plus');
+    save();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith({ expectedVersion: 4, name: 'Bronze plus' });
+  });
+});

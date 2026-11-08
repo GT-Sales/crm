@@ -25,7 +25,7 @@ import { errorReason } from '../../lib/use-resource';
 import { usePropertyModel } from '../properties/use-property-model';
 import { useStaffSession } from '../staff-session-provider';
 import { PLAN_DOCUMENT_TYPES } from './document-types';
-import { BILLING_PERIOD_LABELS, PlanEditor } from './plan-editor';
+import { BILLING_PERIOD_LABELS, PlanEditor, commissionLabel } from './plan-editor';
 import { usePlans } from './use-plans';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 
@@ -68,6 +68,8 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
   const workspaceId = workspace?.id;
   const accessToken = staff.accessToken;
   const canWrite = workspace?.roles.some((role) => ORDER_MANAGER_ROLES.includes(role)) ?? false;
+  // Money is the owner's alone (`revenue.view`); the backend leaves it out for anyone else.
+  const isOwner = workspace?.roles.includes('owner') ?? false;
 
   const {
     plans,
@@ -243,6 +245,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
                         {price.format(plan.priceMinor / 100)} ·{' '}
                         {BILLING_PERIOD_LABELS[plan.billingPeriod]}
                         {plan.paymentRequired ? ' · Payment required' : ''}
+                        {plan.commission ? ` · ${commissionLabel(plan.commission)}` : ''}
                       </p>
                     </div>
                     {canWrite ? (
@@ -341,6 +344,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
               {...(editing ? { initial: editing } : {})}
               catalog={catalog}
               documentTypes={PLAN_DOCUMENT_TYPES}
+              canSetCommission={isOwner}
               onSave={saveEditor}
             />
           ) : null}
