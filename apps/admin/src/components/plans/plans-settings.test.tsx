@@ -194,7 +194,7 @@ describe('PlansSettings permissions', () => {
     await screen.findByRole('list', { name: 'SIM order plans' });
     expect(screen.getByRole('button', { name: 'Add SIM order plan' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Edit Bronze' })).toBeTruthy();
-    expect(screen.getByRole('checkbox', { name: 'Active Bronze' })).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'Active Bronze' })).toBeTruthy();
   });
 });
 
@@ -250,12 +250,23 @@ describe('PlansSettings writes', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('asks before turning a plan off and changes nothing on Cancel', async () => {
+    render(<PlansSettings workspaceSlug="canadawide" />);
+    await screen.findByRole('list', { name: 'SIM order plans' });
+    fireEvent.click(screen.getByRole('switch', { name: 'Active Bronze' }));
+    expect((await screen.findByRole('dialog')).textContent).toContain('Turn off Bronze?');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(mocks.updatePlan).not.toHaveBeenCalled();
+  });
+
   it('turns a plan off and on with the Active switch', async () => {
     mocks.updatePlan.mockResolvedValue({ plan: bronze, requestId: 'r' });
     render(<PlansSettings workspaceSlug="canadawide" />);
     await screen.findByRole('list', { name: 'SIM order plans' });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Active Bronze' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Active Bronze' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
     await waitFor(() =>
       expect(mocks.updatePlan).toHaveBeenCalledWith('staff-token', WORKSPACE, bronze.id, {
         expectedVersion: 3,
@@ -264,7 +275,7 @@ describe('PlansSettings writes', () => {
     );
     await waitFor(() => expect(mocks.listPlans).toHaveBeenCalledTimes(2));
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Active Legacy' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Active Legacy' }));
     await waitFor(() =>
       expect(mocks.updatePlan).toHaveBeenCalledWith('staff-token', WORKSPACE, legacy.id, {
         expectedVersion: 3,
@@ -342,7 +353,8 @@ describe('PlansSettings writes', () => {
     render(<PlansSettings workspaceSlug="canadawide" />);
     await screen.findByRole('list', { name: 'SIM order plans' });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Active Bronze' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Active Bronze' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
       'This plan changed elsewhere. Reload and try again.',
     );
@@ -353,7 +365,8 @@ describe('PlansSettings writes', () => {
     mocks.updatePlan.mockRejectedValue(new mocks.FakeBackendError('forbidden'));
     render(<PlansSettings workspaceSlug="canadawide" />);
     await screen.findByRole('list', { name: 'SIM order plans' });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Active Bronze' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Active Bronze' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
       'The change was not saved. Reason: forbidden.',
     );
