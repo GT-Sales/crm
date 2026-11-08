@@ -35,8 +35,8 @@ export interface DocumentReviewQueueStore {
 const iso = (column: string) =>
   sql.raw(`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`);
 
-/** The queue's rows before the status filter: current documents on active leads. */
-const QUEUE_ROWS = sql`
+/** The queue's rows before the status filter: current documents on active leads (the dashboard counts them too). */
+export const QUEUE_ROWS = sql`
   select
     f.id, f.document_type, f.detected_mime, f.size_bytes, f.revision, f.created_at,
     review.decision, review.created_at as reviewed_at,

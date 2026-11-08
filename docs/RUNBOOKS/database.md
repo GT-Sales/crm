@@ -845,6 +845,31 @@ chain;` after reverting the code.
   `app_runtime` may insert it. The Supabase tracker also lists an older,
   unrelated `0026_orders_billing_contract`; only the name prefix is shared.
 
+## 0027_plan_commission (2026-11-08)
+
+A plan's staff-only commission, for the dashboard's commission revenue. Three
+columns on `app.plans`: `commission_type text not null default 'none'`
+(`none`, `percent` or `fixed`), `commission_rate_bps integer` (percent × 100,
+0–10000, set only for `percent`) and `commission_minor bigint` (cents, ≥ 0,
+set only for `fixed`), tied together by `plans_commission_check`. Every
+existing plan becomes `none`. `app_runtime` already holds table-level
+`SELECT, INSERT, UPDATE` on `app.plans` (0012), so no grant changes; RLS and
+policies are untouched. Adding a column with a constant default is
+metadata-only (no rewrite). Rollback, after reverting the code:
+`ALTER TABLE app.plans DROP CONSTRAINT plans_commission_check, DROP COLUMN
+commission_type, DROP COLUMN commission_rate_bps, DROP COLUMN commission_minor;`
+
+- **To apply** (owner), before deploying a backend that reads the columns:
+  run the file through the Supabase tool or the SQL editor, then insert the
+  Drizzle tracker row: hash `bd633da4d64b17c6814c4af341fc9f205d35e08c3d49d61e19f8b9c42483cb20`, `created_at` `1794117979433`.
+- Verify against the schema:
+
+```sql
+select column_name, data_type, column_default from information_schema.columns
+ where table_schema = 'app' and table_name = 'plans' and column_name like 'commission%';  -- 3 rows
+select conname from pg_constraint where conname = 'plans_commission_check';               -- 1 row
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

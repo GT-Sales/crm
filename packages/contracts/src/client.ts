@@ -264,6 +264,11 @@ import {
   type RevokeServiceCredentialResponse,
 } from './website-auth';
 import {
+  analyticsResponseSchema,
+  type AnalyticsQueryInput,
+  type AnalyticsResponse,
+} from './analytics';
+import {
   sourceReportResponseSchema,
   type SourceReportQuery,
   type SourceReportResponse,
@@ -548,6 +553,7 @@ export interface BackendClient {
     leadsSummary(workspaceId: string, query?: LeadsSummaryQuery): Promise<LeadsSummaryResponse>;
     leadStats(workspaceId: string, query: LeadStatsQuery): Promise<LeadStatsResponse>;
     sourceReport(workspaceId: string, query: SourceReportQuery): Promise<SourceReportResponse>;
+    analytics(workspaceId: string, query: AnalyticsQueryInput): Promise<AnalyticsResponse>;
     leadBoard(
       workspaceId: string,
       query: LeadBoardQuery | LeadBoardQueryInput,
@@ -1192,6 +1198,25 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/stats`,
           query: { leadType: query.leadType, days: query.days },
           responseSchema: leadStatsResponseSchema,
+        }),
+      analytics: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/analytics`,
+          query: {
+            from: query.from,
+            to: query.to,
+            compare: query.compare,
+            group: query.group,
+            leadType: query.leadType,
+            source: query.source,
+            partner: query.partner,
+            assignee: query.assignee,
+            paymentStatus: query.paymentStatus,
+            planId: query.planId,
+            delivery: query.delivery,
+          },
+          responseSchema: analyticsResponseSchema,
         }),
       sourceReport: (workspaceId, query) =>
         call({

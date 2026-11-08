@@ -159,6 +159,7 @@ import {
   aiChatRequestSchema,
   aiWirePartSchema,
 } from './ai-assistant';
+import { analyticsQuerySchema, analyticsResponseSchema } from './analytics';
 import {
   leadBoardQuerySchema,
   leadBoardResponseSchema,
@@ -370,6 +371,17 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: leadStatsQuerySchema,
     response: leadStatsResponseSchema,
+  },
+  {
+    operationId: 'getWorkspaceAnalytics',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/analytics',
+    summary:
+      "The analytics dashboard: one range's leads against a comparison range, with filters. Money figures only for the owner (`revenue.view`).",
+    auth: 'staff',
+    successStatus: 200,
+    query: analyticsQuerySchema,
+    response: analyticsResponseSchema,
   },
   {
     operationId: 'getWorkspaceSourceReport',

@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiErrorResponseSchema,
@@ -44,6 +45,7 @@ const plan: Plan = {
   requiredDocuments: [],
   customValues: { custom_network: 'Rogers' },
   position: 0,
+  commission: { type: 'percent', rateBps: 1250 },
   version: 1,
   createdAt: NOW,
   updatedAt: NOW,
@@ -184,13 +186,84 @@ const createBody = {
   requiredDocuments: [],
 };
 
+const planOnly = (body: unknown) =>
+  z.object({ plan: z.record(z.string(), z.unknown()) }).parse(body).plan;
+
+const withoutCommission = (value: Plan): Plan => {
+  const { commission: _commission, ...rest } = value;
+  return rest;
+};
+
 describe('staff plan routes', () => {
+  it('sends a plan’s commission to the owner only, as no key at all for anyone else', async () => {
+    asRole('owner');
+    let response = await call(plansUrl());
+    expect(listPlansResponseSchema.parse(await response.json()).plans[0]?.commission).toEqual({
+      type: 'percent',
+      rateBps: 1250,
+    });
+    for (const role of ['viewer', 'leads', 'orders', 'finance'] as const) {
+      asRole(role);
+      response = await call(plansUrl());
+      const raw = z
+        .object({ plans: z.array(z.record(z.string(), z.unknown())) })
+        .parse(await response.json());
+      expect(Object.hasOwn(raw.plans[0] ?? {}, 'commission'), role).toBe(false);
+    }
+    asRole('orders');
+    response = await call(plansUrl(), { method: 'POST', body: createBody });
+    expect(response.status).toBe(201);
+    expect(Object.hasOwn(planOnly(await response.json()), 'commission')).toBe(false);
+    response = await call(plansUrl(`/${PLAN_ID}`), {
+      method: 'PATCH',
+      body: { expectedVersion: 1, name: 'Renamed' },
+    });
+    expect(response.status).toBe(200);
+    expect(Object.hasOwn(planOnly(await response.json()), 'commission')).toBe(false);
+  });
+
+  it('refuses a commission set or change by anyone but the owner, before the store', async () => {
+    asRole('orders');
+    let response = await call(plansUrl(), {
+      method: 'POST',
+      body: { ...createBody, commission: { type: 'fixed', amountMinor: 500 } },
+    });
+    expect(response.status).toBe(403);
+    expect(await errorOf(response)).toMatchObject({ code: 'permission_denied' });
+    // Even naming none is a commission edit.
+    response = await call(plansUrl(`/${PLAN_ID}`), {
+      method: 'PATCH',
+      body: { expectedVersion: 1, commission: { type: 'none' } },
+    });
+    expect(response.status).toBe(403);
+    expect(plans.create).not.toHaveBeenCalled();
+    expect(plans.update).not.toHaveBeenCalled();
+
+    asRole('owner');
+    response = await call(plansUrl(), {
+      method: 'POST',
+      body: { ...createBody, commission: { type: 'fixed', amountMinor: 500 } },
+    });
+    expect(response.status).toBe(201);
+    expect(plans.create).toHaveBeenLastCalledWith(
+      ownerContext,
+      expect.objectContaining({ commission: { type: 'fixed', amountMinor: 500 } }),
+    );
+    response = await call(plansUrl(`/${PLAN_ID}`), {
+      method: 'PATCH',
+      body: { expectedVersion: 1, commission: { type: 'percent', rateBps: 10_001 } },
+    });
+    expect(response.status).toBe(400);
+  });
+
   it('GET /plans: every role that reads the site, with the type and inactive filters', async () => {
     for (const role of ['viewer', 'leads', 'orders', 'finance', 'owner'] as const) {
       asRole(role);
       const response = await call(plansUrl());
       expect(response.status, role).toBe(200);
-      expect(listPlansResponseSchema.parse(await response.json()).plans).toEqual([plan]);
+      expect(listPlansResponseSchema.parse(await response.json()).plans).toEqual([
+        role === 'owner' ? plan : withoutCommission(plan),
+      ]);
     }
     expect(plans.list).toHaveBeenLastCalledWith(ownerContext, { includeInactive: false });
 
@@ -233,6 +306,7 @@ describe('staff plan routes', () => {
       ...createBody,
       active: true,
       customValues: {},
+      commission: { type: 'none' },
     });
 
     const cases = [

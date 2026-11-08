@@ -13,9 +13,11 @@ import {
 import {
   PLAN_LIMIT,
   applyCustomValueEdits,
+  NO_PLAN_COMMISSION,
   planSchema,
   type CreatePlanRequest,
   type Plan,
+  type PlanCommission,
   type PlanOption,
   type PropertyValue,
   type UpdatePlanRequest,
@@ -56,7 +58,8 @@ export interface PlanStore {
     filter: { leadType?: string; includeInactive: boolean },
   ): Promise<Plan[]>;
   get(ctx: TenantContext, planId: string): Promise<Plan | undefined>;
-  create(ctx: PropertyContext, input: CreatePlanRequest): Promise<CreatePlanOutcome>;
+  /** A create without a commission sets none (the route's schema defaults it too). */
+  create(ctx: PropertyContext, input: PlanCreateInput): Promise<CreatePlanOutcome>;
   update(
     ctx: PropertyContext,
     planId: string,
@@ -69,6 +72,7 @@ export interface PlanStore {
 }
 
 type PlanDatabase = Pick<DatabaseClient, 'withTenantTx'>;
+export type PlanCreateInput = CreatePlanRequest;
 type PlanRecord = typeof plans.$inferSelect;
 
 const AUDIT_ACTOR_LABEL = 'staff actor';
@@ -101,10 +105,35 @@ function toPlan(record: PlanRecord): Plan {
     requiredDocuments: record.requiredDocuments,
     customValues: storedValues(record.customValues),
     position: record.position,
+    commission: commissionOfRecord(record),
     version: record.version,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   });
+}
+
+/** The plan's commission from its three columns (`plans_commission_check` keeps them consistent). */
+function commissionOfRecord(
+  record: Pick<PlanRecord, 'commissionType' | 'commissionRateBps' | 'commissionMinor'>,
+): PlanCommission {
+  if (record.commissionType === 'percent' && record.commissionRateBps !== null) {
+    return { type: 'percent', rateBps: record.commissionRateBps };
+  }
+  if (record.commissionType === 'fixed' && record.commissionMinor !== null) {
+    return { type: 'fixed', amountMinor: record.commissionMinor };
+  }
+  return { type: 'none' };
+}
+
+/** The three stored columns of a commission. */
+export function commissionColumns(
+  commission: PlanCommission,
+): Pick<PlanRecord, 'commissionType' | 'commissionRateBps' | 'commissionMinor'> {
+  return {
+    commissionType: commission.type,
+    commissionRateBps: commission.type === 'percent' ? commission.rateBps : null,
+    commissionMinor: commission.type === 'fixed' ? commission.amountMinor : null,
+  };
 }
 
 /** `plans_workspace_type_name_unique`: the site already has a plan of this type by this name (any case). */
@@ -251,7 +280,7 @@ export class DatabasePlanStore implements PlanStore {
     });
   }
 
-  async create(ctx: PropertyContext, input: CreatePlanRequest): Promise<CreatePlanOutcome> {
+  async create(ctx: PropertyContext, input: PlanCreateInput): Promise<CreatePlanOutcome> {
     try {
       // A failed insert aborts the transaction, so its unique violation is
       // answered here, after the rollback.
@@ -287,6 +316,7 @@ export class DatabasePlanStore implements PlanStore {
             active: input.active,
             requiredDocuments: input.requiredDocuments,
             customValues: edit.values,
+            ...commissionColumns(input.commission ?? NO_PLAN_COMMISSION),
             position: (counts?.lastPosition ?? -1) + 1,
             createdBy: ctx.actorId,
             updatedBy: ctx.actorId,
@@ -338,6 +368,7 @@ export class DatabasePlanStore implements PlanStore {
         if (input.active !== undefined) set.active = input.active;
         if (input.requiredDocuments !== undefined) set.requiredDocuments = input.requiredDocuments;
         if (input.position !== undefined) set.position = input.position;
+        if (input.commission !== undefined) Object.assign(set, commissionColumns(input.commission));
 
         const [updated] = await tx
           .update(plans)

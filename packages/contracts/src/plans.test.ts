@@ -102,6 +102,7 @@ describe('plans', () => {
       requiredDocuments: [],
       active: true,
       customValues: {},
+      commission: { type: 'none' },
     });
     const base = { ...created };
     expect(createPlanRequestSchema.safeParse({ ...base, currency: 'CAD' }).success).toBe(false);
@@ -372,6 +373,8 @@ describe('plan snapshots and order details', () => {
       paymentRequired: true,
       requiredDocuments: ['passport', 'visa'],
       properties: { custom_carrier: 'Rogers', custom_data_gb: 120 },
+      // A plan read without its commission (a non-owner's copy) freezes none.
+      commission: { type: 'none' },
       frozenAt: NOW,
     });
     expect(planSnapshotSchema.parse(snapshot)).toEqual(snapshot);

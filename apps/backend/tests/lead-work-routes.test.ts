@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_LEAD_ORDER,
@@ -1364,6 +1365,53 @@ describe('change request decisions', () => {
     });
     const body = resolveChangeRequestResponseSchema.parse(await (await decide('reject')).json());
     expect(body.emailSkipped).toEqual({ template: 'change_rejected', reason: 'no_sender' });
+  });
+
+  it("shows the frozen plan's commission to the owner only, as no key for a lead worker", async () => {
+    const frozen = {
+      ...lead,
+      order: {
+        ...lead.order!,
+        plan: {
+          planId: PLAN,
+          name: 'Fibre',
+          priceMinor: 7000,
+          currency: 'CAD' as const,
+          billingPeriod: 'month' as const,
+          paymentRequired: false,
+          requiredDocuments: [],
+          properties: {},
+          commission: { type: 'fixed' as const, amountMinor: 2500 },
+          frozenAt: NOW,
+        },
+      },
+    };
+    const page = async () => {
+      work.getLead.mockImplementationOnce(async () => ({
+        lead: frozen,
+        activities: [],
+        tasks: [],
+        related: [],
+        identities: [],
+        documents: [],
+        changeRequest: null,
+      }));
+      return z
+        .object({
+          lead: z.object({
+            order: z.object({ plan: z.record(z.string(), z.unknown()) }),
+          }),
+        })
+        .parse(await (await call(`${leadsUrl()}/${LEAD}`)).json());
+    };
+    expect((await page()).lead.order.plan['commission']).toEqual({
+      type: 'fixed',
+      amountMinor: 2500,
+    });
+    store.access = { ...store.access, roles: ['leads', 'orders'] };
+    const plan = (await page()).lead.order.plan;
+    expect(Object.hasOwn(plan, 'commission')).toBe(false);
+    expect(plan['priceMinor']).toBe(7000);
   });
 
   it('shows the pending request and whether the caller may decide it on the lead page', async () => {

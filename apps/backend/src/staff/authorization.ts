@@ -29,6 +29,9 @@ const actionNames = tuple(
   // Moving an order on without its required documents approved, with a reason.
   // The owner and the Orders role have it; no individual permission grants it.
   'order.override',
+  // Seeing money: plan commissions, commission earned and expected, revenue
+  // totals. Owner only; no individual permission grants it (owner, 8 Nov 2026).
+  'revenue.view',
 );
 
 export type StaffAction = (typeof actionNames)[number];
