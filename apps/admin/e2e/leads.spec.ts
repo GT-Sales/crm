@@ -89,7 +89,11 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
   await expect(page.getByRole('heading', { name: 'New leads', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Funnel by stage' })).toBeVisible();
   // The period lives in the URL, so the view can be shared.
-  await page.getByRole('combobox', { name: 'Period' }).selectOption('this_year');
+  await page.getByRole('button', { name: /change the period/ }).click();
+  await page
+    .getByRole('group', { name: 'Period' })
+    .getByRole('button', { name: 'This year' })
+    .click();
   await expect(page).toHaveURL(/\/dashboard\?period=this_year/);
   await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Month', exact: true })).toHaveAttribute(
@@ -99,7 +103,7 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
   await expect(page.getByRole('heading', { name: 'New leads over time' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'New leads over time' })).toBeAttached();
   await page.reload();
-  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('this_year');
+  await expect(page.getByRole('button', { name: /change the period/ })).toContainText('This year');
   const followUp = page.getByRole('link', { name: /Casey Demo/ });
   await expect(followUp).toContainText('Confirm the install window');
   await expect(followUp).toContainText(/Overdue by \d+ days/);
