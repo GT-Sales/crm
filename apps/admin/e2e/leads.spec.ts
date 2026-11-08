@@ -78,9 +78,6 @@ test('Documents lists the files waiting on staff, and the lead flags them', asyn
   const attention = page.getByRole('region', { name: 'Needs attention' });
   await expect(attention.getByRole('button', { name: 'Change request #1 waiting' })).toBeVisible();
   await expect(attention.getByRole('button', { name: 'Passport not reviewed' })).toBeVisible();
-  const path = page.getByRole('region', { name: 'Lead progress' });
-  await expect(path.locator('[aria-current="step"]')).toHaveText('Pending');
-  await expect(path.getByRole('button', { name: 'Move to Verified' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

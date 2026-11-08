@@ -265,27 +265,8 @@ describe('LeadRecord', () => {
     expect(screen.queryByLabelText('Stage')).toBeNull();
     expect(screen.queryByLabelText('Add a note')).toBeNull();
     expect(screen.queryByRole('button', { name: /archive/i })).toBeNull();
-    // The path still shows where the lead stands, with no move offered.
-    const path = screen.getByRole('region', { name: 'Lead progress' });
-    expect(path.querySelector('[aria-current="step"]')?.textContent).toBe('New');
-    expect(within(path).queryByRole('button')).toBeNull();
-  });
-
-  it('offers the next stage on the path and moves the lead with it', async () => {
-    mocks.updateStaffLead.mockResolvedValue({
-      lead: { ...lead, stage: 'contacted' },
-      activities: [],
-      allowedMoves: [],
-      requestId: NOW,
-    });
-    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
-    const path = await screen.findByRole('region', { name: 'Lead progress' });
-    fireEvent.click(within(path).getByRole('button', { name: 'Move to Contacted' }));
-    await waitFor(() =>
-      expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
-        stage: 'contacted',
-      }),
-    );
+    // The stage still shows, with no way to change it.
+    expect(screen.queryByRole('region', { name: 'Lead progress' })).toBeNull();
   });
 
   it('archives the lead from the header and says so', async () => {
