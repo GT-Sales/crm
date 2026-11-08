@@ -855,7 +855,9 @@ set only for `fixed`), tied together by `plans_commission_check`. Every
 existing plan becomes `none`. `app_runtime` already holds table-level
 `SELECT, INSERT, UPDATE` on `app.plans` (0012), so no grant changes; RLS and
 policies are untouched. Adding a column with a constant default is
-metadata-only (no rewrite). Rollback, after reverting the code:
+metadata-only (no rewrite). The owner-only `revenue.view` action that guards
+these figures is code (`staff/authorization.ts`), so nothing about roles
+changes in the database. Rollback, after reverting the code:
 `ALTER TABLE app.plans DROP CONSTRAINT plans_commission_check, DROP COLUMN
 commission_type, DROP COLUMN commission_rate_bps, DROP COLUMN commission_minor;`
 

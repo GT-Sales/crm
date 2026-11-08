@@ -287,7 +287,7 @@ Roles: `owner` (everything), `leads` (workspace.read, lead.manage), `orders`
 (financial.read, invoice.approve). Actions: `workspace.read`, `lead.manage`,
 `order.manage`, `staff.invite`, `staff.remove`, `staff.roles.manage`,
 `document.download`, `financial.read`, `export.bulk`, `record.delete`,
-`invoice.approve`, `integration.manage`, `sensitive.reveal`, `property.manage` and `order.override`. `sensitive.reveal` and `property.manage` are owner only; `order.override` (moving an order on without its required documents approved, with a reason) belongs to the roles `owner` and `orders`, and no individual permission grants it. Per-member overrides
+`invoice.approve`, `integration.manage`, `sensitive.reveal`, `property.manage`, `order.override` and `revenue.view`. `sensitive.reveal`, `property.manage` and `revenue.view` (every money figure: plan commissions, commission earned and expected) are owner only; `order.override` (moving an order on without its required documents approved, with a reason) belongs to the roles `owner` and `orders`, and no individual permission grants it. Per-member overrides
 (`membership_permissions`, allow or deny) map to `document.download` through `integration.manage`; a deny always
 wins. Decision logic: `apps/backend/src/staff/authorization.ts`
 (`decideAccess` is pure; `createAuthorize` loads then decides). Authorization is
@@ -1475,6 +1475,65 @@ Mail uses the Site sender, existing suppression/delivery/outbox path and an
 AI-action dedupe key. It never uses model-provided addresses. Changed recipient
 or sender details require a new preview. No migration or new secret. See
 `design/interactive-ai.md`; no production rollout is implied.
+
+### 3.13 2026-11-08: analytics dashboard, plan commission, owner-only money
+
+Owner-approved spec, on branch `ccr-41289e51-iz1lgg`, pending review/release.
+
+- **Plan commission.** A plan carries a commission: none, a percent of its
+  price (`rateBps`, percent × 100, 0–10000) or a fixed amount in cents
+  (`planCommissionSchema`, `commissionMinorOf` in `packages/contracts/src/plans.ts`).
+  Migration `0027_plan_commission` adds `commission_type` (default `none`),
+  `commission_rate_bps` and `commission_minor` to `app.plans` with
+  `plans_commission_check` tying them together (**to apply**,
+  docs/RUNBOOKS/database.md). The frozen plan copies the commission, so an
+  order keeps the one in force when it was taken; a copy frozen before this
+  has none and the dashboard reads the plan's current commission instead. The
+  website plan list never includes it. Settings → Plans: the editor has
+  Commission (None / Percent of price / Fixed amount) for the owner only.
+- **Owner-only money.** New action `revenue.view`, owner only, no individual
+  permission grants it (code only: roles map to actions in
+  `staff/authorization.ts`, so no database change). Without it the backend
+  leaves the keys out (never nulls): `commission` on every plan response and
+  on a lead's frozen plan, and `commission`/`commissionTrend` on the
+  analytics response; a plan create or change that names a commission is
+  `403 permission_denied`. The admin shows money only when the fields arrive.
+  Counts (payment and commission status) stay for every `workspace.read` role.
+- **Analytics dashboard** (`/w/<site>/dashboard`, replaces the old per-type
+  tiles): `GET /api/v1/staff/workspaces/:id/analytics` (`analyticsQuerySchema`
+  / `analyticsResponseSchema` in `packages/contracts/src/analytics.ts`; store
+  `apps/backend/src/analytics/store.ts`, route `src/routes/analytics.ts`).
+  Query: `from`/`to` (UTC days, inclusive, ≤ 731 days, from ≤ to), `compare`
+  (`previous` default, `last_year`, `none`), `group` (`day`/`week`/`month`),
+  filters `leadType`, `source` (utm source), `partner` (partner code),
+  `assignee` (`me`, `none`, a member), `paymentStatus`, `planId`, `delivery`.
+  One read-only tenant transaction, one aggregate statement. Rules:
+  New = created in range, not archived or restricted, the type's
+  `outcomes.lost` stages aside (as the old stats; a SIM order's Cancelled).
+  Won = at a won stage now (`ANALYTICS_WON_STAGES`: SIM order activated or
+  completed, internet/mobility won, partner application approved) with the
+  **won date** in range: the first `status_change` into a won stage, else the
+  creation date (imported leads). Paid: a SIM order's
+  `order_details.paymentStatus`, else the custom property
+  `custom_payment_status` (lower-cased; `paid` counts). Commission status: a
+  SIM order's `carrierCommission`, else `custom_commission` (raw values).
+  Plan of a lead: frozen plan → `order_details.planId` → the form's `planId`
+  matched to the site's plan of the same type whose `custom_website_slug`
+  equals it; else "No plan matched". Commission earned = fixed × quantity or
+  rate × price × quantity (frozen price else the plan's), over leads won in
+  range; expected = the same over open leads created in range; plus "won
+  without a commission". Follow-ups due/overdue are open tasks on the
+  filtered leads (UTC today); documents to review is the review queue's
+  never-reviewed count, site-wide.
+- **Admin**: sticky filter bar (period presets incl. a two-month custom-range
+  calendar, compare, group, filters), state in the URL
+  (`components/analytics/analytics-query.ts`); KPI cards with ▲/▼ against the
+  comparison; Recharts 3.10.1 (pinned) charts: trend with a faint comparison
+  ghost, funnel with stage-to-stage %, sources and partners, plan and
+  eSIM/physical (or type) mix, payment/commission status, owner-only
+  commission over time, and a team table. Every chart has a visually hidden
+  data table; KPIs, funnel stages and team rows link to the Leads list where
+  its URL supports the filter (type, stage, assignee).
 
 ## 4. What is verified, and how
 

@@ -168,8 +168,14 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `sourceLabelSql` and `shapeSourceReport`) with the route in
   `src/routes/reports.ts`; contracts in `packages/contracts/src/reports.ts`;
   the admin page at `apps/admin/src/app/w/[workspace]/reports/sources` with
-  its screen in `src/components/reports/` (the dashboard's periods in
+  its screen in `src/components/reports/` (its periods in
   `src/lib/stats-windows.ts`).
+- Analytics dashboard: `apps/backend/src/analytics/store.ts` (the one
+  aggregate statement) with the route in `src/routes/analytics.ts`; contracts
+  in `packages/contracts/src/analytics.ts`; the admin screen
+  `apps/admin/src/components/dashboard.tsx` with its filter bar, URL state and
+  charts in `src/components/analytics/`. Money figures need `revenue.view`
+  (owner only) and are left out of responses for everyone else.
 - Intake check: `apps/backend/src/intake-check/` (`check.ts` the run and its
   steps, `store.ts` the test site's reads and deletes, `alert-rule.ts` when
   the owner hears about it), the manual run in `src/routes/intake-check.ts`;
