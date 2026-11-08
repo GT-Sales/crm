@@ -12,12 +12,13 @@ import { orderLeadTypes } from '@gt-sales/types';
 import {
   Badge,
   Button,
-  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
+  Switch,
 } from '@gt-sales/ui';
 
 import { BackendError, createPlan, updatePlan } from '../../lib/api';
@@ -88,6 +89,8 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
   const [dialogEpoch, setDialogEpoch] = useState(0);
   const [notice, setNotice] = useState<string>();
   const [pending, setPending] = useState(false);
+  // Turning a plan off asks first: it disappears from the website's order form.
+  const [confirmOff, setConfirmOff] = useState<Plan>();
 
   const atLimit = plans.length >= PLAN_LIMIT;
 
@@ -251,13 +254,19 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
                     {canWrite ? (
                       <div className="flex items-center gap-3">
                         <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground hover:text-foreground">
-                          <Checkbox
+                          <Switch
                             aria-label={`Active ${plan.name}`}
                             checked={plan.active}
                             disabled={pending}
-                            onCheckedChange={(checked) => void setActive(plan, checked === true)}
+                            onCheckedChange={(checked) => {
+                              if (checked) void setActive(plan, true);
+                              else {
+                                setNotice(undefined);
+                                setConfirmOff(plan);
+                              }
+                            }}
                           />
-                          Active
+                          {plan.active ? 'Active' : 'Off'}
                         </label>
                         <Button
                           type="button"
@@ -282,6 +291,40 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
           </section>
         );
       })}
+
+      <Dialog
+        open={confirmOff !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setConfirmOff(undefined);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Turn off {confirmOff?.name}?</DialogTitle>
+            <DialogDescription>
+              Customers can no longer choose this plan on the website. Existing leads keep it, and
+              you can turn it back on at any time.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOff(undefined)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                const plan = confirmOff;
+                setConfirmOff(undefined);
+                if (plan) void setActive(plan, false);
+              }}
+            >
+              Turn off
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {otherTypes.length > 0 ? (
         <section

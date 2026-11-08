@@ -477,7 +477,7 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   await expect(addPlan).toHaveCount(0);
   const chatr = simPlans.getByRole('listitem').filter({ hasText: 'Chatr 25GB' });
   await expect(chatr).toContainText('$35.00 · Monthly · Payment required');
-  await expect(page.getByRole('checkbox', { name: 'Active Chatr 25GB' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Active Chatr 25GB' })).toBeChecked();
 
   // The inbox opens the seeded order in the side panel: its plan as frozen, payment pending.
   await page.goto('/w/getcanadasim/leads?type=sim_order');
@@ -547,8 +547,9 @@ test('a plan is added, an order is marked paid, filtered on, archived and restor
   await panel.getByRole('button', { name: 'Close panel' }).click();
 
   await page.goto('/w/getcanadasim/settings/plans');
-  const chatrActive = page.getByRole('checkbox', { name: 'Active Chatr 25GB' });
+  const chatrActive = page.getByRole('switch', { name: 'Active Chatr 25GB' });
   await chatrActive.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Turn off' }).click();
   await expect(chatrActive).not.toBeChecked();
   await expect(simPlans.getByRole('listitem').filter({ hasText: 'Chatr 25GB' })).toContainText(
     'Inactive',

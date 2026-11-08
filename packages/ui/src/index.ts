@@ -17,6 +17,7 @@ export {
   CardContent,
 } from './components/card';
 export { Checkbox } from './components/checkbox';
+export { Switch } from './components/switch';
 export {
   Dialog,
   DialogClose,
