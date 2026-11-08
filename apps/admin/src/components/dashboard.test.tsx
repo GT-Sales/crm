@@ -283,9 +283,13 @@ describe('Dashboard analytics', () => {
   it('writes the period, comparison, grouping and filters to the URL', async () => {
     const view = render(<Dashboard workspaceSlug="getcanadasim" />);
     await screen.findByRole('heading', { name: 'New orders' });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Period' }), {
-      target: { value: '7d' },
-    });
+    const periodButton = () => screen.getByRole('button', { name: /change the period/ });
+    fireEvent.click(periodButton());
+    fireEvent.click(
+      within(await screen.findByRole('group', { name: 'Period' })).getByRole('button', {
+        name: 'Last 7 days',
+      }),
+    );
     expect(navigation.replace).toHaveBeenLastCalledWith('/w/getcanadasim/dashboard?period=7d', {
       scroll: false,
     });
@@ -296,11 +300,14 @@ describe('Dashboard analytics', () => {
       { scroll: false },
     );
     view.rerender(<Dashboard workspaceSlug="getcanadasim" />);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Compare with' }), {
+    fireEvent.click(periodButton());
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Compare with' }), {
       target: { value: 'none' },
     });
     view.rerender(<Dashboard workspaceSlug="getcanadasim" />);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Delivery' }), {
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Delivery' }), {
       target: { value: 'pickup' },
     });
     expect(navigation.search).toBe('period=7d&compare=none&group=week&delivery=pickup');
@@ -315,7 +322,8 @@ describe('Dashboard analytics', () => {
         delivery: 'pickup',
       }),
     );
-    fireEvent.click(screen.getByRole('button', { name: /Clear filters/ }));
+    // The active filter shows as a chip with its own remove button.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Delivery: Physical SIM' }));
     expect(navigation.search).toBe('period=7d&compare=none&group=week');
   });
 
@@ -344,7 +352,11 @@ describe('Dashboard analytics', () => {
       group: 'day',
     });
     expect(screen.getByText('Choose a lead type to see its funnel.')).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: 'Lead type' })).toHaveProperty('value', 'all');
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+    expect(await screen.findByRole('combobox', { name: 'Lead type' })).toHaveProperty(
+      'value',
+      'all',
+    );
   });
 
   it('says when the analytics could not load', async () => {

@@ -11,7 +11,14 @@ import {
   type AnalyticsGroup,
 } from '@gt-sales/contracts';
 import { Button, NativeSelect, Popover, PopoverContent, PopoverTrigger, cn } from '@gt-sales/ui';
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, XIcon } from 'lucide-react';
+import {
+  CalendarIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ListFilterIcon,
+  XIcon,
+} from 'lucide-react';
 
 import {
   COMPARE_LABELS,
@@ -265,90 +272,282 @@ export function FilterBar({
   onChange(next: DashboardState): void;
   today?: string;
 }) {
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const setPeriod = (period: PeriodKey) => {
-    if (period === 'custom') {
-      setCalendarOpen(true);
-      return;
-    }
+    if (period === 'custom') return;
     const range = presetRange(period, today);
     onChange({ ...state, period, ...range, group: defaultGroup(range.from, range.to) });
+    setDateOpen(false);
   };
-  const filterCount = [
-    state.source,
-    state.partner,
-    state.assignee,
-    state.payment,
-    state.plan,
-    state.delivery,
-  ].filter(Boolean).length;
+  const chips: { key: FilterKey | 'type'; label: string }[] = [];
+  if (options.types.length > 1 && state.type && state.type !== 'all' && leadType) {
+    chips.push({ key: 'type', label: `Type: ${leadTypeLabel(leadType)}` });
+  }
+  if (state.source) chips.push({ key: 'source', label: `Source: ${state.source}` });
+  if (state.partner) {
+    const name = options.partners.find((p) => p.code === state.partner)?.name ?? state.partner;
+    chips.push({ key: 'partner', label: `Partner: ${name}` });
+  }
+  if (state.assignee) {
+    const name =
+      state.assignee === 'none'
+        ? 'Unassigned'
+        : (options.members.find((m) => m.actorId === state.assignee)?.name ?? 'Teammate');
+    chips.push({ key: 'assignee', label: `Assigned: ${name}` });
+  }
+  if (state.payment) {
+    const label = PAYMENT_LABELS[state.payment as keyof typeof PAYMENT_LABELS] ?? state.payment;
+    chips.push({ key: 'payment', label: `Payment: ${label}` });
+  }
+  if (state.plan) {
+    const name = options.plans.find((plan) => plan.id === state.plan)?.name ?? 'Plan';
+    chips.push({ key: 'plan', label: `Plan: ${name}` });
+  }
+  if (state.delivery) {
+    chips.push({
+      key: 'delivery',
+      label: `Delivery: ${state.delivery === 'esim' ? 'eSIM' : 'Physical SIM'}`,
+    });
+  }
+  const filterCount = chips.length;
+  const removeChip = (key: FilterKey | 'type') => {
+    if (key === 'type') {
+      const { delivery: _delivery, plan: _plan, ...rest } = state;
+      onChange({ ...rest, type: 'all' });
+      return;
+    }
+    onChange(withFilter(state, key, ''));
+  };
+  const clearAll = () => {
+    const {
+      source: _s,
+      partner: _p,
+      assignee: _a,
+      payment: _pay,
+      plan: _plan,
+      delivery: _d,
+      ...rest
+    } = state;
+    onChange(options.types.length > 1 ? { ...rest, type: 'all' } : rest);
+  };
 
   return (
     <div
       role="search"
       aria-label="Dashboard filters"
-      className="sticky top-0 z-20 -mx-4 flex flex-col gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
+      className="sticky top-0 z-20 -mx-4 flex flex-col gap-2 bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          label="Period"
-          value={state.period}
-          onChange={(value) => {
-            const next = PERIOD_KEYS.find((key) => key === value);
-            if (next) setPeriod(next);
-          }}
-          className="w-40"
-        >
-          {PERIOD_KEYS.map((key) => (
-            <option key={key} value={key}>
-              {PERIOD_LABELS[key]}
-            </option>
-          ))}
-        </Select>
-        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <Popover open={dateOpen} onOpenChange={setDateOpen}>
           <PopoverTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-9 gap-2">
-              <CalendarIcon className="size-4" aria-hidden="true" />
-              <span className="tabular-nums">{rangeLabel(state.from, state.to)}</span>
-              <span className="sr-only">, choose a custom range</span>
+            <Button type="button" variant="outline" size="sm" className="h-9 gap-2 bg-card">
+              <CalendarIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+              <span className="font-medium">{PERIOD_LABELS[state.period]}</span>
+              <span className="hidden text-muted-foreground tabular-nums sm:inline">
+                {rangeLabel(state.from, state.to)}
+              </span>
+              <span className="sr-only">, change the period or choose a custom range</span>
+              <ChevronDownIcon className="size-4 text-muted-foreground" aria-hidden="true" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-[min(92vw,40rem)]">
-            <RangeCalendar
-              from={state.from}
-              to={state.to}
-              today={today}
-              onApply={(range) => {
-                setCalendarOpen(false);
-                onChange({
-                  ...state,
-                  period: 'custom',
-                  ...range,
-                  group: defaultGroup(range.from, range.to),
-                });
-              }}
-            />
+          <PopoverContent align="start" className="w-[min(94vw,46rem)] p-0">
+            <div className="flex flex-col sm:flex-row">
+              <div
+                role="group"
+                aria-label="Period"
+                className="flex flex-row flex-wrap gap-1 border-b p-2 sm:w-40 sm:flex-col sm:border-r sm:border-b-0"
+              >
+                {PERIOD_KEYS.filter((key) => key !== 'custom').map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={state.period === key}
+                    onClick={() => setPeriod(key)}
+                    className={cn(
+                      'rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-muted',
+                      state.period === key && 'bg-accent font-medium text-accent-foreground',
+                    )}
+                  >
+                    {PERIOD_LABELS[key]}
+                  </button>
+                ))}
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-3 p-3">
+                <RangeCalendar
+                  from={state.from}
+                  to={state.to}
+                  today={today}
+                  onApply={(range) => {
+                    setDateOpen(false);
+                    onChange({
+                      ...state,
+                      period: 'custom',
+                      ...range,
+                      group: defaultGroup(range.from, range.to),
+                    });
+                  }}
+                />
+                <div className="flex items-center gap-2 border-t pt-3 text-sm">
+                  <span className="text-muted-foreground">Compare with</span>
+                  <Select
+                    label="Compare with"
+                    value={state.compare}
+                    onChange={(value) => {
+                      const compare = ANALYTICS_COMPARE_MODES.find((mode) => mode === value);
+                      if (compare)
+                        onChange({ ...state, compare: compare satisfies AnalyticsCompare });
+                    }}
+                    className="w-48"
+                  >
+                    {ANALYTICS_COMPARE_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {COMPARE_LABELS[mode]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+            </div>
           </PopoverContent>
         </Popover>
-        <Select
-          label="Compare with"
-          value={state.compare}
-          onChange={(value) => {
-            const compare = ANALYTICS_COMPARE_MODES.find((mode) => mode === value);
-            if (compare) onChange({ ...state, compare: compare satisfies AnalyticsCompare });
-          }}
-          className="w-48"
-        >
-          {ANALYTICS_COMPARE_MODES.map((mode) => (
-            <option key={mode} value={mode}>
-              {mode === 'none' ? COMPARE_LABELS[mode] : `vs ${COMPARE_LABELS[mode].toLowerCase()}`}
-            </option>
-          ))}
-        </Select>
+        <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="outline" size="sm" className="h-9 gap-2 bg-card">
+              <ListFilterIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+              Filters
+              {filterCount > 0 ? (
+                <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground tabular-nums">
+                  {filterCount}
+                </span>
+              ) : null}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[min(92vw,20rem)]">
+            <div className="flex flex-col gap-3">
+              {options.types.length > 1 ? (
+                <FilterField label="Lead type">
+                  <Select
+                    label="Lead type"
+                    value={leadType ?? 'all'}
+                    onChange={(value) => {
+                      const { delivery: _delivery, plan: _plan, ...rest } = state;
+                      onChange({ ...rest, type: value });
+                    }}
+                  >
+                    <option value="all">All types</option>
+                    {options.types.map((type) => (
+                      <option key={type} value={type}>
+                        {leadTypeLabel(type)}
+                      </option>
+                    ))}
+                  </Select>
+                </FilterField>
+              ) : null}
+              <FilterField label="Source">
+                <Select
+                  label="Source"
+                  value={state.source ?? ''}
+                  onChange={(value) => onChange(withFilter(state, 'source', value))}
+                >
+                  <option value="">Any source</option>
+                  {unique([...(state.source ? [state.source] : []), ...options.sources]).map(
+                    (source) => (
+                      <option key={source} value={source}>
+                        {source}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </FilterField>
+              <FilterField label="Partner">
+                <Select
+                  label="Partner"
+                  value={state.partner ?? ''}
+                  onChange={(value) => onChange(withFilter(state, 'partner', value))}
+                >
+                  <option value="">Any partner</option>
+                  {unique([
+                    ...(state.partner ? [state.partner] : []),
+                    ...options.partners.map((p) => p.code),
+                  ]).map((code) => (
+                    <option key={code} value={code}>
+                      {options.partners.find((partner) => partner.code === code)?.name ?? code}
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
+              <FilterField label="Assigned to">
+                <Select
+                  label="Assigned to"
+                  value={state.assignee ?? ''}
+                  onChange={(value) => onChange(withFilter(state, 'assignee', value))}
+                >
+                  <option value="">Anyone</option>
+                  <option value="none">Unassigned</option>
+                  {options.members.map((member) => (
+                    <option key={member.actorId} value={member.actorId}>
+                      {member.name}
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
+              <FilterField label="Payment status">
+                <Select
+                  label="Payment status"
+                  value={state.payment ?? ''}
+                  onChange={(value) => onChange(withFilter(state, 'payment', value))}
+                >
+                  <option value="">Any payment</option>
+                  {Object.entries(PAYMENT_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
+              {options.plans.length > 0 ? (
+                <FilterField label="Plan">
+                  <Select
+                    label="Plan"
+                    value={state.plan ?? ''}
+                    onChange={(value) => onChange(withFilter(state, 'plan', value))}
+                  >
+                    <option value="">Any plan</option>
+                    {options.plans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FilterField>
+              ) : null}
+              {leadType === 'sim_order' ? (
+                <FilterField label="Delivery">
+                  <Select
+                    label="Delivery"
+                    value={state.delivery ?? ''}
+                    onChange={(value) => onChange(withFilter(state, 'delivery', value))}
+                  >
+                    <option value="">Any delivery</option>
+                    <option value="esim">eSIM</option>
+                    <option value="pickup">Physical SIM</option>
+                  </Select>
+                </FilterField>
+              ) : null}
+              {filterCount > 0 ? (
+                <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
+                  <XIcon className="size-4" aria-hidden="true" />
+                  Clear filters ({filterCount})
+                </Button>
+              ) : null}
+            </div>
+          </PopoverContent>
+        </Popover>
         <div
           role="group"
           aria-label="Group by"
-          className="flex overflow-hidden rounded-md border border-input"
+          className="ml-auto flex overflow-hidden rounded-md border border-input bg-card"
         >
           {ANALYTICS_GROUPS.map((group: AnalyticsGroup, index) => (
             <button
@@ -367,131 +566,46 @@ export function FilterBar({
           ))}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {options.types.length > 1 ? (
-          <Select
-            label="Lead type"
-            value={leadType ?? 'all'}
-            onChange={(value) => {
-              const { delivery: _delivery, plan: _plan, ...rest } = state;
-              onChange({ ...rest, type: value });
-            }}
-            className="w-44"
-          >
-            <option value="all">All types</option>
-            {options.types.map((type) => (
-              <option key={type} value={type}>
-                {leadTypeLabel(type)}
-              </option>
-            ))}
-          </Select>
-        ) : null}
-        <Select
-          label="Source"
-          value={state.source ?? ''}
-          onChange={(value) => onChange(withFilter(state, 'source', value))}
-          className="w-36"
-        >
-          <option value="">Any source</option>
-          {unique([...(state.source ? [state.source] : []), ...options.sources]).map((source) => (
-            <option key={source} value={source}>
-              {source}
-            </option>
+      {chips.length > 0 ? (
+        <ul aria-label="Active filters" className="flex flex-wrap items-center gap-1.5">
+          {chips.map((chip) => (
+            <li
+              key={chip.key}
+              className="flex items-center gap-1 rounded-full border bg-card py-0.5 pr-1 pl-2.5 text-xs"
+            >
+              {chip.label}
+              <button
+                type="button"
+                aria-label={`Remove ${chip.label}`}
+                onClick={() => removeChip(chip.key)}
+                className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <XIcon className="size-3" aria-hidden="true" />
+              </button>
+            </li>
           ))}
-        </Select>
-        <Select
-          label="Partner"
-          value={state.partner ?? ''}
-          onChange={(value) => onChange(withFilter(state, 'partner', value))}
-          className="w-36"
-        >
-          <option value="">Any partner</option>
-          {unique([
-            ...(state.partner ? [state.partner] : []),
-            ...options.partners.map((p) => p.code),
-          ]).map((code) => (
-            <option key={code} value={code}>
-              {options.partners.find((partner) => partner.code === code)?.name ?? code}
-            </option>
-          ))}
-        </Select>
-        <Select
-          label="Assigned to"
-          value={state.assignee ?? ''}
-          onChange={(value) => onChange(withFilter(state, 'assignee', value))}
-          className="w-40"
-        >
-          <option value="">Anyone</option>
-          <option value="none">Unassigned</option>
-          {options.members.map((member) => (
-            <option key={member.actorId} value={member.actorId}>
-              {member.name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          label="Payment status"
-          value={state.payment ?? ''}
-          onChange={(value) => onChange(withFilter(state, 'payment', value))}
-          className="w-36"
-        >
-          <option value="">Any payment</option>
-          {Object.entries(PAYMENT_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </Select>
-        {options.plans.length > 0 ? (
-          <Select
-            label="Plan"
-            value={state.plan ?? ''}
-            onChange={(value) => onChange(withFilter(state, 'plan', value))}
-            className="w-44"
-          >
-            <option value="">Any plan</option>
-            {options.plans.map((plan) => (
-              <option key={plan.id} value={plan.id}>
-                {plan.name}
-              </option>
-            ))}
-          </Select>
-        ) : null}
-        {leadType === 'sim_order' ? (
-          <Select
-            label="Delivery"
-            value={state.delivery ?? ''}
-            onChange={(value) => onChange(withFilter(state, 'delivery', value))}
-            className="w-36"
-          >
-            <option value="">Any delivery</option>
-            <option value="esim">eSIM</option>
-            <option value="pickup">Physical SIM</option>
-          </Select>
-        ) : null}
-        {filterCount > 0 ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              const {
-                source: _s,
-                partner: _p,
-                assignee: _a,
-                payment: _pay,
-                plan: _plan,
-                delivery: _d,
-                ...rest
-              } = state;
-              onChange(rest);
-            }}
-          >
-            <XIcon className="size-4" aria-hidden="true" />
-            Clear filters ({filterCount})
-          </Button>
-        ) : null}
-      </div>
+          <li>
+            <button
+              type="button"
+              onClick={clearAll}
+              className="px-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Clear all
+            </button>
+          </li>
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span aria-hidden="true" className="text-xs font-medium text-muted-foreground">
+        {label}
+      </span>
+      {children}
     </div>
   );
 }
