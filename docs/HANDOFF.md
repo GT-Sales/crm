@@ -2456,7 +2456,8 @@ No backend or contract change.
 
 Items 2, 3 and 4 of [the admin UI review](review/2026-11-05-admin-ui-review.md):
 
-- **Guided stage path** (`lib/stage-path.ts`, `components/leads/stage-path.tsx`):
+- **Guided stage path** (removed 2026-11-08 at the owner's request; the Stage
+  menu is the one way to move a lead) (`lib/stage-path.ts`, `components/leads/stage-path.tsx`):
   the lead header shows its type's main path as steps (side stages such as On
   hold, Cancelled or Lost stay in the Stage menu) with the next allowed stage
   as one button. It makes the same move as the menu, so gated moves open the
