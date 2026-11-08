@@ -29,7 +29,8 @@ export const BODY_MAX = 5000;
 
 const MARKUP_PROBLEMS: Readonly<Record<string, string>> = {
   two_buttons: 'An email can have one button only.',
-  button_not_alone: 'Put the button in a paragraph of its own, with a blank line before and after.',
+  button_not_alone:
+    'Put the button in a paragraph of its own, with a blank line before and after, not inside a heading, box or step.',
   bad_link:
     'A link address must start with http:// or https://, or be {tracking link} on its own. A typed address cannot hold { or }.',
 };
@@ -305,6 +306,30 @@ export function TemplateEditor({
             <li>
               A link or button may go to <code className="font-mono">{'{tracking link}'}</code>. The
               subject takes fill-ins only.
+            </li>
+            <li>
+              <code className="font-mono">[badge: Order confirmed]</code> alone on a line for a
+              status pill (<code className="font-mono">[badge success: …]</code> for a green one).
+            </li>
+            <li>
+              <code className="font-mono"># Heading</code> for a big heading,{' '}
+              <code className="font-mono">## Section</code> for a small section heading.
+            </li>
+            <li>
+              Two or more lines like <code className="font-mono">**Plan:** {'{plan}'}</code> in one
+              paragraph make a details box.
+            </li>
+            <li>
+              Lines starting with <code className="font-mono">&gt; </code> make a highlighted box.
+            </li>
+            <li>
+              A line in backticks, such as <code className="font-mono">`{'{SIM number}'}`</code>,
+              makes a large code box; one line above it becomes its label.
+            </li>
+            <li>
+              Lines starting <code className="font-mono">1. </code>,{' '}
+              <code className="font-mono">2. </code>… make numbered steps; the lines under each are
+              its words.
             </li>
           </ul>
         </section>

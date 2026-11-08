@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  CUSTOMER_EMAIL_TEMPLATES,
-  emailBodySchema,
-  emailSubjectSchema,
-  type EmailFillInName,
-} from '@gt-sales/contracts';
+import { CUSTOMER_EMAIL_TEMPLATES, emailBodySchema, emailSubjectSchema } from '@gt-sales/contracts';
 
 import { sampleFillInValues } from '../src/email/fill-in-values.js';
 import { renderCustomerEmail, type EmailBranding } from '../src/email/layout.js';
-import { parseEmailBody, parseEmailSubject, type EmailInline } from '../src/email/markup.js';
+import { blockFillIns, parseEmailBody, parseEmailSubject } from '../src/email/markup.js';
 import { STARTER_TEMPLATES } from '../src/email/starters.js';
 
 const branding: EmailBranding = {
@@ -19,24 +14,6 @@ const branding: EmailBranding = {
   footerText: '',
 };
 const site = { siteName: 'Get Canada Sim', siteUrl: 'https://getcanadasim.example' };
-
-function inlineKeys(inlines: readonly EmailInline[]): EmailFillInName[] {
-  return inlines.flatMap((inline): EmailFillInName[] => {
-    switch (inline.kind) {
-      case 'fillIn':
-        return [inline.key];
-      case 'bold':
-        return inlineKeys(inline.children);
-      case 'link':
-        return [
-          ...inlineKeys(inline.label),
-          ...(inline.href.kind === 'fillIn' ? [inline.href.key] : []),
-        ];
-      default:
-        return [];
-    }
-  });
-}
 
 /** Every fill-in a template's subject and body use. */
 function fillInsUsed(
@@ -49,13 +26,7 @@ function fillInsUsed(
   if (!parsedSubject.ok || !parsedBody.ok) throw new Error('the starter does not parse');
   const keys = [
     ...parsedSubject.parts.flatMap((part) => (part.kind === 'fillIn' ? [part.key] : [])),
-    ...parsedBody.blocks.flatMap((block) =>
-      block.kind === 'button'
-        ? block.href.kind === 'fillIn'
-          ? [block.href.key]
-          : []
-        : inlineKeys(block.inlines),
-    ),
+    ...parsedBody.blocks.flatMap(blockFillIns),
   ];
   return new Set(keys);
 }
