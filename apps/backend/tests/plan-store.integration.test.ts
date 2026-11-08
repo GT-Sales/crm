@@ -4,7 +4,12 @@ import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
 import { PLAN_LIMIT, type CreatePlanRequest, type Plan } from '@gt-sales/contracts';
 
-import { DatabasePlanStore, type CreatePlanOutcome } from '../src/plans/store.js';
+import {
+  DatabasePlanStore,
+  loadPlanForFreeze,
+  type CreatePlanOutcome,
+} from '../src/plans/store.js';
+import { freezePlan } from '@gt-sales/contracts';
 import { DatabasePropertyStore } from '../src/properties/store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
@@ -362,6 +367,55 @@ databaseTest('plan store', () => {
     const every = await store.listForWebsite(ctx);
     expect(every.map((plan) => plan.id)).toEqual([internet.id, shown.id]);
     expect(await store.listForWebsite(otherCtx)).toEqual([]);
+  });
+
+  it('stores a commission (none by default, percent or fixed), audits it, freezes it, and never sends it to the website', async () => {
+    const none = planOf(await store.create(ctx, planInput({ name: 'No commission' })));
+    expect(none.commission).toEqual({ type: 'none' });
+    const percent = planOf(
+      await store.create(
+        ctx,
+        planInput({ name: 'Ten percent', commission: { type: 'percent', rateBps: 1000 } }),
+      ),
+    );
+    expect(percent.commission).toEqual({ type: 'percent', rateBps: 1000 });
+
+    const changed = await store.update(ctx, percent.id, {
+      expectedVersion: 1,
+      commission: { type: 'fixed', amountMinor: 2500 },
+    });
+    if (changed.kind !== 'updated') throw new Error(changed.kind);
+    expect(changed.plan.commission).toEqual({ type: 'fixed', amountMinor: 2500 });
+    const [columns] = await admin<{ type: string; bps: number | null; minor: string | null }[]>`
+      select commission_type as type, commission_rate_bps as bps, commission_minor::text as minor
+      from app.plans where id = ${percent.id}
+    `;
+    expect(columns).toEqual({ type: 'fixed', bps: null, minor: '2500' });
+    const audits = await auditRows('plan.updated');
+    expect(audits.at(-1)?.before).toMatchObject({ commission: { type: 'percent', rateBps: 1000 } });
+    expect(audits.at(-1)?.after).toMatchObject({
+      commission: { type: 'fixed', amountMinor: 2500 },
+    });
+
+    // A row breaking the pairing is refused by the check.
+    await expect(
+      admin`update app.plans set commission_rate_bps = 5 where id = ${percent.id}`,
+    ).rejects.toThrow(/plans_commission_check/);
+    await expect(
+      admin`update app.plans set commission_type = 'percent', commission_rate_bps = 10001,
+        commission_minor = null where id = ${percent.id}`,
+    ).rejects.toThrow(/plans_commission_check/);
+
+    for (const plan of await store.listForWebsite(ctx)) {
+      expect(Object.hasOwn(plan, 'commission')).toBe(false);
+    }
+
+    const found = await database.withTenantTx(ctx, (tx) => loadPlanForFreeze(tx, SITE, percent.id));
+    if (!found) throw new Error('plan not found');
+    expect(freezePlan(found.plan, found.visibleKeys, new Date()).commission).toEqual({
+      type: 'fixed',
+      amountMinor: 2500,
+    });
   });
 
   it("keeps every site's plans apart", async () => {

@@ -1562,6 +1562,12 @@ export const plans = appSchema
         .notNull(),
       customValues: jsonb('custom_values').notNull().default({}),
       position: integer('position').default(0).notNull(),
+      /** Staff-only: what the site earns per unit sold, none, a percent of the price or a fixed amount. */
+      commissionType: text('commission_type').default('none').notNull(),
+      /** Percent × 100 (basis points, 0–10000) when the commission is a percent. */
+      commissionRateBps: integer('commission_rate_bps'),
+      /** Minor units (cents, the plan's currency) when the commission is fixed. */
+      commissionMinor: bigint('commission_minor', { mode: 'number' }),
       version: integer('version').default(1).notNull(),
       createdBy: uuid('created_by'),
       updatedBy: uuid('updated_by'),
@@ -1581,6 +1587,12 @@ export const plans = appSchema
       check('plans_currency_check', sql`${table.currency} = 'CAD'`),
       check('plans_billing_period_check', sql`${table.billingPeriod} in (${billingPeriodList})`),
       check('plans_custom_values_check', sql`jsonb_typeof(${table.customValues}) = 'object'`),
+      check(
+        'plans_commission_check',
+        sql`(${table.commissionType} = 'none' and ${table.commissionRateBps} is null and ${table.commissionMinor} is null)
+          or (${table.commissionType} = 'percent' and ${table.commissionRateBps} between 0 and 10000 and ${table.commissionMinor} is null)
+          or (${table.commissionType} = 'fixed' and ${table.commissionMinor} >= 0 and ${table.commissionRateBps} is null)`,
+      ),
       tenantPolicy('plans_tenant_policy', table.workspaceId),
       backupReadPolicy('plans'),
     ],

@@ -50,6 +50,42 @@ const planRequiredDocumentsSchema = z.array(planRequiredDocumentSchema).max(16);
 const planPositionSchema = z.number().int().min(0);
 const orderQuantitySchema = z.number().int().min(1).max(99);
 
+/** The most a plan's percent commission may be: 100 %, in basis points. */
+export const PLAN_COMMISSION_RATE_MAX_BPS = 10_000;
+export const PLAN_COMMISSION_TYPES = ['none', 'percent', 'fixed'] as const;
+
+/**
+ * What the site earns on one unit of the plan, staff-only (never sent to a
+ * website): nothing set, a percent of the price (`rateBps`, percent × 100) or
+ * a fixed amount in cents of the plan's currency.
+ */
+export const planCommissionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('none') }).strict(),
+  z
+    .object({
+      type: z.literal('percent'),
+      rateBps: z.number().int().min(0).max(PLAN_COMMISSION_RATE_MAX_BPS),
+    })
+    .strict(),
+  z.object({ type: z.literal('fixed'), amountMinor: planPriceMinorSchema }).strict(),
+]);
+export type PlanCommission = z.infer<typeof planCommissionSchema>;
+export const NO_PLAN_COMMISSION: PlanCommission = { type: 'none' };
+
+/**
+ * The commission of `quantity` units of a plan priced `priceMinor`, in cents,
+ * rounded half up for a percent; null when no commission is set.
+ */
+export function commissionMinorOf(
+  commission: PlanCommission,
+  priceMinor: number,
+  quantity: number,
+): number | null {
+  if (commission.type === 'none') return null;
+  if (commission.type === 'fixed') return commission.amountMinor * quantity;
+  return Math.round((priceMinor * commission.rateBps * quantity) / PLAN_COMMISSION_RATE_MAX_BPS);
+}
+
 export const planSchema = z.object({
   id: z.uuid(),
   leadType: orderLeadTypeSchema,
@@ -63,6 +99,11 @@ export const planSchema = z.object({
   /** Values of the site's custom properties on the plan, by property key. */
   customValues: z.record(propertyKeySchema, leadPropertyValueSchema),
   position: planPositionSchema,
+  /**
+   * Owner only (`revenue.view`): left out of the response for every other
+   * role, and never in the website's plan list.
+   */
+  commission: planCommissionSchema.optional(),
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -82,9 +123,13 @@ export const createPlanRequestSchema = planSchema
   .extend({
     active: z.boolean().default(true),
     customValues: z.record(propertyKeySchema, leadPropertyValueSchema).default({}),
+    commission: planCommissionSchema.default(NO_PLAN_COMMISSION),
   })
   .strict();
-export type CreatePlanRequest = z.infer<typeof createPlanRequestSchema>;
+/** A parsed create; the commission may be left out by in-process callers (none). */
+export type CreatePlanRequest = Omit<z.infer<typeof createPlanRequestSchema>, 'commission'> & {
+  commission?: PlanCommission;
+};
 export type CreatePlanRequestInput = z.input<typeof createPlanRequestSchema>;
 
 /**
@@ -103,6 +148,7 @@ export const updatePlanRequestSchema = z
     requiredDocuments: planRequiredDocumentsSchema.optional(),
     customValues: z.record(propertyKeySchema, leadPropertyValueSchema.nullable()).optional(),
     position: planPositionSchema.optional(),
+    commission: planCommissionSchema.optional(),
   })
   .strict()
   .refine(
@@ -145,6 +191,11 @@ export const planSnapshotSchema = z
     requiredDocuments: planRequiredDocumentsSchema,
     /** The plan's website-visible custom values, as they were when frozen. */
     properties: z.record(propertyKeySchema, leadPropertyValueSchema),
+    /**
+     * The plan's commission when frozen (staff-only). Absent on copies frozen
+     * before plans had one; the dashboard then reads the plan's current one.
+     */
+    commission: planCommissionSchema.optional(),
     frozenAt: isoDateTimeSchema,
   })
   .strict();
@@ -298,6 +349,7 @@ export function freezePlan(
     paymentRequired: plan.paymentRequired,
     requiredDocuments: [...plan.requiredDocuments],
     properties,
+    commission: plan.commission ?? NO_PLAN_COMMISSION,
     frozenAt: now.toISOString(),
   };
 }

@@ -85,15 +85,21 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/dashboard');
   await expect(page.getByRole('heading', { level: 2, name: 'Follow-ups due' })).toBeVisible();
-  // The site's busiest type over the last 7 days: CanadaWide's internet leads, by stage.
-  await expect(page.getByRole('heading', { name: 'Received' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'By stage' })).toBeVisible();
-  await page.getByRole('button', { name: 'All time' }).click();
-  await expect(page.getByRole('button', { name: 'All time' })).toHaveAttribute(
+  // The site's busiest type over the last 30 days: CanadaWide's internet leads.
+  await expect(page.getByRole('heading', { name: 'New leads', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Funnel by stage' })).toBeVisible();
+  // The period lives in the URL, so the view can be shared.
+  await page.getByRole('combobox', { name: 'Period' }).selectOption('this_year');
+  await expect(page).toHaveURL(/\/dashboard\?period=this_year/);
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Month', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  await expect(page.getByRole('img', { name: /received per day/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New leads over time' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'New leads over time' })).toBeAttached();
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('this_year');
   const followUp = page.getByRole('link', { name: /Casey Demo/ });
   await expect(followUp).toContainText('Confirm the install window');
   await expect(followUp).toContainText(/Overdue by \d+ days/);
@@ -978,7 +984,7 @@ test('the redesigned workspace supports page finding, persistent themes and narr
     await page.goto(`/w/getcanadasim/${route}`);
     await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible();
     if (route === 'dashboard')
-      await expect(page.getByRole('heading', { name: 'Received', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'New orders', exact: true })).toBeVisible();
     if (route.startsWith('leads'))
       await expect(page.getByRole('link', { name: 'Omar Haddad', exact: true })).toBeVisible();
     await page.screenshot({
@@ -989,7 +995,7 @@ test('the redesigned workspace supports page finding, persistent themes and narr
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/w/getcanadasim/dashboard');
   await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Pipeline overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Funnel by stage' })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(391);
@@ -1453,7 +1459,7 @@ test('loading screens show layout skeletons until their data arrives', async ({
     await expect(status.getByRole('button')).toHaveCount(0);
     return status;
   }
-  await holdRequests(/\/leads\/stats(?:\?|$)/, async () => {
+  await holdRequests(/\/analytics(?:\?|$)/, async () => {
     await page.goto('/w/canadawide/dashboard');
     const status = await checkSkeleton('Loading the dashboard…');
     await expect(status.locator('[data-slot="skeleton"]').first()).toBeVisible();

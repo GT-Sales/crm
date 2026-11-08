@@ -105,6 +105,24 @@ describe('central staff authorization', () => {
     await expect(override()).resolves.toMatchObject({ allowed: true });
   });
 
+  it('shows money (revenue.view) to the owner only, never through another role or a permission', async () => {
+    const store = new MemoryAccessStore();
+    const authorize = createAuthorize({ accessStore: store });
+    const revenue = () =>
+      authorize({ actorId: ACTOR, workspaceId: WORKSPACE_A, action: 'revenue.view' });
+    const everyPermission = staffPermissionNames.map((name) => ({
+      name,
+      effect: 'allow' as const,
+    }));
+
+    store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['owner']));
+    await expect(revenue()).resolves.toMatchObject({ allowed: true, reason: 'role_allowed' });
+    for (const role of ['leads', 'orders', 'partners', 'finance', 'content', 'viewer'] as const) {
+      store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess([role], everyPermission));
+      await expect(revenue()).resolves.toEqual({ allowed: false, reason: 'permission_denied' });
+    }
+  });
+
   it('denies the Orders role a document download without an individual permission', async () => {
     const store = new MemoryAccessStore();
     store.rows.set(`${ACTOR}:${WORKSPACE_A}`, activeAccess(['orders']));

@@ -11,7 +11,9 @@ import { sendDomainError } from '../http/domain-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import type { PlanStore } from '../plans/store.js';
 import type { PropertyContext } from '../properties/store.js';
+import type { Plan } from '@gt-sales/contracts';
 import {
+  decideAccess,
   denyReasonOf,
   type AuthorizationDecision,
   type StaffAction,
@@ -29,11 +31,19 @@ export interface PlanRouteDependencies {
   reportFailure: (req: Request, error: unknown) => void;
 }
 
+/** The plan as a caller without `revenue.view` sees it: no commission key at all. */
+export function withoutCommission(plan: Plan): Plan {
+  const { commission: _commission, ...rest } = plan;
+  return rest;
+}
+
 /**
  * A site's plans, under `/workspaces/:workspaceId/plans`. Everyone who reads
  * the site reads them (a lead's plan choice needs them); `order.manage`
  * (orders and owner) adds and changes them. Plans are never deleted: one no
- * longer sold is made inactive.
+ * longer sold is made inactive. A plan's commission is money: it is sent
+ * only to a caller with `revenue.view` (the owner), and a create or change
+ * that names one needs it too.
  */
 export function createPlanRoutes(dependencies: PlanRouteDependencies): Router {
   const router = Router();
@@ -49,20 +59,36 @@ export function createPlanRoutes(dependencies: PlanRouteDependencies): Router {
     return workspaceId.success ? workspaceId.data : undefined;
   }
 
-  /** The store context of a caller allowed `action` on the site, or the 403 already sent. */
+  /**
+   * The store context of a caller allowed `action` on the site, with whether
+   * they see money, or the 403 already sent.
+   */
   async function allowedContext(
     req: Request,
     res: Response,
     workspaceId: string,
     action: StaffAction,
-  ): Promise<PropertyContext | undefined> {
+  ): Promise<(PropertyContext & { revenue: boolean }) | undefined> {
     const { actor, decision } = await dependencies.decide(req, workspaceId, action);
     if (!decision.allowed) {
       sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
       return undefined;
     }
-    return { workspaceId, actorId: actor.actorId, requestId: req.id };
+    return {
+      workspaceId,
+      actorId: actor.actorId,
+      requestId: req.id,
+      revenue: decideAccess(decision.access, 'revenue.view').allowed,
+    };
   }
+
+  /** Whether the raw body names a commission (even `none`), which only the owner may set. */
+  function namesCommission(body: unknown): boolean {
+    return typeof body === 'object' && body !== null && Object.hasOwn(body, 'commission');
+  }
+
+  const shown = (ctx: { revenue: boolean }, plan: Plan): Plan =>
+    ctx.revenue ? plan : withoutCommission(plan);
 
   router.get('/workspaces/:workspaceId/plans', async (req, res) => {
     const workspaceId = workspaceIdOf(req);
@@ -74,11 +100,12 @@ export function createPlanRoutes(dependencies: PlanRouteDependencies): Router {
     try {
       const ctx = await allowedContext(req, res, workspaceId, 'workspace.read');
       if (!ctx) return;
-      const plans = await store.list(ctx, {
+      const { revenue: _revenue, ...storeCtx } = ctx;
+      const plans = await store.list(storeCtx, {
         ...(query.data.leadType !== undefined ? { leadType: query.data.leadType } : {}),
         includeInactive: query.data.includeInactive === 'true',
       });
-      res.json({ plans, requestId: req.id });
+      res.json({ plans: plans.map((plan) => shown(ctx, plan)), requestId: req.id });
     } catch (error) {
       failed(req, res, error);
     }
@@ -94,10 +121,15 @@ export function createPlanRoutes(dependencies: PlanRouteDependencies): Router {
     try {
       const ctx = await allowedContext(req, res, workspaceId, 'order.manage');
       if (!ctx) return;
-      const outcome = await store.create(ctx, body.data);
+      if (!ctx.revenue && namesCommission(req.body)) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const { revenue: _revenue, ...storeCtx } = ctx;
+      const outcome = await store.create(storeCtx, body.data);
       switch (outcome.kind) {
         case 'created':
-          res.status(201).json({ plan: outcome.plan, requestId: req.id });
+          res.status(201).json({ plan: shown(ctx, outcome.plan), requestId: req.id });
           return;
         case 'name_taken':
           sendDomainError(res, req.id, 'plan_name_taken', 409);
@@ -125,10 +157,15 @@ export function createPlanRoutes(dependencies: PlanRouteDependencies): Router {
     try {
       const ctx = await allowedContext(req, res, workspaceId, 'order.manage');
       if (!ctx) return;
-      const outcome = await store.update(ctx, planId.data, body.data);
+      if (!ctx.revenue && namesCommission(req.body)) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const { revenue: _revenue, ...storeCtx } = ctx;
+      const outcome = await store.update(storeCtx, planId.data, body.data);
       switch (outcome.kind) {
         case 'updated':
-          res.json({ plan: outcome.plan, requestId: req.id });
+          res.json({ plan: shown(ctx, outcome.plan), requestId: req.id });
           return;
         case 'not_found':
           sendDomainError(res, req.id, 'plan_not_found', 404);

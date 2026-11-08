@@ -71,6 +71,7 @@ import {
 } from '../leads/work-store.js';
 import { DatabaseOutboxStore, type JobAdminStore } from '../jobs/store.js';
 import { DatabasePlanStore, type PlanStore } from '../plans/store.js';
+import { DatabaseAnalyticsStore, type AnalyticsStore } from '../analytics/store.js';
 import { DatabaseReportStore, type ReportStore } from '../reports/store.js';
 import type { PropertyStore } from '../properties/store.js';
 import {
@@ -99,6 +100,7 @@ import { createAiAssistantRoutes } from './ai-assistant.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
+import { createAnalyticsRoutes } from './analytics.js';
 import { createReportRoutes } from './reports.js';
 import { loadAiAssistantConfig, type AiAssistantConfig } from '../ai/config.js';
 import { createGatewayEngine, type AssistantEngine } from '../ai/engine.js';
@@ -136,6 +138,8 @@ export interface StaffRouteDependencies {
   planStore?: PlanStore;
   /** The site's reports (counts only); omitted in route tests that do not reach them. */
   reportStore?: ReportStore;
+  /** The analytics dashboard's figures; omitted in route tests that do not reach them. */
+  analyticsStore?: AnalyticsStore;
   /** The site's automation flows, their versions and runs; omitted in route tests that do not reach them. */
   flowStore?: FlowStore;
   /** Documents → review queue; the database store when absent. */
@@ -191,6 +195,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     savedViewStore: new DatabaseSavedViewStore(),
     planStore: new DatabasePlanStore(),
     reportStore: new DatabaseReportStore(),
+    analyticsStore: new DatabaseAnalyticsStore(),
     flowStore: new DatabaseFlowStore(),
     emailSettingsStore: new DatabaseEmailSettingsStore(),
     errorTracker: createErrorTrackerFromEnv(),
@@ -246,6 +251,9 @@ const unconfiguredPlanStore: PlanStore = {
 };
 const unconfiguredReportStore: ReportStore = {
   sourceReport: () => notConfigured('report store'),
+};
+const unconfiguredAnalyticsStore: AnalyticsStore = {
+  analytics: () => notConfigured('analytics store'),
 };
 const unconfiguredFlowStore: FlowStore = {
   list: () => notConfigured('flow store'),
@@ -386,6 +394,16 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   function withoutContact(lead: LeadListItem): LeadListItem {
     const { properties: _properties, ...rest } = lead;
     return { ...rest, contact: {}, countdownDate: null };
+  }
+
+  /**
+   * The lead as a caller without `revenue.view` sees it: the frozen plan's
+   * commission left out of its order details (the key, not a null).
+   */
+  function withMoneyFor(access: StaffAccessSnapshot, lead: LeadDetail): LeadDetail {
+    if (decideAccess(access, 'revenue.view').allowed || !lead.order?.plan) return lead;
+    const { commission: _commission, ...plan } = lead.order.plan;
+    return { ...lead, order: { ...lead.order, plan } };
   }
 
   // Custom values and the order travel with contact visibility, as the form does.
@@ -737,7 +755,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       res.json({
-        lead: access.contacts ? result.lead : withoutPersonalDetails(result.lead),
+        lead: access.contacts
+          ? withMoneyFor(decision.access, result.lead)
+          : withoutPersonalDetails(result.lead),
         activities: result.activities,
         tasks: result.tasks,
         allowedMoves: allowedStageMoves(result.lead.leadType, result.lead.stage),
@@ -800,7 +820,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         return;
       }
       res.json({
-        lead: outcome.lead,
+        lead: withMoneyFor(decision.access, outcome.lead),
         activities: outcome.activities,
         allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
         ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
@@ -853,7 +873,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
             case 'approved':
             case 'rejected':
               res.json({
-                lead: outcome.lead,
+                lead: withMoneyFor(allowed.access, outcome.lead),
                 activities: outcome.activities,
                 allowedMoves: allowedStageMoves(outcome.lead.leadType, outcome.lead.stage),
                 ...(outcome.emailSkipped ? { emailSkipped: outcome.emailSkipped } : {}),
@@ -912,7 +932,11 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           sendDomainError(res, req.id, 'lead_not_found', 404);
           return;
         }
-        res.json({ lead: outcome.lead, activity: outcome.activity, requestId: req.id });
+        res.json({
+          lead: withMoneyFor(decision.access, outcome.lead),
+          activity: outcome.activity,
+          requestId: req.id,
+        });
       } catch (error) {
         reportFailure(req, error);
         sendStaffAuthError(res, req.id, 'internal_error', 500);
@@ -1667,6 +1691,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   router.use(
     createReportRoutes({
       store: dependencies.reportStore ?? unconfiguredReportStore,
+      decide,
+      reportFailure,
+    }),
+  );
+
+  router.use(
+    createAnalyticsRoutes({
+      store: dependencies.analyticsStore ?? unconfiguredAnalyticsStore,
       decide,
       reportFailure,
     }),

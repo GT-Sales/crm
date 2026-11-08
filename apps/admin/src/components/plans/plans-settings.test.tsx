@@ -222,6 +222,8 @@ describe('PlansSettings writes', () => {
         active: true,
         requiredDocuments: ['provincial_id'],
         customValues: {},
+        // The owner sets the commission, none unless chosen.
+        commission: { type: 'none' },
       }),
     );
     await waitFor(() => expect(mocks.listPlans).toHaveBeenCalledTimes(2));
