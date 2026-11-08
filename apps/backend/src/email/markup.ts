@@ -25,6 +25,11 @@ import {
  *
  * - `[badge: Label]` (or `[badge success: Label]`) alone on its one line: a
  *   status pill above the heading; the label takes fill-ins only.
+ * - `[progress: Ordered | >Documents | Active]` alone on its one line: a
+ *   progress tracker of 2 to 5 steps split on `|`. At most one step starts
+ *   with `>`, the current one: the steps before it show as done, the ones
+ *   after it as still to come; with no `>` every step shows as done. Labels
+ *   take fill-ins only.
  * - A first line starting `# ` (or `## `): a big heading (or a small section
  *   heading). Every leading line with the same marker joins the heading; the
  *   lines after it are an ordinary paragraph below it.
@@ -75,6 +80,12 @@ export type EmailBlock =
   | { kind: 'paragraph'; inlines: readonly EmailInline[] }
   | { kind: 'button'; label: readonly EmailTextPart[]; href: EmailHref }
   | { kind: 'badge'; tone: 'brand' | 'success'; label: readonly EmailTextPart[] }
+  | {
+      kind: 'progress';
+      steps: readonly (readonly EmailTextPart[])[];
+      /** The index of the current step; `null` when every step is done. */
+      current: number | null;
+    }
   | { kind: 'heading'; level: 1 | 2; inlines: readonly EmailInline[] }
   | { kind: 'details'; rows: readonly EmailDetailRow[] }
   | { kind: 'callout'; inlines: readonly EmailInline[] }
@@ -352,6 +363,8 @@ function readBlockInlines(
 }
 
 const BADGE = /^\[badge( success)?:([^[\]\n]*)\]$/i;
+const PROGRESS = /^\[progress:([^[\]\n]*)\]$/i;
+const PROGRESS_MAX_STEPS = 5;
 const HEADING = /^(#{1,2}) (.*)$/;
 const CODE_LINE = /^`([^`]+)`$/;
 const STEP_LINE = /^(\d{1,2})[.)] (.*)$/;
@@ -403,6 +416,27 @@ function readShapedParagraph(paragraph: string, reader: Reader): ParagraphBlocks
       ok: true,
       blocks: [{ kind: 'badge', tone: badge[1] ? 'success' : 'brand', label: label.parts }],
     };
+  }
+
+  const progress = lines.length === 1 ? PROGRESS.exec(firstLine) : null;
+  if (progress) {
+    const raw = (progress[1] ?? '').split('|').map((step) => step.trim());
+    const marked = raw.flatMap((step, index) => (step.startsWith('>') ? [index] : []));
+    const labels = raw.map((step) => step.replace(/^>\s*/, ''));
+    if (
+      raw.length >= 2 &&
+      raw.length <= PROGRESS_MAX_STEPS &&
+      marked.length <= 1 &&
+      labels.every((label) => label !== '')
+    ) {
+      const steps: EmailTextPart[][] = [];
+      for (const label of labels) {
+        const parts = readTextParts(label, reader);
+        if (!parts.ok) return parts;
+        steps.push(parts.parts);
+      }
+      return { ok: true, blocks: [{ kind: 'progress', steps, current: marked[0] ?? null }] };
+    }
   }
 
   const heading = HEADING.exec(firstLine);
@@ -587,6 +621,8 @@ export function blockFillIns(block: EmailBlock): EmailFillInName[] {
       return [...partNames(block.label), ...(block.href.kind === 'fillIn' ? [block.href.key] : [])];
     case 'badge':
       return partNames(block.label);
+    case 'progress':
+      return block.steps.flatMap(partNames);
     case 'details':
       return block.rows.flatMap((row) => [...inlineNames(row.label), ...inlineNames(row.value)]);
     case 'code':

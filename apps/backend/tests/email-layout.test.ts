@@ -146,9 +146,14 @@ describe('renderCustomerEmail', () => {
 
   it('ends with the footer lines in the HTML and after -- in the text', () => {
     const mail = rendered({ body: 'Hello there.' });
-    expect(mail.html).toContain('background:#0a7d3e;border-radius:16px;');
     expect(mail.html).toContain(
-      "color:#ffffff;opacity:0.9;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\">Get Canada Sim<br>123 Main St, Toronto</p>",
+      'align="center" style="padding:22px 32px 24px;background:#fbf7f2;border-top:1px solid #efe7dd;">',
+    );
+    expect(mail.html).toContain(
+      "font-weight:800;letter-spacing:-0.01em;color:#096a35;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\">Get Canada Sim</div>",
+    );
+    expect(mail.html).toContain(
+      "font-size:12px;line-height:1.6;color:#6b6359;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\">Get Canada Sim<br>123 Main St, Toronto</p>",
     );
     expect(mail.text).toBe('Hello there.\n\n--\nGet Canada Sim\n123 Main St, Toronto');
   });
@@ -344,11 +349,68 @@ describe('renderCustomerEmail blocks', () => {
     expect(mail.html).not.toContain('color:#ffffff;text-decoration:none;');
   });
 
-  it('names the site in the footer block even with no footer text', () => {
+  it('names the site in the footer band even with no footer text', () => {
     const mail = rendered({ branding: { ...branding, footerText: '' } });
-    expect(mail.html).toContain("color:#ffffff;font-family:'Inter'");
+    expect(mail.html).toContain('letter-spacing:-0.01em;color:#096a35;');
     expect(mail.html.match(/>Get Canada Sim<\/div>/g)?.length).toBe(2);
-    expect(mail.html).not.toContain('opacity:0.9');
+    expect(mail.html).not.toContain('font-size:12px;line-height:1.6;color:#6b6359;');
+  });
+
+  it('centres every button', () => {
+    const mail = rendered({ body: 'Hello.\n\n[button: Go](https://a.test)' });
+    expect(mail.html).toContain(
+      '<table role="presentation" align="center" cellpadding="0" cellspacing="0" class="gt-btn" style="margin:6px auto 30px;">',
+    );
+  });
+
+  it('draws progress: steps before the current one done, the current one amber, the rest grey', () => {
+    const mail = rendered({
+      body: '[progress: Ordered | >Docs for {first name} | Active]',
+      values: evil,
+    });
+    expect(mail.html).toContain('class="gt-progress" style="margin:4px auto 26px;"');
+    expect(mail.html).toContain('background:#1c8a4b;border:2px solid #1c8a4b;');
+    expect(mail.html).toContain('background:#fff7e6;border:2px solid #f5a623;');
+    expect(mail.html).toContain('background:#f3f0ec;border:2px solid #ddd9d3;');
+    expect(mail.html).toContain('border-top:2px solid #1c8a4b;');
+    expect(mail.html).toContain('border-top:2px dashed #ddd9d3;');
+    expect(mail.html).toContain('>Docs for &lt;b&gt;Ann&lt;/b&gt; &amp; co</td>');
+    expect(mail.text).toContain(
+      'Progress: Ordered (done) > Docs for <b>Ann</b> & co (now) > Active\n\n--',
+    );
+  });
+
+  it('draws every step of a progress with no current one as done', () => {
+    const mail = rendered({ body: '[progress: A | B]' });
+    expect(mail.html.match(/background:#1c8a4b;border:2px solid #1c8a4b;/g)).toHaveLength(2);
+    expect(mail.text).toContain('Progress: A (done) > B (done)');
+  });
+
+  it('centres a badge, big heading and the paragraph, progress and button right after them', () => {
+    const mail = rendered({
+      body: '[badge: New]\n\n# Hi\nIntro.\n\n[progress: A | >B]\n\n[button: Go](https://a.test)\n\nBody.',
+    });
+    expect(mail.html).toContain(
+      'align="center" cellpadding="0" cellspacing="0" style="border-collapse:separate;margin:0 auto 18px;"',
+    );
+    expect(mail.html).toContain('font-family:' + "'Inter'");
+    expect(mail.html).toMatch(
+      /letter-spacing:-0\.02em;font-family:[^"]*;text-align:center;">Hi<\/h1>/,
+    );
+    expect(mail.html).toMatch(/text-align:center;">Intro\.<\/p>/);
+    expect(mail.html).toMatch(/sans-serif;">Body\.<\/p>/);
+  });
+
+  it('leaves a mail that does not open with a badge and a big heading left-aligned', () => {
+    for (const body of [
+      '# Hi\n\nIntro.',
+      '[badge: New]\n\n## Hi\n\nIntro.',
+      'Hi\n\n[badge: New]',
+    ]) {
+      const mail = rendered({ body });
+      expect(mail.html).not.toContain('text-align:center;">');
+      expect(mail.html).not.toContain('margin:0 auto 18px');
+    }
   });
 });
 

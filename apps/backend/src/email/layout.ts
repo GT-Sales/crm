@@ -57,6 +57,8 @@ const MUTED = '#6b6359';
 const LINE = '#efe7dd';
 const CANVAS = '#f4ece1';
 const SOFT = '#fbf7f2';
+const SUCCESS = '#1c8a4b';
+const FAINT = '#9a9286';
 
 function escapeHtml(value: string): string {
   return value
@@ -207,32 +209,37 @@ class Drawing {
       .join('');
   }
 
-  htmlBlock(block: EmailBlock): string {
+  /** `centred`: the opening of a mail that starts with a badge and a big heading (see `heroLength`). */
+  htmlBlock(block: EmailBlock, centred = false): string {
     const { brand, brandDark, brandTint, onBrand } = this.palette;
+    const align = centred ? 'text-align:center;' : '';
     switch (block.kind) {
       case 'paragraph':
-        return `<p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:${BODY_INK};font-family:${FONT};">${this.html(block.inlines)}</p>`;
+        return `<p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:${BODY_INK};font-family:${FONT};${align}">${this.html(block.inlines)}</p>`;
       case 'button':
-        return `<table role="presentation" cellpadding="0" cellspacing="0" class="gt-btn" style="margin:4px 0 26px;"><tr><td align="center" bgcolor="${brand}" style="background:${brand};border-radius:999px;"><a href="${escapeHtml(this.address(block.href))}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:700;line-height:1.2;color:${onBrand};text-decoration:none;border-radius:999px;font-family:${FONT};">${escapeHtml(filledText(block.label, this.values))}</a></td></tr></table>`;
+        // Centred, as the website centres its main call to action.
+        return `<table role="presentation" align="center" cellpadding="0" cellspacing="0" class="gt-btn" style="margin:6px auto 30px;"><tr><td align="center" bgcolor="${brand}" style="background:${brand};border-radius:999px;"><a href="${escapeHtml(this.address(block.href))}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:700;line-height:1.2;color:${onBrand};text-decoration:none;border-radius:999px;font-family:${FONT};">${escapeHtml(filledText(block.label, this.values))}</a></td></tr></table>`;
       case 'badge': {
         const success = block.tone === 'success';
         const background = success ? '#e9f8ee' : brandTint;
         const color = success ? '#14703c' : brandDark;
-        return `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:separate;margin:0 0 18px;"><tr><td style="background:${background};color:${color};font-size:12px;font-weight:700;letter-spacing:0.01em;line-height:1.2;padding:7px 14px;border-radius:999px;font-family:${FONT};">${success ? '&#10003;&nbsp;' : ''}${escapeHtml(filledText(block.label, this.values))}</td></tr></table>`;
+        return `<table role="presentation"${centred ? ' align="center"' : ''} cellpadding="0" cellspacing="0" style="border-collapse:separate;margin:${centred ? '0 auto 18px' : '0 0 18px'};"><tr><td style="background:${background};color:${color};font-size:12px;font-weight:700;letter-spacing:0.01em;line-height:1.2;padding:7px 14px;border-radius:999px;font-family:${FONT};">${success ? '&#10003;&nbsp;' : ''}${escapeHtml(filledText(block.label, this.values))}</td></tr></table>`;
       }
       case 'heading':
         return block.level === 1
-          ? `<h1 style="margin:0 0 14px;font-size:26px;line-height:1.25;font-weight:800;color:${INK};letter-spacing:-0.02em;font-family:${FONT};">${this.html(block.inlines)}</h1>`
+          ? `<h1 style="margin:0 0 14px;font-size:26px;line-height:1.25;font-weight:800;color:${INK};letter-spacing:-0.02em;font-family:${FONT};${align}">${this.html(block.inlines)}</h1>`
           : `<h2 style="margin:8px 0 10px;font-size:12px;line-height:1.5;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:${brandDark};font-family:${FONT};">${this.html(block.inlines)}</h2>`;
       case 'details': {
         const rows = block.rows
           .map((row, index) => {
             const edge = index > 0 ? `border-top:1px solid ${LINE};` : '';
-            return `<tr><td style="padding:12px 16px;color:${MUTED};font-size:13px;line-height:1.45;font-family:${FONT};${edge}">${this.html(row.label)}</td><td align="right" style="padding:12px 16px;color:${INK};font-size:14px;font-weight:600;line-height:1.45;text-align:right;font-family:${FONT};${edge}">${this.html(row.value)}</td></tr>`;
+            return `<tr><td style="padding:13px 16px;color:${BODY_INK};font-size:14px;line-height:1.45;font-family:${FONT};${edge}">${this.html(row.label)}</td><td align="right" style="padding:13px 16px;color:${INK};font-size:14px;font-weight:700;line-height:1.45;text-align:right;font-family:${FONT};${edge}">${this.html(row.value)}</td></tr>`;
           })
           .join('');
         return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid ${LINE};border-radius:14px;margin:0 0 26px;">${rows}</table>`;
       }
+      case 'progress':
+        return this.progress(block.steps, block.current);
       case 'callout':
         return box(
           `background:#fff8e6;border:1px solid #f0dfa8;border-radius:14px;padding:14px 16px;font-size:13px;line-height:1.6;color:#7a6a33;font-family:${FONT};`,
@@ -276,6 +283,36 @@ class Drawing {
     }
   }
 
+  /** The website's tracker: a bubble a step joined by a line, done ✓ green, current amber, the rest grey. */
+  private progress(steps: readonly (readonly EmailTextPart[])[], current: number | null): string {
+    const state = (index: number): 'done' | 'current' | 'ahead' =>
+      current === null || index < current ? 'done' : index === current ? 'current' : 'ahead';
+    const bubbles = steps
+      .map((_, index) => {
+        const status = state(index);
+        const [background, border, color, glyph] =
+          status === 'done'
+            ? [SUCCESS, SUCCESS, '#ffffff', '&#10003;']
+            : status === 'current'
+              ? ['#fff7e6', '#f5a623', '#f5a623', '&#9679;']
+              : ['#f3f0ec', '#ddd9d3', '#c5c0ba', '&#9679;'];
+        const bubble = `<td align="center" valign="middle" style="padding:0 4px;"><div style="width:32px;height:32px;line-height:32px;background:${background};border:2px solid ${border};border-radius:999px;text-align:center;color:${color};font-size:${status === 'done' ? '15px' : '12px'};font-weight:700;font-family:${FONT};margin:0 auto;">${glyph}</div></td>`;
+        if (index === steps.length - 1) return bubble;
+        const line = status === 'done' ? `2px solid ${SUCCESS}` : `2px dashed #ddd9d3`;
+        return `${bubble}<td valign="middle" style="padding:0;width:48px;"><div style="border-top:${line};margin:0 2px;font-size:1px;line-height:1px;">&nbsp;</div></td>`;
+      })
+      .join('');
+    const labels = steps
+      .map((label, index) => {
+        const status = state(index);
+        const color = status === 'done' ? SUCCESS : status === 'current' ? INK : FAINT;
+        const cell = `<td align="center" valign="top" style="padding:8px 2px 0;font-size:11px;line-height:1.35;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:${color};font-family:${FONT};">${escapeHtml(filledText(label, this.values))}</td>`;
+        return index === steps.length - 1 ? cell : `${cell}<td style="padding:0;"></td>`;
+      })
+      .join('');
+    return `<table role="presentation" align="center" cellpadding="0" cellspacing="0" class="gt-progress" style="margin:4px auto 26px;"><tr>${bubbles}</tr><tr>${labels}</tr></table>`;
+  }
+
   textBlock(block: EmailBlock): string {
     switch (block.kind) {
       case 'paragraph':
@@ -289,6 +326,14 @@ class Drawing {
         return `${filledText(block.label, this.values)}: ${this.address(block.href)}`;
       case 'badge':
         return `[${filledText(block.label, this.values)}]`;
+      case 'progress':
+        return `Progress: ${block.steps
+          .map((label, index) => {
+            const name = filledText(label, this.values);
+            if (block.current === null || index < block.current) return `${name} (done)`;
+            return index === block.current ? `${name} (now)` : name;
+          })
+          .join(' > ')}`;
       case 'details':
         return block.rows
           .map((row) => `${this.text(row.label)}: ${this.text(row.value)}`)
@@ -323,6 +368,22 @@ function footerLinesOf(branding: EmailBranding): string[] {
     .filter((line) => line !== '');
 }
 
+/**
+ * How many opening blocks are drawn centred, as the website's hero: a mail that
+ * opens with a badge then a big heading centres those two and the paragraph,
+ * progress tracker and button that directly follow, in that order, if present.
+ */
+function heroLength(blocks: readonly EmailBlock[]): number {
+  if (blocks[0]?.kind !== 'badge' || blocks[1]?.kind !== 'heading' || blocks[1].level !== 1) {
+    return 0;
+  }
+  let length = 2;
+  for (const kind of ['paragraph', 'progress', 'button'] as const) {
+    if (blocks[length]?.kind === kind) length += 1;
+  }
+  return length;
+}
+
 /** The card around a mail's content: header, brand rule, content, brand footer. */
 function shell(branding: EmailBranding, palette: Palette, content: string): string {
   const siteName = escapeHtml(branding.siteName);
@@ -332,23 +393,23 @@ function shell(branding: EmailBranding, palette: Palette, content: string): stri
   const footerLines = footerLinesOf(branding);
   const footerText =
     footerLines.length > 0
-      ? `<p style="margin:10px 0 0;font-size:13px;line-height:1.6;color:${palette.onBrand};opacity:0.9;font-family:${FONT};">${footerLines.map(escapeHtml).join('<br>')}</p>`
+      ? `<p style="margin:6px 0 0;font-size:12px;line-height:1.6;color:${MUTED};font-family:${FONT};">${footerLines.map(escapeHtml).join('<br>')}</p>`
       : '';
   return [
     '<!doctype html>',
     '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">',
-    `<style>body{margin:0;padding:0;width:100%!important;}img{border:0;outline:none;text-decoration:none;}@media only screen and (max-width:600px){.gt-card{width:100%!important;border-radius:0!important;border-left:0!important;border-right:0!important;}.gt-pad{padding-left:22px!important;padding-right:22px!important;}.gt-btn a{display:block!important;}}</style>`,
+    `<style>body{margin:0;padding:0;width:100%!important;}img{border:0;outline:none;text-decoration:none;}@media only screen and (max-width:600px){.gt-card{width:100%!important;border-radius:0!important;border-left:0!important;border-right:0!important;}.gt-pad{padding-left:22px!important;padding-right:22px!important;}.gt-btn{width:100%!important;}.gt-btn a{display:block!important;}.gt-progress td div{font-size:10px!important;}}</style>`,
     '</head>',
     `<body style="margin:0;padding:0;background:${CANVAS};-webkit-font-smoothing:antialiased;">`,
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:${CANVAS};"><tr><td align="center" style="padding:32px 16px 40px;">`,
     `<table role="presentation" class="gt-card" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:560px;background:#ffffff;border:1px solid ${LINE};border-radius:20px;overflow:hidden;border-collapse:separate;font-family:${FONT};color:${INK};">`,
     `<tr><td class="gt-pad" align="center" style="padding:30px 32px 24px;background:#ffffff;">${header}</td></tr>`,
     `<tr><td style="height:4px;line-height:4px;font-size:4px;background:${palette.brand};">&nbsp;</td></tr>`,
-    `<tr><td class="gt-pad" style="padding:30px 32px 8px;">${content}</td></tr>`,
-    `<tr><td class="gt-pad" style="padding:0 32px 32px;">`,
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;background:${palette.brand};border-radius:16px;"><tr><td align="center" style="padding:28px 24px;">`,
-    `<div style="font-size:22px;line-height:1.2;font-weight:800;letter-spacing:-0.02em;color:${palette.onBrand};font-family:${FONT};">${siteName}</div>${footerText}`,
-    '</td></tr></table>',
+    `<tr><td class="gt-pad" style="padding:30px 32px 12px;">${content}</td></tr>`,
+    // The footer is the card's quiet bottom band, as on the website's mail: the site name in the
+    // brand's colour over the footer lines, never a block that could pass for a second button.
+    `<tr><td class="gt-pad" align="center" style="padding:22px 32px 24px;background:${SOFT};border-top:1px solid ${LINE};">`,
+    `<div style="font-size:15px;line-height:1.3;font-weight:800;letter-spacing:-0.01em;color:${palette.brandDark};font-family:${FONT};">${siteName}</div>${footerText}`,
     '</td></tr>',
     '</table>',
     '</td></tr></table>',
@@ -383,11 +444,12 @@ export function renderCustomerEmail(input: {
   const palette = paletteFor(branding.brandColor);
   const drawing = new Drawing(input.values, palette);
   const footerLines = footerLinesOf(branding);
+  const hero = heroLength(body.blocks);
 
   const html = shell(
     branding,
     palette,
-    body.blocks.map((block) => drawing.htmlBlock(block)).join(''),
+    body.blocks.map((block, index) => drawing.htmlBlock(block, index < hero)).join(''),
   );
 
   const text = [

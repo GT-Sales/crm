@@ -310,6 +310,14 @@ export function TemplateEditor({
             <li>
               <code className="font-mono">[badge: Order confirmed]</code> alone on a line for a
               status pill (<code className="font-mono">[badge success: …]</code> for a green one).
+              An email that opens with a badge and a <code className="font-mono"># Heading</code>{' '}
+              centres them and the paragraph, progress and button right after.
+            </li>
+            <li>
+              <code className="font-mono">[progress: Ordered | &gt;Documents | Active]</code> alone
+              on a line for a progress tracker of 2 to 5 steps; the step marked{' '}
+              <code className="font-mono">&gt;</code> is the current one, those before it show as
+              done.
             </li>
             <li>
               <code className="font-mono"># Heading</code> for a big heading,{' '}

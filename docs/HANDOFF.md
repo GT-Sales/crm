@@ -919,13 +919,16 @@ Owner rulings of 2026-10-30 on the plan's first draft:
    by one shared layout (`layout.ts`), with the site's logo, colour and footer.
    The layout follows the Get Canada Sim website's own mail (Nov 2026): warm
    canvas, white rounded card, logo (or site name) over a rule in the brand
-   colour, Inter/system font stack, pill-shaped button and a footer block in
-   the brand colour with the site name and footer lines; every colour derives
+   colour, Inter/system font stack, centred pill-shaped button and a quiet cream
+   footer band with the site name in the brand colour over the footer lines.
+   A mail that opens with a badge and a `# ` heading centres them and the
+   paragraph, progress and button right after (the website's hero); every colour derives
    from the brand colour (white or ink text, whichever reads), so each site
    gets the same design in its own colours. The markup is paragraphs,
    `**bold**`, `[label](url)`, one `[button: Label](url)` and fill-ins, plus
    blocks a paragraph becomes by its shape: `[badge: …]` / `[badge success: …]`
-   (status pill), `# ` / `## ` (heading / section heading), two or more
+   (status pill), `[progress: A | >B | C]` (2–5 step tracker, `>` marks the
+   current step), `# ` / `## ` (heading / section heading), two or more
    `**Label:** value` lines (details box), `>` lines (highlighted box), a
    backticked last line with an optional label line above (code box) and
    `1. ` lines (numbered steps). Anything else stays literal; the header of

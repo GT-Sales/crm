@@ -391,6 +391,46 @@ describe('email body blocks', () => {
     });
   });
 
+  it('reads [progress: …] with 2 to 5 steps and at most one current step', () => {
+    expect(blocksOf('[progress: Ordered | > Docs {first name} |Active]')).toEqual([
+      {
+        kind: 'progress',
+        steps: [
+          [text('Ordered')],
+          [text('Docs '), { kind: 'fillIn', key: 'first name' }],
+          [text('Active')],
+        ],
+        current: 1,
+      },
+    ]);
+    expect(blocksOf('[progress: A | B]')).toEqual([
+      { kind: 'progress', steps: [[text('A')], [text('B')]], current: null },
+    ]);
+  });
+
+  it('keeps a progress with one step, too many, two current, an empty step or more words literal', () => {
+    for (const body of [
+      '[progress: A]',
+      '[progress: A | B | C | D | E | F]',
+      '[progress: >A | >B]',
+      '[progress: A | | B]',
+      '[progress: A | >]',
+      'Now [progress: A | B]',
+      '[progress: A | B]\nmore',
+    ]) {
+      expect(blocksOf(body)[0]?.kind).toBe('paragraph');
+    }
+  });
+
+  it('refuses a fill-in a progress step may not use', () => {
+    expect(parseEmailBody('[progress: A | {code}]', 'order_received')).toEqual({
+      ok: false,
+      error: 'invalid_fill_in',
+      fillIn: 'code',
+      where: 'body',
+    });
+  });
+
   it('reads # and ## headings, the leading lines with the same marker, and a paragraph after', () => {
     expect(blocksOf('# Thanks, {first name}!\n# All set.\nWe have it.\n# not a heading')).toEqual([
       {
@@ -564,9 +604,9 @@ describe('email body blocks', () => {
     expect(
       templatePropertyKeys(
         'x',
-        '[badge: {prop:custom_b}]\n\n# {prop:custom_h}\n\n**A:** {prop:custom_a}\n**B:** y\n\n> {prop:custom_c}\n\n`{prop:custom_d}`\n\n1. {prop:custom_s}',
+        '[badge: {prop:custom_b}]\n\n[progress: {prop:custom_p} | x]\n\n# {prop:custom_h}\n\n**A:** {prop:custom_a}\n**B:** y\n\n> {prop:custom_c}\n\n`{prop:custom_d}`\n\n1. {prop:custom_s}',
       ),
-    ).toEqual(['custom_a', 'custom_b', 'custom_c', 'custom_d', 'custom_h', 'custom_s']);
+    ).toEqual(['custom_a', 'custom_b', 'custom_c', 'custom_d', 'custom_h', 'custom_p', 'custom_s']);
   });
 });
 
