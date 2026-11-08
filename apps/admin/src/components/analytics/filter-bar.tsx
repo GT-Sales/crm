@@ -297,7 +297,7 @@ export function FilterBar({
     chips.push({ key: 'assignee', label: `Assigned: ${name}` });
   }
   if (state.payment) {
-    const label = PAYMENT_LABELS[state.payment as keyof typeof PAYMENT_LABELS] ?? state.payment;
+    const label = PAYMENT_LABELS[state.payment] ?? state.payment;
     chips.push({ key: 'payment', label: `Payment: ${label}` });
   }
   if (state.plan) {
