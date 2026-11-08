@@ -1,4 +1,6 @@
 import type {
+  AnalyticsQueryInput,
+  AnalyticsResponse,
   DocumentReviewQueueQuery,
   DocumentReviewQueueResponse,
   AiAutomationDraft,
@@ -213,6 +215,15 @@ export async function getLeadStats(
   query: LeadStatsQuery,
 ): Promise<LeadStatsResponse> {
   return client(accessToken).staff.leadStats(workspaceId, query);
+}
+
+/** The analytics dashboard: one range against a comparison, with filters (money for the owner only). */
+export async function getAnalytics(
+  accessToken: string,
+  workspaceId: string,
+  query: AnalyticsQueryInput,
+): Promise<AnalyticsResponse> {
+  return client(accessToken).staff.analytics(workspaceId, query);
 }
 
 /** Reports → Sources: one lead type's leads per source over a window. */

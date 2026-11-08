@@ -303,7 +303,9 @@ describe('PlanEditor commission', () => {
     type('Price (CAD)', '50');
     save();
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]?.[0]).not.toHaveProperty('commission');
+    expect(onSave).not.toHaveBeenCalledWith(
+      expect.objectContaining({ commission: expect.anything() }),
+    );
   });
 
   it('lets the owner set a percent of the price, in basis points', async () => {
@@ -314,9 +316,9 @@ describe('PlanEditor commission', () => {
     type('Commission (%)', '12.5');
     save();
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
-      commission: { type: 'percent', rateBps: 1250 },
-    });
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ commission: { type: 'percent', rateBps: 1250 } }),
+    );
   });
 
   it('refuses a percent over 100 and a negative amount', async () => {
