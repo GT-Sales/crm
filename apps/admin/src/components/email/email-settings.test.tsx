@@ -68,6 +68,8 @@ const saved: EmailSettingsResponse = {
     brandColor: '#123abc',
     footerText: 'CanadaWide, Toronto',
     siteUrl: 'https://canadawide.example',
+    style: 'classic',
+    accentColor: null,
     updatedAt: STAMP,
     updatedBy: STAFF,
   },
@@ -124,9 +126,66 @@ describe('EmailSettings form', () => {
         brandColor: '#aabbcc',
         footerText: 'CanadaWide, Toronto',
         siteUrl: 'https://canadawide.example',
+        style: 'classic',
+        accentColor: null,
       }),
     );
     expect((await screen.findByRole('status')).textContent).toContain('Saved.');
+  });
+
+  it('saves the Website hero style with its accent colour in lower case', async () => {
+    const onSave = vi.fn((_input: UpdateEmailSettingsRequest) => Promise.resolve(undefined));
+    render(<EmailSettings initial={saved} onSave={onSave} />);
+    const select = screen.getByRole('combobox', { name: 'Style' });
+    expect(select).toHaveProperty('value', 'classic');
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Classic', 'Website hero']);
+    fireEvent.change(select, { target: { value: 'hero' } });
+    fireEvent.change(field('Accent colour'), { target: { value: '#C0FF72' } });
+    expect(screen.getByLabelText('Accent colour picker')).toHaveProperty('value', '#c0ff72');
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ style: 'hero', accentColor: '#c0ff72' }),
+      ),
+    );
+  });
+
+  it('starts from the saved style and accent, and refuses a malformed accent', async () => {
+    const onSave = vi.fn();
+    render(
+      <EmailSettings
+        initial={{
+          ...saved,
+          settings: { ...saved.settings!, style: 'hero', accentColor: '#c0ff72' },
+        }}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: 'Style' })).toHaveProperty('value', 'hero');
+    expect(field('Accent colour')).toHaveProperty('value', '#c0ff72');
+    fireEvent.change(field('Accent colour'), { target: { value: 'lime' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    expect(await screen.findByText(/such as #c0ff72, or leave it empty/)).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('sketches the chosen style in the typed colours as the form changes', () => {
+    render(<EmailSettings initial={saved} onSave={vi.fn()} />);
+    const sketch = () => screen.getByRole('figure', { name: 'Style preview' });
+    expect(sketch().textContent).toContain('Classic style');
+    expect(sketch().innerHTML).not.toContain('linear-gradient');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Style' }), {
+      target: { value: 'hero' },
+    });
+    fireEvent.change(field('Accent colour'), { target: { value: '#c0ff72' } });
+    expect(sketch().textContent).toContain('Website hero style');
+    expect(sketch().textContent).toContain('CanadaWide');
+    expect(sketch().innerHTML).toContain('linear-gradient');
+    expect(sketch().innerHTML).toMatch(/background: (#c0ff72|rgb\(192, 255, 114\))/);
   });
 
   it('keeps the picker and the text field in step', () => {

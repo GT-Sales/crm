@@ -6,6 +6,8 @@ import {
   CUSTOMER_EMAIL_TEMPLATES,
   CUSTOMER_EMAIL_TEMPLATE_LABELS,
   DEFAULT_EMAIL_BRAND_COLOR,
+  DEFAULT_EMAIL_STYLE,
+  EMAIL_STYLES,
   EMAIL_FILL_IN_KEYS,
   brandColorSchema,
   customerEmailJobPayloadSchema,
@@ -227,17 +229,46 @@ const SAVED_SETTINGS = {
   ...SETTINGS_REQUEST,
   brandColor: '#d72638',
   footerText: '',
+  style: 'classic',
+  accentColor: null,
   updatedAt: '2026-10-30T12:00:00.000Z',
   updatedBy: UUID_A,
 };
 
 describe('email settings', () => {
-  it('defaults the colour and the footer when the request leaves them out', () => {
+  it('defaults the colour, the footer, the style and the accent when the request leaves them out', () => {
     expect(updateEmailSettingsRequestSchema.parse(SETTINGS_REQUEST)).toEqual({
       ...SETTINGS_REQUEST,
       brandColor: DEFAULT_EMAIL_BRAND_COLOR,
       footerText: '',
+      style: 'classic',
+      accentColor: null,
     });
+  });
+
+  it('takes the two styles and an accent colour, lower-cased, and refuses anything else', () => {
+    expect(EMAIL_STYLES).toEqual(['classic', 'hero']);
+    expect(DEFAULT_EMAIL_STYLE).toBe('classic');
+    const parsed = updateEmailSettingsRequestSchema.parse({
+      ...SETTINGS_REQUEST,
+      style: 'hero',
+      accentColor: '#C0FF72',
+    });
+    expect(parsed).toMatchObject({ style: 'hero', accentColor: '#c0ff72' });
+    const refuses = (patch: Record<string, unknown>) =>
+      updateEmailSettingsRequestSchema.safeParse({ ...SETTINGS_REQUEST, ...patch }).success;
+    expect(refuses({ style: 'Hero' })).toBe(false);
+    expect(refuses({ style: 'neon' })).toBe(false);
+    expect(refuses({ style: null })).toBe(false);
+    expect(refuses({ accentColor: 'lime' })).toBe(false);
+    expect(refuses({ accentColor: '#c0ff7' })).toBe(false);
+    expect(refuses({ accentColor: '#c0ff72ff' })).toBe(false);
+    expect(refuses({ accentColor: null })).toBe(true);
+  });
+
+  it('reads saved settings from a backend older than the style as the classic look', () => {
+    const { style: _style, accentColor: _accent, ...older } = SAVED_SETTINGS;
+    expect(emailSettingsSchema.parse(older)).toEqual(SAVED_SETTINGS);
   });
 
   it('lower-cases a colour the owner typed', () => {

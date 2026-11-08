@@ -411,6 +411,8 @@ async function seed(): Promise<void> {
       brandColor: '#123abc',
       footerText: 'Test footer',
       siteUrl: 'https://canadawide.example',
+      style: 'classic',
+      accentColor: null,
     });
     await email.putSettings(simOwner, {
       fromName: 'Get Canada Sim',
@@ -420,6 +422,8 @@ async function seed(): Promise<void> {
       brandColor: '#123abc',
       footerText: '',
       siteUrl: 'https://getcanadasim.example',
+      style: 'classic',
+      accentColor: null,
     });
     const dispatched = await email.putTemplate(simOwner, 'dispatched', {
       expectedVersion: 0,

@@ -5,6 +5,7 @@ import {
   SITE_TEMPLATE_KEY_PATTERN,
   builtInFlowName,
   type FlowDefinition,
+  type UpdateEmailSettingsRequest,
 } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
@@ -56,7 +57,7 @@ const scope = { workspaceId: SITE, actorId: ACTOR };
 const write = { ...scope, requestId: REQUEST };
 const otherScope = { workspaceId: OTHER_SITE, actorId: ACTOR };
 
-const SETTINGS = {
+const SETTINGS: UpdateEmailSettingsRequest = {
   fromName: 'Get Canada Sim',
   fromAddress: 'orders@getcanadasim.example',
   replyTo: 'help@getcanadasim.example',
@@ -64,6 +65,8 @@ const SETTINGS = {
   brandColor: '#AA11CC',
   footerText: 'Get Canada Sim, Toronto',
   siteUrl: 'https://getcanadasim.example',
+  style: 'classic',
+  accentColor: null,
 };
 
 databaseTest('email settings store', () => {
@@ -390,6 +393,8 @@ databaseTest('email settings store', () => {
             'brandColor',
             'footerText',
             'siteUrl',
+            'style',
+            'accentColor',
           ],
         },
       },
@@ -412,6 +417,39 @@ databaseTest('email settings store', () => {
     const after = await audits(SITE);
     expect(after).toHaveLength(2);
     expect(after[1]?.after).toEqual({ fields: ['replyTo', 'logoUrl', 'footerText'] });
+  });
+
+  it('saves the style and accent colour, lower-cased, and names them in the audit', async () => {
+    await reset();
+    await store.putSettings(write, SETTINGS);
+    const hero = await store.putSettings(write, {
+      ...SETTINGS,
+      style: 'hero',
+      accentColor: '#C0FF72',
+    });
+    expect(hero).toMatchObject({ style: 'hero', accentColor: '#c0ff72' });
+    expect(await store.getSettings(scope)).toEqual(hero);
+    const [row] = await admin<{ style: string; accentColor: string | null }[]>`
+      select style, accent_color as "accentColor" from app.workspace_email_settings
+      where workspace_id = ${SITE}
+    `;
+    expect(row).toEqual({ style: 'hero', accentColor: '#c0ff72' });
+    expect((await audits(SITE))[1]?.after).toEqual({ fields: ['style', 'accentColor'] });
+
+    // Back to classic with no accent: both are stored as given.
+    const classic = await store.putSettings(write, SETTINGS);
+    expect(classic).toMatchObject({ style: 'classic', accentColor: null });
+  });
+
+  it('refuses a style or accent colour the column checks do not allow', async () => {
+    await reset();
+    await store.putSettings(write, SETTINGS);
+    await expect(
+      admin`update app.workspace_email_settings set style = 'neon' where workspace_id = ${SITE}`,
+    ).rejects.toThrow(/workspace_email_settings_style_check/);
+    await expect(
+      admin`update app.workspace_email_settings set accent_color = '#C0FF72' where workspace_id = ${SITE}`,
+    ).rejects.toThrow(/workspace_email_settings_accent_color_check/);
   });
 
   // -------------------------------------------------------------------------

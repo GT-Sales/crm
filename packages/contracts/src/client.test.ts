@@ -200,6 +200,8 @@ describe('createBackendClient transport', () => {
       ...settings,
       brandColor: '#d72638',
       footerText: '',
+      style: 'classic',
+      accentColor: null,
     });
 
     const template = {

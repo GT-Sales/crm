@@ -224,6 +224,8 @@ databaseTest('a SIM order from the website to activated, by the automations', ()
       brandColor: '#123abc',
       footerText: '',
       siteUrl: 'https://order-flow.example',
+      style: 'classic',
+      accentColor: null,
     });
     const plan = await planStore.create(owner, {
       leadType: 'sim_order',

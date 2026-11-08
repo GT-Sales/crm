@@ -239,9 +239,27 @@ databaseTest('customer email composer and queue', () => {
         logoUrl: 'https://compose.example/logo.png',
         brandColor: '#123abc',
         footerText: 'Compose Sim, Toronto',
+        style: 'classic',
+        accentColor: null,
       },
       siteUrl: 'https://compose.example',
     });
+    // The style and accent colour travel with the branding.
+    await admin`
+      update app.workspace_email_settings set style = 'hero', accent_color = '#c0ff72'
+      where workspace_id = ${SITE}
+    `;
+    try {
+      expect((await resolve(SITE))?.branding).toMatchObject({
+        style: 'hero',
+        accentColor: '#c0ff72',
+      });
+    } finally {
+      await admin`
+        update app.workspace_email_settings set style = 'classic', accent_color = null
+        where workspace_id = ${SITE}
+      `;
+    }
     expect(await resolve(FALLBACK_SITE)).toBeUndefined();
     expect(await resolve(NO_SENDER_SITE)).toBeUndefined();
   });
