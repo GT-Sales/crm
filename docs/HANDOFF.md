@@ -1597,6 +1597,42 @@ look like the CanadaWide website's while Get Canada Sim keeps its look.
   → Style "Website hero", brand colour `#0966ff`, accent `#c0ff72`, then send a
   test of each email. Get Canada Sim needs nothing.
 
+### 3.15 2026-11-09: CanadaWide intake fallback (prepared, not applied)
+
+The CRM was down for about 8 minutes on 2026-11-09, and CanadaWide answered
+every lead in that window with 502 and stored nothing. Now, with the
+fallback on, a lead the CRM cannot take (unreachable, timeout, 5xx; never a
+4xx) is kept in the legacy `internet_leads` / `mobility_leads` table under
+an id the website chose, and the customer sees the normal success. pg_cron
+job `cw-intake-fallback-sync` runs `app.sync_canadawide_fallback()` every 5
+minutes and imports such rows into the `canadawide` site under that id
+(consent version `cw-intake-fallback`). Full design, switch-on steps and
+checks: [RUNBOOKS/intake-fallback.md](RUNBOOKS/intake-fallback.md).
+
+- **The website writes through a key-gated function, not the old insert:**
+  the anon insert policies stay dropped (§5.4).
+  `public.canadawide_fallback_lead` (CanadaWide repo,
+  `supabase/migrations/20261109090000_crm_intake_fallback.sql`) inserts only
+  for `CRM_FALLBACK_KEY`, whose SHA-256 is compiled into it.
+- **No duplicates.** The website sends `Idempotency-Key: cw-lead:<its id>`
+  with every intake call; the job skips a fallback row whose key hash the
+  CRM holds with a lead (the CRM did save it before the website gave up),
+  every row that already has an `app.leads` row (all intake leads, through
+  the 0002 mirror), and rows younger than 2 minutes or older than 3 days
+  (keys are pruned after 7). Insert-only, so a re-run imports nothing.
+- **Emails:** the website sends its confirmation and staff alert on the
+  fallback path as always; the import sends nothing. CRM automation flows do
+  not fire for imported fallback leads (they would only matter once flows
+  are switched on for CanadaWide).
+- **Mobility ID step:** works on Supabase as today; with `CRM_ID_STEP=on` it
+  fails (customer asked to call) until the job has imported the lead.
+- Code: CanadaWide branch `claude/crm-intake-fallback`; here
+  [manual/canadawide-intake-fallback.sql](RUNBOOKS/manual/canadawide-intake-fallback.sql)
+  and the rehearsal `apps/backend/tests/canadawide-intake-fallback.integration.test.ts`.
+- **Owner, to switch it on:** generate the key, apply the gate function with
+  its hash, apply the sync function, schedule it, set `CRM_FALLBACK_KEY` on
+  CanadaWide's Vercel project and deploy (runbook "Switching it on").
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted
