@@ -120,4 +120,17 @@ describe('createErrorTrackerFromEnv', () => {
     });
     expect(tracker).toBeInstanceOf(SentryHttpErrorTracker);
   });
+
+  test('treats blank settings as unset instead of refusing to start', () => {
+    expect(createErrorTrackerFromEnv({ env: { SENTRY_DSN: '  ' } })).toBeInstanceOf(
+      NoopErrorTracker,
+    );
+    // A platform reference that resolved to an empty string (RELEASE_SHA='') once
+    // crashed the backend on boot; it now falls back like an unset value.
+    const tracker = createErrorTrackerFromEnv({
+      env: { SENTRY_DSN: 'https://key@o1.ingest.sentry.io/9', RELEASE_SHA: '', DEPLOYMENT_ENV: '' },
+      fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
+    });
+    expect(tracker).toBeInstanceOf(SentryHttpErrorTracker);
+  });
 });
