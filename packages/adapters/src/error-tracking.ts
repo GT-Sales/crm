@@ -121,13 +121,17 @@ export interface CreateErrorTrackerOptions {
  */
 export function createErrorTrackerFromEnv(options: CreateErrorTrackerOptions = {}): ErrorTracker {
   const env = options.env ?? process.env;
-  const dsn = env['SENTRY_DSN'];
+  // A blank value counts as unset: a platform reference that resolves to an
+  // empty string (e.g. a commit SHA the build did not provide) must never stop
+  // the service from starting.
+  const value = (name: string): string | undefined => env[name]?.trim() || undefined;
+  const dsn = value('SENTRY_DSN');
   if (!dsn) return new NoopErrorTracker();
-  const release = env['RELEASE_SHA'] ?? env['npm_package_version'] ?? 'unknown';
+  const release = value('RELEASE_SHA') ?? value('npm_package_version') ?? 'unknown';
   return new SentryHttpErrorTracker({
     dsn,
     release,
-    environment: env['DEPLOYMENT_ENV'] ?? env['NODE_ENV'],
+    environment: value('DEPLOYMENT_ENV') ?? value('NODE_ENV'),
     fetchImpl: options.fetchImpl,
   });
 }
