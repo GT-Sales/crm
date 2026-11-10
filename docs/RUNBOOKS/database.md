@@ -902,6 +902,42 @@ select conname from pg_constraint
                    'workspace_email_settings_accent_color_check');                       -- 2 rows
 ```
 
+## 0029_task_in_progress (2026-11-10)
+
+A task status between To do and Done, for the Tasks board. One constraint on
+`app.lead_tasks` is replaced: `lead_tasks_status_check` now allows
+`'open', 'in_progress', 'done', 'cancelled'` (it allowed the other three).
+Existing rows need no change and none is made; `lead_tasks_completion_check`
+(`done` exactly when `completed_at` is set) is untouched, so an in-progress
+task has no completion time. `app_runtime` already holds table-level
+`SELECT, INSERT, UPDATE` on the table (0001), so no grant changes; RLS,
+policies and indexes are untouched. Re-adding the check scans the table once
+under its lock (a few hundred rows). The exact SQL:
+
+```sql
+ALTER TABLE "app"."lead_tasks" DROP CONSTRAINT "lead_tasks_status_check";
+ALTER TABLE "app"."lead_tasks" ADD CONSTRAINT "lead_tasks_status_check" CHECK ("app"."lead_tasks"."status" in ('open', 'in_progress', 'done', 'cancelled'));
+```
+
+Rollback, after reverting the code: move any in-progress task back to open
+(`UPDATE app.lead_tasks SET status = 'open' WHERE status = 'in_progress';`),
+then `ALTER TABLE app.lead_tasks DROP CONSTRAINT lead_tasks_status_check, ADD
+CONSTRAINT lead_tasks_status_check CHECK (status in ('open', 'done',
+'cancelled'));`
+
+- **To apply** (owner), before deploying a backend that writes the status:
+  run the file through the Supabase tool or the SQL editor, then insert the
+  Drizzle tracker row: hash `de4d29e1ba012926e8ba46175bfe2ec1c08b4b8e01ffb9a8561f7930d8b58413`, `created_at` `1794336266083`.
+  An older backend keeps working on the new constraint (it never writes
+  `in_progress`); a newer backend on the old constraint refuses the move to
+  In progress with a 500.
+- Verify against the schema:
+
+```sql
+select pg_get_constraintdef(oid) from pg_constraint
+ where conname = 'lead_tasks_status_check';   -- …ARRAY['open', 'in_progress', 'done', 'cancelled']…
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

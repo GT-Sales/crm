@@ -1213,7 +1213,7 @@ export async function fireTimer(
     const open = await tx.execute(sql`
       select 1 from app.lead_tasks k
       where k.workspace_id = ${workspaceId} and k.id = ${timer.subjectId}
-        and k.lead_id = ${timer.leadId} and k.status = 'open'
+        and k.lead_id = ${timer.leadId} and k.status in ('open', 'in_progress')
         and to_char(k.due_at at time zone 'UTC', 'YYYY-MM-DD') = ${dueDay ?? ''}
       limit 1
     `);

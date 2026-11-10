@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  ACTIVE_TASK_STATUSES,
+  isActiveTaskStatus,
+  leadTaskStatusSchema,
+  listWorkspaceTasksQuerySchema,
   MAX_IDENTITY_FILE_BYTES,
   apiErrorResponseSchema,
   apiErrorSchema,
@@ -907,6 +911,42 @@ describe('lead-type catalogue', () => {
     expect(isLeadStage('mobility', 'activated')).toBe(true);
     expect(isLeadStage('internet', 'activated')).toBe(false);
     expect(isLeadStage('unknown_type', 'new')).toBe(false);
+  });
+});
+
+describe('task statuses', () => {
+  it('has in progress between open and done, and both open and in progress are active', () => {
+    expect(leadTaskStatusSchema.options).toEqual(['open', 'in_progress', 'done', 'cancelled']);
+    expect(ACTIVE_TASK_STATUSES).toEqual(['open', 'in_progress']);
+    expect(['open', 'in_progress', 'done', 'cancelled'].map(isActiveTaskStatus)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(isActiveTaskStatus('started')).toBe(false);
+  });
+
+  it('moves a task to in progress and clears its due date', () => {
+    expect(updateLeadTaskRequestSchema.parse({ status: 'in_progress', dueAt: null })).toEqual({
+      status: 'in_progress',
+      dueAt: null,
+    });
+    expect(updateLeadTaskRequestSchema.safeParse({ status: 'started' }).success).toBe(false);
+  });
+
+  it('lists active tasks, one status, or done ones completed since a day', () => {
+    expect(listWorkspaceTasksQuerySchema.parse({ status: 'active' }).status).toBe('active');
+    expect(listWorkspaceTasksQuerySchema.parse({ status: 'in_progress' }).status).toBe(
+      'in_progress',
+    );
+    expect(
+      listWorkspaceTasksQuerySchema.parse({ status: 'done', completedSince: '2026-10-27' }),
+    ).toMatchObject({ status: 'done', completedSince: '2026-10-27' });
+    expect(listWorkspaceTasksQuerySchema.safeParse({ status: 'started' }).success).toBe(false);
+    expect(listWorkspaceTasksQuerySchema.safeParse({ completedSince: '27/10/2026' }).success).toBe(
+      false,
+    );
   });
 });
 

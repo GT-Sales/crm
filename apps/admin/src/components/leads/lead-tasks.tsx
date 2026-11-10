@@ -1,7 +1,12 @@
 'use client';
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import type { AssignableMember, LeadTask, LeadTaskStatus } from '@gt-sales/contracts';
+import {
+  isActiveTaskStatus,
+  type AssignableMember,
+  type LeadTask,
+  type LeadTaskStatus,
+} from '@gt-sales/contracts';
 import { Button, cn, Input, NativeSelect } from '@gt-sales/ui';
 import { ListTodoIcon, PlusIcon, XIcon } from 'lucide-react';
 
@@ -12,7 +17,43 @@ import { errorReason } from '../../lib/use-resource';
 import { PersonChip } from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
 
-/** A task row: complete it with the checkbox, cancel it with the cross. */
+/** How a task's status reads on a badge: `To do`, `In progress`, `Done`, `Cancelled`. */
+export const TASK_STATUS_LABELS: Record<LeadTaskStatus, string> = {
+  open: 'To do',
+  in_progress: 'In progress',
+  done: 'Done',
+  cancelled: 'Cancelled',
+};
+
+/** A small status badge (the Tasks board's date layout, and in-progress rows). */
+export function TaskStatusBadge({
+  status,
+  className,
+}: {
+  status: LeadTaskStatus;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] leading-none font-medium',
+        status === 'in_progress'
+          ? 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+          : status === 'done'
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+            : 'border-border bg-muted/50 text-muted-foreground',
+        className,
+      )}
+    >
+      {TASK_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+/**
+ * A task row: complete it with the checkbox, cancel it with the cross. An
+ * in-progress task carries a badge; unticking a done task makes it To do.
+ */
 export function TaskRow({
   task,
   members,
@@ -37,7 +78,7 @@ export function TaskRow({
   }, [busy]);
   const status = pending ?? task.status;
   const assignee = assigneeName(task.assignedActorId, members);
-  const closed = status !== 'open';
+  const closed = !isActiveTaskStatus(status);
   return (
     <li className="flex items-start gap-3 py-2">
       <input
@@ -66,10 +107,11 @@ export function TaskRow({
             <span>No due date</span>
           )}
           {assignee ? <PersonChip name={assignee} size="xs" /> : <span>Unassigned</span>}
+          {status === 'in_progress' ? <TaskStatusBadge status={status} /> : null}
           {status === 'cancelled' ? <span>Cancelled</span> : null}
         </p>
       </div>
-      {canWrite && status === 'open' ? (
+      {canWrite && isActiveTaskStatus(status) ? (
         <Button
           type="button"
           variant="ghost"
@@ -114,8 +156,8 @@ export function LeadTasks({
   const [message, setMessage] = useState<string>();
   const [showClosed, setShowClosed] = useState(false);
 
-  const open = tasks.filter((task) => task.status === 'open');
-  const closed = tasks.filter((task) => task.status !== 'open');
+  const open = tasks.filter((task) => isActiveTaskStatus(task.status));
+  const closed = tasks.filter((task) => !isActiveTaskStatus(task.status));
 
   async function add(event: FormEvent) {
     event.preventDefault();

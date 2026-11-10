@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  isActiveTaskStatus,
   leadCountdownField,
   leadTypeEntry,
   type LeadDocument,
@@ -98,7 +99,8 @@ export function leadAttention(input: {
 
   if (contacts) {
     const overdue = input.tasks.filter(
-      (task) => task.status === 'open' && task.dueAt && daysFromToday(dueDay(task.dueAt), now) < 0,
+      (task) =>
+        isActiveTaskStatus(task.status) && task.dueAt && daysFromToday(dueDay(task.dueAt), now) < 0,
     ).length;
     if (overdue > 0)
       items.push({

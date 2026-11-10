@@ -1597,6 +1597,79 @@ look like the CanadaWide website's while Get Canada Sim keeps its look.
   → Style "Website hero", brand colour `#0966ff`, accent `#c0ff72`, then send a
   test of each email. Get Canada Sim needs nothing.
 
+### 3.15 2026-11-09: CanadaWide intake fallback (prepared, not applied)
+
+The CRM was down for about 8 minutes on 2026-11-09, and CanadaWide answered
+every lead in that window with 502 and stored nothing. Now, with the
+fallback on, a lead the CRM cannot take (unreachable, timeout, 5xx; never a
+4xx) is kept in the legacy `internet_leads` / `mobility_leads` table under
+an id the website chose, and the customer sees the normal success. pg_cron
+job `cw-intake-fallback-sync` runs `app.sync_canadawide_fallback()` every 5
+minutes and imports such rows into the `canadawide` site under that id
+(consent version `cw-intake-fallback`). Full design, switch-on steps and
+checks: [RUNBOOKS/intake-fallback.md](RUNBOOKS/intake-fallback.md).
+
+- **The website writes through a key-gated function, not the old insert:**
+  the anon insert policies stay dropped (§5.4).
+  `public.canadawide_fallback_lead` (CanadaWide repo,
+  `supabase/migrations/20261109090000_crm_intake_fallback.sql`) inserts only
+  for `CRM_FALLBACK_KEY`, whose SHA-256 is compiled into it.
+- **No duplicates.** The website sends `Idempotency-Key: cw-lead:<its id>`
+  with every intake call; the job skips a fallback row whose key hash the
+  CRM holds with a lead (the CRM did save it before the website gave up),
+  every row that already has an `app.leads` row (all intake leads, through
+  the 0002 mirror), and rows younger than 2 minutes or older than 3 days
+  (keys are pruned after 7). Insert-only, so a re-run imports nothing.
+- **Emails:** the website sends its confirmation and staff alert on the
+  fallback path as always; the import sends nothing. CRM automation flows do
+  not fire for imported fallback leads (they would only matter once flows
+  are switched on for CanadaWide).
+- **Mobility ID step:** works on Supabase as today; with `CRM_ID_STEP=on` it
+  fails (customer asked to call) until the job has imported the lead.
+- Code: CanadaWide branch `claude/crm-intake-fallback`; here
+  [manual/canadawide-intake-fallback.sql](RUNBOOKS/manual/canadawide-intake-fallback.sql)
+  and the rehearsal `apps/backend/tests/canadawide-intake-fallback.integration.test.ts`.
+- **Owner, to switch it on:** generate the key, apply the gate function with
+  its hash, apply the sync function, schedule it, set `CRM_FALLBACK_KEY` on
+  CanadaWide's Vercel project and deploy (runbook "Switching it on").
+
+### 3.16 2026-11-10: Tasks board and the In progress status (migration 0029 not applied)
+
+The owner asked for the Tasks page as a board "by status and date".
+
+- **New task status `in_progress`** between `open` (To do) and `done`
+  (`leadTaskStatusSchema`; migration `0029_task_in_progress` widens
+  `lead_tasks_status_check`, runbook [database.md](RUNBOOKS/database.md)).
+  `open` and `in_progress` are both **active** (`ACTIVE_TASK_STATUSES`,
+  `isActiveTaskStatus`): every read that meant "not finished" now reads both —
+  the lead's open-task count and next due date, the inbox's "due" filter and
+  follow-ups count, the lead page's task order, the dashboard's follow-ups and
+  analytics, the assistant's open-task reads and the `task_overdue` trigger.
+  Open ↔ in progress keeps a task's overdue timer; done or cancelled → either
+  active status is a reopen and writes it again.
+- **`GET /tasks`** takes `status=active` (now the default, was `open`), any one
+  status, and `completedSince=YYYY-MM-DD`; `status=done` lists most recently
+  completed first. OpenAPI regenerated.
+- **Tasks page** (`components/leads/my-tasks.tsx`, `tasks-board.tsx`): List
+  (as before, in-progress rows badged) or Board, and on the board Group by
+  Status (To do, In progress, Done; To do and In progress grouped Overdue /
+  Today / Upcoming / No due date) or Date (Overdue, Today, Upcoming, No due
+  date, Done; cards badged To do / In progress). Both choices are this
+  viewer's, in `localStorage` (`gt-tasks-view`, `gt-tasks-board-group`). Scope
+  gains **Everyone** (`assignee=all`, same permission as before).
+- **Moves:** native drag and drop (as the leads board) or the card's menu
+  (status, Today, Tomorrow, Pick a date…, No due date). By date, a drop on
+  Today dates the task today, on Upcoming **tomorrow** (another day from the
+  menu's date field), on No due date clears it; Overdue takes no drops; a
+  done task dropped on a date column is reopened as To do. Optimistic, put
+  back with a message if the backend refuses.
+- **Done** shows tasks completed in the last 14 days (`DONE_WINDOW_DAYS`), up
+  to 50 loaded, 10 at a time behind "Show more". Cancelled tasks are not on
+  the board.
+- **Owner, before deploying:** apply 0029 and its tracker row (runbook). A
+  backend from this change on the old constraint answers a move to In
+  progress with 500; everything else works.
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted
