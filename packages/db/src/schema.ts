@@ -554,7 +554,10 @@ export const leadTasks = appSchema
         foreignColumns: [leads.workspaceId, leads.id],
       }).onDelete('cascade'),
       check('lead_tasks_title_check', sql`char_length(${table.title}) between 1 and 200`),
-      check('lead_tasks_status_check', sql`${table.status} in ('open', 'done', 'cancelled')`),
+      check(
+        'lead_tasks_status_check',
+        sql`${table.status} in ('open', 'in_progress', 'done', 'cancelled')`,
+      ),
       check(
         'lead_tasks_completion_check',
         sql`(${table.status} = 'done') = (${table.completedAt} is not null)`,

@@ -1633,6 +1633,43 @@ checks: [RUNBOOKS/intake-fallback.md](RUNBOOKS/intake-fallback.md).
   its hash, apply the sync function, schedule it, set `CRM_FALLBACK_KEY` on
   CanadaWide's Vercel project and deploy (runbook "Switching it on").
 
+### 3.16 2026-11-10: Tasks board and the In progress status (migration 0029 not applied)
+
+The owner asked for the Tasks page as a board "by status and date".
+
+- **New task status `in_progress`** between `open` (To do) and `done`
+  (`leadTaskStatusSchema`; migration `0029_task_in_progress` widens
+  `lead_tasks_status_check`, runbook [database.md](RUNBOOKS/database.md)).
+  `open` and `in_progress` are both **active** (`ACTIVE_TASK_STATUSES`,
+  `isActiveTaskStatus`): every read that meant "not finished" now reads both —
+  the lead's open-task count and next due date, the inbox's "due" filter and
+  follow-ups count, the lead page's task order, the dashboard's follow-ups and
+  analytics, the assistant's open-task reads and the `task_overdue` trigger.
+  Open ↔ in progress keeps a task's overdue timer; done or cancelled → either
+  active status is a reopen and writes it again.
+- **`GET /tasks`** takes `status=active` (now the default, was `open`), any one
+  status, and `completedSince=YYYY-MM-DD`; `status=done` lists most recently
+  completed first. OpenAPI regenerated.
+- **Tasks page** (`components/leads/my-tasks.tsx`, `tasks-board.tsx`): List
+  (as before, in-progress rows badged) or Board, and on the board Group by
+  Status (To do, In progress, Done; To do and In progress grouped Overdue /
+  Today / Upcoming / No due date) or Date (Overdue, Today, Upcoming, No due
+  date, Done; cards badged To do / In progress). Both choices are this
+  viewer's, in `localStorage` (`gt-tasks-view`, `gt-tasks-board-group`). Scope
+  gains **Everyone** (`assignee=all`, same permission as before).
+- **Moves:** native drag and drop (as the leads board) or the card's menu
+  (status, Today, Tomorrow, Pick a date…, No due date). By date, a drop on
+  Today dates the task today, on Upcoming **tomorrow** (another day from the
+  menu's date field), on No due date clears it; Overdue takes no drops; a
+  done task dropped on a date column is reopened as To do. Optimistic, put
+  back with a message if the backend refuses.
+- **Done** shows tasks completed in the last 14 days (`DONE_WINDOW_DAYS`), up
+  to 50 loaded, 10 at a time behind "Show more". Cancelled tasks are not on
+  the board.
+- **Owner, before deploying:** apply 0029 and its tracker row (runbook). A
+  backend from this change on the old constraint answers a move to In
+  progress with 500; everything else works.
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted

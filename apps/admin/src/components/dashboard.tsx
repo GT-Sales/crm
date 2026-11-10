@@ -768,7 +768,7 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
         ? () =>
             listStaffTasks(accessToken, workspaceId, {
               assignee: 'all',
-              status: 'open',
+              status: 'active',
               dueBy: today,
               pageSize: SHOWN,
             })

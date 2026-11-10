@@ -1,0 +1,2 @@
+ALTER TABLE "app"."lead_tasks" DROP CONSTRAINT "lead_tasks_status_check";--> statement-breakpoint
+ALTER TABLE "app"."lead_tasks" ADD CONSTRAINT "lead_tasks_status_check" CHECK ("app"."lead_tasks"."status" in ('open', 'in_progress', 'done', 'cancelled'));

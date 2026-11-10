@@ -345,7 +345,7 @@ export class DatabaseAiReadService implements AiReadService {
           on m.workspace_id = t.workspace_id and m.user_id = t.assigned_actor_id and m.status = 'active'
         where t.workspace_id = ${contextWorkspaceId}
           and t.lead_id = ${query.leadId}
-          and t.status = 'open'
+          and t.status in ('open', 'in_progress')
           and l.deleted_at is null
         order by t.due_at asc nulls last, t.id
         limit ${SUMMARY_TASKS + 1}
@@ -394,7 +394,7 @@ export class DatabaseAiReadService implements AiReadService {
   openTasks(scope: Scope, query: OpenTasksQuery): Promise<TaskPage> {
     const conditions: SQL[] = [
       sql`t.workspace_id = ${contextWorkspaceId}`,
-      sql`t.status = 'open'`,
+      sql`t.status in ('open', 'in_progress')`,
       sql`l.deleted_at is null`,
       sql`l.customer_data_restricted_at is null`,
     ];

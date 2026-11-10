@@ -24,6 +24,7 @@ import {
   applyCustomValueEdits,
   applyLeadFormEdit,
   freezePlan,
+  isActiveTaskStatus,
   isLeadStage,
   isOrderLeadType,
   leadFormSchema,
@@ -45,6 +46,7 @@ import {
   type LeadTaskStatus,
   type PropertyCatalog,
   type TaskAssigneeFilter,
+  type TaskStatusFilter,
   type AutomationKey,
   type LeadTypeCount,
   type WorkspaceTask,
@@ -282,7 +284,12 @@ export interface LeadWorkStore {
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
   listTasks(
-    input: Scope & { assignee: TaskAssigneeFilter; status: LeadTaskStatus; dueBy?: string },
+    input: Scope & {
+      assignee: TaskAssigneeFilter;
+      status: TaskStatusFilter;
+      dueBy?: string;
+      completedSince?: string;
+    },
     page: number,
     pageSize: number,
   ): Promise<{ tasks: WorkspaceTask[]; total: number }>;
@@ -1778,15 +1785,20 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         before: { status: current.status },
         after: { changedFields, status: input.status ?? current.status },
       });
-      // An open task with a new due day, or one reopened with a due day, starts its overdue clock.
+      // An active (open or in-progress) task with a new due day, or one
+      // reopened from done or cancelled with a due day, starts its overdue
+      // clock. Moving between open and in progress keeps the clock it has.
       const status = input.status ?? current.status;
       const dueAt = input.dueAt !== undefined ? input.dueAt : current.dueAt;
       const dueMoved =
         input.dueAt !== undefined &&
         input.dueAt !== null &&
         (current.dueAt === null || taskDueDay(input.dueAt) !== taskDueDay(current.dueAt));
-      const reopened = input.status === 'open' && current.status !== 'open';
-      if (status === 'open' && dueAt !== null && (dueMoved || reopened)) {
+      const reopened =
+        input.status !== undefined &&
+        isActiveTaskStatus(input.status) &&
+        !isActiveTaskStatus(current.status);
+      if (isActiveTaskStatus(status) && dueAt !== null && (dueMoved || reopened)) {
         await writeTaskTimers(tx, input.workspaceId, current.leadId, input.taskId, dueAt);
       }
       return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
@@ -1794,7 +1806,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   listTasks(
-    input: Scope & { assignee: TaskAssigneeFilter; status: LeadTaskStatus; dueBy?: string },
+    input: Scope & {
+      assignee: TaskAssigneeFilter;
+      status: TaskStatusFilter;
+      dueBy?: string;
+      completedSince?: string;
+    },
     page: number,
     pageSize: number,
   ) {
@@ -1807,6 +1824,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           assignee: input.assignee,
           status: input.status,
           dueBy: input.dueBy,
+          completedSince: input.completedSince,
         },
         page,
         pageSize,

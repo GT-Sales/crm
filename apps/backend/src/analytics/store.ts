@@ -263,7 +263,7 @@ export class DatabaseAnalyticsStore implements AnalyticsStore {
         select t.assigned_actor_id, t.due_at
         from app.lead_tasks t
         join filtered f on f.id = t.lead_id
-        where t.workspace_id = ${contextWorkspaceId} and t.status = 'open' and t.due_at is not null
+        where t.workspace_id = ${contextWorkspaceId} and t.status in ('open', 'in_progress') and t.due_at is not null
       )
       select
         (select count(*) from filtered where in_current and not excluded) as new_current,

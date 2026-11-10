@@ -155,8 +155,25 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
 export type LeadActivity = z.infer<typeof leadActivitySchema>;
 export type LeadActivityKind = LeadActivity['kind'];
 
-export const leadTaskStatusSchema = z.enum(['open', 'done', 'cancelled']);
+/**
+ * A task's status: `open` (to do), `in_progress` (someone is on it), `done`
+ * or `cancelled`. `open` and `in_progress` are both **active**: still to be
+ * finished, so My tasks, the lead page's open list, the "follow-ups due"
+ * counts, the dashboard and the task-overdue trigger read both.
+ */
+export const leadTaskStatusSchema = z.enum(['open', 'in_progress', 'done', 'cancelled']);
 export type LeadTaskStatus = z.infer<typeof leadTaskStatusSchema>;
+
+/** The statuses of a task still to be finished. */
+export const ACTIVE_TASK_STATUSES = [
+  'open',
+  'in_progress',
+] as const satisfies readonly LeadTaskStatus[];
+
+/** Whether a task (its stored status) is still to be finished: `open` or `in_progress`. */
+export function isActiveTaskStatus(status: string): boolean {
+  return ACTIVE_TASK_STATUSES.some((active) => active === status);
+}
 
 export const leadTaskTitleSchema = z.string().trim().min(1).max(200);
 
@@ -428,15 +445,23 @@ export type MarkLeadOpenedResponse = z.infer<typeof markLeadOpenedResponseSchema
 
 /**
  * `GET /workspaces/:id/tasks` — tasks across the workspace's active leads,
- * soonest due first (undated last). Defaults to the caller's open tasks.
+ * soonest due first (undated last); `done` tasks come most recently completed
+ * first instead. Defaults to the caller's active tasks (`open` and
+ * `in_progress`).
  */
 /** Whose tasks: `me`, `none` (unassigned), `all` (the whole team) or one member's actor id. */
 export const taskAssigneeFilterSchema = z.union([z.enum(['me', 'none', 'all']), z.uuid()]);
 export type TaskAssigneeFilter = z.infer<typeof taskAssigneeFilterSchema>;
 
+/** One status, or `active` for both `open` and `in_progress`. */
+export const taskStatusFilterSchema = z.union([leadTaskStatusSchema, z.literal('active')]);
+export type TaskStatusFilter = z.infer<typeof taskStatusFilterSchema>;
+
 export const listWorkspaceTasksQuerySchema = z.object({
   assignee: taskAssigneeFilterSchema.optional(),
-  status: leadTaskStatusSchema.optional(),
+  status: taskStatusFilterSchema.optional(),
+  /** Only tasks completed on or after this day (00:00 UTC); a task never completed never is. */
+  completedSince: z.iso.date().optional(),
   /** Only tasks due on or before this day: the follow-ups due (undated tasks never are). */
   dueBy: leadDueBySchema.optional(),
   page: z.coerce.number().int().positive().optional(),

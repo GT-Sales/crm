@@ -229,6 +229,56 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
   expect(errors).toEqual([]);
 });
 
+test('the Tasks board moves tasks by status and by date, and remembers the layout', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/tasks');
+  await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  const byStatus = page.getByRole('region', { name: 'Tasks board by status' });
+  await expect(byStatus).toBeVisible();
+  const statusColumn = (name: string) =>
+    byStatus.getByRole('region', { name: new RegExp(`^${name},`) });
+  // The seeded overdue follow-up waits in To do, under Overdue; the task the
+  // last journey completed is in Done.
+  await expect(statusColumn('To do')).toContainText('Confirm the install window');
+  await expect(statusColumn('Done')).toContainText('Book the installer');
+
+  // The menu: the keyboard and touch path.
+  await page.getByRole('button', { name: 'Move “Confirm the install window”' }).click();
+  await page.getByRole('menuitem', { name: 'In progress' }).click();
+  await expect(statusColumn('In progress')).toContainText('Confirm the install window');
+
+  // The layout and the move both survive a reload.
+  await page.reload();
+  await expect(statusColumn('In progress')).toContainText('Confirm the install window');
+
+  await page.getByRole('button', { name: 'Date', exact: true }).click();
+  const byDate = page.getByRole('region', { name: 'Tasks board by date' });
+  const dateColumn = (name: string) =>
+    byDate.getByRole('region', { name: new RegExp(`^${name},`) });
+  await expect(dateColumn('Overdue')).toContainText('Confirm the install window');
+  await expect(dateColumn('Overdue')).toContainText('In progress');
+
+  // A drag from Done to No due date reopens the task with no due date; back to Done closes it.
+  await byDate.getByText('Book the installer', { exact: true }).dragTo(dateColumn('No due date'));
+  await expect(dateColumn('No due date')).toContainText('Book the installer');
+  await expect(dateColumn('No due date')).toContainText('To do');
+  await byDate.getByText('Book the installer', { exact: true }).dragTo(dateColumn('Done'));
+  await expect(dateColumn('Done')).toContainText('Book the installer');
+
+  // Put the follow-up back as the seed had it for the journeys after this one.
+  await page.getByRole('button', { name: 'Move “Confirm the install window”' }).click();
+  await page.getByRole('menuitem', { name: 'To do' }).click();
+  await expect(dateColumn('Overdue')).not.toContainText('In progress');
+  await page.reload();
+  await expect(byDate).toBeVisible();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await expect(page.getByText('Confirm the install window')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('the archive hides a lead and restores it', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet');

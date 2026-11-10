@@ -1195,6 +1195,15 @@ describe('staff lead work routes', () => {
     expect(work.updateTask).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: TASK, status: 'done' }),
     );
+    // The board's moves: in progress, and a due date set or cleared.
+    const started = await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks/${TASK}`, {
+      method: 'PATCH',
+      body: { status: 'in_progress', dueAt: null },
+    });
+    expect(started.status).toBe(200);
+    expect(work.updateTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({ taskId: TASK, status: 'in_progress', dueAt: null }),
+    );
 
     work.updateTask.mockResolvedValueOnce({ status: 'not_found' });
     const missing = await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks/${TASK}`, {
@@ -1222,12 +1231,12 @@ describe('staff lead work routes', () => {
     ]);
   });
 
-  it("lists the caller's open tasks by default, and only for roles that see contacts", async () => {
+  it("lists the caller's active tasks by default, and only for roles that see contacts", async () => {
     const response = await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks`);
     expect(response.status).toBe(200);
     expect(listWorkspaceTasksResponseSchema.parse(await response.json()).tasks).toHaveLength(1);
     expect(work.listTasks).toHaveBeenCalledWith(
-      expect.objectContaining({ assignee: 'me', status: 'open' }),
+      expect.objectContaining({ assignee: 'me', status: 'active' }),
       1,
       50,
     );
@@ -1237,10 +1246,35 @@ describe('staff lead work routes', () => {
     );
     expect(due.status).toBe(200);
     expect(work.listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ assignee: 'all', status: 'open', dueBy: '2026-11-05' }),
+      expect.objectContaining({ assignee: 'all', status: 'active', dueBy: '2026-11-05' }),
       1,
       6,
     );
+
+    // One status, `in_progress` included, and the Done column's window.
+    const doneRecent = await call(
+      `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks?status=done&completedSince=2026-10-27&pageSize=50`,
+    );
+    expect(doneRecent.status).toBe(200);
+    expect(work.listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'done', completedSince: '2026-10-27' }),
+      1,
+      50,
+    );
+    expect(
+      (await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks?status=in_progress`))
+        .status,
+    ).toBe(200);
+    expect(work.listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'in_progress' }),
+      1,
+      50,
+    );
+    for (const bad of ['status=started', 'completedSince=yesterday']) {
+      expect(
+        (await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks?${bad}`)).status,
+      ).toBe(400);
+    }
     expect(
       (await call(`${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/tasks?dueBy=11/05/2026`)).status,
     ).toBe(400);

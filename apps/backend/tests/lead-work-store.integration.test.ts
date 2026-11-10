@@ -993,6 +993,111 @@ databaseTest('DatabaseLeadWorkStore', () => {
     ).toEqual({ status: 'not_found' });
   });
 
+  test('a task in progress is still active: lists, counts, order and audit read it so', async () => {
+    const leadId = await createInternetLead({
+      fullName: 'Indy Progress',
+      email: 'indy.progress@example.test',
+      phone: '403 555 0119',
+    });
+    const make = async (title: string, dueAt: string | null) => {
+      const created = await work.createTask({
+        ...writeScope,
+        leadId,
+        title,
+        dueAt,
+        assignedActorId: ACTOR,
+      });
+      if (created.status !== 'saved') throw new Error('expected task');
+      return created.task;
+    };
+    const first = await make('Book the installer', '2026-11-03T12:00:00.000Z');
+    const second = await make('Confirm the window', '2026-11-05T12:00:00.000Z');
+    const third = await make('Send the welcome pack', null);
+
+    const started = await work.updateTask({
+      ...writeScope,
+      taskId: second.id,
+      status: 'in_progress',
+    });
+    if (started.status !== 'saved') throw new Error('expected saved');
+    expect(started.task).toMatchObject({ status: 'in_progress', completedAt: null });
+
+    const audit = await admin`
+      select before, after from app.audit_events
+      where entity = 'lead_task' and entity_id = ${second.id} and action = 'lead.task_updated'
+    `;
+    expect(audit.map((row) => [row['before'], row['after']])).toEqual([
+      [{ status: 'open' }, { changedFields: ['status'], status: 'in_progress' }],
+    ]);
+
+    const detail = await work.getLead({ ...scope, leadId, includeWork: true });
+    expect(detail?.lead.openTaskCount).toBe(3);
+    expect(detail?.lead.nextTaskDueAt).toBe('2026-11-03T12:00:00.000Z');
+    // Active ones (in progress included) first, soonest due.
+    expect(detail?.tasks.map((task) => task.title)).toEqual([
+      'Book the installer',
+      'Confirm the window',
+      'Send the welcome pack',
+    ]);
+
+    const here = (tasks: readonly { leadId: string; title: string }[]) =>
+      tasks.filter((task) => task.leadId === leadId).map((task) => task.title);
+    const active = await work.listTasks({ ...scope, assignee: 'me', status: 'active' }, 1, 200);
+    expect(here(active.tasks)).toEqual([
+      'Book the installer',
+      'Confirm the window',
+      'Send the welcome pack',
+    ]);
+    const onlyOpen = await work.listTasks({ ...scope, assignee: 'me', status: 'open' }, 1, 200);
+    expect(here(onlyOpen.tasks)).toEqual(['Book the installer', 'Send the welcome pack']);
+    const inProgress = await work.listTasks(
+      { ...scope, assignee: 'me', status: 'in_progress' },
+      1,
+      200,
+    );
+    expect(here(inProgress.tasks)).toEqual(['Confirm the window']);
+
+    // The board's Done column: most recently completed first, within the window.
+    for (const task of [first, third]) {
+      const finished = await work.updateTask({ ...writeScope, taskId: task.id, status: 'done' });
+      if (finished.status !== 'saved') throw new Error('expected saved');
+      expect(finished.task.completedAt).not.toBeNull();
+    }
+    await admin`
+      update app.lead_tasks set completed_at = '2026-10-01T09:00:00Z' where id = ${first.id}
+    `;
+    const doneAll = await work.listTasks({ ...scope, assignee: 'me', status: 'done' }, 1, 200);
+    expect(here(doneAll.tasks)).toEqual(['Send the welcome pack', 'Book the installer']);
+    const doneRecent = await work.listTasks(
+      { ...scope, assignee: 'me', status: 'done', completedSince: '2026-10-15' },
+      1,
+      200,
+    );
+    expect(here(doneRecent.tasks)).toEqual(['Send the welcome pack']);
+
+    // Done → in progress is a reopen: no completion time; a due date may be cleared with it.
+    const back = await work.updateTask({
+      ...writeScope,
+      taskId: third.id,
+      status: 'in_progress',
+      dueAt: '2026-11-04T12:00:00.000Z',
+    });
+    if (back.status !== 'saved') throw new Error('expected saved');
+    expect(back.task).toMatchObject({
+      status: 'in_progress',
+      completedAt: null,
+      dueAt: '2026-11-04T12:00:00.000Z',
+    });
+    const cleared = await work.updateTask({ ...writeScope, taskId: third.id, dueAt: null });
+    if (cleared.status !== 'saved') throw new Error('expected saved');
+    expect(cleared.task).toMatchObject({ status: 'in_progress', dueAt: null });
+
+    // The database refuses a status the contract does not know.
+    await expect(
+      admin`update app.lead_tasks set status = 'started' where id = ${third.id}`,
+    ).rejects.toThrow(/lead_tasks_status_check/);
+  });
+
   test('the trash hides a lead, refuses work on it, and restores it in place', async () => {
     const leadId = await createInternetLead({
       fullName: 'Harper Trash',
