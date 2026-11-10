@@ -319,6 +319,15 @@ describe('the website ID step', () => {
       sizeBytes: 5 * 1024 * 1024,
     });
     expect(tooBig.status).toBe(400);
+
+    // A lead that already holds the most open intents is told to slow down, not "not found".
+    documents.createIntent.mockResolvedValueOnce({ status: 'too_many_open' });
+    const crowded = await website('/identity/uploads', {
+      contentType: 'image/jpeg',
+      sizeBytes: 10,
+    });
+    expect(crowded.status).toBe(429);
+    expect(crowded.headers.get('retry-after')).toBe('60');
   });
 
   it('records a verified licence photo without a legacy copy when none applies', async () => {

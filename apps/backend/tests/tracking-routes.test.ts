@@ -680,6 +680,7 @@ describe('documents', () => {
     [{ status: 'parent_not_found' }, 404, 'order_not_found'],
     [{ status: 'too_large' }, 413, 'document_too_large'],
     [{ status: 'checklist_mismatch' }, 409, 'checklist_mismatch'],
+    [{ status: 'too_many_open' }, 429, 'rate_limited'],
   ] as const)('answers the intent outcome %j with %i %s', async (outcome, status, code) => {
     documents.createIntent.mockResolvedValueOnce(outcome);
     const response = await intent(passportIntent);

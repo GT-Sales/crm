@@ -198,6 +198,9 @@ export const DEFAULT_ENDPOINT_RATE_LIMITS = {
   identity: { windowSeconds: 60, maxCount: 10 },
   // Customer order tracking, per visitor, on top of its per-email budgets (ruling T10).
   tracking: { windowSeconds: 60, maxCount: 30 },
+  // Document upload intents, finalizes and download links for a draft: one budget
+  // across the three, since each reserves a signed PUT or reads a file (audit L-4).
+  uploads: { windowSeconds: 60, maxCount: 20 },
 } as const satisfies Record<string, EndpointRateLimit>;
 
 export type EndpointRateLimitName = keyof typeof DEFAULT_ENDPOINT_RATE_LIMITS;
@@ -227,6 +230,7 @@ export function loadEndpointRateLimits(
     leads: resolve('leads'),
     identity: resolve('identity'),
     tracking: resolve('tracking'),
+    uploads: resolve('uploads'),
   };
 }
 

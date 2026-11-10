@@ -447,6 +447,9 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
           case 'checklist_mismatch':
             sendDomainError(res, req.id, 'checklist_mismatch', 409);
             return;
+          case 'too_many_open':
+            sendWebsiteError(res, req.id, 'rate_limited', 429, { 'retry-after': '60' });
+            return;
         }
       } catch (error) {
         failRequest(req, res, '/api/v1/website/tracking/orders/:reference/uploads/intents', error);
