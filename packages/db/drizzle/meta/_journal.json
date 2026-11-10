@@ -218,6 +218,20 @@
       "when": 1794349868932,
       "tag": "0030_invitation_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794349990959,
+      "tag": "0031_workspaces_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794349999391,
+      "tag": "0032_workspaces_rls_force",
+      "breakpoints": true
     }
   ]
 }
