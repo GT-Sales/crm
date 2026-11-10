@@ -42,6 +42,13 @@ export const TRACKING_MAX_ATTEMPTS = 5;
 export const TRACKING_EMAIL_WINDOW_SECONDS = 600;
 export const TRACKING_CODE_REQUESTS_PER_EMAIL = 5;
 export const TRACKING_VERIFICATIONS_PER_EMAIL = 10;
+/**
+ * A longer ceiling on the same verifications: the 10-minute budget alone lets a
+ * guesser try 1,440 codes a day per email, so after this many in a day the
+ * email's verification is refused until the window ends (audit L-2).
+ */
+export const TRACKING_EMAIL_DAY_WINDOW_SECONDS = 86_400;
+export const TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY = 30;
 export const TRACKING_WRITES_PER_EMAIL = 30;
 /** The code request answers no sooner than this, whether or not the email has orders. */
 export const TRACKING_MIN_LATENCY_MS = 500;

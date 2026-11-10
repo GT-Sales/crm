@@ -423,7 +423,10 @@ feature_not_ready`). The customer types an email; the website calls
     same as one with orders; only the latter gets a code. The code is six
     digits, lives 10 minutes and allows 5 tries; a new request replaces the
     pending one. Per email per 10 minutes: 5 code requests, 10 verifications,
-    30 customer writes; per visitor per 10 minutes: 20 code requests and 40
+    30 customer writes, and at most 30 verifications per email per 24 hours
+    (audit L-2: a guesser got 1,440 tries a day; after 30 the email's
+    verification answers 429 until the day window ends, counting only attempts
+    the 10-minute budgets let through); per visitor per 10 minutes: 20 code requests and 40
     verifications; and the endpoint budget (30 a minute per visitor,
     `RATE_LIMIT_TRACKING_*`). `POST /tracking/verify` turns the right code
     into a **grant**, which the website keeps server-side and sends as
