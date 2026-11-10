@@ -96,8 +96,8 @@ function paramWorkspaceId(value: string | string[] | undefined): string | undefi
  */
 function clientErrorStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
-  const { status, statusCode } = error as { status?: unknown; statusCode?: unknown };
-  const value = typeof status === 'number' ? status : statusCode;
+  const status = Reflect.get(error, 'status');
+  const value = typeof status === 'number' ? status : Reflect.get(error, 'statusCode');
   return typeof value === 'number' && Number.isInteger(value) && value >= 400 && value < 500
     ? value
     : undefined;

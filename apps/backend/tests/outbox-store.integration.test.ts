@@ -456,12 +456,16 @@ databaseTest('database outbox store', () => {
       toAddress: 'nadia@example.com',
       contactHash: 'hash-1',
       sender: { fromName: 'Shop', fromAddress: 'shop@example.com' },
-      rendered: { subject: 'Your SIM number is 555-0100', html: '<p>Hi Nadia</p>', text: 'Hi Nadia' },
+      rendered: {
+        subject: 'Your SIM number is 555-0100',
+        html: '<p>Hi Nadia</p>',
+        text: 'Hi Nadia',
+      },
     };
     const queue = async (dedupeKey: string, payload: Record<string, unknown> = full) => {
       const [row] = await admin<{ id: string }[]>`
         insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload, available_at)
-        values (${MAIL_WORKSPACE}, 'lead_customer_email', ${dedupeKey}, ${admin.json(payload as never)},
+        values (${MAIL_WORKSPACE}, 'lead_customer_email', ${dedupeKey}, ${admin.json(JSON.parse(JSON.stringify(payload)))},
           now() - interval '1 second')
         returning id
       `;
@@ -546,7 +550,7 @@ databaseTest('database outbox store', () => {
     // The dedupe key still blocks a second queueing of the same mail.
     const again = await admin`
       insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload)
-      values (${MAIL_WORKSPACE}, 'lead_customer_email', 'mail:sent', ${admin.json(full as never)})
+      values (${MAIL_WORKSPACE}, 'lead_customer_email', 'mail:sent', ${admin.json(JSON.parse(JSON.stringify(full)))})
       on conflict (workspace_id, job_type, dedupe_key) do nothing
       returning id
     `;

@@ -274,7 +274,8 @@ describe.skipIf(!migrationUrl)('email persistence with restricted runtime RLS', 
         contactHash: CONTACT,
       });
       expect(
-        (await fetch(`${origin}/api/v1/email/unsubscribe?token=${token}`, { method: 'POST' })).status,
+        (await fetch(`${origin}/api/v1/email/unsubscribe?token=${token}`, { method: 'POST' }))
+          .status,
       ).toBe(200);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
