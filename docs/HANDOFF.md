@@ -181,13 +181,24 @@ Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 | POST   | `/tracking/orders/:reference/uploads/intents`            | tracking         | With the grant: a held passport or visa upload for the order's change request (`documentType`, `contentType`, `sizeBytes`); the same signed target as `/uploads/intents`. 409 `change_request_not_allowed` when the order can no longer change; 409 `feature_not_ready` without a document store.                                                                                                                                                                     |
 | POST   | `/tracking/orders/:reference/uploads/:uploadId/finalize` | tracking         | With the grant: only the order's own held upload; verifies the bytes as `/uploads/:uploadId/finalize` does, then joins the file to the pending request (made if none, `version + 1` otherwise). 200 `{ changeRequest }`; 404 `upload_not_found` for any other file.                                                                                                                                                                                                   |
 
-Other: `GET /api/v1/health`; `/api/internal/jobs/run` (GET/POST, machine
-secret) for manual scheduler runs; `POST /api/internal/jobs/intake-check`
+Other: `GET /api/v1/health`; `POST /api/internal/jobs/run` (machine secret, POST
+only since audit L-10; the scheduler is in-process and never calls it) for
+manual scheduler runs; both internal job routes count every attempt per client
+IP before the secret is checked (10 a minute, fail closed, bucket
+`machine:<route>:ip:<ip>`); `POST /api/internal/jobs/intake-check`
 (machine secret, scope `synthetic:check`) for one intake check run by hand,
 returning its result and never alerting (404 `intake_check_off` without
-`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md); `/api/v1/email/unsubscribe`,
+`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md);
+`/api/v1/email/unsubscribe` (the signed token in the query: `GET` shows a
+confirmation page and changes nothing, `POST` records the unsubscribe, which is
+also what a mail provider's RFC 8058 one-click request sends; audit L-12),
 `/api/v1/email/staff/workspaces/:id/delivery`; `/api/v1/webhooks/resend`
-(raw body, signature-verified, `POST /:selector`).
+(raw body, signature-verified, `POST /:selector`). Every `/api` response
+carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and
+`Referrer-Policy: no-referrer` (a route may set a stricter value itself) and no
+`X-Powered-By`; the last-resort error handler answers a body it could not read
+with 400 (413 when too large), a database it could not reach with a retryable
+503 and anything else with a generic 500 (audit L-9, L-11).
 
 Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 `document_cleanup` 1 h, `data_retention` 24 h (calls
