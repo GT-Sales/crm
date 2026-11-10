@@ -138,6 +138,14 @@ export type LeadOrderIntakeInput = z.input<typeof leadOrderIntakeSchema>;
 
 export const createLeadRequestSchema = z.object({
   leadType: leadTypeSchema,
+  /**
+   * Optional: the id the website already gave this lead. The CRM creates the
+   * lead under it, so a website that keeps a fallback copy under the same id
+   * while the CRM is slow (CanadaWide's intake fallback) and the lead the CRM
+   * saves are one lead, and a later step that names the id finds it. An id
+   * any lead already has is `409 lead_id_taken`.
+   */
+  leadId: z.uuid().optional(),
   externalRef: leadExternalRefSchema.optional(),
   attribution: rawAttributionSchema.optional(),
   contact: leadContactSchema.optional(),

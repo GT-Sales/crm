@@ -42,6 +42,7 @@ import {
 import {
   DatabaseLeadStore,
   ExternalRefTakenError,
+  LeadIdTakenError,
   OrderIntakeError,
   type LeadStore,
 } from '../leads/store.js';
@@ -271,6 +272,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           actorId: ctx.credentialId,
           requestId: req.id,
           leadType: body.data.leadType,
+          leadId: body.data.leadId,
           externalRef: body.data.externalRef,
           contact: body.data.contact,
           form: body.data.form,
@@ -295,7 +297,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           sendDomainError(res, req.id, error.code, 400, { field: 'order' });
           return;
         }
-        if (error instanceof ExternalRefTakenError) {
+        if (error instanceof ExternalRefTakenError || error instanceof LeadIdTakenError) {
           sendDomainError(res, req.id, error.code, 409);
           return;
         }

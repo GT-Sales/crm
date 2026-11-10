@@ -22,7 +22,7 @@ import {
   idempotencyKeyHash,
   requestFingerprint,
 } from '../src/leads/idempotency.js';
-import { ExternalRefTakenError, OrderIntakeError } from '../src/leads/store.js';
+import { ExternalRefTakenError, LeadIdTakenError, OrderIntakeError } from '../src/leads/store.js';
 import { checkLeadForm } from '../src/leads/types.js';
 import type { StaffStore } from '../src/staff/store.js';
 import type { WebsiteCredentialStore } from '../src/website/store.js';
@@ -966,6 +966,24 @@ describe('order intake', () => {
     );
     expect(response.status).toBe(409);
     expect(await errorOf(response)).toMatchObject({ code: 'external_ref_taken' });
+  });
+
+  it("passes the website's own lead id through and answers a taken one with 409 lead_id_taken", async () => {
+    const leadId = '0e1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b';
+    const body = simOrder({ submit: true, order: { planId: PLAN, quantity: 1 }, leadId });
+    expect((await request('POST', '/api/v1/website/leads', {}, body)).status).toBe(201);
+    expect(leadStore.createCalls.at(-1)).toMatchObject({ leadId });
+    leadStore.createError = new LeadIdTakenError();
+    const taken = await request('POST', '/api/v1/website/leads', {}, body);
+    expect(taken.status).toBe(409);
+    expect(await errorOf(taken)).toMatchObject({ code: 'lead_id_taken' });
+    const bad = await request(
+      'POST',
+      '/api/v1/website/leads',
+      {},
+      { ...body, leadId: 'not-a-uuid' },
+    );
+    expect(bad.status).toBe(400);
   });
 
   it('passes the plan and the submission of a draft save through, and maps the refusals', async () => {

@@ -21,6 +21,11 @@
 --     website gave up waiting (and kept a fallback copy) is recognised here by
 --     the key's hash, and its fallback copy is left out. Keys are pruned after
 --     7 days, which is why p_days stays below that.
+-- Since audit CW-B1 the website also sends that id as the create's `leadId`
+-- and the CRM creates the lead under it, so a late CRM save has the fallback
+-- row's id and the first check already skips it (and the ID step, which names
+-- that id, finds the CRM lead). The key check stays for website versions that
+-- do not send `leadId`.
 -- p_min_age gives an intake transaction that was still committing when the
 -- website gave up (its timeout is 10 s) time to land before the check.
 --

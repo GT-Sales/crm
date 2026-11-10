@@ -274,7 +274,10 @@ retry never makes a second one (`app.idempotency_keys`, scope
 `lead_submission`): the key is stored as a SHA-256 hash with a fingerprint of the
 request, a retry within 24 hours returns the first lead marked `replayed`, the
 same key with another body is `idempotency_conflict`, and rows are pruned after
-7 days.
+7 days. A website may also send the lead's id (`leadId` on the create): the
+lead is created under it, and an id any lead already has is `409
+lead_id_taken` (CanadaWide does, so its intake fallback copy and a late CRM
+save are one lead, audit CW-B1).
 
 An **order number** is a SIM order's `MS-<n>`, kept as the lead's
 `externalRef` and returned on every website create and save
