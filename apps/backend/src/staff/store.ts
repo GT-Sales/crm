@@ -38,6 +38,13 @@ export interface BootstrapStaffInput {
   requestId: string;
 }
 
+/**
+ * How long an invitation can be claimed, counted from when it was sent
+ * (`memberships.created_at`). Mirrors the 14 days in
+ * `app.accept_staff_invitations` (migration 0030); change both together.
+ */
+export const INVITATION_TTL_DAYS = 14;
+
 export interface InviteStaffInput {
   actorId: string;
   workspaceId: string;
@@ -133,6 +140,22 @@ export class DatabaseStaffStore implements StaffStore {
     return this.database.withTenantTx(
       { actorId: input.actorId, workspaceId: input.workspaceId },
       async (tx) => {
+        // An invitation that was never claimed in time cannot be claimed any
+        // more (migration 0030) but would still hold the one pending slot for
+        // this address, so a new invitation retires it first. A live one is left
+        // alone and the insert below reports the conflict as before.
+        await tx
+          .update(memberships)
+          .set({ status: 'revoked', revokedAt: new Date() })
+          .where(
+            and(
+              eq(memberships.workspaceId, input.workspaceId),
+              eq(memberships.membershipType, 'staff'),
+              eq(memberships.status, 'pending'),
+              sql`lower(${memberships.invitedEmail}) = ${input.normalizedEmail.toLowerCase()}`,
+              sql`${memberships.createdAt} <= now() - make_interval(days => ${INVITATION_TTL_DAYS})`,
+            ),
+          );
         const [membership] = await tx
           .insert(memberships)
           .values({
