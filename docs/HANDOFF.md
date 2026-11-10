@@ -1674,6 +1674,33 @@ The owner asked for the Tasks page as a board "by status and date".
   backend from this change on the old constraint answers a move to In
   progress with 500; everything else works.
 
+### 3.17 2026-11-10: security review, hard track (branch `sec/hard`, migration 0030 not applied)
+
+- **M-2 retention:** restricting an abandoned draft also tombstones its
+  files and deletes their objects, deletes its tasks, clears its contact link,
+  trims attribution to the reported source fields and order details to the
+  offer, and (migration `0030_restricted_lead_erasure`) deletes its identities
+  with their legacy mirror rows, nulls note texts and deletes contacts no lead
+  references. Leads restricted earlier are finished a batch per daily run.
+  Runbook: `docs/RUNBOOKS/database.md` § 0030; paste file
+  `docs/RUNBOOKS/manual/0030-restricted-lead-erasure.sql`.
+- **M-1 admin CSP:** `apps/admin/src/proxy.ts` sets a per-request nonce policy
+  (`src/lib/csp.ts`): `script-src 'self' 'nonce-…' 'strict-dynamic'`, no
+  `'unsafe-inline'` for scripts; the root layout reads the nonce for the theme
+  bootstrap, so every page renders per request.
+- **L-1:** a draft grant uploads and downloads only while its lead is an
+  unarchived draft.
+- **L-6/L-7/L-8:** a malformed `MACHINE_REGISTRY_JSON` disables machine
+  routes instead of the app; process-level handlers; `GET /api/v1/ready`
+  (database round trip) is Railway's deploy health check; Auth `getUser` has a
+  5 s deadline; tenant transactions carry `statement_timeout` 15 s and
+  `idle_in_transaction_session_timeout` 30 s.
+- **CW-B1:** `POST /website/leads` takes the website's own `leadId`
+  (`409 lead_id_taken` when any lead has it); CanadaWide sends it, so a late
+  CRM save and its fallback copy are one lead.
+- **Owner, before deploying:** apply 0030 (or accept the logged
+  `restricted_lead_erasure_function_missing` until you do).
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted

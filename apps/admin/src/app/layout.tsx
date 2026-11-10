@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { headers } from 'next/headers';
 import { Inter } from 'next/font/google';
 import { SkipLink } from '@gt-sales/ui';
 
@@ -18,11 +19,15 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // The nonce src/proxy.ts put in this request's CSP (audit M-1); reading it
+  // renders every page per request, which a nonce needs anyway.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html lang="en" className={`crm-ui ${inter.variable}`} suppressHydrationWarning>
       <head>
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html:
               "try{var t=localStorage.getItem('gt-sales-theme');document.documentElement.classList.toggle('dark',t==='dark');document.documentElement.style.colorScheme=t==='dark'?'dark':'light'}catch(e){}",
