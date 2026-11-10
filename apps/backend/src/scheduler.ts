@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { createOwnerAlertChannelFromEnv, type OwnerAlertChannel } from '@gt-sales/adapters';
+import {
+  createOwnerAlertChannelFromEnv,
+  createR2DocumentStoreFromEnv,
+  type OwnerAlertChannel,
+  type R2DocumentStore,
+} from '@gt-sales/adapters';
 import type { MachineScopeName } from '@gt-sales/types';
 import { z } from 'zod';
 
@@ -329,7 +334,14 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   const jobs = createDefaultJobsRouteDependencies();
   const alerts = createOwnerAlertChannelFromEnv();
   const documents = createDocumentServiceFromEnv();
-  const abandonedLeads = new DatabaseAbandonedLeadPruner();
+  // Restricting a draft also deletes its documents' objects (audit M-2).
+  let objects: Pick<R2DocumentStore, 'deleteObject'> | undefined;
+  try {
+    objects = createR2DocumentStoreFromEnv();
+  } catch {
+    objects = undefined; // no object storage configured: no stored objects either
+  }
+  const abandonedLeads = new DatabaseAbandonedLeadPruner(undefined, { objects });
   const operational = operationalRetentionEnabled() ? new DatabaseOperationalPruner() : undefined;
   let queueHealth = INITIAL_QUEUE_HEALTH_STATE;
   let intakeAlerts: IntakeAlertState = INITIAL_INTAKE_ALERT_STATE;
@@ -376,8 +388,17 @@ export async function runDataRetention(
   dependencies: DataRetentionDependencies,
   input: SchedulerRunInput,
   now: Date,
-): Promise<{ restrictedLeads: number; prunedRows: Record<string, number> | 'disabled' }> {
+): Promise<{
+  restrictedLeads: number;
+  finishedLeads: number;
+  deletedObjects: number;
+  failedDeletes: number;
+  prunedRows: Record<string, number> | 'disabled';
+}> {
   let restrictedLeads = 0;
+  let finishedLeads = 0;
+  let deletedObjects = 0;
+  let failedDeletes = 0;
   const pruned: Record<string, number> = {};
   for (const workspaceId of new Set(input.authorizedWorkspaceIds)) {
     const leads = await dependencies.abandonedLeads.restrictAbandoned({
@@ -386,6 +407,9 @@ export async function runDataRetention(
       now,
     });
     restrictedLeads += leads.restrictedLeads;
+    finishedLeads += leads.finishedLeads;
+    deletedObjects += leads.deletedObjects;
+    failedDeletes += leads.failedDeletes;
     if (dependencies.operational) {
       for (const table of await dependencies.operational.prune({
         workspaceId,
@@ -396,7 +420,13 @@ export async function runDataRetention(
       }
     }
   }
-  return { restrictedLeads, prunedRows: dependencies.operational ? pruned : 'disabled' };
+  return {
+    restrictedLeads,
+    finishedLeads,
+    deletedObjects,
+    failedDeletes,
+    prunedRows: dependencies.operational ? pruned : 'disabled',
+  };
 }
 
 /**

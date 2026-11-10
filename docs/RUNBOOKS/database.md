@@ -938,6 +938,38 @@ select pg_get_constraintdef(oid) from pg_constraint
  where conname = 'lead_tasks_status_check';   -- …ARRAY['open', 'in_progress', 'done', 'cancelled']…
 ```
 
+## 0030_restricted_lead_erasure (2026-11-10, audit M-2)
+
+One SECURITY DEFINER function, `app.erase_restricted_lead_data(workspace,
+lead ids, contact ids)`, that the daily `data_retention` task calls when it
+restricts an abandoned draft (and, a batch per run, for leads restricted
+before this). For leads of the transaction's own site that are already
+restricted it deletes their `lead_identities` (and the same ids in
+CanadaWide's legacy `public.mobility_id_uploads`, when that table exists),
+nulls the `body` of their timeline entries, and deletes the given contacts
+that no lead on any site references. The backend itself tombstones the
+leads' files and deletes their objects, deletes their tasks, clears their
+contact link and trims attribution and order details. `search_path = ''`,
+revoked from `PUBLIC`, granted to `app_runtime` only. No table, grant or
+policy changes. Paste file:
+[`manual/0030-restricted-lead-erasure.sql`](manual/0030-restricted-lead-erasure.sql).
+
+- **To apply** (owner): run the paste file (it inserts both tracker rows:
+  hash `d9f606b7fb11c80c9953650a1e1824cbba4e0dc4a39c7725aa30ae2f89069a31`,
+  `created_at` `1794348226604`). A backend deployed before it still
+  restricts drafts and erases their files, tasks and contact link, and logs
+  `restricted_lead_erasure_function_missing` until it is applied.
+- **First run after deploying** finishes up to 1000 previously restricted
+  leads per site per day: their files are tombstoned and objects deleted,
+  identities, tasks and note texts removed. This is irreversible.
+- Rollback: `DROP FUNCTION app.erase_restricted_lead_data(uuid, uuid[], uuid[]);`
+  after reverting the code (the code checks for it before calling).
+- Verify against the schema:
+
+```sql
+select prosecdef, proconfig from pg_proc where proname = 'erase_restricted_lead_data';  -- t, {search_path=""}
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

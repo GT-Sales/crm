@@ -588,6 +588,9 @@ describe('runDataRetention', () => {
     const now = new Date('2026-10-22T00:00:00.000Z');
     const restrictAbandoned = vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
       restrictedLeads: workspaceId === 'w1' ? 3 : 1,
+      finishedLeads: 1,
+      deletedObjects: workspaceId === 'w1' ? 2 : 0,
+      failedDeletes: 0,
     }));
     const result = await runDataRetention(
       { abandonedLeads: { restrictAbandoned } },
@@ -596,12 +599,23 @@ describe('runDataRetention', () => {
     );
     expect(restrictAbandoned).toHaveBeenCalledTimes(2);
     expect(restrictAbandoned).toHaveBeenCalledWith({ workspaceId: 'w1', actorId: 'actor', now });
-    expect(result).toEqual({ restrictedLeads: 4, prunedRows: 'disabled' });
+    expect(result).toEqual({
+      restrictedLeads: 4,
+      finishedLeads: 2,
+      deletedObjects: 2,
+      failedDeletes: 0,
+      prunedRows: 'disabled',
+    });
   });
 
   it('prunes operational rows only when the pruner is configured', async () => {
     const now = new Date('2026-10-22T00:00:00.000Z');
-    const restrictAbandoned = vi.fn(async () => ({ restrictedLeads: 0 }));
+    const restrictAbandoned = vi.fn(async () => ({
+      restrictedLeads: 0,
+      finishedLeads: 0,
+      deletedObjects: 0,
+      failedDeletes: 0,
+    }));
     const prune = vi.fn(async ({ workspaceId }: { workspaceId: string }) => [
       { tableName: 'outbox_jobs', deleted: workspaceId === 'w1' ? 5 : 2 },
       { tableName: 'idempotency_keys', deleted: 1 },
@@ -614,6 +628,9 @@ describe('runDataRetention', () => {
     expect(prune).toHaveBeenCalledWith({ workspaceId: 'w2', actorId: 'actor', now });
     expect(result).toEqual({
       restrictedLeads: 0,
+      finishedLeads: 0,
+      deletedObjects: 0,
+      failedDeletes: 0,
       prunedRows: { outbox_jobs: 7, idempotency_keys: 2 },
     });
   });

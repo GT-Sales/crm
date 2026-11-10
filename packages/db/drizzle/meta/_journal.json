@@ -211,6 +211,13 @@
       "when": 1794336266083,
       "tag": "0029_task_in_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794348226604,
+      "tag": "0030_restricted_lead_erasure",
+      "breakpoints": true
     }
   ]
 }
