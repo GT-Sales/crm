@@ -41,7 +41,12 @@ export {
   type DocumentParentType,
 } from './domain';
 
-export { healthResponseSchema, type HealthResponse } from './health';
+export {
+  healthResponseSchema,
+  readyResponseSchema,
+  type HealthResponse,
+  type ReadyResponse,
+} from './health';
 
 export {
   adminJobSchema,

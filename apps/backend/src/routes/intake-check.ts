@@ -12,7 +12,7 @@ import {
 } from '../intake-check/check.js';
 import { DatabaseIntakeCheckStore } from '../intake-check/store.js';
 import { DatabaseLeadStore } from '../leads/store.js';
-import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
 
 /**
  * `POST /api/internal/jobs/intake-check`: one intake check run by hand, for a
@@ -34,7 +34,7 @@ export interface IntakeCheckRouteDependencies {
 export function createDefaultIntakeCheckRouteDependencies(): IntakeCheckRouteDependencies {
   const check = { leads: new DatabaseLeadStore(), store: new DatabaseIntakeCheckStore() };
   return {
-    registry: loadMachineRegistry(),
+    registry: loadMachineRegistryOrDenyAll(),
     workspaceId: process.env.INTAKE_CHECK_WORKSPACE_ID,
     run: (input) => runIntakeCheck(check, input),
     selector: process.env.JOB_RUNNER_SELECTOR,

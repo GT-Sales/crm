@@ -15,6 +15,20 @@ export interface StaffSessionVerifier {
   verify(accessToken: string): Promise<VerifiedStaffSession | undefined>;
 }
 
+/**
+ * How long one Supabase Auth `getUser` may take (audit L-8). Without a
+ * deadline a stalled Auth endpoint held every staff request open until the
+ * client gave up; now the request answers `invalid_session` after this and
+ * the admin retries.
+ */
+export const AUTH_VERIFY_TIMEOUT_MS = 5_000;
+
+function timedFetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
+  const deadline = AbortSignal.timeout(AUTH_VERIFY_TIMEOUT_MS);
+  const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+  return fetch(input, { ...init, signal });
+}
+
 function authClient() {
   const url = process.env.SUPABASE_URL;
   const publishableKey = process.env.SUPABASE_ANON_KEY;
@@ -23,6 +37,7 @@ function authClient() {
   }
 
   return createClient(url, publishableKey, {
+    global: { fetch: timedFetch },
     auth: {
       autoRefreshToken: false,
       detectSessionInUrl: false,

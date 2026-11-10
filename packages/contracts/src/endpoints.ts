@@ -59,7 +59,7 @@ import {
   revokeServiceCredentialResponseSchema,
 } from './website-auth';
 import { createExportRequestSchema, createExportResponseSchema } from './exports';
-import { healthResponseSchema } from './health';
+import { healthResponseSchema, readyResponseSchema } from './health';
 import {
   createIdentityUploadRequestSchema,
   revealLeadIdentityResponseSchema,
@@ -250,6 +250,16 @@ export const endpoints: readonly EndpointDef[] = [
     auth: 'public',
     successStatus: 200,
     response: healthResponseSchema,
+  },
+  {
+    operationId: 'getReady',
+    method: 'GET',
+    path: '/api/v1/ready',
+    summary:
+      'Readiness check: 200 once the database answers, 503 with ok: false otherwise (the deploy health check).',
+    auth: 'public',
+    successStatus: 200,
+    response: readyResponseSchema,
   },
 
   // Staff — bootstrap and workspace access

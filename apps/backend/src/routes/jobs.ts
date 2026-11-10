@@ -6,7 +6,7 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { createOutboxJobHandlers } from '../jobs/providers.js';
 import { DatabaseOutboxStore } from '../jobs/store.js';
-import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
 
 export interface JobsRouteDependencies {
   registry: MachineRegistry;
@@ -27,7 +27,7 @@ export function createDefaultJobsRouteDependencies(): JobsRouteDependencies & {
     handlers: createOutboxJobHandlers(),
   });
   return {
-    registry: loadMachineRegistry(),
+    registry: loadMachineRegistryOrDenyAll(),
     run: (input) => runner.run(input),
     queueHealth: (input) => store.queueHealth(input),
     selector: process.env.JOB_RUNNER_SELECTOR,

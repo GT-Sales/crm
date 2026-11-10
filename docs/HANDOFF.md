@@ -39,6 +39,7 @@ should be rotated once the owner has a password manager for them (§6).
  ┌──────────────────────────── backend: apps/backend (Express 5, Railway, Singapore) ────────────────────────────┐
  │ requestId → requestLog → CORS(ADMIN_ORIGIN) → JSON 64 kB                                                     │
  │  /api/v1/health            liveness, no auth                                                                 │
+ │  /api/v1/ready             readiness (select 1 as app_runtime), no auth; Railway's deploy health check       │
  │  /api/internal/jobs/*      machine identity (MACHINE_REGISTRY_JSON + CRON_SECRET), manual job runs           │
  │  /api/v1/staff/*           Supabase bearer → verified by Auth API → per-IP rate limit → per-action authorize │
  │  /api/v1/website/*         service credential (hash lookup) → scope → per-endpoint rate limit → bot check    │
@@ -181,7 +182,10 @@ Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 | POST   | `/tracking/orders/:reference/uploads/intents`            | tracking         | With the grant: a held passport or visa upload for the order's change request (`documentType`, `contentType`, `sizeBytes`); the same signed target as `/uploads/intents`. 409 `change_request_not_allowed` when the order can no longer change; 409 `feature_not_ready` without a document store.                                                                                                                                                                     |
 | POST   | `/tracking/orders/:reference/uploads/:uploadId/finalize` | tracking         | With the grant: only the order's own held upload; verifies the bytes as `/uploads/:uploadId/finalize` does, then joins the file to the pending request (made if none, `version + 1` otherwise). 200 `{ changeRequest }`; 404 `upload_not_found` for any other file.                                                                                                                                                                                                   |
 
-Other: `GET /api/v1/health`; `/api/internal/jobs/run` (GET/POST, machine
+Other: `GET /api/v1/health` (liveness); `GET /api/v1/ready` (200 once the
+database answers `select 1` within 3 s, else 503 `database_unreachable`;
+`railway.json` points the deploy health check at it, so a release with a
+broken `DATABASE_URL` never replaces a working one); `/api/internal/jobs/run` (GET/POST, machine
 secret) for manual scheduler runs; `POST /api/internal/jobs/intake-check`
 (machine secret, scope `synthetic:check`) for one intake check run by hand,
 returning its result and never alerting (404 `intake_check_off` without

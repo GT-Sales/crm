@@ -13,7 +13,7 @@ import { DatabaseEmailStore, type EmailStore } from '../email/store.js';
 import { hashContact, requireContactHashSecret } from '../email/hash.js';
 import { createAuthorize } from '../staff/authorization.js';
 import { DatabaseStaffStore, type StaffStore } from '../staff/store.js';
-import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
 
 export interface EmailRouteDependencies {
   store: EmailStore;
@@ -46,7 +46,7 @@ export function createDefaultEmailRouteDependencies(
     rateLimit: rateLimitHit,
     contactHashSecret: () => requireContactHashSecret(),
     unsubscribeConsentVersion: process.env.MARKETING_CONSENT_VERSION ?? '1',
-    registry: loadMachineRegistry(),
+    registry: loadMachineRegistryOrDenyAll(),
     authorizeDeliveryView: async (actorId, workspaceId) => {
       const authorize = createAuthorize({ accessStore: staffStore });
       const decision = await authorize({ actorId, workspaceId, action: 'workspace.read' });

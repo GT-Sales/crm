@@ -1,12 +1,13 @@
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
+import { pingDatabase } from '@gt-sales/db';
 
 import { sendStaffAuthError } from './http/staff-errors.js';
 import { requestLog } from './http/requestLog.js';
 import { requestId } from './requestId.js';
 import { DatabasePlanStore } from './plans/store.js';
 import { DatabasePropertyStore } from './properties/store.js';
-import { getHealth } from './routes/health.js';
+import { createReadyHandler, getHealth } from './routes/health.js';
 import {
   createDefaultStaffRouteDependencies,
   createStaffRouter,
@@ -49,6 +50,8 @@ export interface CreateAppOptions {
   intakeCheck?: IntakeCheckRouteDependencies;
   email?: EmailRouteDependencies;
   errorTracker?: ErrorTracker;
+  /** The readiness check's database round trip; by default the shared pool. */
+  ping?: (timeoutMs: number) => Promise<void>;
 }
 
 function adminCors(): RequestHandler {
@@ -130,6 +133,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   );
   app.use(express.json({ limit: '64kb' }));
   app.get('/api/v1/health', getHealth);
+  app.get('/api/v1/ready', createReadyHandler(options.ping ?? pingDatabase));
   app.use(
     '/api/internal/jobs',
     createJobsRouter(options.jobs ?? createDefaultJobsRouteDependencies()),
