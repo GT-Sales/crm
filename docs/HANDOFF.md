@@ -1684,6 +1684,48 @@ The owner asked for the Tasks page as a board "by status and date".
   backend from this change on the old constraint answers a move to In
   progress with 500; everything else works.
 
+### 3.17 2026-11-10: security review, the easy fixes (migrations 0030 to 0032 not applied)
+
+From the review's report (L-2 to L-5, L-9 to L-12, L-14, L-16, I-1, I-2); the
+hard items (M-1, M-2, L-1, L-6 to L-8) are separate.
+
+- **L-2:** a second per-email bucket caps tracking-code verification at 30 per
+  24 hours (`TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY`); it counts only attempts
+  the 10-minute budgets admitted, and answers 429 with that window's
+  `retry-after`.
+- **L-4:** upload intent, finalize and download-link share a per-visitor
+  `uploads` endpoint budget (20 a minute, `RATE_LIMIT_UPLOADS_*`), and a record
+  may hold at most 10 open upload intents (`MAX_OPEN_UPLOADS_PER_RECORD`, a
+  429 `rate_limited` beyond it).
+- **L-3:** a `lead_customer_email` job is scrubbed to `{ leadId, template,
+templateVersion }` when it completes (also when staff confirm an uncertain one
+  delivered); failed, uncertain and retrying mails keep the mail. One-off paste
+  file for mails already sent:
+  [manual/scrub-sent-customer-email-jobs.sql](RUNBOOKS/manual/scrub-sent-customer-email-jobs.sql).
+  `OPERATIONAL_RETENTION_ENABLED` is documented in ENV.md with every table it
+  prunes; **it is still off**, which is the owner's call after a verified backup.
+- **L-5, L-14:** ENV.md and the three backup workflow headers describe the one
+  Read+Write B2 key in one environment that runs; `SENSITIVE_FIELDS_KEY` (lose it
+  and every stored SIN is unreadable: keep a copy in the password manager) and
+  `MARKETING_CONSENT_VERSION` are documented.
+- **L-9, L-11, L-12:** see §2.3's "Other" paragraph: honest error statuses,
+  no-store/nosniff/no-referrer on `/api`, no `X-Powered-By`, unsubscribe by POST.
+  A mail's `List-Unsubscribe` header is not built anywhere yet; when it is, point
+  it at the POST URL with `List-Unsubscribe-Post: List-Unsubscribe=One-Click`.
+- **L-10:** `/api/internal/jobs/run` is POST only and both job routes count
+  attempts per IP before the secret check. The registry's 16-character secret
+  floor was **not** raised (a shorter production secret would stop the API
+  booting); use 32+ random characters for `CRON_SECRET`.
+- **L-16, I-2 (migrations 0030 to 0032, runbook [database.md](RUNBOOKS/database.md)):**
+  invitations expire after 14 days; `app.workspaces` gets row security, forced,
+  with a backup read policy. Not applied. A pending-invitations list with revoke
+  in the admin was not built.
+- **I-1:** pnpm override `qs@<6.16.1`.
+- **Owner:** apply 0030 to 0032 and their tracker rows (list stale invitations
+  first); in Supabase Auth confirm "Confirm email" is on and anonymous, phone and
+  unverified-OAuth sign-ins are off (L-16); set `AI_ACTION_SIGNING_SECRET` (L-13);
+  decide when to turn `OPERATIONAL_RETENTION_ENABLED` on.
+
 ## 4. What is verified, and how
 
 Reply presentation follow-up (2026-11-03): assistant answers render restricted
