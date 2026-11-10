@@ -148,6 +148,14 @@ export type ImportFileResult =
 
 export interface DocumentRecordStore {
   createIntent(input: CreateIntentInput): Promise<FileRow>;
+  /** Intents on a record still open: `uploading` or `verifying` and not yet expired. */
+  countOpenUploads(input: {
+    workspaceId: string;
+    actorId: string;
+    recordType: DocumentParentType;
+    recordId: string;
+    now: Date;
+  }): Promise<number>;
   /**
    * Records an imported document as available on a live, unrestricted lead,
    * as the current file of its type (superseding the one before it). Once per
@@ -292,6 +300,33 @@ const defaultDatabase: DocumentDatabase = { withTenantTx };
 
 export class DatabaseDocumentStore implements DocumentRecordStore {
   constructor(private readonly database: DocumentDatabase = defaultDatabase) {}
+
+  async countOpenUploads(input: {
+    workspaceId: string;
+    actorId: string;
+    recordType: DocumentParentType;
+    recordId: string;
+    now: Date;
+  }): Promise<number> {
+    return this.database.withTenantTx(
+      { workspaceId: input.workspaceId, actorId: input.actorId },
+      async (tx) => {
+        const [row] = await tx
+          .select({ open: sql<number>`count(*)::int` })
+          .from(files)
+          .where(
+            and(
+              eq(files.workspaceId, input.workspaceId),
+              eq(files.recordType, input.recordType),
+              eq(files.recordId, input.recordId),
+              sql`${files.status} in ('uploading', 'verifying')`,
+              gt(files.expiresAt, input.now),
+            ),
+          );
+        return row?.open ?? 0;
+      },
+    );
+  }
 
   async createIntent(input: CreateIntentInput): Promise<FileRow> {
     return this.database.withTenantTx(

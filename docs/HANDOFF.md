@@ -185,13 +185,24 @@ Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 Other: `GET /api/v1/health` (liveness); `GET /api/v1/ready` (200 once the
 database answers `select 1` within 3 s, else 503 `database_unreachable`;
 `railway.json` points the deploy health check at it, so a release with a
-broken `DATABASE_URL` never replaces a working one); `/api/internal/jobs/run` (GET/POST, machine
-secret) for manual scheduler runs; `POST /api/internal/jobs/intake-check`
+broken `DATABASE_URL` never replaces a working one); `POST /api/internal/jobs/run`
+(machine secret, POST only since audit L-10; the scheduler is in-process and
+never calls it) for manual scheduler runs; both internal job routes count every
+attempt per client IP before the secret is checked (10 a minute, fail closed,
+bucket `machine:<route>:ip:<ip>`); `POST /api/internal/jobs/intake-check`
 (machine secret, scope `synthetic:check`) for one intake check run by hand,
 returning its result and never alerting (404 `intake_check_off` without
-`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md); `/api/v1/email/unsubscribe`,
+`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md);
+`/api/v1/email/unsubscribe` (the signed token in the query: `GET` shows a
+confirmation page and changes nothing, `POST` records the unsubscribe, which is
+also what a mail provider's RFC 8058 one-click request sends; audit L-12),
 `/api/v1/email/staff/workspaces/:id/delivery`; `/api/v1/webhooks/resend`
-(raw body, signature-verified, `POST /:selector`).
+(raw body, signature-verified, `POST /:selector`). Every `/api` response
+carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and
+`Referrer-Policy: no-referrer` (a route may set a stricter value itself) and no
+`X-Powered-By`; the last-resort error handler answers a body it could not read
+with 400 (413 when too large), a database it could not reach with a retryable
+503 and anything else with a generic 500 (audit L-9, L-11).
 
 Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 `document_cleanup` 1 h, `data_retention` 24 h (calls
@@ -427,7 +438,10 @@ feature_not_ready`). The customer types an email; the website calls
     same as one with orders; only the latter gets a code. The code is six
     digits, lives 10 minutes and allows 5 tries; a new request replaces the
     pending one. Per email per 10 minutes: 5 code requests, 10 verifications,
-    30 customer writes; per visitor per 10 minutes: 20 code requests and 40
+    30 customer writes, and at most 30 verifications per email per 24 hours
+    (audit L-2: a guesser got 1,440 tries a day; after 30 the email's
+    verification answers 429 until the day window ends, counting only attempts
+    the 10-minute budgets let through); per visitor per 10 minutes: 20 code requests and 40
     verifications; and the endpoint budget (30 a minute per visitor,
     `RATE_LIMIT_TRACKING_*`). `POST /tracking/verify` turns the right code
     into a **grant**, which the website keeps server-side and sends as
@@ -1698,8 +1712,50 @@ The owner asked for the Tasks page as a board "by status and date".
 - **CW-B1:** `POST /website/leads` takes the website's own `leadId`
   (`409 lead_id_taken` when any lead has it); CanadaWide sends it, so a late
   CRM save and its fallback copy are one lead.
-- **Owner, before deploying:** apply 0030 (or accept the logged
+- **Owner, before deploying:** apply 0030 before 0031 to 0033 (or accept the logged
   `restricted_lead_erasure_function_missing` until you do).
+
+### 3.18 2026-11-10: security review, the easy fixes (migrations 0031 to 0033 not applied)
+
+From the review's report (L-2 to L-5, L-9 to L-12, L-14, L-16, I-1, I-2); the
+hard items (M-1, M-2, L-1, L-6 to L-8) are separate.
+
+- **L-2:** a second per-email bucket caps tracking-code verification at 30 per
+  24 hours (`TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY`); it counts only attempts
+  the 10-minute budgets admitted, and answers 429 with that window's
+  `retry-after`.
+- **L-4:** upload intent, finalize and download-link share a per-visitor
+  `uploads` endpoint budget (20 a minute, `RATE_LIMIT_UPLOADS_*`), and a record
+  may hold at most 10 open upload intents (`MAX_OPEN_UPLOADS_PER_RECORD`, a
+  429 `rate_limited` beyond it).
+- **L-3:** a `lead_customer_email` job is scrubbed to `{ leadId, template,
+templateVersion }` when it completes (also when staff confirm an uncertain one
+  delivered); failed, uncertain and retrying mails keep the mail. One-off paste
+  file for mails already sent:
+  [manual/scrub-sent-customer-email-jobs.sql](RUNBOOKS/manual/scrub-sent-customer-email-jobs.sql).
+  `OPERATIONAL_RETENTION_ENABLED` is documented in ENV.md with every table it
+  prunes; **it is still off**, which is the owner's call after a verified backup.
+- **L-5, L-14:** ENV.md and the three backup workflow headers describe the one
+  Read+Write B2 key in one environment that runs; `SENSITIVE_FIELDS_KEY` (lose it
+  and every stored SIN is unreadable: keep a copy in the password manager) and
+  `MARKETING_CONSENT_VERSION` are documented.
+- **L-9, L-11, L-12:** see §2.3's "Other" paragraph: honest error statuses,
+  no-store/nosniff/no-referrer on `/api`, no `X-Powered-By`, unsubscribe by POST.
+  A mail's `List-Unsubscribe` header is not built anywhere yet; when it is, point
+  it at the POST URL with `List-Unsubscribe-Post: List-Unsubscribe=One-Click`.
+- **L-10:** `/api/internal/jobs/run` is POST only and both job routes count
+  attempts per IP before the secret check. The registry's 16-character secret
+  floor was **not** raised (a shorter production secret would stop the API
+  booting); use 32+ random characters for `CRON_SECRET`.
+- **L-16, I-2 (migrations 0031 to 0033, runbook [database.md](RUNBOOKS/database.md)):**
+  invitations expire after 14 days; `app.workspaces` gets row security, forced,
+  with a backup read policy. Not applied. A pending-invitations list with revoke
+  in the admin was not built.
+- **I-1:** pnpm override `qs@<6.16.1`.
+- **Owner:** apply 0031 to 0033 and their tracker rows (list stale invitations
+  first); in Supabase Auth confirm "Confirm email" is on and anonymous, phone and
+  unverified-OAuth sign-ins are off (L-16); set `AI_ACTION_SIGNING_SECRET` (L-13);
+  decide when to turn `OPERATIONAL_RETENTION_ENABLED` on.
 
 ## 4. What is verified, and how
 

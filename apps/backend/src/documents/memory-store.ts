@@ -55,6 +55,20 @@ export class InMemoryDocumentRecordStore implements DocumentRecordStore {
     return row ? { ...row } : undefined;
   }
 
+  async countOpenUploads(input: {
+    recordType: string;
+    recordId: string;
+    now: Date;
+  }): Promise<number> {
+    return [...this.rows.values()].filter(
+      (row) =>
+        row.recordType === input.recordType &&
+        row.recordId === input.recordId &&
+        (row.status === 'uploading' || row.status === 'verifying') &&
+        row.expiresAt.getTime() > input.now.getTime(),
+    ).length;
+  }
+
   async createIntent(input: CreateIntentInput): Promise<FileRow> {
     const revision =
       Math.max(

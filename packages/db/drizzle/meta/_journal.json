@@ -218,6 +218,27 @@
       "when": 1794348226604,
       "tag": "0030_restricted_lead_erasure",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794351038728,
+      "tag": "0031_invitation_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794351039747,
+      "tag": "0032_workspaces_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794351040645,
+      "tag": "0033_workspaces_rls_force",
+      "breakpoints": true
     }
   ]
 }

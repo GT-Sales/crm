@@ -27,6 +27,8 @@ if (process.env.NEXT_PUBLIC_E2E_STAFF_BEARER && (process.env.VERCEL || process.e
 }
 
 const nextConfig: NextConfig = {
+  // No `X-Powered-By: Next.js` on responses (audit L-11).
+  poweredByHeader: false,
   reactStrictMode: true,
   // The e2e build (scripts/test-e2e-orders.mjs) writes to its own folder so it
   // never replaces the normal build the shell journeys test.

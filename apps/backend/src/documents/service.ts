@@ -9,6 +9,7 @@ import {
   CLEANUP_GRACE_SECONDS,
   DOWNLOAD_LINK_TTL_SECONDS,
   MAX_DOCUMENT_UPLOAD_BYTES,
+  MAX_OPEN_UPLOADS_PER_RECORD,
   UPLOAD_INTENT_TTL_SECONDS,
   documentBucket,
 } from './config.js';
@@ -59,7 +60,9 @@ export type CreateIntentOutcome =
     }
   | { status: 'parent_not_found' }
   | { status: 'checklist_mismatch' }
-  | { status: 'too_large' };
+  | { status: 'too_large' }
+  /** The record already holds the most open intents it may; finish or wait for them to expire. */
+  | { status: 'too_many_open' };
 
 export interface FinalizeInput {
   workspaceId: string;
@@ -119,6 +122,8 @@ export interface DocumentServiceOptions {
   intentTtlSeconds?: number;
   downloadTtlSeconds?: number;
   cleanupGraceSeconds?: number;
+  /** Open intents one record may hold (default {@link MAX_OPEN_UPLOADS_PER_RECORD}). */
+  maxOpenUploads?: number;
   bucket?: string;
   now?: () => Date;
   backupLease?: BackupLeaseGate;
@@ -134,6 +139,7 @@ export class DocumentService {
   private readonly intentTtlSeconds: number;
   private readonly downloadTtlSeconds: number;
   private readonly cleanupGraceSeconds: number;
+  private readonly maxOpenUploads: number;
   private readonly bucket: string;
   private readonly now: () => Date;
   private readonly backupLease: BackupLeaseGate;
@@ -148,6 +154,7 @@ export class DocumentService {
     this.intentTtlSeconds = options.intentTtlSeconds ?? UPLOAD_INTENT_TTL_SECONDS;
     this.downloadTtlSeconds = options.downloadTtlSeconds ?? DOWNLOAD_LINK_TTL_SECONDS;
     this.cleanupGraceSeconds = options.cleanupGraceSeconds ?? CLEANUP_GRACE_SECONDS;
+    this.maxOpenUploads = options.maxOpenUploads ?? MAX_OPEN_UPLOADS_PER_RECORD;
     this.bucket = options.bucket ?? documentBucket();
     this.now = options.now ?? (() => new Date());
     this.backupLease = options.backupLease ?? { isActive: async () => false };
@@ -164,6 +171,17 @@ export class DocumentService {
     });
     if (!checklist.found) return { status: 'parent_not_found' };
     if (!checklist.allowed.includes(input.documentType)) return { status: 'checklist_mismatch' };
+
+    // Counted before anything is presigned. Two requests at the same instant may
+    // both pass at the limit; the endpoint budget bounds that overshoot.
+    const open = await this.store.countOpenUploads({
+      workspaceId: input.workspaceId,
+      actorId: input.actorId,
+      recordType: input.recordType,
+      recordId: input.recordId,
+      now: this.now(),
+    });
+    if (open >= this.maxOpenUploads) return { status: 'too_many_open' };
 
     const key = stagingKey(input.workspaceId);
     const presigned = await this.r2.createUpload({

@@ -14,6 +14,7 @@ import { hashContact, requireContactHashSecret } from '../email/hash.js';
 import { createAuthorize } from '../staff/authorization.js';
 import { DatabaseStaffStore, type StaffStore } from '../staff/store.js';
 import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
+import { failRequest } from './website.js';
 
 export interface EmailRouteDependencies {
   store: EmailStore;
@@ -177,47 +178,122 @@ export function createResendWebhookRouter(dependencies: EmailRouteDependencies):
       res.status(400).json({ error: 'invalid_event' });
       return;
     }
-    const outcome = await dependencies.store.applyProviderEvent({
-      workspaceId: identity.workspaceId,
-      actorId: identity.actorId,
-      provider: identity.provider,
-      providerAccount: identity.providerAccount,
-      providerEventId: req.get('svix-id')!,
-      eventType,
-      providerMessageId: email.data.email_id,
-      messageId: tag,
-      contactHash: hashContact(email.data.to[0]!, dependencies.contactHashSecret()),
-      hardBounce: eventType === 'bounce' && email.data.bounce?.type === 'Permanent',
-      receivedAt: new Date(parsed.data.created_at),
-    });
-    // Retry uncorrelated events rather than acknowledging and losing an early event.
-    res.status(outcome === 'invalid' ? 503 : 200).json({ status: outcome });
+    try {
+      const outcome = await dependencies.store.applyProviderEvent({
+        workspaceId: identity.workspaceId,
+        actorId: identity.actorId,
+        provider: identity.provider,
+        providerAccount: identity.providerAccount,
+        providerEventId: req.get('svix-id')!,
+        eventType,
+        providerMessageId: email.data.email_id,
+        messageId: tag,
+        contactHash: hashContact(email.data.to[0]!, dependencies.contactHashSecret()),
+        hardBounce: eventType === 'bounce' && email.data.bounce?.type === 'Permanent',
+        receivedAt: new Date(parsed.data.created_at),
+      });
+      // Retry uncorrelated events rather than acknowledging and losing an early event.
+      res.status(outcome === 'invalid' ? 503 : 200).json({ status: outcome });
+    } catch (error) {
+      // A non-2xx makes Resend deliver the event again, which is what a failed write needs.
+      failRequest(req, res, '/api/v1/webhooks/resend/:selector', error);
+    }
   });
   return router;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+/** A small, self-contained page: no script, no external resource, never framed. */
+function sendHtml(res: Response, status: number, title: string, body: string): void {
+  res
+    .status(status)
+    .type('html')
+    .setHeader(
+      'content-security-policy',
+      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+    );
+  res.send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>${escapeHtml(title)}</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:28rem;margin:4rem auto;padding:0 1rem;color:#1a1a1a}button{font:inherit;padding:.6rem 1.2rem;cursor:pointer}</style>
+</head><body><h1>${escapeHtml(title)}</h1>
+${body}
+</body></html>`);
 }
 
 export function createEmailRouter(dependencies: EmailRouteDependencies): Router {
   const router = Router();
 
-  router.get('/unsubscribe', async (req: Request, res: Response) => {
+  /**
+   * The token from the link, or the answer already sent. It travels in the
+   * query string of both the GET page and the POST, which is also what a mail
+   * provider's one-click request (RFC 8058: a POST of `List-Unsubscribe=One-Click`
+   * to the `List-Unsubscribe` URL) carries, so that body is never needed.
+   */
+  function unsubscribeIdentity(req: Request, res: Response) {
     const token = typeof req.query.token === 'string' ? req.query.token : undefined;
     if (!token) {
       res.status(400).json({ error: 'missing_token' });
-      return;
+      return undefined;
     }
     const parsed = verifyUnsubscribeToken(dependencies.contactHashSecret(), token);
     if (!parsed) {
       res.status(400).json({ error: 'invalid_token' });
-      return;
+      return undefined;
     }
-    await dependencies.store.recordUnsubscribe({
-      workspaceId: parsed.workspaceId,
-      contactHash: parsed.contactHash,
-      leadId: parsed.leadId,
-      version: dependencies.unsubscribeConsentVersion,
-      now: new Date(),
-    });
-    res.status(200).json({ status: 'unsubscribed' });
+    return { token, ...parsed };
+  }
+
+  // A GET changes nothing. Mail security scanners and link prefetchers follow
+  // GET links, so an unsubscribe on GET would remove recipients who never
+  // clicked (audit L-12): the page asks, and only its POST records.
+  router.get('/unsubscribe', (req: Request, res: Response) => {
+    try {
+      const identity = unsubscribeIdentity(req, res);
+      if (!identity) return;
+      sendHtml(
+        res,
+        200,
+        'Unsubscribe',
+        `<p>Stop marketing email to this address?</p>
+<form method="post" action="/api/v1/email/unsubscribe?token=${escapeHtml(encodeURIComponent(identity.token))}">
+<button type="submit">Unsubscribe</button>
+</form>`,
+      );
+    } catch (error) {
+      failRequest(req, res, '/api/v1/email/unsubscribe', error);
+    }
+  });
+
+  router.post('/unsubscribe', async (req: Request, res: Response) => {
+    try {
+      const identity = unsubscribeIdentity(req, res);
+      if (!identity) return;
+      await dependencies.store.recordUnsubscribe({
+        workspaceId: identity.workspaceId,
+        contactHash: identity.contactHash,
+        leadId: identity.leadId,
+        version: dependencies.unsubscribeConsentVersion,
+        now: new Date(),
+      });
+      // A person's browser gets a page; a mail provider's one-click request, which
+      // does not ask for HTML, gets the JSON answer.
+      if (req.accepts(['json', 'html']) === 'html') {
+        sendHtml(res, 200, 'Unsubscribed', '<p>You are unsubscribed from marketing email.</p>');
+        return;
+      }
+      res.status(200).json({ status: 'unsubscribed' });
+    } catch (error) {
+      failRequest(req, res, '/api/v1/email/unsubscribe', error);
+    }
   });
 
   router.use('/staff', requireStaffSession(dependencies.sessionVerifier, dependencies.rateLimit));
@@ -228,18 +304,22 @@ export function createEmailRouter(dependencies: EmailRouteDependencies): Router 
       res.status(400).json({ error: 'invalid_request' });
       return;
     }
-    const authorized = await dependencies.authorizeDeliveryView(actor.actorId, workspaceId.data);
-    if (!authorized) {
-      res.status(403).json({ error: 'forbidden' });
-      return;
+    try {
+      const authorized = await dependencies.authorizeDeliveryView(actor.actorId, workspaceId.data);
+      if (!authorized) {
+        res.status(403).json({ error: 'forbidden' });
+        return;
+      }
+      const [rows, summary] = await Promise.all([
+        dependencies.store.listDelivery(workspaceId.data, actor.actorId),
+        dependencies.store.deliverySummary(workspaceId.data, actor.actorId),
+      ]);
+      // sent/delivered/failed/uncertain are surfaced as distinct counters, never
+      // collapsed into a single "ok/error" status (T18 admin requirement).
+      res.status(200).json({ messages: rows, summary });
+    } catch (error) {
+      failRequest(req, res, '/api/v1/email/staff/workspaces/:workspaceId/delivery', error);
     }
-    const [rows, summary] = await Promise.all([
-      dependencies.store.listDelivery(workspaceId.data, actor.actorId),
-      dependencies.store.deliverySummary(workspaceId.data, actor.actorId),
-    ]);
-    // sent/delivered/failed/uncertain are surfaced as distinct counters, never
-    // collapsed into a single "ok/error" status (T18 admin requirement).
-    res.status(200).json({ messages: rows, summary });
   });
 
   return router;

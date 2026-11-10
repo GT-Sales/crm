@@ -26,6 +26,7 @@ import { toFileSummary } from '../documents/summary.js';
 import type { DocumentService } from '../documents/service.js';
 
 import { sendDomainError } from '../http/domain-errors.js';
+import { sendWebsiteError } from '../http/website-errors.js';
 import { isConnectionLevelError, logRequestError } from '../http/logger.js';
 import {
   idempotencyKeyHash,
@@ -465,6 +466,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
     '/uploads/intents',
     ...admit('upload-intent'),
     requireScope('uploads:customer'),
+    requireEndpointRateLimit(dependencies.auth, 'uploads', endpointRateLimits.uploads),
     async (req, res) => {
       if (!documents) {
         sendDomainError(res, req.id, 'feature_not_ready', 409);
@@ -523,6 +525,10 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
           sendDomainError(res, req.id, 'document_too_large', 413);
           return;
         }
+        if (outcome.status === 'too_many_open') {
+          sendWebsiteError(res, req.id, 'rate_limited', 429, { 'retry-after': '60' });
+          return;
+        }
         sendDomainError(res, req.id, 'checklist_mismatch', 409);
       } catch (error) {
         failRequest(req, res, '/api/v1/website/uploads/intents', error);
@@ -534,6 +540,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
     '/uploads/:uploadId/finalize',
     ...admit('upload-finalize'),
     requireScope('uploads:customer'),
+    requireEndpointRateLimit(dependencies.auth, 'uploads', endpointRateLimits.uploads),
     async (req, res) => {
       if (!documents) {
         sendDomainError(res, req.id, 'feature_not_ready', 409);
@@ -600,6 +607,7 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
     '/files/:fileId/download-link',
     ...admit('file-download'),
     requireScope('uploads:customer'),
+    requireEndpointRateLimit(dependencies.auth, 'uploads', endpointRateLimits.uploads),
     async (req, res) => {
       if (!documents) {
         sendDomainError(res, req.id, 'feature_not_ready', 409);
@@ -705,6 +713,10 @@ export function createWebsiteRouter(dependencies: WebsiteRouteDependencies): Rou
         }
         if (outcome.status === 'too_large') {
           sendDomainError(res, req.id, 'document_too_large', 413);
+          return;
+        }
+        if (outcome.status === 'too_many_open') {
+          sendWebsiteError(res, req.id, 'rate_limited', 429, { 'retry-after': '60' });
           return;
         }
         sendDomainError(res, req.id, 'lead_not_found', 404);

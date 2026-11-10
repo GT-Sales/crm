@@ -180,6 +180,44 @@ describe('per-endpoint rate limits', () => {
   });
 });
 
+describe('document upload routes (audit L-4)', () => {
+  const FILE = '60000000-0000-4000-8000-000000000001';
+  const routes = [
+    ['intent', '/api/v1/website/uploads/intents'],
+    ['finalize', `/api/v1/website/uploads/${FILE}/finalize`],
+    ['download link', `/api/v1/website/files/${FILE}/download-link`],
+  ] as const;
+
+  it.each(routes)('the %s route draws on the shared uploads budget', async (_name, path) => {
+    const response = await post(path, { authorization: `Bearer ${VALID_SECRET}` }, {});
+    // No document store in this app: the handler answers 409, after the budget ran.
+    expect(response.status).toBe(409);
+    const hit = limiter.inputs.find((input) =>
+      input.bucketKey.startsWith(`endpoint:uploads:ws:${WORKSPACE}:visitor:`),
+    );
+    expect(hit).toMatchObject({
+      maxCount: DEFAULT_ENDPOINT_RATE_LIMITS.uploads.maxCount,
+      windowSeconds: DEFAULT_ENDPOINT_RATE_LIMITS.uploads.windowSeconds,
+    });
+  });
+
+  it.each(routes)('the %s route answers 429 once the budget is spent', async (_name, path) => {
+    limiter.denyPrefixes.add('endpoint:uploads:');
+    const response = await post(path, { authorization: `Bearer ${VALID_SECRET}` }, {});
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('42');
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('rate_limited');
+  });
+
+  it('allows 20 a minute per visitor, overridable', () => {
+    expect(DEFAULT_ENDPOINT_RATE_LIMITS.uploads).toEqual({ windowSeconds: 60, maxCount: 20 });
+    expect(loadEndpointRateLimits({ RATE_LIMIT_UPLOADS_MAX: '5' }).uploads).toEqual({
+      windowSeconds: 60,
+      maxCount: 5,
+    });
+  });
+});
+
 describe('loadEndpointRateLimits', () => {
   it('falls back to defaults when env is absent or invalid', () => {
     const limits = loadEndpointRateLimits({ RATE_LIMIT_LEADS_MAX: 'not-a-number' });

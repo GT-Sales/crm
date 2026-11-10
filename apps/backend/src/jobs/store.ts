@@ -6,7 +6,7 @@ import {
   type DatabaseClient,
   type TenantTransaction,
 } from '@gt-sales/db';
-import { TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
+import { CUSTOMER_EMAIL_JOB_TYPE, TRACKING_CODE_JOB_TYPE } from '@gt-sales/contracts';
 import type { ClaimedJob, JobOutcome, OutboxStore } from '@gt-sales/jobs';
 import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 
@@ -70,9 +70,26 @@ function adminJobStatus(value: string): AdminJob['status'] {
  * A job's payload once it ends (completed, failed or uncertain): a tracking
  * code mail keeps only its challenge id, never the address or the sealed code;
  * every other job keeps its payload.
+ *
+ * A customer mail (`lead_customer_email`) is scrubbed once it is `completed`
+ * (sent, or staff confirmed it was): its address and rendered words are
+ * needed only until then, and email tables hold no address (rule 7). It keeps
+ * `leadId`, `template` and `templateVersion`, which say what was sent; what
+ * dedupes a mail is the row's own `dedupe_key`, which stays. A failed or
+ * uncertain mail keeps everything, because staff Retry it or confirm it by
+ * hand and both need the mail (audit L-3).
  */
-function endedPayload(): SQL {
-  return sql`case when ${outboxJobs.jobType} = ${TRACKING_CODE_JOB_TYPE} then jsonb_build_object('challengeId', ${outboxJobs.payload}->>'challengeId') else ${outboxJobs.payload} end`;
+function endedPayload(completed = false): SQL {
+  if (!completed) {
+    return sql`case when ${outboxJobs.jobType} = ${TRACKING_CODE_JOB_TYPE} then jsonb_build_object('challengeId', ${outboxJobs.payload}->>'challengeId') else ${outboxJobs.payload} end`;
+  }
+  return sql`case
+    when ${outboxJobs.jobType} = ${TRACKING_CODE_JOB_TYPE} then jsonb_build_object('challengeId', ${outboxJobs.payload}->>'challengeId')
+    when ${outboxJobs.jobType} = ${CUSTOMER_EMAIL_JOB_TYPE} then jsonb_strip_nulls(jsonb_build_object(
+      'leadId', ${outboxJobs.payload}->'leadId',
+      'template', ${outboxJobs.payload}->'template',
+      'templateVersion', ${outboxJobs.payload}->'templateVersion'))
+    else ${outboxJobs.payload} end`;
 }
 
 async function alertTerminalJobs(
@@ -255,7 +272,7 @@ export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
             ...update,
             ...(terminal
               ? {
-                  payload: endedPayload(),
+                  payload: endedPayload(input.outcome.status === 'completed'),
                 }
               : {}),
           })
@@ -346,6 +363,8 @@ export class DatabaseOutboxStore implements OutboxStore, JobAdminStore {
             lastErrorCode: input.delivered
               ? 'staff_confirmed_delivered'
               : STAFF_CONFIRMED_NOT_DELIVERED,
+            // Confirmed delivered: the mail is done, so its words go (see endedPayload).
+            ...(input.delivered ? { payload: endedPayload(true) } : {}),
             updatedAt: now,
           })
           .where(
