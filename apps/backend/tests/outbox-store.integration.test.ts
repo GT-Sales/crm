@@ -439,6 +439,120 @@ databaseTest('database outbox store', () => {
     expect(listed.jobs.map((job) => job.id).sort()).toEqual([alreadyFailed, notDelivered].sort());
   });
 
+  test('a customer mail loses its address and words once sent, and keeps them while it can still be retried', async () => {
+    const MAIL_WORKSPACE = '10000000-0000-4000-8000-000000000787';
+    await admin`
+      insert into app.workspaces (id, slug, name)
+      values (${MAIL_WORKSPACE}, 'ci-outbox-mail', 'CI Outbox Mail')
+      on conflict (id) do nothing
+    `;
+    await admin`delete from app.outbox_job_alerts where workspace_id = ${MAIL_WORKSPACE}`;
+    await admin`delete from app.outbox_jobs where workspace_id = ${MAIL_WORKSPACE}`;
+    const leadId = crypto.randomUUID();
+    const full = {
+      leadId,
+      template: 'dispatched',
+      templateVersion: 3,
+      toAddress: 'nadia@example.com',
+      contactHash: 'hash-1',
+      sender: { fromName: 'Shop', fromAddress: 'shop@example.com' },
+      rendered: { subject: 'Your SIM number is 555-0100', html: '<p>Hi Nadia</p>', text: 'Hi Nadia' },
+    };
+    const queue = async (dedupeKey: string, payload: Record<string, unknown> = full) => {
+      const [row] = await admin<{ id: string }[]>`
+        insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload, available_at)
+        values (${MAIL_WORKSPACE}, 'lead_customer_email', ${dedupeKey}, ${admin.json(payload as never)},
+          now() - interval '1 second')
+        returning id
+      `;
+      return String(row?.id);
+    };
+    const row = async (jobId: string) =>
+      (
+        await admin<{ payload: unknown; status: string; dedupe_key: string }[]>`
+          select payload, status, dedupe_key from app.outbox_jobs where id = ${jobId}
+        `
+      )[0];
+    const finish = async (
+      outcome: Parameters<DatabaseOutboxStore['recordOutcome']>[0]['outcome'],
+    ) => {
+      const now = new Date();
+      const [job] = await store.claim({
+        workspaceId: MAIL_WORKSPACE,
+        actorId: ACTOR,
+        leaseOwnerId: crypto.randomUUID(),
+        limit: 1,
+        now,
+        leaseExpiresAt: new Date(now.getTime() + 60_000),
+        maxAttempts: 8,
+      });
+      if (!job) throw new Error('nothing claimed');
+      await store.recordOutcome({
+        workspaceId: MAIL_WORKSPACE,
+        actorId: ACTOR,
+        jobId: job.id,
+        leaseOwnerId: job.leaseOwnerId,
+        outcome,
+        now: new Date(),
+      });
+      return job.id;
+    };
+
+    // Sent: only what was sent stays, and the dedupe key with it.
+    await queue('mail:sent');
+    const sentId = await finish({ status: 'completed', providerId: 'fake-email:1' });
+    expect(await row(sentId)).toEqual({
+      payload: { leadId, template: 'dispatched', templateVersion: 3 },
+      status: 'completed',
+      dedupe_key: 'mail:sent',
+    });
+
+    // A staff test send has no lead: the scrubbed payload has no leadId either.
+    await queue('mail:test', { ...full, leadId: undefined, test: true });
+    const testId = await finish({ status: 'completed', providerId: 'fake-email:2' });
+    expect((await row(testId))?.payload).toEqual({ template: 'dispatched', templateVersion: 3 });
+
+    // Failed, uncertain and retrying mails keep the mail: Retry and the manual check need it.
+    await queue('mail:failed');
+    const failedId = await finish({ status: 'failed', errorCode: 'provider_rejected' });
+    expect((await row(failedId))?.payload).toEqual(full);
+    await queue('mail:uncertain');
+    const uncertainId = await finish({ status: 'uncertain', errorCode: 'resend_http_500' });
+    expect((await row(uncertainId))?.payload).toEqual(full);
+    await queue('mail:retry');
+    const retryId = await finish({
+      status: 'retry',
+      errorCode: 'provider_error',
+      availableAt: new Date(Date.now() + 3_600_000),
+    });
+    expect((await row(retryId))?.payload).toEqual(full);
+
+    // Staff confirming an uncertain mail was delivered ends it like a send.
+    expect(
+      await store.resolveUncertain({
+        workspaceId: MAIL_WORKSPACE,
+        actorId: ACTOR,
+        jobId: uncertainId,
+        requestId: crypto.randomUUID(),
+        delivered: true,
+      }),
+    ).toBe('completed');
+    expect((await row(uncertainId))?.payload).toEqual({
+      leadId,
+      template: 'dispatched',
+      templateVersion: 3,
+    });
+
+    // The dedupe key still blocks a second queueing of the same mail.
+    const again = await admin`
+      insert into app.outbox_jobs (workspace_id, job_type, dedupe_key, payload)
+      values (${MAIL_WORKSPACE}, 'lead_customer_email', 'mail:sent', ${admin.json(full as never)})
+      on conflict (workspace_id, job_type, dedupe_key) do nothing
+      returning id
+    `;
+    expect(again).toHaveLength(0);
+  });
+
   test('a tracking code job keeps only its challenge id once it ends, however it ends', async () => {
     const CODE_WORKSPACE = '10000000-0000-4000-8000-000000000786';
     await admin`
