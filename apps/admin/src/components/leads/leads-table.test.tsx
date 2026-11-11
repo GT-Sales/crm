@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPropertyCatalog, type PropertyRow } from '@gt-sales/contracts';
 
 import type { InboxQuery } from './inbox-query';
-import { LeadsTable } from './leads-table';
+import { LeadsTable, NO_LEAD_SELECTION, type LeadSelection } from './leads-table';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
 
@@ -193,5 +194,164 @@ describe('LeadsTable', () => {
       expect.objectContaining({ view: 'archived' }),
     );
     expect(document.body.textContent ?? '').not.toMatch(/trash/i);
+  });
+  describe('selecting leads', () => {
+    const LEAD_1 = '90000000-0000-4000-8000-000000000001';
+    const LEAD_2 = '90000000-0000-4000-8000-000000000002';
+
+    function leadRow(id: string, fullName: string) {
+      return {
+        id,
+        workspaceId: WORKSPACE,
+        leadType: 'internet',
+        status: 'submitted',
+        stage: 'new',
+        contact: { fullName },
+        contactId: null,
+        assignedActorId: null,
+        externalRef: null,
+        source: 'direct',
+        attribution: {},
+        consentVersion: null,
+        openTaskCount: 0,
+        nextTaskDueAt: null,
+        countdownDate: null,
+        deletedAt: null,
+        createdAt: '2026-10-20T09:00:00.000Z',
+        updatedAt: '2026-10-21T10:00:00.000Z',
+      };
+    }
+
+    const onOpen = vi.fn();
+    const onLoaded = vi.fn();
+    let latest: LeadSelection = NO_LEAD_SELECTION;
+
+    /** The table with its selection held by a parent, as the inbox holds it. */
+    function Selectable({ total = 2 }: { total?: number }) {
+      const [selection, setSelection] = useState<LeadSelection>(NO_LEAD_SELECTION);
+      latest = selection;
+      return (
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={{ ...query, columns: undefined }}
+          catalog={catalog}
+          canUseProperties
+          onPage={vi.fn()}
+          panel={{ href: (id) => `/w/canadawide/leads?lead=${id}`, onOpen }}
+          selection={selection}
+          onSelectionChange={setSelection}
+          selectionActions={<button type="button">Export</button>}
+          onLoaded={onLoaded}
+          key={total}
+        />
+      );
+    }
+
+    beforeEach(() => {
+      onOpen.mockReset();
+      onLoaded.mockReset();
+      latest = NO_LEAD_SELECTION;
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [leadRow(LEAD_1, 'Avery Example'), leadRow(LEAD_2, 'Blake Example')],
+        page: { page: 1, pageSize: 50, total: 2 },
+        access: { contacts: true, manage: true, export: true },
+      });
+    });
+
+    it('has no checkbox column unless a selection is asked for', async () => {
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={query}
+          catalog={catalog}
+          canUseProperties
+          onPage={vi.fn()}
+        />,
+      );
+      await screen.findByRole('link', { name: 'Avery Example' });
+      expect(screen.queryByRole('checkbox')).toBeNull();
+    });
+
+    it('ticks a row without opening it; the row and its name still open the lead', async () => {
+      render(<Selectable />);
+      const avery = await screen.findByRole('checkbox', { name: 'Select Avery Example' });
+      expect(onLoaded).toHaveBeenCalledWith({ total: 2 });
+      expect(screen.queryByRole('status', { name: 'Selected leads' })).toBeNull();
+
+      fireEvent.click(avery);
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(avery.getAttribute('aria-checked')).toBe('true');
+      expect([...latest.selected]).toEqual([LEAD_1]);
+      const bar = screen.getByRole('status', { name: 'Selected leads' });
+      expect(within(bar).getByText('1 selected')).toBeTruthy();
+      // What can be done with the ticked leads sits in the bar.
+      expect(within(bar).getByRole('button', { name: 'Export' })).toBeTruthy();
+      // A click in the checkbox's cell, beside the box, opens nothing either.
+      const cell = avery.closest('td');
+      if (!cell) throw new Error('expected a cell');
+      fireEvent.click(cell);
+      expect(onOpen).not.toHaveBeenCalled();
+
+      // The rest of the row, and the name, open the lead as before.
+      fireEvent.click(screen.getByText('Blake Example').closest('tr')?.lastElementChild ?? cell);
+      expect(onOpen).toHaveBeenLastCalledWith(LEAD_2);
+      fireEvent.click(screen.getByRole('link', { name: 'Avery Example' }));
+      expect(onOpen).toHaveBeenLastCalledWith(LEAD_1);
+
+      fireEvent.click(avery);
+      expect(latest.selected.size).toBe(0);
+      expect(screen.queryByRole('status', { name: 'Selected leads' })).toBeNull();
+    });
+
+    it('the header box ticks the page, shows a part-ticked page, and clears it', async () => {
+      render(<Selectable />);
+      const page = await screen.findByRole('checkbox', { name: 'Select all leads on this page' });
+      expect(page.getAttribute('aria-checked')).toBe('false');
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Select Blake Example' }));
+      expect(page.getAttribute('aria-checked')).toBe('mixed');
+
+      fireEvent.click(page);
+      expect(page.getAttribute('aria-checked')).toBe('true');
+      expect([...latest.selected].sort()).toEqual([LEAD_1, LEAD_2]);
+      // The whole list is on this page, so there is nothing more to offer.
+      expect(screen.queryByRole('button', { name: /Select all .* leads matching/ })).toBeNull();
+
+      fireEvent.click(page);
+      expect(latest.selected.size).toBe(0);
+    });
+
+    it('offers every lead matching once the page is ticked, and one untick goes back to ticks', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [leadRow(LEAD_1, 'Avery Example'), leadRow(LEAD_2, 'Blake Example')],
+        page: { page: 1, pageSize: 50, total: 1320 },
+        access: { contacts: true, manage: true, export: true },
+      });
+      render(<Selectable total={1320} />);
+      fireEvent.click(
+        await screen.findByRole('checkbox', { name: 'Select all leads on this page' }),
+      );
+      expect(screen.getByText('2 selected')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Select all 1,320 leads matching' }));
+      expect(latest).toEqual({ selected: new Set(), allMatching: true });
+      expect(screen.getByText('All 1,320 leads matching are selected')).toBeTruthy();
+      expect(
+        screen.getByRole('checkbox', { name: 'Select Avery Example' }).getAttribute('aria-checked'),
+      ).toBe('true');
+
+      // Unticking one lead leaves this page's others ticked, by id.
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Select Avery Example' }));
+      expect(latest.allMatching).toBe(false);
+      expect([...latest.selected]).toEqual([LEAD_2]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+      expect(latest).toEqual(NO_LEAD_SELECTION);
+    });
   });
 });

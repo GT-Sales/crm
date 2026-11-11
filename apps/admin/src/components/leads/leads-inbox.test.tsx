@@ -49,7 +49,11 @@ const mocks = vi.hoisted(() => ({
   getStaffLead: vi.fn(),
   markLeadOpened: vi.fn(),
   updateStaffLead: vi.fn(),
+  exportLeads: vi.fn(),
 }));
+
+const download = vi.hoisted(() => ({ saveBlob: vi.fn() }));
+vi.mock('../../lib/download', () => download);
 
 const backend = vi.hoisted(() => ({
   BackendError: class BackendError extends Error {
@@ -1521,5 +1525,227 @@ describe('LeadsInbox side panel', () => {
     view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
     await waitFor(() => expect(mocks.getLeadsSummary).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('tab', { name: /Archive\s*1/ })).toBeTruthy();
+  });
+});
+
+describe('LeadsInbox export', () => {
+  const LEAD_1 = '90000000-0000-4000-8000-000000000001';
+  const LEAD_2 = '90000000-0000-4000-8000-000000000002';
+
+  function simOrder(id: string, fullName: string) {
+    return {
+      id,
+      workspaceId: WORKSPACE,
+      leadType: 'sim_order',
+      status: 'submitted',
+      stage: 'pending',
+      contact: { fullName },
+      contactId: null,
+      assignedActorId: null,
+      externalRef: null,
+      source: 'direct',
+      attribution: {},
+      consentVersion: null,
+      openTaskCount: 0,
+      nextTaskDueAt: null,
+      countdownDate: '2026-12-01',
+      deletedAt: null,
+      createdAt: '2026-10-20T09:00:00.000Z',
+      updatedAt: '2026-10-21T10:00:00.000Z',
+    };
+  }
+
+  const exporter = { contacts: true, manage: true, export: true, revenue: false };
+
+  beforeEach(() => {
+    navigation.replace.mockClear();
+    navigation.search = 'type=sim_order';
+    window.localStorage.clear();
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    download.saveBlob.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members: [] });
+    mocks.listSavedViews.mockResolvedValue({ views: [], requestId: 'req_test' });
+    mocks.getPropertyModel.mockResolvedValue(propertyModel());
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [
+        { leadType: 'sim_order', total: 132 },
+        { leadType: 'internet', total: 20 },
+      ],
+      archived: 0,
+      trash: 0,
+      access: exporter,
+    });
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [simOrder(LEAD_1, 'Avery Example'), simOrder(LEAD_2, 'Blake Example')],
+      page: { page: 1, pageSize: 50, total: 132 },
+      access: exporter,
+    });
+    mocks.exportLeads.mockResolvedValue({
+      blob: new Blob(['PK']),
+      fileName: 'canadawide-leads-sim-order-2026-11-11.xlsx',
+      rowCount: 2,
+    });
+  });
+
+  it('has no Export button and no checkboxes for someone who may not export', async () => {
+    const access = { contacts: true, manage: true };
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'sim_order', total: 132 }],
+      archived: 0,
+      trash: 0,
+      access,
+    });
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [simOrder(LEAD_1, 'Avery Example')],
+      page: { page: 1, pageSize: 50, total: 1 },
+      access,
+    });
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('link', { name: 'Avery Example' });
+    expect(screen.queryByRole('button', { name: 'Export' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /^Select / })).toBeNull();
+  });
+
+  it('exports every lead matching the filters, as the list asked for them', async () => {
+    navigation.search = `type=sim_order&stage=pending&q=ada&sort=${encodeURIComponent(
+      'prop.arrivalDate:asc',
+    )}&cols=permitType&hide=source&where=${encodeURIComponent(
+      JSON.stringify([{ key: 'permitType', op: 'eq', value: 'student' }]),
+    )}`;
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('link', { name: 'Avery Example' });
+    // The toolbar's button sits with the other menus.
+    const button = screen.getByRole('button', { name: 'Export' });
+    expect(screen.getByRole('button', { name: 'Filters' }).parentElement?.contains(button)).toBe(
+      true,
+    );
+    fireEvent.click(button);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });
+    expect(within(dialog).getByText('All leads matching the current filters (132)')).toBeTruthy();
+    // The table's columns are ticked: next task, the arrival countdown, the property column
+    // and last activity; Source is hidden in this view, so it is offered but not ticked.
+    const ticked = (name: string) =>
+      within(dialog).getByRole('checkbox', { name }).getAttribute('aria-checked') === 'true';
+    expect(ticked('Arrival in Canada')).toBe(true);
+    expect(ticked('Visa / permit type')).toBe(true);
+    expect(ticked('Next task due')).toBe(true);
+    expect(ticked('Updated (UTC)')).toBe(true);
+    expect(ticked('Source')).toBe(false);
+    // Money is the owner's.
+    expect(within(dialog).queryByRole('checkbox', { name: 'Commission (CAD)' })).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Export' }));
+    });
+    const listed = mocks.getStaffLeads.mock.lastCall?.[2];
+    expect(mocks.exportLeads).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+      scope: {
+        kind: 'filter',
+        // The same filters the table sent the list, minus the page and the columns.
+        filter: {
+          type: listed.type,
+          stage: listed.stage,
+          q: listed.q,
+          view: listed.view,
+          where: listed.where,
+          sort: listed.sort,
+        },
+      },
+      fields: [
+        'prop.arrivalDate',
+        'prop.permitType',
+        'updatedAt',
+        'openTaskCount',
+        'nextTaskDueAt',
+      ],
+    });
+    expect(listed).toMatchObject({
+      type: 'sim_order',
+      stage: 'pending',
+      q: 'ada',
+      view: 'active',
+      sort: 'prop.arrivalDate:asc',
+      where: [{ key: 'permitType', op: 'eq', value: 'student' }],
+    });
+    expect(download.saveBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'canadawide-leads-sim-order-2026-11-11.xlsx',
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(
+      screen.getByText('Exported 2 leads to canadawide-leads-sim-order-2026-11-11.xlsx.'),
+    ).toBeTruthy();
+  });
+
+  it('exports the ticked leads, and lets the ticks go when the filters change', async () => {
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Avery Example' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Blake Example' }));
+    // Ticking opens no lead.
+    expect(navigation.replace).not.toHaveBeenCalledWith(
+      expect.stringContaining('lead='),
+      expect.anything(),
+    );
+    const bar = screen.getByRole('status', { name: 'Selected leads' });
+    expect(within(bar).getByText('2 selected')).toBeTruthy();
+
+    fireEvent.click(within(bar).getByRole('button', { name: 'Export selected' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });
+    const selected = within(dialog).getByRole('radio', { name: 'Selected leads (2)' });
+    expect(selected instanceof HTMLInputElement && selected.checked).toBe(true);
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Export' }));
+    });
+    expect(mocks.exportLeads.mock.lastCall?.[2].scope).toEqual({
+      kind: 'ids',
+      ids: [LEAD_1, LEAD_2],
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // The ticks stay after an export, for another with other fields.
+    expect(screen.getByText('2 selected')).toBeTruthy();
+
+    // Another page keeps them; another tab does not.
+    navigation.search = 'type=sim_order&page=2';
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    expect(await screen.findByText('2 selected')).toBeTruthy();
+    navigation.search = 'type=sim_order&stage=verified';
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Selected leads' })).toBeNull(),
+    );
+  });
+
+  it('“select all matching” exports by the filters, not by ids', async () => {
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select all leads on this page' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select all 132 leads matching' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });
+    expect(within(dialog).queryByRole('radio')).toBeNull();
+    expect(within(dialog).getByText('All leads matching the current filters (132)')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Export' }));
+    });
+    expect(mocks.exportLeads.mock.lastCall?.[2].scope).toEqual({
+      kind: 'filter',
+      filter: { type: 'sim_order', view: 'active' },
+    });
+  });
+
+  it('keeps the dialog open with the reason when the export is refused', async () => {
+    mocks.exportLeads.mockRejectedValue(new backend.BackendError('rate_limited'));
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('link', { name: 'Avery Example' });
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Export' }));
+    });
+    expect((await within(dialog).findByRole('alert')).textContent).toBe(
+      'Too many exports just now. Try again in a few minutes.',
+    );
+    expect(download.saveBlob).not.toHaveBeenCalled();
+    expect(screen.queryByText(/^Exported/)).toBeNull();
   });
 });

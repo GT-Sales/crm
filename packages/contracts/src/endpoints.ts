@@ -59,6 +59,7 @@ import {
   revokeServiceCredentialResponseSchema,
 } from './website-auth';
 import { createExportRequestSchema, createExportResponseSchema } from './exports';
+import { LEAD_EXPORT_CONTENT_TYPE, exportLeadsRequestSchema } from './lead-export';
 import { healthResponseSchema, readyResponseSchema } from './health';
 import {
   createIdentityUploadRequestSchema,
@@ -205,6 +206,16 @@ export interface EndpointStream {
   readonly summary: string;
 }
 
+/**
+ * A file as the success body (the leads export's workbook): the bytes are not
+ * JSON, so the registry names the media type and OpenAPI publishes it as a
+ * binary string. Errors stay the ordinary JSON envelope.
+ */
+export interface EndpointFile {
+  readonly contentType: string;
+  readonly summary: string;
+}
+
 export interface EndpointDef {
   readonly operationId: string;
   readonly method: HttpMethod;
@@ -215,8 +226,10 @@ export interface EndpointDef {
   readonly successStatus: number;
   readonly request?: z.ZodType;
   readonly query?: z.ZodType;
-  /** The JSON success body; omitted exactly when `stream` describes it instead. */
+  /** The JSON success body; omitted exactly when `stream` or `file` describes it instead. */
   readonly response?: z.ZodType;
+  /** The file success body, when the operation answers with a download. */
+  readonly file?: EndpointFile;
   /** The streaming success body, when the operation answers with SSE. */
   readonly stream?: EndpointStream;
   readonly headers?: readonly EndpointHeader[];
@@ -359,6 +372,21 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: listWorkspaceLeadsQuerySchema,
     response: listWorkspaceLeadsResponseSchema,
+  },
+  {
+    operationId: 'exportWorkspaceLeads',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/leads/export',
+    summary:
+      'Export leads to Excel: the ticked ids or the list filters, the main fields plus the chosen ones, at most 5,000 leads (`lead.export`).',
+    auth: 'staff',
+    successStatus: 200,
+    request: exportLeadsRequestSchema,
+    file: {
+      contentType: LEAD_EXPORT_CONTENT_TYPE,
+      summary:
+        'The workbook (.xlsx), one sheet per lead type, as an attachment; `X-Export-Row-Count` carries the number of leads.',
+    },
   },
   {
     operationId: 'getWorkspaceLeadsSummary',

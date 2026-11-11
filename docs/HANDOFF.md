@@ -302,7 +302,7 @@ Roles: `owner` (everything), `leads` (workspace.read, lead.manage), `orders`
 (financial.read, invoice.approve). Actions: `workspace.read`, `lead.manage`,
 `order.manage`, `staff.invite`, `staff.remove`, `staff.roles.manage`,
 `document.download`, `financial.read`, `export.bulk`, `record.delete`,
-`invoice.approve`, `integration.manage`, `sensitive.reveal`, `property.manage`, `order.override` and `revenue.view`. `sensitive.reveal`, `property.manage` and `revenue.view` (every money figure: plan commissions, commission earned and expected) are owner only; `order.override` (moving an order on without its required documents approved, with a reason) belongs to the roles `owner` and `orders`, and no individual permission grants it. Per-member overrides
+`invoice.approve`, `integration.manage`, `sensitive.reveal`, `property.manage`, `order.override`, `revenue.view` and `lead.export` (the leads export, §3.19: the roles `owner`, `leads`, `orders` and `finance`, or the individual `bulk_export` permission, which as a deny also takes it away). `sensitive.reveal`, `property.manage` and `revenue.view` (every money figure: plan commissions, commission earned and expected) are owner only; `order.override` (moving an order on without its required documents approved, with a reason) belongs to the roles `owner` and `orders`, and no individual permission grants it. Per-member overrides
 (`membership_permissions`, allow or deny) map to `document.download` through `integration.manage`; a deny always
 wins. Decision logic: `apps/backend/src/staff/authorization.ts`
 (`decideAccess` is pure; `createAuthorize` loads then decides). Authorization is
@@ -1756,6 +1756,73 @@ templateVersion }` when it completes (also when staff confirm an uncertain one
   first); in Supabase Auth confirm "Confirm email" is on and anonymous, phone and
   unverified-OAuth sign-ins are off (L-16); set `AI_ACTION_SIGNING_SECRET` (L-13);
   decide when to turn `OPERATIONAL_RETENTION_ENABLED` on.
+
+### 3.19 2026-11-11: export leads to Excel (no migration)
+
+Staff tick leads in the inbox (a box per row, one for the page, then "Select
+all n leads matching"), or tick nothing, and press **Export** (the download
+icon beside the view menus, or "Export selected" in the selection bar). The
+dialog asks which leads (the ticked ones, or every lead matching the list's
+filters, all pages) and which fields, and the browser downloads
+`<site>-leads-<lead type>-YYYY-MM-DD.xlsx` (the day in Toronto; `all` when
+the file spans lead types).
+
+- **Fields.** Defined once in `packages/contracts/src/lead-export.ts`
+  (`leadExportFields`, `leadExportGroups`, `leadExportColumns`), read by the
+  dialog and by the backend. _Main fields_ are always written, first: order /
+  lead number (`externalRef`), created, lead type, name, email, phone, stage,
+  status, assigned to and, for an order type, plan and payment status. The
+  optional groups: _Columns shown in the table_ (pre-ticked), _Form answers_
+  (the type's form properties, by the site's labels), _Custom properties_,
+  _Order details_ (quantity, carrier commission, courier, tracking number,
+  dispatch and activation details, plan price, billing period, commission),
+  _Dates_ (updated, stage changed, last activity, archived), _Attribution and
+  source_, _Tasks summary_ (open count, next due) and _Notes_ (a count). Each
+  group has Select all / None. The last choice is kept in this browser per
+  site and lead type (`gt-export-fields:<site>:<type|all>`).
+- **The file** is made on the backend (`apps/backend/src/leads/export/`:
+  `store.ts` reads and audits, `cells.ts` types each value, `workbook.ts`
+  writes the sheets) with `write-excel-file` 4.1.1 (MIT, one dependency,
+  `fflate`; `pnpm audit --prod` clean): one sheet per lead type, a bold frozen
+  header with an auto-filter, widths from the content, timestamps as real
+  dates in UTC (the header says so) and calendar days as dates, numbers as
+  numbers, money in dollars, and everything else (phones, postal codes, SIM
+  and tracking numbers, references) as text. Text is never a formula; a value
+  that starts with `=`, `@`, a tab or a carriage return, or with `+`/`-` and
+  is not a plain phone or number, also gets a leading apostrophe, so a file
+  re-saved as CSV does not run it.
+- **Who.** `POST /api/v1/staff/workspaces/:workspaceId/leads/export`
+  (`src/routes/lead-export.ts`) needs `lead.export`: the roles that already
+  see contact details (owner, Leads, Orders, Finance), or the individual
+  `bulk_export` permission; an individual deny refuses even the owner. The
+  site comes from the URL. What is written follows the role, on the server:
+  without contact access no contact, form, custom, order, timeline or notes
+  column (and those are not read from the database); the commission only with
+  `revenue.view`; a sensitive property (`dateOfBirth`, a custom property
+  marked sensitive), a hidden one, a sealed identity (SIN) and documents are
+  never exportable. Restricted leads are never in it, as on the list.
+- **Which leads.** The filters are validated and applied by the list's own
+  code (`leadConditions`, `sortOrderOf` in `leads/staff-queries.ts`), so the
+  file is what the inbox shows, in its order. Ticked ids must all be this
+  site's unrestricted leads, else `404 lead_not_found` and nothing is
+  exported.
+- **Limits.** 5,000 leads per export (`422 export_too_large` with the count;
+  `LEAD_EXPORT_MAX_ROWS`), 1,000 ticked ids per request, 10 exports per member
+  and site per 10 minutes (`429 rate_limited`, counted before anything is
+  read; a limiter failure refuses with 503), and a 30 s statement timeout for
+  the export's own statements. The file is built in memory after the
+  transaction ends.
+- **Audit.** Every export writes `lead.exported` (entity `workspace`): who,
+  the site, the scope (the number of ids, or which filters were on: keys and
+  operators, never the search text or a filter's value), the field keys per
+  sheet and the row counts. No customer data in the audit row or the logs.
+- **Response.** The workbook's media type, `Content-Disposition: attachment`,
+  `Cache-Control: no-store`, `X-Export-Row-Count`; CORS exposes the last two
+  headers to the admin origin.
+- **Not built, for the owner to decide:** an Export on the board's own
+  toolbar selection (the board exports by its filters only), exports larger
+  than 5,000 leads (would need a background job and a download link), and a
+  per-site time zone for the timestamps (they are UTC).
 
 ## 4. What is verified, and how
 

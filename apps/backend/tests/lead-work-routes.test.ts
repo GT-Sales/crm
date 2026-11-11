@@ -392,7 +392,13 @@ describe('staff lead work routes', () => {
     );
     expect(response.status).toBe(200);
     const body = listWorkspaceLeadsResponseSchema.parse(await response.json());
-    expect(body.access).toEqual({ contacts: true, manage: true, revealSensitive: true });
+    expect(body.access).toEqual({
+      contacts: true,
+      manage: true,
+      revealSensitive: true,
+      export: true,
+      revenue: true,
+    });
     expect(leadStore.listCalls[0]).toMatchObject({
       leadType: 'internet',
       stage: 'qualified',
@@ -701,6 +707,8 @@ describe('staff lead work routes', () => {
       reviewDocuments: false,
       overrideDocuments: false,
       decideChanges: false,
+      export: false,
+      revenue: false,
     });
     expect(body.changeRequest).toBeNull();
     expect(body.allowedMoves).toEqual([

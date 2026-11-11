@@ -744,6 +744,123 @@ export async function selectLeadPage(
   };
 }
 
+/** Which leads an export writes: the ticked ones, or the inbox's own filters. */
+export type LeadExportSelection =
+  | { kind: 'ids'; workspaceId: string; ids: readonly string[] }
+  | { kind: 'filter'; filters: LeadFilters };
+
+/** What each export row carries beyond the list's own columns; each is read only when asked for. */
+export interface LeadExportParts {
+  /** The form, the custom values and the order: only for callers who see contact details. */
+  details: boolean;
+  /** The timeline's dates and the note count: one aggregate per lead. */
+  activity: boolean;
+}
+
+export interface LeadExportRow {
+  lead: LeadListItem;
+  /** `form.payload`, when `details` was asked for and the lead has one. */
+  form: Record<string, unknown> | null;
+  custom: Record<string, LeadPropertyValue>;
+  /** An order type's order with the defaults filled in; null for any other type. */
+  order: LeadDetail['order'] | null;
+  stageChangedAt: string | null;
+  lastActivityAt: string | null;
+  noteCount: number;
+}
+
+/** The export's WHERE: the list's own conditions, or the ticked ids among the site's unrestricted leads. */
+function exportConditions(selection: LeadExportSelection): SQL {
+  if (selection.kind === 'filter') return leadConditions(selection.filters);
+  return sql`l.workspace_id = ${selection.workspaceId}
+    and l.customer_data_restricted_at is null
+    and l.id in (${sql.join(
+      selection.ids.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    )})`;
+}
+
+/** How many leads the selection holds: the list's own total for the same filters. */
+export async function countLeadsForExport(
+  tx: TenantTransaction,
+  selection: LeadExportSelection,
+): Promise<number> {
+  const [count] = await tx.execute<{ [key: string]: unknown; total: number }>(sql`
+    select count(*)::int as total from app.leads l where ${exportConditions(selection)}
+  `);
+  return count?.total ?? 0;
+}
+
+/**
+ * Every lead of the selection (all pages, at most `limit`), in the list's own
+ * order for a filter and newest first for ticked ids. It reads through
+ * `leadConditions` and `sortOrderOf`, the list's own, so an export of the
+ * current filters is exactly what the inbox shows: restricted leads are never
+ * in it, and the archive only when the filter asks for it.
+ */
+export async function selectLeadsForExport(
+  tx: TenantTransaction,
+  selection: LeadExportSelection,
+  parts: LeadExportParts,
+  limit: number,
+): Promise<LeadExportRow[]> {
+  const { pageOrder, rowOrder } =
+    selection.kind === 'filter'
+      ? sortOrderOf(selection.filters)
+      : {
+          pageOrder: sql.raw('l.created_at desc, l.id'),
+          rowOrder: sql.raw('l.created_at desc, l.id'),
+        };
+  const details = parts.details
+    ? sql`, l.payload -> 'payload' as "formPayload", l.custom_values as "customValues", l.order_details as "orderDetails"`
+    : sql``;
+  const activityColumns = parts.activity
+    ? sql`, ${iso('act.stage_at')} as "stageChangedAt", ${iso('act.last_at')} as "lastActivityAt", coalesce(act.notes, 0)::int as "noteCount"`
+    : sql``;
+  const activityJoin = parts.activity
+    ? sql.raw(`
+      left join lateral (
+        select
+          max(entry.created_at) as last_at,
+          max(entry.created_at) filter (where entry.kind = 'status_change') as stage_at,
+          count(*) filter (where entry.kind = 'note')::int as notes
+        from app.lead_activities entry
+        where entry.workspace_id = l.workspace_id and entry.lead_id = l.id
+      ) act on true`)
+    : sql``;
+
+  const rows = await tx.execute<
+    LeadRow & {
+      stageChangedAt?: string | null;
+      lastActivityAt?: string | null;
+      noteCount?: number;
+    }
+  >(sql`
+    with picked as (
+      select l.*
+      from app.leads l
+      where ${exportConditions(selection)}
+      order by ${pageOrder}
+      limit ${limit}
+    )
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}${details}${activityColumns}
+    from picked l
+    ${OPEN_TASK_SUMMARY}
+    ${activityJoin}
+    order by ${rowOrder}
+  `);
+
+  return rows.map((row) => ({
+    lead: toLeadListItem(row),
+    form: parts.details && isRecord(row.formPayload) ? row.formPayload : null,
+    custom: parts.details ? toCustomValues(row.customValues, undefined) : {},
+    order: parts.details ? (orderOf(row).order ?? null) : null,
+    stageChangedAt: row.stageChangedAt ?? null,
+    lastActivityAt: row.lastActivityAt ?? null,
+    noteCount: row.noteCount ?? 0,
+  }));
+}
+
 /**
  * The board for one type: a column per catalogue stage in order, then any
  * stored stage the catalogue does not list, each with its full count and its

@@ -327,6 +327,10 @@ export const leadAccessSchema = z.object({
   overrideDocuments: z.boolean().optional(),
   /** May approve or reject the customer's change request (`lead.manage`). Absent means no. */
   decideChanges: z.boolean().optional(),
+  /** May export leads to Excel (`lead.export`). Absent means no. */
+  export: z.boolean().optional(),
+  /** Sees money (`revenue.view`, the owner): the export offers the commission column. Absent means no. */
+  revenue: z.boolean().optional(),
 });
 export type LeadAccess = z.infer<typeof leadAccessSchema>;
 

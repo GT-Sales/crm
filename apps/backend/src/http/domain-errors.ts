@@ -100,6 +100,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   ai_unavailable: 'Ask AI is not available here.',
   ai_rate_limited: 'Too many Ask AI questions just now. Try again shortly.',
   rate_limited: 'Too many requests just now. Try again shortly.',
+  export_too_large:
+    'Too many leads for one export; `details` gives the count and the most one export holds. Narrow the filters.',
 };
 
 export function sendDomainError(

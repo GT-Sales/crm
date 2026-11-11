@@ -661,6 +661,7 @@ export {
   type StaffFile,
 } from './files';
 export * from './document-review';
+export * from './lead-export';
 
 export {
   createExportRequestSchema,
@@ -740,6 +741,7 @@ export {
   createBackendClient,
   type BackendClient,
   type BackendClientOptions,
+  type LeadExportFile,
   type CustomerGrantOption,
   type IdempotencyOption,
 } from './client';
