@@ -1,0 +1,2 @@
+ALTER TABLE "app"."workspaces" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE POLICY "workspaces_backup_reader_read" ON "app"."workspaces" AS PERMISSIVE FOR SELECT TO "backup_reader" USING (true);

@@ -136,22 +136,30 @@ const leadStatusList = sql.raw(leadStatuses.map((status) => `'${status}'`).join(
  * `app.list_staff_workspaces()` and websites resolve theirs through their
  * credential, so neither can enumerate the registry.
  */
-export const workspaces = appSchema.table(
-  'workspaces',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    slug: text('slug').notNull().unique(),
-    name: text('name').notNull(),
-    /** The site's public hostname, e.g. `getcanadasim.com`; informational. */
-    domain: text('domain'),
-    status: text('status').default('active').notNull(),
-    createdAt: createdAt(),
-  },
-  (table) => [
-    check('workspaces_slug_check', sql`${table.slug} ~ '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'`),
-    check('workspaces_status_check', sql`${table.status} in ('active', 'paused')`),
-  ],
-);
+export const workspaces = appSchema
+  .table(
+    'workspaces',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      slug: text('slug').notNull().unique(),
+      name: text('name').notNull(),
+      /** The site's public hostname, e.g. `getcanadasim.com`; informational. */
+      domain: text('domain'),
+      status: text('status').default('active').notNull(),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      check('workspaces_slug_check', sql`${table.slug} ~ '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'`),
+      check('workspaces_status_check', sql`${table.status} in ('active', 'paused')`),
+      // No tenant policy (a site is not in a site) and no policy for the runtime
+      // role; only the backup login may read it, or a backup would dump no sites.
+      backupReadPolicy('workspaces'),
+    ],
+  )
+  // Row security on, with no policy and (migration 0033) forced: the one table
+  // that had none. The runtime role has no grant, so nothing reads it today;
+  // this makes a future grant or an API exposure of the `app` schema fail closed.
+  .enableRLS();
 
 export const memberships = appSchema
   .table(

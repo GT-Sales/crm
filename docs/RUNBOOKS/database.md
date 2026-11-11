@@ -938,6 +938,105 @@ select pg_get_constraintdef(oid) from pg_constraint
  where conname = 'lead_tasks_status_check';   -- …ARRAY['open', 'in_progress', 'done', 'cancelled']…
 ```
 
+## 0030_restricted_lead_erasure (2026-11-10, audit M-2)
+
+One SECURITY DEFINER function, `app.erase_restricted_lead_data(workspace,
+lead ids, contact ids)`, that the daily `data_retention` task calls when it
+restricts an abandoned draft (and, a batch per run, for leads restricted
+before this). For leads of the transaction's own site that are already
+restricted it deletes their `lead_identities` (and the same ids in
+CanadaWide's legacy `public.mobility_id_uploads`, when that table exists),
+nulls the `body` of their timeline entries, and deletes the given contacts
+that no lead on any site references. The backend itself tombstones the
+leads' files and deletes their objects, deletes their tasks, clears their
+contact link and trims attribution and order details. `search_path = ''`,
+revoked from `PUBLIC`, granted to `app_runtime` only. No table, grant or
+policy changes. Paste file:
+[`manual/0030-restricted-lead-erasure.sql`](manual/0030-restricted-lead-erasure.sql).
+
+- **To apply** (owner): run the paste file (it inserts both tracker rows:
+  hash `d9f606b7fb11c80c9953650a1e1824cbba4e0dc4a39c7725aa30ae2f89069a31`,
+  `created_at` `1794348226604`). A backend deployed before it still
+  restricts drafts and erases their files, tasks and contact link, and logs
+  `restricted_lead_erasure_function_missing` until it is applied.
+- **First run after deploying** finishes up to 1000 previously restricted
+  leads per site per day: their files are tombstoned and objects deleted,
+  identities, tasks and note texts removed. This is irreversible.
+- Rollback: `DROP FUNCTION app.erase_restricted_lead_data(uuid, uuid[], uuid[]);`
+  after reverting the code (the code checks for it before calling).
+- Verify against the schema:
+
+```sql
+select prosecdef, proconfig from pg_proc where proname = 'erase_restricted_lead_data';  -- t, {search_path=""}
+```
+
+## 0031_invitation_expiry, 0032_workspaces_rls and 0033_workspaces_rls_force (2026-11-10, prepared, not applied)
+
+Two small hardening changes from the 2026-11-10 security review (audit L-16
+and I-2). Neither is applied by the deploy; the owner applies them in order, after 0030,
+through the SQL editor (the Supabase tool holds statements with REVOKE, ALTER
+or DELETE for a confirmation prompt), then inserts the Drizzle tracker rows.
+
+**0031 (L-16).** `app.accept_staff_invitations` is replaced (same signature,
+SECURITY DEFINER, empty `search_path`, same grants). The only change from the
+0001 body is `AND created_at > clock_timestamp() - interval '14 days'` on the
+pending-invitation loop: an invitation is claimable for 14 days from when it
+was sent. An older pending row is not deleted, it is simply never matched, and
+a new invitation to the same address retires it (`DatabaseStaffStore.inviteStaff`
+revokes an expired pending row first, so the one-pending-per-address index does
+not block the re-invite). **Before applying**, list what will stop working and
+re-invite whoever still needs to join:
+
+```sql
+select workspace_id, invited_email, created_at from app.memberships
+ where membership_type = 'staff' and status = 'pending'
+   and created_at <= now() - interval '14 days';
+```
+
+The two seeded `owner` invitations from first install (2026-10-25) are in this
+list unless they were accepted; check that the developer's own sign-in has
+already claimed them before applying. Also confirm in Supabase Auth that
+"Confirm email" is ON and that anonymous, phone and unverified-OAuth sign-ins
+are off: the invitation check is only as strong as the provider's email
+confirmation, and expiry only narrows the window.
+
+**0032 (I-2, generated).** `app.workspaces`, the one `app` table without row
+security, gets `ENABLE ROW LEVEL SECURITY` and the backup login's read policy
+`workspaces_backup_reader_read` (as every `app` table has, 0008): without it
+`backup_reader`, which has NOBYPASSRLS, would dump an empty site registry.
+
+**0033 (I-2, hand-written).** `FORCE ROW LEVEL SECURITY` on `app.workspaces`.
+`app_runtime` has no grant and no policy on it, so nothing changes for the
+backend; the SECURITY DEFINER functions that read it are owned by `postgres`
+(BYPASSRLS) and are unaffected; a future grant or an API exposure of the `app`
+schema now returns no rows instead of every site.
+
+- **To apply** (owner): run the three files in order, then the tracker rows
+  (hash, `created_at`):
+  `0031_invitation_expiry` `160ed5093f39fab56f531cecd3e2ade8301b0308d0e4e13292377f34a60ec60a`, `1794351038728`;
+  `0032_workspaces_rls` `34f8ac3004ca1cc837cc8b29930405e66858a4f7a6e1b505997d85f24906c6f1`, `1794351039747`;
+  `0033_workspaces_rls_force` `22e037104544da6e58c5aba70186bacec05c309464eb309ff351249370f573a7`, `1794351040645`.
+  (Renumbered from 0030–0032 when the two security tracks merged; the hash is
+  the SHA-256 of the file, `created_at` the journal's `when`.) An older backend
+  keeps working on all three.
+- Rollback: `ALTER TABLE app.workspaces NO FORCE ROW LEVEL SECURITY;`,
+  `DROP POLICY workspaces_backup_reader_read ON app.workspaces; ALTER TABLE
+app.workspaces DISABLE ROW LEVEL SECURITY;`, and for 0031 re-run the
+  `app.accept_staff_invitations` definition from `0001_runtime_functions.sql`.
+- Verify against the schema:
+
+```sql
+select relrowsecurity, relforcerowsecurity from pg_class
+ where oid = 'app.workspaces'::regclass;                     -- true, true
+select polname from pg_policy where polrelid = 'app.workspaces'::regclass;
+                                                             -- workspaces_backup_reader_read
+select pg_get_functiondef('app.accept_staff_invitations(text,uuid)'::regprocedure)
+  like '%interval ''14 days''%';                              -- true
+```
+
+After applying, run the next nightly backup and check its row counts include
+`app.workspaces` (the backup's completeness guard compares them).
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

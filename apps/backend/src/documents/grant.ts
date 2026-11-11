@@ -10,6 +10,12 @@ type DocumentDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantT
  * already-established website tenant context. Uploads/downloads made by a
  * customer must prove ownership of the parent lead this way — a service
  * credential alone is not proof of which draft the caller owns (invariant 2).
+ *
+ * A grant is proof of a DRAFT: once its lead is submitted (or rescued by
+ * staff, O13) or archived, it no longer uploads or downloads anything (audit
+ * L-1). A submitted order's documents change only through a change request
+ * staff approve (`/track`), and its reviewed files are not the visitor's to
+ * fetch with a 30-day checkout token.
  */
 export interface DraftGrantVerifier {
   verifyLead(input: {
@@ -48,6 +54,8 @@ export class DatabaseDraftGrantVerifier implements DraftGrantVerifier {
             and(
               eq(draftGrants.workspaceId, input.workspaceId),
               isNull(leads.customerDataRestrictedAt),
+              eq(leads.status, 'incomplete'),
+              isNull(leads.deletedAt),
               eq(draftGrants.tokenHash, tokenHash),
             ),
           )

@@ -75,6 +75,31 @@ export class OrderIntakeError extends Error {
  * used twice, or a counter-issued number an import committed at the same
  * moment. The transaction rolled back, so the counter gave its number back.
  */
+/** A website-chosen lead id that a lead already has (any site): `409 lead_id_taken`. */
+export class LeadIdTakenError extends Error {
+  readonly code = 'lead_id_taken';
+  constructor() {
+    super('lead id already taken');
+    this.name = 'LeadIdTakenError';
+  }
+}
+
+function isLeadIdViolation(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; depth < 3; depth += 1) {
+    if (typeof current !== 'object' || current === null) return false;
+    if (
+      'code' in current &&
+      current.code === '23505' &&
+      'constraint_name' in current &&
+      current.constraint_name === 'leads_pkey'
+    ) {
+      return true;
+    }
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return false;
+}
+
 export class ExternalRefTakenError extends Error {
   readonly code = 'external_ref_taken';
   constructor() {
@@ -107,6 +132,8 @@ export interface CreateLeadInput {
   actorId: string;
   requestId: string;
   leadType: string;
+  /** The website's own id for the lead; the CRM's when absent. */
+  leadId?: string;
   externalRef?: string;
   contact?: LeadContact;
   form?: LeadForm;
@@ -517,6 +544,7 @@ export class DatabaseLeadStore implements LeadStore {
     try {
       return await this.createLeadInTransaction(input);
     } catch (error) {
+      if (input.leadId !== undefined && isLeadIdViolation(error)) throw new LeadIdTakenError();
       if (!isExternalRefViolation(error)) throw error;
       if (input.externalRef === undefined) {
         // A counter-issued number that a concurrent write took: ids only, never the lead.
@@ -588,6 +616,7 @@ export class DatabaseLeadStore implements LeadStore {
         const [leadRow] = await tx
           .insert(leads)
           .values({
+            ...(input.leadId !== undefined ? { id: input.leadId } : {}),
             workspaceId: input.workspaceId,
             leadType: input.leadType,
             status,

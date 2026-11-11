@@ -59,7 +59,7 @@ export function emailRateBucket(
   secret: string,
   workspaceId: string,
   normalizedEmail: string,
-  purpose: 'code' | 'verify' | 'write',
+  purpose: 'code' | 'verify' | 'verify_day' | 'write',
 ): string {
   return `tracking:${purpose}:${hmac(secret, `rate\n${purpose}\n${workspaceId}\n${normalizedEmail}`)}`;
 }

@@ -57,6 +57,8 @@ export interface DatabaseClient {
   rateLimitHit(input: RateLimitInput): Promise<RateLimitResult>;
   /** The actor's staff membership in the site, any status; undefined when there is none. */
   staffAccessSnapshot(ctx: TenantContext): Promise<StaffAccessRow | undefined>;
+  /** One `select 1` round trip, refused after `timeoutMs` (the readiness check). */
+  ping(timeoutMs: number): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -92,12 +94,26 @@ function uuidLiteral(value: string): string {
  * pooler is a long way off; a statement without them takes one. Only a UUID
  * gets through, and a UUID has no quote to end the literal with.
  */
+/**
+ * Every tenant transaction's default limits (audit L-8): one slow statement or
+ * a transaction left open could otherwise hold one of the few pooled
+ * connections until the pooler gives up, and stall intake. A read that needs
+ * longer (or less) sets its own `statement_timeout` with `set_config(…, true)`
+ * after this, which wins for the rest of the transaction.
+ */
+export const TENANT_STATEMENT_TIMEOUT_MS = 15_000;
+export const TENANT_IDLE_IN_TRANSACTION_TIMEOUT_MS = 30_000;
+
 export function tenantContextStatement(ctx: { workspaceId?: string; actorId: string }): string {
   const settings: string[] = [];
   if (ctx.workspaceId !== undefined) {
     settings.push(`set_config('app.workspace_id', ${uuidLiteral(ctx.workspaceId)}, true)`);
   }
   settings.push(`set_config('app.actor_id', ${uuidLiteral(ctx.actorId)}, true)`);
+  settings.push(`set_config('statement_timeout', '${TENANT_STATEMENT_TIMEOUT_MS}', true)`);
+  settings.push(
+    `set_config('idle_in_transaction_session_timeout', '${TENANT_IDLE_IN_TRANSACTION_TIMEOUT_MS}', true)`,
+  );
   return `select ${settings.join(', ')}`;
 }
 
@@ -209,6 +225,19 @@ export function createDatabaseClient(options: DatabaseClientOptions): DatabaseCl
       );
       return rows[0];
     },
+    ping: async (timeoutMs) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          sqlClient`select 1`,
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('database_ping_timeout')), timeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     close: () => sqlClient.end(),
   };
 }
@@ -286,6 +315,11 @@ export function resolveWebsiteCredential(
 /** Records one hit against a bounded per-key rate-limit window and reports whether it is allowed. */
 export function rateLimitHit(input: RateLimitInput): Promise<RateLimitResult> {
   return getDefaultClient().rateLimitHit(input);
+}
+
+/** Readiness: one round trip on the shared pool. Throws without `DATABASE_URL`. */
+export function pingDatabase(timeoutMs: number): Promise<void> {
+  return getDefaultClient().ping(timeoutMs);
 }
 
 /** Staff authorization read: the actor's membership in the site, in one call. */

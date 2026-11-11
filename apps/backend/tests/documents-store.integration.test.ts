@@ -94,6 +94,39 @@ databaseTest('DatabaseDocumentStore (T17)', () => {
     leadId = randomUUID();
   });
 
+  test('countOpenUploads counts live uploading and verifying intents of one record only', async () => {
+    const other = randomUUID();
+    const now = new Date();
+    const count = (recordId: string, at = now) =>
+      store.countOpenUploads({
+        workspaceId: WORKSPACE,
+        actorId: ACTOR,
+        recordType: 'lead',
+        recordId,
+        now: at,
+      });
+    expect(await count(leadId)).toBe(0);
+
+    const first = await store.createIntent(intent());
+    await store.createIntent(intent());
+    await store.createIntent(intent(other));
+    expect(await count(leadId)).toBe(2);
+    expect(await count(other)).toBe(1);
+
+    // A claimed file is verifying: still open.
+    await store.claimForVerification({
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      fileId: first.id,
+      candidateKey: `candidate/${WORKSPACE}/${first.id}/c1`,
+      now,
+    });
+    expect(await count(leadId)).toBe(2);
+
+    // Past the intent's expiry nothing is open.
+    expect(await count(leadId, new Date(Date.now() + 10 * 60 * 1000))).toBe(0);
+  });
+
   test('claim → attach makes exactly one available object and records a revision', async () => {
     const file = await store.createIntent(intent());
     expect(file.status).toBe('uploading');

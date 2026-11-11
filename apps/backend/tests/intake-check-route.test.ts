@@ -32,6 +32,7 @@ describe('POST /api/internal/jobs/intake-check', () => {
       result?: IntakeCheckResult;
       workspaceId?: string | null;
       run?: IntakeCheckRouteDependencies['run'];
+      rateLimit?: IntakeCheckRouteDependencies['rateLimit'];
     } = {},
   ) {
     const run = vi.fn(
@@ -63,6 +64,7 @@ describe('POST /api/internal/jobs/intake-check', () => {
         ...(options.workspaceId === null ? {} : { workspaceId: options.workspaceId ?? TEST_SITE }),
         selector: 'job-runner',
         deploymentEnvironment: options.environment ?? 'production',
+        ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
       }),
     );
     server = app.listen(0);
@@ -89,6 +91,23 @@ describe('POST /api/internal/jobs/intake-check', () => {
     if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
     return error.code;
   }
+
+  it('counts attempts per client IP before the secret is checked (audit L-10)', async () => {
+    let calls = 0;
+    const { run, url } = await setup({
+      rateLimit: async (input) => {
+        calls += 1;
+        expect(input.bucketKey.startsWith('machine:intake-check:ip:')).toBe(true);
+        return { allowed: calls <= 2, retryAfterSeconds: 30 };
+      },
+    });
+    expect((await post(url, { secret: 'wrong' })).status).toBe(401);
+    expect((await post(url, { secret: SECRET })).status).toBe(200);
+    const refused = await post(url, { secret: SECRET });
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('retry-after')).toBe('30');
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 
   it('refuses a caller with no secret', async () => {
     const { run, url } = await setup();

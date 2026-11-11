@@ -25,7 +25,7 @@ import { createLegacyDocumentImportHandler } from '../documents/import-job.js';
 import type { DocumentService } from '../documents/service.js';
 import { customerEmailEnvironmentFromEnv } from '../email/senders.js';
 import { DatabaseEmailStore } from '../email/store.js';
-import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
 import { createTrackingCodeHandler } from '../tracking/delivery.js';
 import { loadTrackingSecret } from '../tracking/secrets.js';
 
@@ -169,7 +169,9 @@ export function createOutboxJobHandlers(
   }
 
   const registry =
-    emailProvider === 'resend' ? loadMachineRegistry(env.MACHINE_REGISTRY_JSON) : undefined;
+    emailProvider === 'resend'
+      ? loadMachineRegistryOrDenyAll(env.MACHINE_REGISTRY_JSON)
+      : undefined;
   const delivery: EmailDeliveryRecorder | undefined =
     deliveryOverride ??
     (eligibility instanceof DatabaseEmailStore

@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { codePropertyCatalog } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 
 import { idempotencyKeyHash, requestFingerprint } from '../src/leads/idempotency.js';
-import { DatabaseLeadStore, ExternalRefTakenError } from '../src/leads/store.js';
+import { DatabaseLeadStore, ExternalRefTakenError, LeadIdTakenError } from '../src/leads/store.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 
 function getDisposableTestDatabaseUrl(): string | undefined {
@@ -105,6 +106,18 @@ databaseTest('DatabaseLeadStore', () => {
     await expect(
       store.createLead({ ...base, workspaceId: WORKSPACE_B, externalRef: ref }),
     ).resolves.toBeDefined();
+  });
+
+  // CanadaWide's fallback copy and the CRM's lead share the website's id
+  // (audit CW-B1); an id any lead already has, on any site, is refused.
+  test('creates a lead under the id the website chose, once', async () => {
+    const leadId = randomUUID();
+    const created = await store.createLead({ ...base, leadId });
+    expect(created.lead.id).toBe(leadId);
+    await expect(store.createLead({ ...base, leadId })).rejects.toBeInstanceOf(LeadIdTakenError);
+    await expect(
+      store.createLead({ ...base, workspaceId: WORKSPACE_B, leadId }),
+    ).rejects.toBeInstanceOf(LeadIdTakenError);
   });
 
   test('a partner code is stored verbatim but never linked without a partner registry', async () => {

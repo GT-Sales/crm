@@ -479,4 +479,62 @@ databaseTest('tenant RLS and transaction-pool context', () => {
     );
     expect(acceptedAgain).toEqual({ count: 0 });
   });
+
+  test('the site registry has row security on and forced, readable by the backup login only (audit I-2)', async () => {
+    const [flags] = await admin<{ rowSecurity: boolean; forced: boolean }[]>`
+      select c.relrowsecurity as "rowSecurity", c.relforcerowsecurity as forced
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'app' and c.relname = 'workspaces'
+    `;
+    expect(flags).toEqual({ rowSecurity: true, forced: true });
+
+    const policies = await admin<{ polname: string; roles: string[] }[]>`
+      select p.polname,
+        array(select rolname from pg_roles where oid = any(p.polroles)) as roles
+      from pg_policy p where p.polrelid = 'app.workspaces'::regclass
+    `;
+    expect(policies).toEqual([
+      { polname: 'workspaces_backup_reader_read', roles: ['backup_reader'] },
+    ]);
+
+    // Every app table is in the same posture: row security enabled and forced.
+    const unprotected = await admin<{ relname: string }[]>`
+      select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'app' and c.relkind = 'r' and not (c.relrowsecurity and c.relforcerowsecurity)
+    `;
+    expect(unprotected).toEqual([]);
+  });
+
+  test('an invitation older than 14 days is not claimable; a recent one is (audit L-16)', async () => {
+    const actor = '20000000-0000-4000-8000-0000000001a1';
+    const staleId = '30000000-0000-4000-8000-0000000001a1';
+    const freshId = '30000000-0000-4000-8000-0000000001a2';
+    const requestId = '70000000-0000-4000-8000-0000000001a1';
+    await admin`delete from app.audit_events where entity_id in (${staleId}, ${freshId})`;
+    await admin`delete from app.memberships where id in (${staleId}, ${freshId})`;
+    // The stale one is for site A and the fresh one for site B, same address.
+    await admin`
+      insert into app.memberships (id, workspace_id, invited_email, membership_type, status, created_at)
+      values
+        (${staleId}, ${STAFF_SEED_IDS.getCanadaSimWorkspace}, 'expiry@example.test', 'staff', 'pending',
+          now() - interval '14 days 1 minute'),
+        (${freshId}, ${STAFF_SEED_IDS.canadaWideWorkspace}, 'expiry@example.test', 'staff', 'pending',
+          now() - interval '13 days')
+    `;
+
+    const [accepted] = await tenantDatabase.withActorTx(actor, (tx) =>
+      tx.execute<{ count: number }>(sql`
+        select app.accept_staff_invitations('expiry@example.test', ${requestId}) as count
+      `),
+    );
+    expect(accepted).toEqual({ count: 1 });
+
+    const rows = await admin<{ id: string; status: string; user_id: string | null }[]>`
+      select id, status, user_id from app.memberships where id in (${staleId}, ${freshId}) order by id
+    `;
+    expect(rows).toEqual([
+      { id: staleId, status: 'pending', user_id: null },
+      { id: freshId, status: 'active', user_id: actor },
+    ]);
+  });
 });

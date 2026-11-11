@@ -41,7 +41,12 @@ export {
   type DocumentParentType,
 } from './domain';
 
-export { healthResponseSchema, type HealthResponse } from './health';
+export {
+  healthResponseSchema,
+  readyResponseSchema,
+  type HealthResponse,
+  type ReadyResponse,
+} from './health';
 
 export {
   adminJobSchema,
@@ -684,6 +689,8 @@ export {
   TRACKING_MIN_LATENCY_MS,
   TRACKING_STAGE_WORDS,
   TRACKING_VERIFICATIONS_PER_EMAIL,
+  TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY,
+  TRACKING_EMAIL_DAY_WINDOW_SECONDS,
   TRACKING_WRITES_PER_EMAIL,
   changeRequestFieldsSchema,
   createTrackedChangeRequestSchema,

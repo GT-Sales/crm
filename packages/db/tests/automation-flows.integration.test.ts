@@ -199,7 +199,7 @@ databaseTest('automation flows tables and migrations 0019 and 0020', () => {
     }
   });
 
-  it('the four tables have RLS enabled and forced, two policies each, and 44 read policies in all', async () => {
+  it('the four tables have RLS enabled and forced, two policies each, and 45 read policies in all', async () => {
     const tables = await admin<{ name: string; rowSecurity: boolean; forced: boolean }[]>`
       select c.relname::text as name,
              c.relrowsecurity as "rowSecurity",
@@ -228,7 +228,7 @@ databaseTest('automation flows tables and migrations 0019 and 0020', () => {
       where schemaname = 'app' and policyname like '%\\_backup\\_reader\\_read'
         and 'backup_reader' = any (roles)
     `;
-    expect(backupPolicies?.count).toBe(44);
+    expect(backupPolicies?.count).toBe(45);
   });
 
   it('app_runtime may select, insert and update versions, waits and timers, update five columns of runs, insert step runs, and never delete; backup_reader reads all four', async () => {

@@ -440,6 +440,40 @@ describe('verification', () => {
     expect(eleventh.headers.get('retry-after')).toBe('42');
     expect(trackingStore.consume).toHaveBeenCalledTimes(10);
   });
+
+  it('caps an email at 30 verifications a day: the 31st is 429, however the short budgets stand', async () => {
+    // Only the day bucket is under test: set the ten-minute budgets aside.
+    limiter.exempt.add('endpoint:tracking:');
+    limiter.exempt.add('tracking:verify:');
+    trackingStore.consume.mockResolvedValue('invalid');
+    for (let index = 0; index < 30; index += 1) {
+      expect((await request('POST', '/tracking/verify', { email: JANE, code: CODE })).status).toBe(
+        400,
+      );
+    }
+    const refused = await request('POST', '/tracking/verify', { email: JANE, code: CODE });
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('retry-after')).toBe('42');
+    expect(trackingStore.consume).toHaveBeenCalledTimes(30);
+    expect(
+      limiter.inputs.find((input) => input.bucketKey.startsWith('tracking:verify_day:')),
+    ).toMatchObject({ windowSeconds: 86_400, maxCount: 30 });
+    // Another email is unaffected.
+    expect((await request('POST', '/tracking/verify', { email: UNKNOWN, code: CODE })).status).toBe(
+      400,
+    );
+  });
+
+  it('does not spend the daily ceiling on attempts the ten-minute budget refused', async () => {
+    trackingStore.consume.mockResolvedValue('invalid');
+    for (let index = 0; index < 15; index += 1) {
+      await request('POST', '/tracking/verify', { email: JANE, code: CODE });
+    }
+    const dayHits = limiter.inputs.filter((input) =>
+      input.bucketKey.startsWith('tracking:verify_day:'),
+    );
+    expect(dayHits).toHaveLength(10);
+  });
 });
 
 describe('the tracking scope and an unconfigured deployment', () => {
@@ -646,6 +680,7 @@ describe('documents', () => {
     [{ status: 'parent_not_found' }, 404, 'order_not_found'],
     [{ status: 'too_large' }, 413, 'document_too_large'],
     [{ status: 'checklist_mismatch' }, 409, 'checklist_mismatch'],
+    [{ status: 'too_many_open' }, 429, 'rate_limited'],
   ] as const)('answers the intent outcome %j with %i %s', async (outcome, status, code) => {
     documents.createIntent.mockResolvedValueOnce(outcome);
     const response = await intent(passportIntent);

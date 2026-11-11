@@ -109,3 +109,56 @@ describe('DocumentService.runCleanup backup-lease gate', () => {
     expect(result.cleanedObjects.length).toBeGreaterThan(0);
   });
 });
+
+describe('DocumentService.createIntent open-intent cap (audit L-4)', () => {
+  const intentFor = (service: DocumentService, recordId: string) =>
+    service.createIntent({
+      workspaceId: 'w1',
+      actorId: 'a1',
+      requestId: 'r1',
+      recordType: 'lead',
+      recordId,
+      documentType: 'passport',
+      declaredContentType: 'application/pdf',
+      declaredSizeBytes: 10,
+    });
+
+  it('refuses an intent once the record holds the most open ones, presigning nothing more', async () => {
+    const store = new InMemoryDocumentRecordStore();
+    const r2 = new InMemoryR2DocumentStore();
+    const createUpload = vi.spyOn(r2, 'createUpload');
+    const service = new DocumentService(store, r2, resolver, { maxOpenUploads: 3 });
+
+    for (let index = 0; index < 3; index += 1) {
+      expect((await intentFor(service, 'lead-1')).status).toBe('created');
+    }
+    expect(await intentFor(service, 'lead-1')).toEqual({ status: 'too_many_open' });
+    expect(createUpload).toHaveBeenCalledTimes(3);
+
+    // Another record has its own allowance.
+    expect((await intentFor(service, 'lead-2')).status).toBe('created');
+  });
+
+  it('counts expired intents as free again', async () => {
+    const store = new InMemoryDocumentRecordStore();
+    const r2 = new InMemoryR2DocumentStore();
+    const early = new DocumentService(store, r2, resolver, { maxOpenUploads: 1 });
+    expect((await intentFor(early, 'lead-1')).status).toBe('created');
+    expect((await intentFor(early, 'lead-1')).status).toBe('too_many_open');
+
+    const later = new DocumentService(store, r2, resolver, {
+      maxOpenUploads: 1,
+      now: () => new Date(Date.now() + 60 * 60 * 1000),
+    });
+    expect((await intentFor(later, 'lead-1')).status).toBe('created');
+  });
+
+  it('defaults to 10 open intents', async () => {
+    const store = new InMemoryDocumentRecordStore();
+    const service = new DocumentService(store, new InMemoryR2DocumentStore(), resolver);
+    for (let index = 0; index < 10; index += 1) {
+      expect((await intentFor(service, 'lead-1')).status).toBe('created');
+    }
+    expect((await intentFor(service, 'lead-1')).status).toBe('too_many_open');
+  });
+});

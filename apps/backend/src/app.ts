@@ -1,12 +1,16 @@
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
+import { pingDatabase } from '@gt-sales/db';
 
+import { sendDomainError } from './http/domain-errors.js';
+import { isConnectionLevelError } from './http/logger.js';
 import { sendStaffAuthError } from './http/staff-errors.js';
+import { sendWebsiteError } from './http/website-errors.js';
 import { requestLog } from './http/requestLog.js';
 import { requestId } from './requestId.js';
 import { DatabasePlanStore } from './plans/store.js';
 import { DatabasePropertyStore } from './properties/store.js';
-import { getHealth } from './routes/health.js';
+import { createReadyHandler, getHealth } from './routes/health.js';
 import {
   createDefaultStaffRouteDependencies,
   createStaffRouter,
@@ -49,6 +53,8 @@ export interface CreateAppOptions {
   intakeCheck?: IntakeCheckRouteDependencies;
   email?: EmailRouteDependencies;
   errorTracker?: ErrorTracker;
+  /** The readiness check's database round trip; by default the shared pool. */
+  ping?: (timeoutMs: number) => Promise<void>;
 }
 
 function adminCors(): RequestHandler {
@@ -69,18 +75,52 @@ function adminCors(): RequestHandler {
   };
 }
 
+/**
+ * Defaults for every `/api` response (audit L-11): staff and customer JSON
+ * must not be written to a browser or intermediary cache, a body is never
+ * sniffed into another type, and the API sends no referrer. A route that needs
+ * more (`private, no-store`) sets its own header afterwards.
+ */
+const apiResponseHeaders: RequestHandler = (_req, res, next) => {
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
+  next();
+};
+
 function paramWorkspaceId(value: string | string[] | undefined): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
 /**
- * Last-resort handler for anything reaching Express's error path (a JSON
- * parse failure, or any handler that calls `next(error)`). The error is
- * always reported to the tracker with the request id before the client ever
- * sees a response, so an induced failure is diagnosable without needing PII
- * in the response body.
+ * The HTTP status a request-body error carries (body-parser and Node set a
+ * 4xx `status` on a malformed, oversized or wrongly encoded body), or
+ * undefined when the error is not the client's doing.
  */
-function createInvalidBodyError(errorTracker: ErrorTracker): ErrorRequestHandler {
+function clientErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const status = Reflect.get(error, 'status');
+  const value = typeof status === 'number' ? status : Reflect.get(error, 'statusCode');
+  return typeof value === 'number' && Number.isInteger(value) && value >= 400 && value < 500
+    ? value
+    : undefined;
+}
+
+/**
+ * Last-resort handler for anything reaching Express's error path (a JSON
+ * parse failure, or any handler that throws or calls `next(error)`). The
+ * error is always reported to the tracker with the request id before the
+ * client ever sees a response, so an induced failure is diagnosable without
+ * needing PII in the response body.
+ *
+ * What the client is told follows whose fault it was: a body the server could
+ * not read is a 400 (413 when too large); a database that cannot be reached
+ * is a retryable 503; anything else is a 500 with the generic message. Never
+ * the error's own text, stack or type, and a read of a server fault as
+ * "invalid request" would send staff and monitoring after the wrong cause
+ * (audit L-9).
+ */
+export function createLastResortErrorHandler(errorTracker: ErrorTracker): ErrorRequestHandler {
   return (error, req, res, _next) => {
     errorTracker.captureException(error, {
       requestId: req.id,
@@ -91,7 +131,21 @@ function createInvalidBodyError(errorTracker: ErrorTracker): ErrorRequestHandler
       environment: process.env['DEPLOYMENT_ENV'] ?? process.env['NODE_ENV'],
     });
     if (res.headersSent) return;
-    sendStaffAuthError(res, req.id, 'invalid_request', 400);
+    const clientStatus = clientErrorStatus(error);
+    if (clientStatus === 413) {
+      sendWebsiteError(res, req.id, 'payload_too_large', 413);
+      return;
+    }
+    if (clientStatus !== undefined) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    if (isConnectionLevelError(error)) {
+      res.setHeader('retry-after', '2');
+      sendDomainError(res, req.id, 'persistence_unavailable', 503, { retryable: true });
+      return;
+    }
+    sendStaffAuthError(res, req.id, 'internal_error', 500);
   };
 }
 
@@ -113,8 +167,11 @@ export function createApp(options: CreateAppOptions = {}): Express {
   }
   const errorTracker = options.errorTracker ?? createErrorTrackerFromEnv();
 
+  // Not "Express": nothing to fingerprint (audit L-11).
+  app.disable('x-powered-by');
   app.use(requestId);
   app.use(requestLog);
+  app.use('/api', apiResponseHeaders);
   app.use(adminCors());
   const emailDependencies = options.email ?? createDefaultEmailRouteDependencies();
   app.use(
@@ -130,6 +187,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   );
   app.use(express.json({ limit: '64kb' }));
   app.get('/api/v1/health', getHealth);
+  app.get('/api/v1/ready', createReadyHandler(options.ping ?? pingDatabase));
   app.use(
     '/api/internal/jobs',
     createJobsRouter(options.jobs ?? createDefaultJobsRouteDependencies()),
@@ -168,7 +226,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   );
   app.use('/api/v1/website', createTrackingRouter(trackingDependencies));
   app.use('/api/v1/email', createEmailRouter(emailDependencies));
-  app.use(createInvalidBodyError(errorTracker));
+  app.use(createLastResortErrorHandler(errorTracker));
 
   return app;
 }

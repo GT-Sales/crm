@@ -3,6 +3,11 @@ import { z } from 'zod';
 
 import { loadDeploymentEnvironment } from '../config/deployment.js';
 import { sendDomainError } from '../http/domain-errors.js';
+import {
+  defaultMachineRateLimit,
+  requireMachineAttemptBudget,
+  type MachineRateLimit,
+} from '../http/machine-attempts.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import {
@@ -12,7 +17,7 @@ import {
 } from '../intake-check/check.js';
 import { DatabaseIntakeCheckStore } from '../intake-check/store.js';
 import { DatabaseLeadStore } from '../leads/store.js';
-import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
 
 /**
  * `POST /api/internal/jobs/intake-check`: one intake check run by hand, for a
@@ -29,16 +34,19 @@ export interface IntakeCheckRouteDependencies {
   /** `JOB_RUNNER_SELECTOR`, used when the request sends no `X-Scheduler-Selector`. */
   selector?: string;
   deploymentEnvironment?: string;
+  /** Attempts per client IP, counted before the secret is checked; omitted in route tests. */
+  rateLimit?: MachineRateLimit;
 }
 
 export function createDefaultIntakeCheckRouteDependencies(): IntakeCheckRouteDependencies {
   const check = { leads: new DatabaseLeadStore(), store: new DatabaseIntakeCheckStore() };
   return {
-    registry: loadMachineRegistry(),
+    registry: loadMachineRegistryOrDenyAll(),
     workspaceId: process.env.INTAKE_CHECK_WORKSPACE_ID,
     run: (input) => runIntakeCheck(check, input),
     selector: process.env.JOB_RUNNER_SELECTOR,
     deploymentEnvironment: loadDeploymentEnvironment(),
+    rateLimit: defaultMachineRateLimit,
   };
 }
 
@@ -89,6 +97,10 @@ export function createIntakeCheckRouter(dependencies: IntakeCheckRouteDependenci
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   };
-  router.post('/intake-check', runCheck);
+  router.post(
+    '/intake-check',
+    requireMachineAttemptBudget('intake-check', dependencies.rateLimit),
+    runCheck,
+  );
   return router;
 }
