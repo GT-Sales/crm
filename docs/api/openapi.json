@@ -147,6 +147,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -335,6 +336,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -558,6 +560,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -746,6 +749,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -997,6 +1001,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -1191,6 +1196,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -1422,6 +1428,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -1652,6 +1659,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -1877,6 +1885,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -2098,6 +2107,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -2319,6 +2329,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -2686,7 +2697,9 @@
                         "downloadDocuments": { "type": "boolean" },
                         "reviewDocuments": { "type": "boolean" },
                         "overrideDocuments": { "type": "boolean" },
-                        "decideChanges": { "type": "boolean" }
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -2795,6 +2808,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -2856,6 +2870,334 @@
                   "required": ["error"],
                   "additionalProperties": false
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/leads/export": {
+      "post": {
+        "operationId": "exportWorkspaceLeads",
+        "summary": "Export leads to Excel: the ticked ids or the list filters, the main fields plus the chosen ones, at most 5,000 leads (`lead.export`).",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workbook (.xlsx), one sheet per lead type, as an attachment; `X-Export-Row-Count` carries the number of leads.",
+            "headers": {
+              "cache-control": {
+                "description": "Always `no-store`: an export is never cached.",
+                "schema": { "type": "string" }
+              },
+              "content-disposition": {
+                "description": "`attachment` with the file name.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "ids" },
+                          "ids": {
+                            "minItems": 1,
+                            "maxItems": 1000,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          }
+                        },
+                        "required": ["kind", "ids"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "filter" },
+                          "filter": {
+                            "type": "object",
+                            "properties": {
+                              "status": { "type": "string", "enum": ["incomplete", "submitted"] },
+                              "type": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              },
+                              "stage": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              },
+                              "assignee": {
+                                "anyOf": [
+                                  { "type": "string", "enum": ["me", "none"] },
+                                  {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  }
+                                ]
+                              },
+                              "q": { "type": "string", "minLength": 1, "maxLength": 100 },
+                              "view": { "type": "string", "enum": ["active", "archived", "trash"] },
+                              "dueBy": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "where": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                    },
+                                    "op": {
+                                      "type": "string",
+                                      "enum": [
+                                        "eq",
+                                        "contains",
+                                        "in",
+                                        "lte",
+                                        "gte",
+                                        "empty",
+                                        "notEmpty"
+                                      ]
+                                    },
+                                    "value": {
+                                      "anyOf": [
+                                        { "type": "string", "maxLength": 200 },
+                                        {
+                                          "type": "number",
+                                          "minimum": -1000000000000,
+                                          "maximum": 1000000000000
+                                        },
+                                        { "type": "boolean" },
+                                        {
+                                          "minItems": 1,
+                                          "maxItems": 20,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 200
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": ["key", "op"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "sort": {
+                                "type": "string",
+                                "pattern": "^(?:createdAt|updatedAt|fullName|externalRef|prop\\.[a-z][A-Za-z0-9_]{0,63}):(?:asc|desc)$"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": ["kind", "filter"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "fields": {
+                    "maxItems": 200,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(?:[a-z][A-Za-z]{0,39}|prop\\.[a-z][A-Za-z0-9_]{0,63})$"
+                    }
+                  }
+                },
+                "required": ["scope", "fields"],
+                "additionalProperties": false
               }
             }
           }
@@ -2928,7 +3270,9 @@
                         "downloadDocuments": { "type": "boolean" },
                         "reviewDocuments": { "type": "boolean" },
                         "overrideDocuments": { "type": "boolean" },
-                        "decideChanges": { "type": "boolean" }
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -3037,6 +3381,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -3310,6 +3655,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -4032,6 +4378,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -4335,6 +4682,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -4666,7 +5014,9 @@
                         "downloadDocuments": { "type": "boolean" },
                         "reviewDocuments": { "type": "boolean" },
                         "overrideDocuments": { "type": "boolean" },
-                        "decideChanges": { "type": "boolean" }
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -4775,6 +5125,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -6053,7 +6404,9 @@
                         "downloadDocuments": { "type": "boolean" },
                         "reviewDocuments": { "type": "boolean" },
                         "overrideDocuments": { "type": "boolean" },
-                        "decideChanges": { "type": "boolean" }
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -6173,6 +6526,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -7265,6 +7619,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -8430,6 +8785,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -9496,6 +9852,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -10519,6 +10876,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -11523,6 +11881,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -11714,6 +12073,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -12329,6 +12689,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -13333,6 +13694,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -13909,6 +14271,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -14498,6 +14861,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -14778,6 +15142,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -15080,6 +15445,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -15414,7 +15780,9 @@
                         "downloadDocuments": { "type": "boolean" },
                         "reviewDocuments": { "type": "boolean" },
                         "overrideDocuments": { "type": "boolean" },
-                        "decideChanges": { "type": "boolean" }
+                        "decideChanges": { "type": "boolean" },
+                        "export": { "type": "boolean" },
+                        "revenue": { "type": "boolean" }
                       },
                       "required": ["contacts", "manage"],
                       "additionalProperties": false
@@ -15523,6 +15891,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -15874,6 +16243,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -16254,6 +16624,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -16537,6 +16908,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -16882,6 +17254,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -17125,6 +17498,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -17372,6 +17746,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -17755,6 +18130,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -18078,6 +18454,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -18511,6 +18888,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -18814,6 +19192,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -19132,6 +19511,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -19428,6 +19808,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -19806,6 +20187,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -20147,6 +20529,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -20411,6 +20794,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -20772,6 +21156,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -21047,6 +21432,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -21342,6 +21728,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -21555,6 +21942,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -21761,6 +22149,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -22039,6 +22428,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -22317,6 +22707,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -24663,6 +25054,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -32273,6 +32665,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -34466,6 +34859,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -42097,6 +42491,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -49708,6 +50103,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -50169,6 +50565,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -50571,6 +50968,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -58184,6 +58582,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -68298,6 +68697,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -75911,6 +76311,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -83543,6 +83944,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -91156,6 +91558,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -98769,6 +99172,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -98996,6 +99400,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -99411,6 +99816,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -99744,6 +100150,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -102349,6 +102756,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -108469,6 +108877,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -108716,6 +109125,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -113784,6 +114194,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -116568,6 +116979,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -116981,6 +117393,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -117277,6 +117690,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -117541,6 +117955,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -117736,6 +118151,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -117931,6 +118347,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -118161,6 +118578,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -118492,6 +118910,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -118702,6 +119121,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -118972,6 +119392,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -119292,6 +119713,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -119625,6 +120047,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -119884,6 +120307,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -120103,6 +120527,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -120342,6 +120767,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -120604,6 +121030,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -120910,6 +121337,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -121139,6 +121567,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -121341,6 +121770,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -121574,6 +122004,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -122018,6 +122449,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -122285,6 +122717,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -122557,6 +122990,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",
@@ -122845,6 +123279,7 @@
                             "invoice_not_found",
                             "invoice_conflict",
                             "export_denied",
+                            "export_too_large",
                             "tracking_challenge_invalid",
                             "tracking_expired",
                             "tracking_attempts_exceeded",

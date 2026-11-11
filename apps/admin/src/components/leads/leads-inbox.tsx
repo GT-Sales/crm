@@ -15,11 +15,15 @@ import {
   CUSTOM_PROPERTY_KEY_PREFIX,
   DEFAULT_LEAD_VIEW_STATE,
   isValidLeadPropertyFilter,
+  leadCountdownField,
+  leadExportPropertyField,
   leadPropertyOperators,
+  leadTypeCatalog,
   leadTypeEntry,
   leadTypeLabel,
   SAVED_VIEW_LIMIT,
   type FilterableLeadProperty,
+  type LeadExportFilter,
   type LeadFieldOption,
   type LeadPropertyFilter,
   type LeadPropertyOperator,
@@ -31,6 +35,7 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   BellRingIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   FilterIcon,
   KanbanSquareIcon,
@@ -63,9 +68,10 @@ import {
   type InboxQuery,
 } from './inbox-query';
 import { propertyFilterParts, propertyOperatorLabel } from './lead-fields';
+import { LeadExportDialog } from './lead-export-dialog';
 import { LeadRecord } from './lead-record';
 import { LeadsBoard } from './leads-board';
-import { LeadsTable } from './leads-table';
+import { LeadsTable, NO_LEAD_SELECTION, type LeadSelection } from './leads-table';
 import { SavedViewSwitcher } from './saved-view-switcher';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
@@ -728,7 +734,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   }
 
   const onBoard = query.layout === 'board' && query.type !== undefined;
-  const selectedColumns = query.columns ?? [];
+  const selectedColumns = useMemo(() => query.columns ?? [], [query.columns]);
   const activeWhere = query.where ?? [];
   const needsFilterValue = selectedOp !== 'empty' && selectedOp !== 'notEmpty';
   const canSort = canUseProperties && !onBoard;
@@ -1230,6 +1236,112 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     </Popover>
   );
 
+  // Export: the ticked leads, or every lead matching the filters as the list reads them.
+  const canExport = access?.export === true;
+  const [selection, setSelection] = useState<LeadSelection>(NO_LEAD_SELECTION);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exported, setExported] = useState<string>();
+  const [tableTotal, setTableTotal] = useState<number>();
+  const whereKey = JSON.stringify(query.where ?? []);
+  const filterKey = [
+    workspaceId,
+    query.type,
+    query.archived,
+    query.layout,
+    query.stage,
+    query.assignee,
+    query.q,
+    query.due,
+    whereKey,
+  ].join('|');
+  // Ticks belong to one list: a change of filters lets them go (a page or a sort does not).
+  useEffect(() => {
+    setSelection(NO_LEAD_SELECTION);
+    setTableTotal(undefined);
+    setExported(undefined);
+  }, [filterKey]);
+  const exportFilter = useMemo<LeadExportFilter>(
+    () => ({
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.stage && !onBoard ? { stage: query.stage } : {}),
+      ...(query.assignee ? { assignee: query.assignee } : {}),
+      ...(query.q ? { q: query.q } : {}),
+      view: query.archived ? 'archived' : 'active',
+      // Due by the viewer's own today, as the table asks for it.
+      ...(query.due && !onBoard ? { dueBy: today } : {}),
+      ...(query.where && query.where.length > 0 ? { where: [...query.where] } : {}),
+      ...(query.sort && !onBoard ? { sort: query.sort } : {}),
+    }),
+    // `whereKey` stands for `query.where`, which is a new array on every parse.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      query.type,
+      query.stage,
+      query.assignee,
+      query.q,
+      query.archived,
+      query.due,
+      query.sort,
+      whereKey,
+      onBoard,
+      today,
+    ],
+  );
+  // The export fields behind the columns the table shows now: pre-ticked in the dialog.
+  const exportTableFields = useMemo(() => {
+    if (onBoard) return [];
+    const shown = (key: LeadTableColumn) => !query.hide.includes(key);
+    const countdown = query.type ? leadCountdownField(query.type) : undefined;
+    return [
+      ...(shown('nextTask') ? ['nextTaskDueAt', 'openTaskCount'] : []),
+      ...(countdown && shown('countdown') ? [leadExportPropertyField(countdown.key)] : []),
+      ...(canUseProperties ? selectedColumns.map(leadExportPropertyField) : []),
+      ...(shown('source') ? ['source'] : []),
+      ...(shown('activity') ? [query.archived ? 'archivedAt' : 'updatedAt'] : []),
+    ];
+  }, [onBoard, query.hide, query.type, query.archived, canUseProperties, selectedColumns]);
+  const exportLeadTypes = useMemo(
+    () =>
+      query.type
+        ? [query.type]
+        : query.archived || tabTypes.length === 0
+          ? Object.keys(leadTypeCatalog)
+          : tabTypes.map((entry) => entry.leadType),
+    // `tabTypes` is rebuilt on every render; the summary it is sorted from is not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query.type, query.archived, summary.data],
+  );
+  // The board loads no total; the tab's count is right while nothing narrows it.
+  const matchingTotal = onBoard
+    ? !query.q && !query.assignee && activeWhere.length === 0
+      ? types.find((entry) => entry.leadType === query.type)?.total
+      : undefined
+    : tableTotal;
+  const selectedIds = useMemo(
+    () => (selection.allMatching ? [] : [...selection.selected]),
+    [selection],
+  );
+  const onTableLoaded = useCallback((info: { total: number }) => setTableTotal(info.total), []);
+  const exportButton = canExport ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      aria-label="Export"
+      title="Export to Excel"
+      className={TOOLBAR_BUTTON}
+      onClick={() => setExportOpen(true)}
+    >
+      <DownloadIcon aria-hidden="true" className={TOOLBAR_ICON} />
+      {selection.allMatching || selection.selected.size > 0 ? (
+        <span
+          aria-hidden="true"
+          className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
+        />
+      ) : null}
+    </Button>
+  ) : null;
+
   const chips =
     canUseProperties && activeWhere.length > 0
       ? activeWhere.map((filter, index) => {
@@ -1328,6 +1440,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           </label>
           {filterMenu}
           {viewMenu}
+          {exportButton}
           <SavedViewSwitcher
             compact
             views={views}
@@ -1378,6 +1491,11 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           {properties.error}.
         </p>
       ) : null}
+      {exported ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {exported}
+        </p>
+      ) : null}
 
       <div className="flex min-w-0 items-start">
         <div data-slot="lead-list" className="min-w-0 flex-1">
@@ -1412,6 +1530,19 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
               onSort={(next) => update({ sort: next })}
               onClearFilters={clearAllFilters}
               reloadToken={listVersion}
+              {...(canExport
+                ? {
+                    selection,
+                    onSelectionChange: setSelection,
+                    selectionActions: (
+                      <Button type="button" size="sm" onClick={() => setExportOpen(true)}>
+                        <DownloadIcon aria-hidden="true" />
+                        Export selected
+                      </Button>
+                    ),
+                  }
+                : {})}
+              onLoaded={onTableLoaded}
               panel={{
                 openId: query.lead,
                 href: (leadId) => `${pathname}${inboxSearch({ ...query, lead: leadId })}`,
@@ -1462,6 +1593,30 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           </SidePanel>
         </div>
       </div>
+      {canExport && accessToken && workspaceId ? (
+        <LeadExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+          accessToken={accessToken}
+          catalog={catalog}
+          leadType={query.type}
+          leadTypes={exportLeadTypes}
+          access={{ contacts: access?.contacts === true, revenue: access?.revenue === true }}
+          selectedIds={selectedIds}
+          filter={exportFilter}
+          matchingTotal={matchingTotal}
+          tableFields={exportTableFields}
+          onExported={({ rowCount, fileName }) =>
+            setExported(
+              rowCount === undefined
+                ? `Exported to ${fileName}.`
+                : `Exported ${rowCount} lead${rowCount === 1 ? '' : 's'} to ${fileName}.`,
+            )
+          }
+        />
+      ) : null}
     </div>
   );
 }

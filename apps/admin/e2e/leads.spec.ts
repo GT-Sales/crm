@@ -358,6 +358,66 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   expect(errors).toEqual([]);
 });
 
+test('ticked SIM orders are exported to Excel with the chosen fields, and the choice is remembered', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await expect(page.getByRole('link', { name: 'Priya Sharma' })).toBeVisible();
+
+  // One row by the mouse, one from the keyboard; neither opens the lead.
+  await page.getByRole('checkbox', { name: 'Select Priya Sharma' }).click();
+  const arjun = page.getByRole('checkbox', { name: 'Select Arjun Patel' });
+  await arjun.focus();
+  await page.keyboard.press('Space');
+  await expect(arjun).toBeChecked();
+  await expect(page).not.toHaveURL(/lead=/);
+  const bar = page.getByRole('status', { name: 'Selected leads' });
+  await expect(bar).toContainText('2 selected');
+
+  await bar.getByRole('button', { name: 'Export selected' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export leads to Excel' });
+  await expect(dialog.getByRole('radio', { name: 'Selected leads (2)' })).toBeChecked();
+  await expect(
+    dialog.getByRole('radio', { name: /All leads matching the current filters \(\d+\)/ }),
+  ).toBeVisible();
+  // The main fields are always in; a field of the form is added.
+  await expect(dialog.getByText('Always included')).toBeVisible();
+  const permit = dialog.getByRole('checkbox', { name: 'Visa / permit type' });
+  await expect(permit).not.toBeChecked();
+  await permit.click();
+  await expect(permit).toBeChecked();
+
+  const downloading = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toMatch(
+    /^getcanadasim-leads-sim-order-\d{4}-\d{2}-\d{2}\.xlsx$/,
+  );
+  // A real workbook: an .xlsx is a zip, which starts `PK`.
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const file = Buffer.concat(chunks);
+  expect(file.subarray(0, 2).toString('latin1')).toBe('PK');
+  expect(file.byteLength).toBeGreaterThan(1000);
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/^Exported 2 leads to getcanadasim-leads-sim-order-/)).toBeVisible();
+  // The ticks are still there, and the next export starts from the last choice.
+  await expect(bar).toContainText('2 selected');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Visa / permit type' })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+
+  // Clearing the ticks leaves the list as it was.
+  await bar.getByRole('button', { name: 'Clear selection' }).click();
+  await expect(bar).toHaveCount(0);
+  await expect(arjun).not.toBeChecked();
+  expect(errors).toEqual([]);
+});
+
 test('a custom property is set in the side panel, filtered on, saved as a view, and a hidden built-in leaves the columns', async ({
   page,
 }) => {

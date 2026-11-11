@@ -108,6 +108,8 @@ export const domainErrorCodeSchema = z.enum([
   'invoice_not_found',
   'invoice_conflict',
   'export_denied',
+  // A lead export that would hold more than `LEAD_EXPORT_MAX_ROWS` leads.
+  'export_too_large',
   'tracking_challenge_invalid',
   'tracking_expired',
   'tracking_attempts_exceeded',

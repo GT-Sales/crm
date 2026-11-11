@@ -32,6 +32,13 @@ const actionNames = tuple(
   // Seeing money: plan commissions, commission earned and expected, revenue
   // totals. Owner only; no individual permission grants it (owner, 8 Nov 2026).
   'revenue.view',
+  // Exporting leads to Excel (`POST /leads/export`). The roles that already
+  // see contact details have it (owner, Leads, Orders, Finance), since the
+  // file holds nothing the inbox and the lead page do not show them; the
+  // individual `bulk_export` permission grants it to anyone else (who then
+  // gets only what the list shows their role: no contact, form or order
+  // column) and, as a deny, takes it away (owner, 11 Nov 2026).
+  'lead.export',
 );
 
 export type StaffAction = (typeof actionNames)[number];
@@ -40,22 +47,23 @@ const actions = (...values: StaffAction[]): ReadonlySet<StaffAction> => new Set(
 
 const roleActions = {
   owner: actions(...actionNames),
-  leads: actions('workspace.read', 'lead.manage'),
-  orders: actions('workspace.read', 'order.manage', 'order.override'),
+  leads: actions('workspace.read', 'lead.manage', 'lead.export'),
+  orders: actions('workspace.read', 'order.manage', 'order.override', 'lead.export'),
   partners: actions('workspace.read'),
-  finance: actions('workspace.read', 'financial.read', 'invoice.approve'),
+  finance: actions('workspace.read', 'financial.read', 'invoice.approve', 'lead.export'),
   content: actions('workspace.read'),
   viewer: actions('workspace.read'),
 } satisfies Record<StaffRoleName, ReadonlySet<StaffAction>>;
 
+/** The actions each individual permission allows or denies; `bulk_export` covers every export. */
 const permissionActions = {
-  document_download: 'document.download',
-  financial_data: 'financial.read',
-  bulk_export: 'export.bulk',
-  deletion: 'record.delete',
-  invoice_approval: 'invoice.approve',
-  integration_management: 'integration.manage',
-} satisfies Record<StaffPermissionName, StaffAction>;
+  document_download: actions('document.download'),
+  financial_data: actions('financial.read'),
+  bulk_export: actions('export.bulk', 'lead.export'),
+  deletion: actions('record.delete'),
+  invoice_approval: actions('invoice.approve'),
+  integration_management: actions('integration.manage'),
+} satisfies Record<StaffPermissionName, ReadonlySet<StaffAction>>;
 
 export interface IndividualPermission {
   name: StaffPermissionName;
@@ -128,8 +136,8 @@ export function decideAccess(
   if (access.status === 'pending') return { allowed: false, reason: 'membership_pending' };
   if (access.status === 'revoked') return { allowed: false, reason: 'membership_revoked' };
 
-  const matchingOverrides = access.permissions.filter(
-    (permission) => permissionActions[permission.name] === action,
+  const matchingOverrides = access.permissions.filter((permission) =>
+    permissionActions[permission.name].has(action),
   );
   if (matchingOverrides.some((permission) => permission.effect === 'deny')) {
     return { allowed: false, reason: 'permission_denied' };

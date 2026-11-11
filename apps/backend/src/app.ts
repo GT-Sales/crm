@@ -66,6 +66,8 @@ function adminCors(): RequestHandler {
       res.setHeader('vary', 'Origin');
       res.setHeader('access-control-allow-headers', 'authorization, content-type, x-request-id');
       res.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      // The leads export's file name and row count, for the admin's download.
+      res.setHeader('access-control-expose-headers', 'content-disposition, x-export-row-count');
     }
     if (req.method === 'OPTIONS') {
       res.sendStatus(origin === allowedOrigin ? 204 : 403);

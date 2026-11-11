@@ -269,6 +269,12 @@ import {
   type AnalyticsResponse,
 } from './analytics';
 import {
+  LEAD_EXPORT_CONTENT_TYPE,
+  LEAD_EXPORT_ROW_COUNT_HEADER,
+  exportLeadsRequestSchema,
+  type ExportLeadsRequest,
+} from './lead-export';
+import {
   sourceReportResponseSchema,
   type SourceReportQuery,
   type SourceReportResponse,
@@ -365,6 +371,15 @@ export class BackendError extends Error {
   }
 }
 
+/** A finished leads export: the `.xlsx` bytes and what the backend said about them. */
+export interface LeadExportFile {
+  readonly blob: Blob;
+  /** From `Content-Disposition`; undefined when the header was not readable. */
+  readonly fileName: string | undefined;
+  /** From `X-Export-Row-Count`; undefined when the header was not readable. */
+  readonly rowCount: number | undefined;
+}
+
 export interface BackendClientOptions {
   /** Backend origin, e.g. `https://api.example.com`. Paths are always `/api/v1/*`. */
   readonly baseUrl: string;
@@ -379,6 +394,11 @@ export interface BackendClientOptions {
    * Defaults to 90s: the backend's own 60s budget plus room for the transport.
    */
   readonly chatTimeoutMs?: number;
+  /**
+   * Timeout for a leads export, in milliseconds. Defaults to 60s: the backend
+   * gives the export's own statements 30s, and the file still has to travel.
+   */
+  readonly exportTimeoutMs?: number;
   /** Server-owned visitor digest; never a raw browser forwarding header. */
   readonly websiteVisitorId?: () => string | undefined | Promise<string | undefined>;
 }
@@ -550,6 +570,16 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceLeadsQuery | ListWorkspaceLeadsQueryInput,
     ): Promise<ListWorkspaceLeadsResponse>;
+    /**
+     * Export leads to Excel. Resolves with the workbook's bytes, the file
+     * name the backend chose and how many leads it holds; a refusal (403, 422
+     * `export_too_large`, 429) is a `BackendError` as on every other call.
+     */
+    exportLeads(
+      workspaceId: string,
+      body: ExportLeadsRequest,
+      options?: { signal?: AbortSignal },
+    ): Promise<LeadExportFile>;
     leadsSummary(workspaceId: string, query?: LeadsSummaryQuery): Promise<LeadsSummaryResponse>;
     leadStats(workspaceId: string, query: LeadStatsQuery): Promise<LeadStatsResponse>;
     sourceReport(workspaceId: string, query: SourceReportQuery): Promise<SourceReportResponse>;
@@ -802,6 +832,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
   const doFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 10_000;
   const chatTimeoutMs = options.chatTimeoutMs ?? 90_000;
+  const exportTimeoutMs = options.exportTimeoutMs ?? 60_000;
 
   async function call<TResponse>(config: CallConfig<TResponse>): Promise<TResponse> {
     const url = new URL(config.path, origin);
@@ -954,6 +985,75 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
       const parsed = aiStreamPartSchema.safeParse(wire.success ? wire.data.data : payload);
       if (parsed.success) yield parsed.data;
     }
+  }
+
+  /**
+   * The one call whose success body is a file. A failure is the ordinary JSON
+   * error envelope and is thrown as `BackendError`, exactly as `call` does; a
+   * 200 that is not the workbook's media type is an error too, never a file.
+   */
+  async function downloadLeadExport(
+    path: string,
+    body: ExportLeadsRequest,
+    exportOptions?: { signal?: AbortSignal },
+  ): Promise<LeadExportFile> {
+    const url = new URL(path, origin);
+    assertApiPath(url, origin);
+    const requestId = globalThis.crypto.randomUUID();
+    const signals: AbortSignal[] = [timeoutSignal(exportTimeoutMs)];
+    if (exportOptions?.signal) signals.push(exportOptions.signal);
+
+    const response = await doFetch(url, {
+      method: 'POST',
+      headers: new Headers({
+        authorization: `Bearer ${options.credential}`,
+        accept: `${LEAD_EXPORT_CONTENT_TYPE}, application/json`,
+        'content-type': 'application/json',
+        'x-request-id': requestId,
+      }),
+      body: JSON.stringify(exportLeadsRequestSchema.parse(body)),
+      cache: 'no-store',
+      redirect: 'error',
+      signal: anySignal(signals),
+    });
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!response.ok || !contentType.startsWith(LEAD_EXPORT_CONTENT_TYPE)) {
+      const text = await response.text();
+      let payload: unknown;
+      try {
+        payload = text.length === 0 ? undefined : JSON.parse(text);
+      } catch {
+        payload = undefined;
+      }
+      const parsed = apiErrorResponseSchema.safeParse(payload);
+      if (parsed.success) {
+        throw new BackendError(
+          parsed.data.error.code,
+          response.status,
+          parsed.data.error.requestId,
+          parsed.data.error.details,
+        );
+      }
+      throw new BackendError('internal_error', response.status, requestId);
+    }
+
+    const blob = await response.blob();
+    // Only the name the backend builds (`[a-z0-9-]` and `.xlsx`) is taken from the header.
+    const named = /filename="([a-z0-9-]{1,200}\.xlsx)"/.exec(
+      response.headers.get('content-disposition') ?? '',
+    );
+    const rows = Number(response.headers.get(LEAD_EXPORT_ROW_COUNT_HEADER) ?? '');
+    return {
+      blob,
+      fileName: named?.[1],
+      rowCount:
+        response.headers.has(LEAD_EXPORT_ROW_COUNT_HEADER) &&
+        Number.isSafeInteger(rows) &&
+        rows >= 0
+          ? rows
+          : undefined,
+    };
   }
 
   return {
@@ -1155,6 +1255,12 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/service-credentials/${encode(credentialId)}`,
           responseSchema: revokeServiceCredentialResponseSchema,
         }),
+      exportLeads: (workspaceId, body, exportOptions) =>
+        downloadLeadExport(
+          `/api/v1/staff/workspaces/${encode(workspaceId)}/leads/export`,
+          body,
+          exportOptions,
+        ),
       listLeads: (workspaceId, query) =>
         call({
           method: 'GET',
