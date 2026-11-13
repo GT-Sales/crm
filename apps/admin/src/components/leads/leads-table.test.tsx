@@ -281,7 +281,7 @@ describe('LeadsTable', () => {
     it('ticks a row without opening it; the row and its name still open the lead', async () => {
       render(<Selectable />);
       const avery = await screen.findByRole('checkbox', { name: 'Select Avery Example' });
-      expect(onLoaded).toHaveBeenCalledWith({ total: 2 });
+      expect(onLoaded).toHaveBeenCalledWith({ total: 2, rowIds: [LEAD_1, LEAD_2] });
       expect(screen.queryByRole('status', { name: 'Selected leads' })).toBeNull();
 
       fireEvent.click(avery);

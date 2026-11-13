@@ -147,6 +147,7 @@ export function LeadsTable({
   selection,
   onSelectionChange,
   selectionActions,
+  selectionBar = true,
   onLoaded,
 }: {
   workspaceSlug: string;
@@ -177,8 +178,13 @@ export function LeadsTable({
   onSelectionChange?(next: LeadSelection): void;
   /** What can be done with the ticked leads, shown beside their count. */
   selectionActions?: ReactNode;
-  /** Told how many leads match the filters, each time a page arrives. */
-  onLoaded?(info: { total: number }): void;
+  /**
+   * False when the parent shows the count and actions itself (the inbox does,
+   * in its toolbar), so ticking a row does not push the table down.
+   */
+  selectionBar?: boolean;
+  /** Told how many leads match the filters, and which are on the page, each time a page arrives. */
+  onLoaded?(info: { total: number; rowIds: readonly string[] }): void;
 }) {
   const router = useRouter();
   const load = useMemo(
@@ -225,14 +231,18 @@ export function LeadsTable({
     seenToken.current = reloadToken;
     void reload();
   }, [reloadToken, reload]);
-  const loadedTotal = leads.data?.page.total;
+  const loadedPage = leads.data;
   const reportLoaded = useRef(onLoaded);
   useEffect(() => {
     reportLoaded.current = onLoaded;
   }, [onLoaded]);
   useEffect(() => {
-    if (loadedTotal !== undefined) reportLoaded.current?.({ total: loadedTotal });
-  }, [loadedTotal]);
+    if (loadedPage)
+      reportLoaded.current?.({
+        total: loadedPage.page.total,
+        rowIds: loadedPage.leads.map((lead) => lead.id),
+      });
+  }, [loadedPage]);
   const rows = leads.data?.leads ?? [];
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
@@ -315,7 +325,7 @@ export function LeadsTable({
           Loading leads…
         </span>
       ) : null}
-      {selecting && tickedCount > 0 ? (
+      {selectionBar && selecting && tickedCount > 0 ? (
         <div
           role="status"
           aria-label="Selected leads"

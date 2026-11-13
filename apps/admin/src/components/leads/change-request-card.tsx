@@ -12,8 +12,17 @@ import {
   type SiteProperty,
   type StaffChangeRequest,
 } from '@gt-sales/contracts';
-import { Button, Card, CardContent } from '@gt-sales/ui';
-import { EyeIcon } from 'lucide-react';
+import {
+  Button,
+  Card,
+  CardContent,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@gt-sales/ui';
+import { EyeIcon, FileTextIcon } from 'lucide-react';
 
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { describeError } from '../../lib/error-text';
@@ -195,6 +204,7 @@ export function ChangeRequestCard({
   onDecide,
   onDone,
   openDocument,
+  previewDocument,
   onReload,
 }: {
   lead: LeadDetail;
@@ -208,6 +218,11 @@ export function ChangeRequestCard({
   ): Promise<ResolveChangeRequestResponse>;
   onDone(result: ResolveChangeRequestResponse): void;
   openDocument(fileId: string): Promise<void>;
+  /**
+   * A short-lived inline link for a document's thumbnail on the card. Without
+   * it (or when it fails) the card shows View only.
+   */
+  previewDocument?(fileId: string): Promise<string>;
   /** Reads the lead again (offered when the request moved under the decision). */
   onReload?(): void;
 }): JSX.Element {
@@ -309,15 +324,22 @@ export function ChangeRequestCard({
           {changeRequest.documents.length > 0 ? (
             <div className="flex flex-col gap-1 text-sm">
               <p>Documents sent with it:</p>
-              <ul className="flex flex-col gap-1">
+              <ul className="flex flex-col gap-2">
                 {changeRequest.documents.map((document) => {
                   const label = documentLabel(document.documentType);
                   return (
                     <li
                       key={document.fileId}
                       aria-label={label}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-3"
                     >
+                      {canDownload && previewDocument ? (
+                        <DocumentThumb
+                          fileId={document.fileId}
+                          label={label}
+                          load={previewDocument}
+                        />
+                      ) : null}
                       <span>{label}</span>
                       {canDownload ? (
                         <Button
@@ -397,5 +419,79 @@ export function ChangeRequestCard({
         </section>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * A document's picture on the card, so staff see the passport or letter
+ * without opening a tab. A short-lived signed link to a private object: next/image would
+ * proxy and cache it, so a plain <img> is the right element here. Anything that
+ * is not an image (a PDF) shows a file tile; View still opens it.
+ */
+function DocumentThumb({
+  fileId,
+  label,
+  load,
+}: {
+  fileId: string;
+  label: string;
+  load(fileId: string): Promise<string>;
+}): JSX.Element {
+  const [url, setUrl] = useState<string>();
+  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
+  // The parent may pass a new function each render; the link is fetched once per file.
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+  useEffect(() => {
+    let live = true;
+    loadRef.current(fileId).then(
+      (next) => {
+        if (live) setUrl(next);
+      },
+      () => {
+        if (live) setFailed(true);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [fileId]);
+
+  if (failed || url === undefined)
+    return (
+      <span
+        aria-hidden="true"
+        className={`grid size-16 shrink-0 place-items-center rounded-md border bg-muted text-muted-foreground ${url === undefined && !failed ? 'animate-pulse' : ''}`}
+      >
+        <FileTextIcon className="size-5" />
+      </span>
+    );
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`Preview ${label}`}
+        className="size-16 shrink-0 overflow-hidden rounded-md border bg-muted outline-none hover:ring-2 hover:ring-ring/40 focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => setOpen(true)}
+      >
+        <img src={url} alt="" onError={() => setFailed(true)} className="size-full object-cover" />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{label}</DialogTitle>
+            <DialogDescription>Sent with the customer’s change request.</DialogDescription>
+          </DialogHeader>
+          <img
+            src={url}
+            alt={label}
+            className="max-h-[75vh] w-full rounded-md bg-muted object-contain"
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

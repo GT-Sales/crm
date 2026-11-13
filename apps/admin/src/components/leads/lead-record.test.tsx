@@ -917,7 +917,8 @@ describe('LeadRecord order details', () => {
 
     it('views the request’s document through an inline link', async () => {
       mocks.getStaffLead.mockResolvedValue(loaded());
-      mocks.createFileDownloadLink.mockResolvedValueOnce({
+      // The card's thumbnail asks for the same inline link before View does.
+      mocks.createFileDownloadLink.mockResolvedValue({
         url: 'https://storage.example.test/held',
         expiresAt: NOW,
         requestId: NOW,

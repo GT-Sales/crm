@@ -445,6 +445,12 @@ export function LeadRecord({
     }
   }
 
+  /** An inline link for a change request document's thumbnail on its card. */
+  async function previewRequestDocument(fileId: string): Promise<string> {
+    if (!accessToken || !workspaceId) throw new Error('signed out');
+    return (await createFileDownloadLink(accessToken, workspaceId, fileId, 'inline')).url;
+  }
+
   async function reviewed() {
     await refresh();
     onChangeRef.current?.();
@@ -709,9 +715,9 @@ export function LeadRecord({
             lead.deletedAt === null ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                className="ml-auto hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                 disabled={saving}
                 onClick={() => void setArchived(true)}
               >
@@ -1009,6 +1015,7 @@ export function LeadRecord({
       }
       onDone={(result) => void changeDecided(shownRequest, result)}
       openDocument={openRequestDocument}
+      previewDocument={previewRequestDocument}
       onReload={() => void refresh()}
     />
   ) : null;

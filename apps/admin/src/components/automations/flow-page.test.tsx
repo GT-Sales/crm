@@ -42,6 +42,13 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: navigation.push, replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/w/canadawide/automations',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 vi.mock('../../lib/api', () => ({ ...mocks, BackendError: mocks.FakeBackendError }));
 
 vi.mock('../staff-session-provider', () => ({
@@ -420,7 +427,8 @@ describe('FlowPage', () => {
     expect(within(stepOutcomes).getByText('Waiting')).toBeTruthy();
   });
 
-  it('asks before archiving, then shows the flow archived', async () => {
+  it('asks before archiving, then goes back to the automations list', async () => {
+    navigation.push.mockReset();
     mocks.archiveAutomation.mockResolvedValue(
       detail({ automation: summary({ archived: true, enabled: false }) }),
     );
@@ -432,8 +440,7 @@ describe('FlowPage', () => {
     await waitFor(() =>
       expect(mocks.archiveAutomation).toHaveBeenCalledWith('staff-token', WORKSPACE, FLOW),
     );
-    expect(await screen.findByRole('button', { name: 'Restore' })).toBeTruthy();
-    expect(screen.getByText('Archived')).toBeTruthy();
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith('/w/canadawide/automations'));
   });
 
   it('a built-in has Reset to default and no Archive; a new flow says No trigger yet', async () => {

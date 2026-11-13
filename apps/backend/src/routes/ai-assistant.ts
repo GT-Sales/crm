@@ -4,6 +4,7 @@ import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import type { FlowStore } from '../automations/flow-store.js';
 import { AISDKError, tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { AssistantProviderError } from '../ai/engine.js';
+import { createCrmGuideTool, runCrmGuide } from '../ai/crm-guide.js';
 import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
 import { signAssistantTurn, trustedHistory } from '../ai/history.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
@@ -243,6 +244,7 @@ const CARD_PROGRESS_LABELS: Readonly<Record<string, string>> = {
   proposeAutomationCreate: 'Drafting an automation for review',
   proposeAutomationEdit: 'Drafting automation changes for review',
   askFollowUp: 'Preparing a question',
+  getCrmGuide: 'Looking up the CRM guide',
 };
 
 /** The longest text part the stream sends; a longer provider chunk is split. */
@@ -987,6 +989,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 ...actionTools?.definitions,
                 ...automationTools?.definitions,
                 askFollowUp: guidedTool,
+                getCrmGuide: createCrmGuideTool(budget),
               },
               signal: controller.signal,
               executeTool: (name, input) =>
@@ -1003,7 +1006,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                       ? automationTools.execute(name, input)
                       : name === 'askFollowUp'
                         ? guide(input)
-                        : Promise.reject(new Error('unknown assistant tool')),
+                        : name === 'getCrmGuide'
+                          ? Promise.resolve(runCrmGuide(budget, input))
+                          : Promise.reject(new Error('unknown assistant tool')),
             })) {
               if (controller.signal.aborted) break;
               switch (event.type) {

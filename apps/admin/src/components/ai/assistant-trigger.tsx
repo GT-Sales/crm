@@ -18,8 +18,9 @@ export function AssistantTrigger() {
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="outline"
       size="sm"
+      className="gap-1.5 rounded-full border-primary/30 bg-primary/5 px-3 font-medium text-primary shadow-xs hover:border-primary/50 hover:bg-primary/10 hover:text-primary aria-expanded:bg-primary/15"
       aria-label="Ask AI"
       aria-haspopup="dialog"
       aria-expanded={isOpen}
