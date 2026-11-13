@@ -190,3 +190,52 @@ it('delivers a prepared automation at the step limit without treating it as a fa
   expect(events.some((e) => e.type === 'finish')).toBe(true);
   expect(model.doStreamCalls).toHaveLength(5);
 });
+
+describe('the Gateway host pin', () => {
+  function answerOnce() {
+    return new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'text-start', id: 'a' },
+              { type: 'text-delta', id: 'a', delta: 'ok' },
+              { type: 'text-end', id: 'a' },
+              { type: 'finish', finishReason: { unified: 'stop', raw: undefined }, usage },
+            ],
+          }),
+        },
+      ],
+    });
+  }
+
+  async function drain(engine: ReturnType<typeof createGatewayEngine>) {
+    for await (const _event of engine.stream({
+      system: 's',
+      messages: [{ role: 'user', text: 'hi' }],
+      tools: {},
+      signal: new AbortController().signal,
+    })) {
+      // drain
+    }
+  }
+
+  it('sends only and order to the Gateway when hosts are pinned', async () => {
+    const model = answerOnce();
+    await drain(
+      createGatewayEngine(
+        { apiKey: 'synthetic', modelId: 'synthetic/test', providers: ['baseten', 'azure'] },
+        model,
+      ),
+    );
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      gateway: { only: ['baseten', 'azure'], order: ['baseten', 'azure'] },
+    });
+  });
+
+  it('sends no Gateway routing options when nothing is pinned', async () => {
+    const model = answerOnce();
+    await drain(createGatewayEngine({ apiKey: 'synthetic', modelId: 'synthetic/test' }, model));
+    expect(model.doStreamCalls[0]?.providerOptions?.['gateway']).toBeUndefined();
+  });
+});

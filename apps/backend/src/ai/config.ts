@@ -19,6 +19,12 @@ export interface AiAssistantConfig {
   readonly reason?: AiUnavailableReason;
   /** Exact Gateway model id; never defaulted, so an unset value cannot pick a paid model. */
   readonly modelId?: string;
+  /**
+   * Gateway hosts allowed to serve the model, in preference order
+   * (`AI_GATEWAY_PROVIDERS`). Unset lets the Gateway choose. Set, the Gateway
+   * uses only these, so an open model cannot be served from an unvetted host.
+   */
+  readonly providers?: readonly string[];
   /** Gateway API key; server-only, never logged or returned. */
   readonly apiKey?: string;
   /**
@@ -39,6 +45,26 @@ export const AI_SIGNING_SECRET_MIN = 32;
 
 /** The model id's shape; the Gateway catalogue is authoritative for existence. */
 const modelIdSchema = z.string().trim().min(1).max(120);
+
+/** A Gateway provider slug, such as `baseten` or `vertexAnthropic`. */
+const providerSlugSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9-]{0,39}$/);
+
+/** At most this many hosts in `AI_GATEWAY_PROVIDERS`. */
+export const AI_GATEWAY_PROVIDERS_MAX = 8;
+
+/**
+ * Reads `AI_GATEWAY_PROVIDERS`. Malformed entries are dropped, duplicates
+ * removed and the list capped. A value with no valid entry is `undefined`
+ * rather than an empty list, which the Gateway would read as "no host".
+ */
+function parseProviders(raw: string | undefined): readonly string[] | undefined {
+  const providers: string[] = [];
+  for (const entry of (raw ?? '').split(',')) {
+    const parsed = providerSlugSchema.safeParse(entry.trim());
+    if (parsed.success && !providers.includes(parsed.data)) providers.push(parsed.data);
+  }
+  return providers.length > 0 ? providers.slice(0, AI_GATEWAY_PROVIDERS_MAX) : undefined;
+}
 
 function parseWorkspaceIds(raw: string | undefined): ReadonlySet<string> {
   const ids = new Set<string>();
@@ -74,10 +100,12 @@ export function loadAiAssistantConfig(
       : secret.length >= AI_SIGNING_SECRET_MIN
         ? { signingKey: secret, signingKeySource: 'dedicated' as const }
         : {};
+  const providers = parseProviders(env['AI_GATEWAY_PROVIDERS']);
   return {
     enabled: true,
     apiKey,
     modelId: modelId.data,
+    ...(providers ? { providers } : {}),
     ...signing,
     workspaceIds,
     ...(env['AI_AUTOMATION_WORKSPACE_IDS']
