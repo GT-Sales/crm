@@ -4,12 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ListWorkspaceJobsResponse } from '@gt-sales/contracts';
 import { Badge, Button } from '@gt-sales/ui';
 
-import {
-  BackendError,
-  listWorkspaceJobs,
-  resolveUncertainWorkspaceJob,
-  retryWorkspaceJob,
-} from '../lib/api';
+import { listWorkspaceJobs, resolveUncertainWorkspaceJob, retryWorkspaceJob } from '../lib/api';
+import { describeError } from '../lib/error-text';
 import { useStaffSession } from './staff-session-provider';
 import { LoadingSkeleton } from './crm/loading-skeleton';
 
@@ -31,9 +27,7 @@ export function JobsStatus({ workspaceSlug }: { workspaceSlug: string }) {
       const jobs = await listWorkspaceJobs(staff.accessToken, workspaceId);
       setResult(jobs);
     } catch (error) {
-      setMessage(
-        `Could not load job state. Reason: ${error instanceof BackendError ? error.code : 'internal_error'}.`,
-      );
+      setMessage(describeError(error, 'load the jobs'));
     }
   }, [staff.accessToken, workspaceId]);
 
@@ -41,7 +35,7 @@ export function JobsStatus({ workspaceSlug }: { workspaceSlug: string }) {
     void refresh();
   }, [refresh]);
 
-  async function act(jobId: string, run: () => Promise<unknown>, failure: string) {
+  async function act(jobId: string, run: () => Promise<unknown>, action: string) {
     if (!staff.accessToken || !workspaceId || busyJobId) return;
     setBusyJobId(jobId);
     setMessage(undefined);
@@ -49,9 +43,7 @@ export function JobsStatus({ workspaceSlug }: { workspaceSlug: string }) {
       await run();
       await refresh();
     } catch (error) {
-      setMessage(
-        `${failure} Reason: ${error instanceof BackendError ? error.code : 'internal_error'}.`,
-      );
+      setMessage(describeError(error, action));
     } finally {
       setBusyJobId(undefined);
     }
@@ -60,7 +52,7 @@ export function JobsStatus({ workspaceSlug }: { workspaceSlug: string }) {
   function retry(jobId: string) {
     const token = staff.accessToken;
     if (!token || !workspaceId) return;
-    void act(jobId, () => retryWorkspaceJob(token, workspaceId, jobId), 'Could not retry the job.');
+    void act(jobId, () => retryWorkspaceJob(token, workspaceId, jobId), 'retry the job');
   }
 
   function resolve(jobId: string, delivered: boolean) {
@@ -69,7 +61,7 @@ export function JobsStatus({ workspaceSlug }: { workspaceSlug: string }) {
     void act(
       jobId,
       () => resolveUncertainWorkspaceJob(token, workspaceId, jobId, delivered),
-      'Could not record the outcome.',
+      'record the outcome',
     );
   }
 

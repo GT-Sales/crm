@@ -12,6 +12,7 @@ import { Badge, Button, Card, CardContent, cn } from '@gt-sales/ui';
 import { FileCheck2Icon } from 'lucide-react';
 
 import { listDocumentReviewQueue } from '../../lib/api';
+import { describeError } from '../../lib/error-text';
 import { useResource } from '../../lib/use-resource';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { DocumentRow } from '../leads/lead-documents';
@@ -55,8 +56,8 @@ export function DocumentReviewQueue({ workspaceSlug }: { workspaceSlug: string }
     return (
       <p role="alert" className="text-sm text-destructive">
         {queue.error === 'permission_denied'
-          ? 'Your role does not show customer documents.'
-          : `The documents could not be loaded. Reason: ${queue.error}.`}
+          ? "Your role doesn't show customer documents. Ask the owner if you need to review them."
+          : describeError(queue.failure, 'load the documents')}
       </p>
     );
   }
@@ -98,7 +99,7 @@ export function DocumentReviewQueue({ workspaceSlug }: { workspaceSlug: string }
 
       {queue.error ? (
         <p role="alert" className="text-sm text-destructive">
-          Could not refresh the documents. Reason: {queue.error}.
+          {describeError(queue.failure, 'refresh the documents')}
         </p>
       ) : null}
 

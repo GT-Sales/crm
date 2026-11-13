@@ -239,7 +239,7 @@ describe('SiteAutomations', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: ORDER_RECEIVED }));
     expect((await within(row(ORDER_RECEIVED)).findByRole('alert')).textContent).toBe(
-      'The change was not saved. Reason: internal_error.',
+      "The CRM had a problem and couldn't save the change. Try again in a minute; if it keeps happening, tell your admin.",
     );
     expect(screen.getByRole('switch', { name: ORDER_RECEIVED }).getAttribute('aria-checked')).toBe(
       'true',
@@ -325,7 +325,7 @@ describe('SiteAutomations', () => {
     mocks.listAutomations.mockRejectedValueOnce(new mocks.FakeBackendError('internal_error'));
     render(<SiteAutomations workspaceSlug="canadawide" />);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'The automations could not be loaded. Reason: internal_error.',
+      "The CRM had a problem and couldn't load the automations. Try again in a minute; if it keeps happening, tell your admin.",
     );
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await table()).toBeTruthy();

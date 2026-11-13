@@ -24,6 +24,7 @@ import {
 } from '@gt-sales/ui';
 
 import { torontoDay } from '../../lib/dates';
+import { describeError } from '../../lib/error-text';
 import { errorDetailList, errorReason } from '../../lib/use-resource';
 import { documentTypeLabel } from '../plans/document-types';
 
@@ -47,7 +48,7 @@ export const APPROVE_DOCUMENTS_FIRST =
  */
 export function stageMoveRefusal(code: string, leadType: string, from: string): string | undefined {
   if (code === 'illegal_stage_move') {
-    return `That move is not allowed from ${leadStageLabel(leadType, from)}.`;
+    return `That move is not allowed from ${leadStageLabel(leadType, from)}. Pick one of the stages offered.`;
   }
   if (code === 'documents_override_not_allowed') return APPROVE_DOCUMENTS_FIRST;
   return undefined;
@@ -184,7 +185,7 @@ export function StageMoveDialog({
       } else {
         setMessage(
           stageMoveRefusal(code, lead.leadType, lead.stage) ??
-            `The lead was not moved. Reason: ${code}.`,
+            describeError(error, 'move the lead'),
         );
       }
     } finally {

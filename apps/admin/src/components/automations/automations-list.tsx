@@ -37,7 +37,7 @@ import {
   updateAutomation,
 } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
-import { errorReason } from '../../lib/use-resource';
+import { describeError } from '../../lib/error-text';
 import { useStaffSession } from '../staff-session-provider';
 import { describeTrigger, flowStatusChip, namesFromCode } from './flow-words';
 import { useAutomations } from './use-automations';
@@ -50,8 +50,11 @@ const LIMIT_REACHED = `This site already has ${AUTOMATION_MAX_FLOWS} flows. Arch
 
 const names = namesFromCode();
 
-/** Why a change did not take, in words staff can act on. */
-export function changeError(error: unknown, what = 'The change was not saved'): string {
+/**
+ * Why a change did not take, in words staff can act on. `action` is what was
+ * being done, as `describeError` takes it ("archive the flow").
+ */
+export function changeError(error: unknown, action = 'save the change'): string {
   if (error instanceof BackendError && error.code === 'permission_denied') {
     return NEEDS_INTEGRATIONS;
   }
@@ -59,7 +62,7 @@ export function changeError(error: unknown, what = 'The change was not saved'): 
     return LIMIT_REACHED;
   }
   if (error instanceof BackendError && error.code === 'no_active_version') return ACTIVATE_FIRST;
-  return `${what}. Reason: ${errorReason(error)}.`;
+  return describeError(error, action);
 }
 
 export function StatusChip({
@@ -251,7 +254,7 @@ type ArchivedState =
   | { status: 'closed' }
   | { status: 'loading'; flows: FlowSummary[] }
   | { status: 'loaded'; flows: FlowSummary[]; nextBefore: AutomationKey | null }
-  | { status: 'failed'; flows: FlowSummary[]; reason: string };
+  | { status: 'failed'; flows: FlowSummary[]; message: string };
 
 /** "Archived flows": the archived ones, a page at a time, each with Restore. */
 function ArchivedFlows({
@@ -282,7 +285,11 @@ function ArchivedFlows({
       });
     } catch (caught) {
       if (request.current !== current) return;
-      setState({ status: 'failed', flows: kept, reason: errorReason(caught) });
+      setState({
+        status: 'failed',
+        flows: kept,
+        message: describeError(caught, 'load the archived flows'),
+      });
     }
   }
 
@@ -354,7 +361,7 @@ function ArchivedFlows({
             ) : null}
             {state.status === 'failed' ? (
               <p role="alert" className="text-sm text-destructive">
-                The archived flows could not be loaded. Reason: {state.reason}.
+                {state.message}
               </p>
             ) : null}
             {state.status === 'loaded' && state.nextBefore ? (
@@ -487,7 +494,7 @@ export function SiteAutomations({ workspaceSlug }: { workspaceSlug: string }): J
   const router = useRouter();
   const workspaceId = staff.workspaces.find((item) => item.slug === workspaceSlug)?.id;
   const accessToken = staff.accessToken;
-  const { data, reload, replace, error } = useAutomations(workspaceId);
+  const { data, reload, replace, error, failure } = useAutomations(workspaceId);
 
   async function onToggle(key: AutomationKey, enabled: boolean): Promise<string | undefined> {
     if (!accessToken || !workspaceId) return SIGNED_OUT;
@@ -509,7 +516,7 @@ export function SiteAutomations({ workspaceSlug }: { workspaceSlug: string }): J
       router.push(`/w/${workspaceSlug}/automations/${created.automation.key}`);
       return undefined;
     } catch (caught) {
-      return changeError(caught, 'The flow was not created');
+      return changeError(caught, 'create the flow');
     }
   }
 
@@ -528,7 +535,7 @@ export function SiteAutomations({ workspaceSlug }: { workspaceSlug: string }): J
       await reload();
       return undefined;
     } catch (caught) {
-      return changeError(caught, 'The flow was not restored');
+      return changeError(caught, 'restore the flow');
     }
   }
 
@@ -536,7 +543,7 @@ export function SiteAutomations({ workspaceSlug }: { workspaceSlug: string }): J
     return error ? (
       <div className="flex flex-col items-start gap-2">
         <p role="alert" className="text-sm text-destructive">
-          The automations could not be loaded. Reason: {error}.
+          {describeError(failure ?? error, 'load the automations')}
         </p>
         <Button type="button" size="sm" variant="outline" onClick={() => void reload()}>
           Try again

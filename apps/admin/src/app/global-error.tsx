@@ -12,9 +12,10 @@ import { captureException } from '../lib/error-tracking';
  */
 export default function GlobalError({
   error,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     captureException(error, {
@@ -26,7 +27,16 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body>
-        <p>Something went wrong. Please refresh the page.</p>
+        <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: '36rem', padding: '2rem' }}>
+          <h1>The CRM could not show this page</h1>
+          <p>
+            Try again. If it keeps happening, reload the page in a minute, and tell your admin if it
+            still fails.
+          </p>
+          <button type="button" onClick={() => retry()}>
+            Try again
+          </button>
+        </main>
       </body>
     </html>
   );

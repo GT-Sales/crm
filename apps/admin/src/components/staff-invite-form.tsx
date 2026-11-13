@@ -5,7 +5,8 @@ import { staffRoleNames, type StaffRoleName } from '@gt-sales/types';
 import { Button, Input, Label } from '@gt-sales/ui';
 import { Mail, Plus, Trash2, UserPlus } from 'lucide-react';
 
-import { BackendError, inviteStaff } from '../lib/api';
+import { inviteStaff } from '../lib/api';
+import { describeError } from '../lib/error-text';
 import { ROLE_LABELS } from '../lib/people';
 import { useStaffSession } from './staff-session-provider';
 
@@ -84,8 +85,7 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
           : `${activeRows.length} invitations are pending. The recipients can now accept them from the sign-in page.`,
       );
     } catch (error) {
-      const reason = error instanceof BackendError ? error.code : 'internal_error';
-      setMessage(`Invitation was not created. Reason: ${reason}.`);
+      setMessage(describeError(error, 'send the invitation'));
     } finally {
       setBusy(false);
     }

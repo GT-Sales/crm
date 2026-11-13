@@ -170,7 +170,7 @@ describe('PlansSettings list', () => {
   it('says when the plans cannot be read', async () => {
     mocks.listPlans.mockRejectedValue(new mocks.FakeBackendError('forbidden'));
     render(<PlansSettings workspaceSlug="canadawide" />);
-    expect((await screen.findByRole('alert')).textContent).toContain('forbidden');
+    expect((await screen.findByRole('alert')).textContent).toContain("couldn't load the plans");
   });
 });
 
@@ -331,7 +331,7 @@ describe('PlansSettings writes', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save plan' }));
 
     expect((await within(dialog).findByRole('alert')).textContent).toBe(
-      'This plan changed elsewhere. Reload and try again.',
+      'Someone else changed this plan while you were editing. The latest version is loaded; make your change again.',
     );
     await waitFor(() =>
       expect(within(dialog).getByLabelText<HTMLInputElement>('Name').value).toBe('Bronze 2026'),
@@ -356,7 +356,7 @@ describe('PlansSettings writes', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Active Bronze' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'This plan changed elsewhere. Reload and try again.',
+      'Someone else changed this plan while you were editing. The latest version is loaded; make your change again.',
     );
     await waitFor(() => expect(mocks.listPlans).toHaveBeenCalledTimes(2));
   });
@@ -368,7 +368,7 @@ describe('PlansSettings writes', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Active Bronze' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'The change was not saved. Reason: forbidden.',
+      "The CRM had a problem and couldn't save the change. Try again in a minute; if it keeps happening, tell your admin.",
     );
   });
 });

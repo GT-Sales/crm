@@ -22,6 +22,12 @@ export interface Resource<T> {
   data: T | undefined;
   /** The failed load's error code; cleared by the next load. */
   error: string | undefined;
+  /**
+   * The failed load's original error (a `BackendError`, a network `TypeError`,
+   * a timeout), for `describeError`, which tells an outage from a refusal;
+   * cleared by the next load.
+   */
+  failure: unknown;
   loading: boolean;
   reload(): Promise<void>;
   /** Replace the loaded value in place, for an optimistic or a server-confirmed change. */
@@ -36,6 +42,7 @@ export interface Resource<T> {
 export function useResource<T>(load: (() => Promise<T>) | undefined): Resource<T> {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string>();
+  const [failure, setFailure] = useState<unknown>();
   const [loading, setLoading] = useState(false);
   const version = useRef(0);
 
@@ -44,6 +51,7 @@ export function useResource<T>(load: (() => Promise<T>) | undefined): Resource<T
     const current = ++version.current;
     setLoading(true);
     setError(undefined);
+    setFailure(undefined);
     try {
       const result = await load();
       if (version.current !== current) return;
@@ -51,6 +59,7 @@ export function useResource<T>(load: (() => Promise<T>) | undefined): Resource<T
     } catch (caught) {
       if (version.current !== current) return;
       setError(errorReason(caught));
+      setFailure(caught);
     } finally {
       if (version.current === current) setLoading(false);
     }
@@ -67,5 +76,5 @@ export function useResource<T>(load: (() => Promise<T>) | undefined): Resource<T
     setData((current) => (current === undefined ? current : update(current)));
   }, []);
 
-  return { data, error, loading, reload, mutate };
+  return { data, error, failure, loading, reload, mutate };
 }

@@ -911,10 +911,10 @@ describe('LeadsInbox', () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     expect(
       await screen.findByText(
-        "Could not load the site's properties; showing built-in ones. Reason: internal_error.",
+        "The CRM had a problem and couldn't load the site's properties. Try again in a minute; if it keeps happening, tell your admin. Showing the built-in properties for now.",
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/Could not load the site's properties/).getAttribute('role')).toBe(
+    expect(screen.getByText(/couldn't load the site's properties/).getAttribute('role')).toBe(
       'alert',
     );
 
@@ -1124,7 +1124,7 @@ describe('LeadsInbox', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Saved views' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
       expect((await screen.findByRole('alert')).textContent).toBe(
-        'This view changed elsewhere. Reload and try again.',
+        'This view was changed in another tab or window. Reload the page and try again.',
       );
     });
 
@@ -1167,8 +1167,8 @@ describe('LeadsInbox', () => {
     });
 
     it.each([
-      ['saved_view_name_taken', 'A view with that name already exists.'],
-      ['saved_view_limit', 'You already have 30 views. Delete one first.'],
+      ['saved_view_name_taken', 'You already have a view with that name. Choose a different name.'],
+      ['saved_view_limit', 'You already have 30 views. Delete one you no longer use first.'],
     ])('shows %s in the dialog and keeps it open', async (code, message) => {
       navigation.search = 'type=internet';
       mocks.createSavedView.mockRejectedValue(new backend.BackendError(code));
@@ -1311,7 +1311,7 @@ describe('LeadsInbox', () => {
     it('says when the views could not be loaded and still works as All leads', async () => {
       mocks.listSavedViews.mockRejectedValue(new backend.BackendError('internal_error'));
       render(<LeadsInbox workspaceSlug="canadawide" />);
-      expect(await screen.findByText(/Could not load your saved views/)).toBeTruthy();
+      expect(await screen.findByText(/couldn't load your saved views/)).toBeTruthy();
       expect(await trigger(/All leads/)).toBeTruthy();
     });
   });

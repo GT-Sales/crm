@@ -14,7 +14,8 @@ import { cn } from '@gt-sales/ui';
 
 import { listStaffTasks, updateLeadTask } from '../../lib/api';
 import { todayDay } from '../../lib/dates';
-import { errorReason, useResource, type Resource } from '../../lib/use-resource';
+import { describeError } from '../../lib/error-text';
+import { useResource, type Resource } from '../../lib/use-resource';
 import { leadDisplayName } from './lead-display';
 import { TaskRow } from './lead-tasks';
 import {
@@ -150,7 +151,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
    * One change to a task: shown at once, replaced by the saved task when the
    * backend answers, and put back as it was (with a message) if it refuses.
    */
-  async function change(task: WorkspaceTask, next: TaskChange, failure: string) {
+  async function change(task: WorkspaceTask, next: TaskChange, action: string) {
     if (!accessToken || !workspaceId || busyIds.has(task.id)) return;
     const body: TaskChange = {};
     if (next.status !== undefined && next.status !== task.status) body.status = next.status;
@@ -173,7 +174,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
       setAnnouncement(`“${task.title}”: ${changeWords(body)}.`);
     } catch (error) {
       patch(task.id, () => previous);
-      setMessage(`${failure} Reason: ${errorReason(error)}.`);
+      setMessage(describeError(error, action));
     } finally {
       setBusyIds((current) => {
         const rest = new Set(current);
@@ -184,7 +185,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
   }
 
   function setStatus(task: WorkspaceTask, status: LeadTaskStatus) {
-    void change(task, { status }, 'The task was not updated.');
+    void change(task, { status }, 'update the task');
   }
 
   const list = tasks.data?.tasks ?? [];
@@ -256,8 +257,8 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
       {tasks.error ? (
         <p role="alert" className="text-sm text-muted-foreground">
           {tasks.error === 'permission_denied'
-            ? 'Your role does not include lead tasks.'
-            : `Could not load tasks. Reason: ${tasks.error}.`}
+            ? 'Your role does not include lead tasks. Ask the owner if you need them.'
+            : describeError(tasks.failure, 'load the tasks')}
         </p>
       ) : !tasks.data ? (
         <LoadingSkeleton label="Loading tasks…" variant={view === 'board' ? 'board' : 'list'} />
@@ -278,8 +279,8 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             workspaceSlug={workspaceSlug}
             canWrite={canWrite}
             busyIds={busyIds}
-            doneState={{ loading: done.loading, error: done.error }}
-            onMove={(task, next) => void change(task, next, `“${task.title}” was not moved.`)}
+            doneState={{ loading: done.loading, error: done.error, failure: done.failure }}
+            onMove={(task, next) => void change(task, next, `move “${task.title}”`)}
           />
         </>
       ) : list.length === 0 ? (

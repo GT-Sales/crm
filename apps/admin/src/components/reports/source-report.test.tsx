@@ -204,7 +204,7 @@ describe('SourceReport', () => {
     mocks.getSourceReport.mockRejectedValueOnce(new Error('down'));
     render(<SourceReport workspaceSlug="canadawide" />);
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('Could not load the report.');
+    expect(alert.textContent).toContain("couldn't load the report");
     expect(screen.queryByRole('table')).toBeNull();
     expect(screen.queryByText('Direct')).toBeNull();
     expect(mocks.getSourceReport).toHaveBeenCalledTimes(1);

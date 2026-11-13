@@ -14,7 +14,7 @@ import {
 import { Button, FormField, Input, Textarea } from '@gt-sales/ui';
 
 import { BackendError } from '../../lib/api';
-import { errorReason } from '../../lib/use-resource';
+import { describeError, describeInvalid } from '../../lib/error-text';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 
 /** How long the editor waits after the last keystroke before it asks for a preview. */
@@ -135,10 +135,7 @@ export function TemplateEditor({
         },
         (error: unknown) => {
           if (request !== latestPreview.current) return;
-          setPreviewProblem(
-            templateProblem(error) ??
-              `The preview could not be made. Reason: ${errorReason(error)}.`,
-          );
+          setPreviewProblem(templateProblem(error) ?? describeError(error, 'make the preview'));
         },
       );
     }, PREVIEW_DELAY_MS);
@@ -167,7 +164,10 @@ export function TemplateEditor({
       body,
     });
     if (!parsed.success) {
-      setSaveResult({ ok: false, text: 'Check the subject and the body and try again.' });
+      setSaveResult({
+        ok: false,
+        text: describeInvalid(parsed.error, { subject: 'The subject', body: 'The body' }),
+      });
       return;
     }
     setBusy(true);

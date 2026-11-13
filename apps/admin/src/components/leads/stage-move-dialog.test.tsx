@@ -256,7 +256,7 @@ describe('StageMoveDialog', () => {
     fireEvent.change(within(view).getByLabelText(/^Courier/), { target: { value: 'Canada Post' } });
     fireEvent.click(within(view).getByRole('button', { name: 'Move' }));
     expect((await within(view).findByRole('alert')).textContent).toBe(
-      'That move is not allowed from Verified.',
+      'That move is not allowed from Verified. Pick one of the stages offered.',
     );
   });
 

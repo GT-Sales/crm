@@ -30,6 +30,7 @@ import {
 import { buildAiChatRequest, streamAnswer, uiErrorForStreamCode } from '../../lib/ai-transport';
 import type { AiRequestLimits, AiUiError, AiHistoryEntry } from '../../lib/ai-transport';
 import { getAiCapabilities, confirmAiAction, reviseAiAction, BackendError } from '../../lib/api';
+import { describeError } from '../../lib/error-text';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
 
 /**
@@ -636,7 +637,7 @@ export function AssistantProvider({
           }
           updateAction(messageId, actionId, {
             status: 'pending',
-            error: 'Draft could not be updated. The original draft is shown; nothing was saved.',
+            error: `${describeError(error, 'update the draft')} The original draft is shown; nothing was saved.`,
           });
         },
       );

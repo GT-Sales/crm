@@ -16,11 +16,11 @@ import {
 } from '@gt-sales/ui';
 
 import {
-  BackendError,
   createServiceCredential,
   listServiceCredentials,
   revokeServiceCredential,
 } from '../lib/api';
+import { describeError } from '../lib/error-text';
 import { useStaffSession } from './staff-session-provider';
 
 /** What a scope lets the website do, for the scopes whose name alone does not say. */
@@ -51,9 +51,7 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
       const result = await listServiceCredentials(accessToken, workspaceId);
       setCredentials(result.credentials);
     } catch (error) {
-      setMessage(
-        `Could not load credentials. Reason: ${error instanceof BackendError ? error.code : 'internal_error'}.`,
-      );
+      setMessage(describeError(error, 'load the website keys'));
     }
   }, [accessToken, workspaceId]);
 
@@ -83,9 +81,7 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
       setMessage('Store this secret now — it is shown once and cannot be retrieved again.');
       await refresh();
     } catch (error) {
-      setMessage(
-        `Credential was not created. Reason: ${error instanceof BackendError ? error.code : 'internal_error'}.`,
-      );
+      setMessage(describeError(error, 'create the key'));
     } finally {
       setBusy(false);
     }
@@ -99,9 +95,7 @@ export function ServiceCredentialsManager({ workspaceSlug }: { workspaceSlug: st
       await revokeServiceCredential(accessToken, workspaceId, credentialId);
       await refresh();
     } catch (error) {
-      setMessage(
-        `Credential was not revoked. Reason: ${error instanceof BackendError ? error.code : 'internal_error'}.`,
-      );
+      setMessage(describeError(error, 'revoke the key'));
     } finally {
       setBusy(false);
     }

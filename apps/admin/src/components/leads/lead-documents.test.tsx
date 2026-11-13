@@ -93,7 +93,7 @@ describe('LeadDocuments', () => {
     const { onReviewed } = documents(true);
     fireEvent.click(screen.getByRole('button', { name: 'Reject Passport' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'The review was not saved. Reason: file_not_available.',
+      'This file is not ready yet, or it was removed. Wait a minute and reload the page.',
     );
     expect(onReviewed).not.toHaveBeenCalled();
   });

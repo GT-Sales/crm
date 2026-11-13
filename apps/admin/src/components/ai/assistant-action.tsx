@@ -7,6 +7,7 @@ import { Button, Input, Textarea } from '@gt-sales/ui';
 import { useOptionalAssistant, type AiActionView } from './assistant-provider';
 import { safeInternalHref } from './assistant-sources';
 import { dateTimeLabel } from '../../lib/dates';
+import { describeInvalid } from '../../lib/error-text';
 
 /** Why a stage cannot be chosen on the card: it is completed on the lead page first. */
 const STAGE_NEED_LABELS: Record<AiStageMoveNeed, string> = {
@@ -99,7 +100,16 @@ export function AssistantAction({
             event.preventDefault();
             const parsed = aiActionDraftSchema.safeParse(edited);
             if (!parsed.success) {
-              setEditError('Check the text and calendar date. All fields must fit their limits.');
+              setEditError(
+                describeInvalid(parsed.error, {
+                  subject: 'The email subject',
+                  body: edited.kind === 'email' ? 'The email message' : 'The note',
+                  title: 'The task title',
+                  dueDate: 'The due date',
+                  assignee: 'The assignee',
+                  value: 'The proposed value',
+                }),
+              );
               return;
             }
             setEditError('');

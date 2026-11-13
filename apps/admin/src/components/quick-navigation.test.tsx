@@ -113,6 +113,6 @@ it('explains when the role cannot see customer details, and when the search fail
   mocks.getStaffLeads.mockRejectedValueOnce(new Error('offline'));
   fireEvent.change(input, { target: { value: 'nadia k' } });
   expect((await within(dialog).findByRole('alert')).textContent).toContain(
-    'Leads could not be searched',
+    "couldn't search the leads",
   );
 });

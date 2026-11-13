@@ -13,7 +13,7 @@ import { ListTodoIcon, PlusIcon, XIcon } from 'lucide-react';
 import { createLeadTask, updateLeadTask } from '../../lib/api';
 import { dueAtFromDay, dueSentence, dueTone } from '../../lib/dates';
 import { assigneeName, memberName } from '../../lib/people';
-import { errorReason } from '../../lib/use-resource';
+import { describeError } from '../../lib/error-text';
 import { PersonChip } from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
 
@@ -177,7 +177,7 @@ export function LeadTasks({
       setTitle('');
       setDay('');
     } catch (error) {
-      setMessage(`The task was not added. Reason: ${errorReason(error)}.`);
+      setMessage(describeError(error, 'add the task'));
     } finally {
       setSaving(false);
     }
@@ -190,7 +190,7 @@ export function LeadTasks({
       const result = await updateLeadTask(accessToken, workspaceId, task.id, { status });
       onChange(result.task);
     } catch (error) {
-      setMessage(`The task was not updated. Reason: ${errorReason(error)}.`);
+      setMessage(describeError(error, 'update the task'));
     } finally {
       setBusyId(undefined);
     }

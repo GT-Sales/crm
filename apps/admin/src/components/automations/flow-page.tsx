@@ -60,6 +60,7 @@ import {
   testAutomation,
   updateAutomation,
 } from '../../lib/api';
+import { describeError } from '../../lib/error-text';
 import { useResource } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
 import { AutomationRuns } from './automation-runs';
@@ -295,7 +296,7 @@ function FlowPageEditor({
         : undefined,
     [accessToken, workspaceId, key],
   );
-  const { data, error, reload, mutate } = useResource(load);
+  const { data, error, failure, reload, mutate } = useResource(load);
   const names: FlowNames = useMemo(
     () => (data?.catalog ? namesFromCatalog(data.catalog) : namesFromCode()),
     [data?.catalog],
@@ -417,7 +418,7 @@ function FlowPageEditor({
             if (parsed.success) setServerIssues(parsed.data);
           }
           setSaveStatus('error');
-          setSaveErrorText(changeError(caught, 'The draft was not saved'));
+          setSaveErrorText(changeError(caught, 'save the draft'));
           return undefined;
         }
       });
@@ -536,7 +537,7 @@ function FlowPageEditor({
       replaceDetail(await archiveAutomation(accessToken, workspaceId, key), true);
       return undefined;
     } catch (caught) {
-      return changeError(caught, 'The flow was not archived');
+      return changeError(caught, 'archive the flow');
     } finally {
       endAction();
     }
@@ -548,7 +549,7 @@ function FlowPageEditor({
       replaceDetail(await restoreAutomation(accessToken, workspaceId, key), true);
       return undefined;
     } catch (caught) {
-      return changeError(caught, 'The flow was not restored');
+      return changeError(caught, 'restore the flow');
     }
   }
 
@@ -579,7 +580,7 @@ function FlowPageEditor({
           const parsed = flowIssueSchema.array().safeParse(caught.details?.issues);
           if (parsed.success) setServerIssues(parsed.data);
         }
-        setActionError(changeError(caught, 'The flow was not activated'));
+        setActionError(changeError(caught, 'activate the flow'));
       }
     } finally {
       endAction();
@@ -608,7 +609,7 @@ function FlowPageEditor({
       setSaveStatus('idle');
       setSelectedNodeId(undefined);
     } catch (caught) {
-      setActionError(changeError(caught, 'The draft was not discarded'));
+      setActionError(changeError(caught, 'discard the draft'));
     } finally {
       endAction();
     }
@@ -628,7 +629,7 @@ function FlowPageEditor({
       setSaveStatus('saved');
       setSelectedNodeId(undefined);
     } catch (caught) {
-      setActionError(changeError(caught, 'The flow was not reset'));
+      setActionError(changeError(caught, 'reset the flow'));
     } finally {
       endAction();
     }
@@ -653,7 +654,7 @@ function FlowPageEditor({
       setSelectedNodeId(undefined);
     } catch (caught) {
       if (request === historyRequestRef.current) {
-        setActionError(changeError(caught, 'The version could not be loaded'));
+        setActionError(changeError(caught, 'load the version'));
       }
     }
   }
@@ -685,7 +686,7 @@ function FlowPageEditor({
         runsNextBefore: page.nextBefore,
       }));
     } catch (caught) {
-      setActionError(changeError(caught, 'More runs could not be loaded'));
+      setActionError(changeError(caught, 'load more runs'));
     } finally {
       setLoadingMoreRuns(false);
     }
@@ -713,7 +714,9 @@ function FlowPageEditor({
       <div className="flex flex-col items-start gap-2">
         {back}
         <p role="alert" className="text-sm text-destructive">
-          The automation could not be loaded. Reason: {error}.
+          {error === 'automation_not_found'
+            ? 'This automation no longer exists. Go back to Automations and pick another one.'
+            : describeError(failure, 'load the automation')}
         </p>
         <Button type="button" size="sm" variant="outline" onClick={() => void reload()}>
           Try again
@@ -768,7 +771,7 @@ function FlowPageEditor({
       });
       setTestResult(response);
     } catch (caught) {
-      setTestError(changeError(caught, 'The test run could not be completed'));
+      setTestError(changeError(caught, 'run the test'));
     } finally {
       setTestBusy(false);
     }

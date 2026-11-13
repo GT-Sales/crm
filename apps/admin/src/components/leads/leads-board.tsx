@@ -44,6 +44,7 @@ import {
 import { getLeadBoard, updateStaffLead } from '../../lib/api';
 import { dueLabel, dueTone, relativeTime } from '../../lib/dates';
 import { assigneeName } from '../../lib/people';
+import { describeError } from '../../lib/error-text';
 import { errorReason, useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
 import { CountdownDay, leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
@@ -374,8 +375,7 @@ export function LeadsBoard({
       }));
       const code = errorReason(error);
       setMessage(
-        stageMoveRefusal(code, query.type, next.from) ??
-          `The lead could not be moved. Reason: ${code}.`,
+        stageMoveRefusal(code, query.type, next.from) ?? describeError(error, 'move the lead'),
       );
     }
   }
@@ -398,7 +398,7 @@ export function LeadsBoard({
   if (board.error) {
     return (
       <p role="alert" className="py-10 text-center text-sm text-muted-foreground">
-        Could not load the board. Reason: {board.error}.{' '}
+        {describeError(board.failure, 'load the board')}{' '}
         <button type="button" className="underline" onClick={() => void board.reload()}>
           Try again
         </button>

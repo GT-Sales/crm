@@ -110,6 +110,8 @@ import {
   type StaffWorkspacesResponse,
 } from '@gt-sales/contracts';
 
+import { trackedFetch } from './activity';
+
 const API_BASE_URL =
   process.env['NEXT_PUBLIC_API_BASE_URL'] ?? process.env['API_BASE_URL'] ?? 'http://localhost:4000';
 
@@ -122,7 +124,12 @@ const API_BASE_URL =
 export { BackendError };
 
 function client(accessToken: string) {
-  return createBackendClient({ baseUrl: API_BASE_URL, credential: accessToken });
+  // trackedFetch drives the top loading bar (components/top-loading-bar.tsx).
+  return createBackendClient({
+    baseUrl: API_BASE_URL,
+    credential: accessToken,
+    fetch: trackedFetch,
+  });
 }
 
 type StaffClient = ReturnType<typeof client>['staff'];

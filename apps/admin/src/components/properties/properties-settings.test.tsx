@@ -155,7 +155,9 @@ describe('PropertiesSettings properties', () => {
   it('says when the properties cannot be read', async () => {
     mocks.getPropertyModel.mockRejectedValue(new mocks.FakeBackendError('forbidden'));
     render(<PropertiesSettings workspaceSlug="canadawide" />);
-    expect((await screen.findByRole('alert')).textContent).toContain('forbidden');
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      "couldn't load the properties",
+    );
   });
 
   it('renames a built-in with the expected version of 1 when the site has no row, then reloads', async () => {
@@ -303,7 +305,9 @@ describe('PropertiesSettings properties', () => {
     await screen.findByRole('list', { name: 'Custom properties' });
     fireEvent.click(screen.getByRole('button', { name: 'Hide Referral code' }));
     expect(
-      await screen.findByText('Someone else changed this property. The latest version is loaded.'),
+      await screen.findByText(
+        'Someone else changed this property. The latest version is loaded; make your change again.',
+      ),
     ).toBeTruthy();
     await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalledTimes(2));
   });
@@ -325,7 +329,7 @@ describe('PropertiesSettings properties', () => {
 
     expect(
       await within(dialog).findByText(
-        'Someone else changed this property. The latest version is loaded.',
+        'Someone else changed this property. The latest version is loaded; make your change again.',
       ),
     ).toBeTruthy();
     await waitFor(() =>
@@ -468,7 +472,9 @@ describe('PropertiesSettings layouts', () => {
     await openLayouts();
     fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
     expect(
-      await screen.findByText('Someone else changed this layout. The latest version is loaded.'),
+      await screen.findByText(
+        'Someone else changed this layout. The latest version is loaded; make your change again.',
+      ),
     ).toBeTruthy();
   });
 
@@ -494,7 +500,9 @@ describe('PropertiesSettings layouts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
 
     expect(
-      await screen.findByText('Someone else changed this layout. The latest version is loaded.'),
+      await screen.findByText(
+        'Someone else changed this layout. The latest version is loaded; make your change again.',
+      ),
     ).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByLabelText<HTMLInputElement>('Section 1 name').value).toBe('Main'),

@@ -35,7 +35,7 @@ import {
   savePropertyLayout,
   updateProperty,
 } from '../../lib/api';
-import { errorReason } from '../../lib/use-resource';
+import { describeError } from '../../lib/error-text';
 import { useStaffSession } from '../staff-session-provider';
 import { LayoutEditor } from './layout-editor';
 import { PROPERTY_KIND_LABELS, PropertyEditor } from './property-editor';
@@ -89,7 +89,7 @@ function writeError(
     const usage = detailUsage(error);
     switch (error.code) {
       case 'version_conflict':
-        return `Someone else changed this ${subject}. The latest version is loaded.`;
+        return `Someone else changed this ${subject}. The latest version is loaded; make your change again.`;
       case 'property_in_use':
         if (object === 'plan') {
           return 'Plans still hold a value for this property. Clear the value on those plans first, or hide the property instead.';
@@ -110,12 +110,12 @@ function writeError(
           : `Option ${name} is used on ${usageText(usage)}. Hide it instead of removing it.`;
       }
       case 'builtin_property_locked':
-        return 'A built-in property can only be renamed or hidden.';
+        return 'A built-in property can only be renamed or hidden. Rename or hide it instead.';
       default:
         break;
     }
   }
-  return `The change was not saved. Reason: ${errorReason(error)}.`;
+  return describeError(error, 'save the change');
 }
 
 function leadTypesText(property: SiteProperty): string {
@@ -143,7 +143,13 @@ export function PropertiesSettings({
   const staff = useStaffSession();
   const workspaceId = staff.workspaces.find((item) => item.slug === workspaceSlug)?.id;
   const accessToken = staff.accessToken;
-  const { model, catalog, reload, error: loadError } = usePropertyModel(workspaceId, object);
+  const {
+    model,
+    catalog,
+    reload,
+    error: loadError,
+    failure: loadFailure,
+  } = usePropertyModel(workspaceId, object);
   const isPlan = object === 'plan';
   const tabs = isPlan ? PLAN_TABS : TABS;
 
@@ -268,7 +274,7 @@ export function PropertiesSettings({
   if (!model) {
     return loadError ? (
       <p role="alert" className="text-sm text-destructive">
-        The properties could not be loaded. Reason: {loadError}.
+        {describeError(loadFailure ?? loadError, 'load the properties')}
       </p>
     ) : (
       <LoadingSkeleton label="Loading the properties…" variant="list" />

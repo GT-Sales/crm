@@ -6,7 +6,7 @@ import { Check, Mail, ShieldCheck, User } from 'lucide-react';
 
 import { updateStaffProfile } from '../lib/api';
 import { ROLE_LABELS } from '../lib/people';
-import { errorReason } from '../lib/use-resource';
+import { describeError } from '../lib/error-text';
 import { useLeadWorkspace } from './leads/use-lead-workspace';
 import { useStaffSession } from './staff-session-provider';
 
@@ -56,7 +56,7 @@ export function DisplayNameForm({ workspaceSlug }: { workspaceSlug: string }) {
       );
       await reloadMembers();
     } catch (error) {
-      setMessage(`Not saved. Reason: ${errorReason(error)}.`);
+      setMessage(describeError(error, 'save your name'));
     } finally {
       setSaving(false);
     }

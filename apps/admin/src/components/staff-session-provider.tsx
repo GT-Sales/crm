@@ -24,7 +24,11 @@ interface StaffSessionState {
   email?: string;
   workspaces: readonly StaffWorkspace[];
   reason?: string;
+  /** The error that put the session in `error`, for `describeError` and `isRetryable`. */
+  failure?: unknown;
   refreshWorkspaces(): Promise<void>;
+  /** After `error`: ask for the sites again with the same sign-in. */
+  retry(): Promise<void>;
   signOut(): Promise<void>;
 }
 
@@ -60,7 +64,10 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string>();
   const [workspaces, setWorkspaces] = useState<readonly StaffWorkspace[]>([]);
   const [reason, setReason] = useState<string>();
+  const [failure, setFailure] = useState<unknown>();
   const generation = useRef(0);
+  // The sign-in of a site check that failed, so `retry` can ask again with it.
+  const failedLoad = useRef<{ token: string; userId?: string; userEmail?: string }>(undefined);
   // The signed-in user, so a token refresh for the same person only swaps the
   // token instead of reloading (and resetting) every screen.
   const signedInUser = useRef<string | undefined>(undefined);
@@ -83,6 +90,7 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
       setEmail(undefined);
       setWorkspaces([]);
       setStatus('loading');
+      failedLoad.current = undefined;
       try {
         const result = await getStaffWorkspaces(token);
         if (requestGeneration !== generation.current) return;
@@ -90,6 +98,7 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
         setEmail(userEmail ?? emailFromToken(token));
         setWorkspaces(result.workspaces);
         setReason(undefined);
+        setFailure(undefined);
         signedInUser.current = userId;
         setStatus('signed_in');
       } catch (error) {
@@ -98,6 +107,12 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
         setEmail(undefined);
         setWorkspaces([]);
         setReason(error instanceof BackendError ? error.code : 'internal_error');
+        setFailure(error);
+        failedLoad.current = {
+          token,
+          ...(userId !== undefined ? { userId } : {}),
+          ...(userEmail !== undefined ? { userEmail } : {}),
+        };
         setStatus('error');
       }
     },
@@ -145,6 +160,8 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
         setEmail(undefined);
         setWorkspaces([]);
         setReason(undefined);
+        setFailure(undefined);
+        failedLoad.current = undefined;
         setStatus('signed_out');
       }
     });
@@ -158,6 +175,10 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
   const refreshWorkspaces = useCallback(async () => {
     if (accessToken) await load(accessToken, signedInUser.current, email);
   }, [accessToken, email, load]);
+  const retry = useCallback(async () => {
+    const failed = failedLoad.current;
+    if (failed) await load(failed.token, failed.userId, failed.userEmail);
+  }, [load]);
   const signOut = useCallback(async () => {
     ++generation.current;
     signedInUser.current = undefined;
@@ -165,6 +186,8 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
     setEmail(undefined);
     setWorkspaces([]);
     setReason(undefined);
+    setFailure(undefined);
+    failedLoad.current = undefined;
     setStatus('signed_out');
     if (isStaffAuthConfigured()) await getStaffAuth().signOut();
   }, [setStatus]);
@@ -175,10 +198,12 @@ export function StaffSessionProvider({ children }: { children: ReactNode }) {
       ...(email !== undefined ? { email } : {}),
       workspaces,
       reason,
+      failure,
       refreshWorkspaces,
+      retry,
       signOut,
     }),
-    [status, accessToken, email, workspaces, reason, refreshWorkspaces, signOut],
+    [status, accessToken, email, workspaces, reason, failure, refreshWorkspaces, retry, signOut],
   );
 
   return <StaffSessionContext.Provider value={value}>{children}</StaffSessionContext.Provider>;

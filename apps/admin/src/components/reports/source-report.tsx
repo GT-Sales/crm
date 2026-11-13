@@ -12,6 +12,7 @@ import { ChevronRightIcon } from 'lucide-react';
 
 import { getLeadsSummary, getSourceReport } from '../../lib/api';
 import { WINDOWS, busiest, type StatsWindow } from '../../lib/stats-windows';
+import { describeError } from '../../lib/error-text';
 import { useResource } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
@@ -78,13 +79,13 @@ export function SourceReport({ workspaceSlug }: { workspaceSlug: string }) {
 
   let body;
   if (summary.error) {
-    body = <LoadFailed onRetry={() => void summary.reload()} />;
+    body = <LoadFailed failure={summary.failure} onRetry={() => void summary.reload()} />;
   } else if (!summary.data) {
     body = <Loading />;
   } else if (!leadType) {
     body = <NoLeads />;
   } else if (report.error) {
-    body = <LoadFailed onRetry={() => void report.reload()} />;
+    body = <LoadFailed failure={report.failure} onRetry={() => void report.reload()} />;
   } else if (report.loading || !report.data) {
     body = <Loading />;
   } else if (report.data.totals.received === 0) {
@@ -151,10 +152,10 @@ function NoLeads() {
   return <p className="text-sm text-muted-foreground">No leads in this period</p>;
 }
 
-function LoadFailed({ onRetry }: { onRetry: () => void }) {
+function LoadFailed({ failure, onRetry }: { failure: unknown; onRetry: () => void }) {
   return (
     <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-      <p>Could not load the report.</p>
+      <p>{describeError(failure, 'load the report')}</p>
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         Try again
       </Button>

@@ -28,6 +28,7 @@ import { DownloadIcon, LoaderCircleIcon } from 'lucide-react';
 import { BackendError, exportLeads } from '../../lib/api';
 import { todayDay } from '../../lib/dates';
 import { saveBlob } from '../../lib/download';
+import { describeError } from '../../lib/error-text';
 import { errorReason } from '../../lib/use-resource';
 
 const count = new Intl.NumberFormat('en-CA');
@@ -71,12 +72,13 @@ function exportFailure(error: unknown): string {
     return `${lead} One export holds at most ${count.format(LEAD_EXPORT_MAX_ROWS)}: narrow the filters or tick fewer leads.`;
   }
   if (reason === 'rate_limited') return 'Too many exports just now. Try again in a few minutes.';
-  if (reason === 'permission_denied') return 'You do not have permission to export leads.';
+  if (reason === 'permission_denied') {
+    return "You don't have permission to export leads. Ask the owner to give your role access.";
+  }
   if (reason === 'lead_not_found') {
     return 'Some ticked leads are no longer available. Reload the list and try again.';
   }
-  if (error instanceof BackendError) return `Could not export. Reason: ${reason}.`;
-  return 'Could not export: the connection failed or timed out. Try again.';
+  return describeError(error, 'export the leads');
 }
 
 interface PickerGroup {

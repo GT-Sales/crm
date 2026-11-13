@@ -2,7 +2,9 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
-import { SidebarInset, SidebarProvider } from '@gt-sales/ui';
+import { Button, SidebarInset, SidebarProvider } from '@gt-sales/ui';
+
+import { describeError, isRetryable } from '../lib/error-text';
 
 import { AppSidebar } from './app-sidebar';
 import { useStaffSession } from './staff-session-provider';
@@ -42,15 +44,44 @@ export function ProtectedWorkspaceShell({
   const searchParams = useSearchParams();
   const staff = useStaffSession();
   const workspace = staff.workspaces.find((item) => item.slug === workspaceSlug);
+  // The CRM did not answer the access check (offline, a timeout, an outage):
+  // that says nothing about the person's access, so it is shown here with a
+  // retry instead of the "Access denied" page.
+  const unreachable =
+    staff.status === 'error' && isRetryable(staff.failure ?? staff.reason ?? 'internal_error');
 
   useEffect(() => {
     if (staff.status === 'signed_out') router.replace('/login');
-    if (staff.status === 'error')
+    if (staff.status === 'error' && !unreachable) {
       router.replace(`/denied?reason=${staff.reason ?? 'internal_error'}`);
+    }
     if (staff.status === 'signed_in' && !workspace) {
       router.replace('/denied?reason=workspace_not_found');
     }
-  }, [router, staff.reason, staff.status, workspace]);
+  }, [router, staff.reason, staff.status, unreachable, workspace]);
+
+  if (unreachable) {
+    return (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex flex-col items-start gap-3 p-6 outline-none"
+      >
+        <h1 className="text-2xl font-semibold">The CRM is not responding</h1>
+        <p role="alert" className="max-w-prose text-muted-foreground">
+          {describeError(staff.failure ?? staff.reason, 'check your access to this site')}
+        </p>
+        <div className="flex gap-2">
+          <Button type="button" onClick={() => void staff.retry()}>
+            Try again
+          </Button>
+          <Button type="button" variant="outline" onClick={() => void staff.signOut()}>
+            Sign out
+          </Button>
+        </div>
+      </main>
+    );
+  }
 
   if (staff.status === 'configuration_missing') {
     return (
