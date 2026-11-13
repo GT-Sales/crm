@@ -155,6 +155,9 @@ export function LeadTasks({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string>();
   const [showClosed, setShowClosed] = useState(false);
+  // The form is one line until someone starts a task: the date and assignee come with the words.
+  const [formOpen, setFormOpen] = useState(false);
+  const expanded = formOpen || title !== '' || day !== '';
 
   const open = tasks.filter((task) => isActiveTaskStatus(task.status));
   const closed = tasks.filter((task) => !isActiveTaskStatus(task.status));
@@ -223,53 +226,59 @@ export function LeadTasks({
       ) : null}
 
       {canWrite ? (
-        <form onSubmit={(event) => void add(event)} className="grid gap-4">
-          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
-            <span>New task</span>
-            <Input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="What needs to be done?"
-              className="h-10"
-              maxLength={200}
-            />
-          </label>
-          <div className="grid min-w-0 grid-cols-2 gap-3">
-            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
-              <span className="flex flex-wrap items-center gap-x-1.5">
-                Due date{' '}
-                <span aria-hidden="true" className="font-normal text-muted-foreground">
-                  Optional
-                </span>
-              </span>
-              <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+        <form onSubmit={(event) => void add(event)} className="grid gap-3">
+          <div className="flex items-end gap-2">
+            <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs font-medium">
+              <span className="sr-only">New task</span>
+              <Input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                onFocus={() => setFormOpen(true)}
+                placeholder="Add a task: what needs to be done?"
+                className="h-9"
+                maxLength={200}
+              />
             </label>
-            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
-              <span>Assign the task to</span>
-              <NativeSelect value={assignee} onChange={(event) => setAssignee(event.target.value)}>
-                <option value="self">Me</option>
-                <option value="none">Unassigned</option>
-                {members
-                  .filter((member) => !member.isSelf)
-                  .map((member) => (
-                    <option key={member.actorId} value={member.actorId}>
-                      {memberName(member)}
-                    </option>
-                  ))}
-              </NativeSelect>
-            </label>
-          </div>
-          <div className="flex justify-end border-t pt-3">
             <Button
               type="submit"
               size="sm"
-              className="h-9"
+              className="h-9 shrink-0"
               disabled={saving || title.trim() === ''}
             >
               <PlusIcon className="size-4" aria-hidden="true" />
               {saving ? 'Adding…' : 'Add task'}
             </Button>
           </div>
+          {expanded ? (
+            <div className="grid min-w-0 grid-cols-2 gap-3">
+              <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+                <span className="flex flex-wrap items-center gap-x-1.5">
+                  Due date{' '}
+                  <span aria-hidden="true" className="font-normal text-muted-foreground">
+                    Optional
+                  </span>
+                </span>
+                <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+                <span>Assign the task to</span>
+                <NativeSelect
+                  value={assignee}
+                  onChange={(event) => setAssignee(event.target.value)}
+                >
+                  <option value="self">Me</option>
+                  <option value="none">Unassigned</option>
+                  {members
+                    .filter((member) => !member.isSelf)
+                    .map((member) => (
+                      <option key={member.actorId} value={member.actorId}>
+                        {memberName(member)}
+                      </option>
+                    ))}
+                </NativeSelect>
+              </label>
+            </div>
+          ) : null}
         </form>
       ) : null}
 

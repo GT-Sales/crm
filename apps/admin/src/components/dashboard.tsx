@@ -216,6 +216,8 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
             workspaceSlug={workspaceSlug}
             compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
           />
+          {/* What needs doing comes before what happened. */}
+          <FollowUpsDue workspaceSlug={workspaceSlug} />
           <Charts data={data} leadType={leadType} workspaceSlug={workspaceSlug} members={members} />
         </div>
       ) : null}
@@ -234,10 +236,8 @@ function Delta({
   invert?: boolean;
 }) {
   const delta = analyticsDelta(value.current, value.previous);
-  if (value.previous === null) return null;
-  if (delta === null) {
-    return <p className="text-xs text-muted-foreground">No {compareLabel} figure to compare</p>;
-  }
+  // Nothing to compare with (no comparison, or an empty earlier period): say nothing.
+  if (value.previous === null || delta === null) return null;
   const up = delta > 0;
   const good = delta === 0 ? undefined : up !== invert;
   const Icon = up ? ArrowUpIcon : ArrowDownIcon;
@@ -332,6 +332,9 @@ function Kpis({
     .filter((entry) => !['received', 'clawback', '(not set)'].includes(entry.key))
     .reduce((sum, entry) => sum + entry.total, 0);
   const showDocuments = leadType === undefined || DOCUMENT_TYPES.has(leadType);
+  // Money figures appear once the site records them: a card of zeros says nothing.
+  const showPaid = kpis.paid.current > 0 || hasRecorded(data.statuses.payment);
+  const showCarrier = hasRecorded(data.statuses.commission);
   const typeHref = leadType ? leadsHref(workspaceSlug, { type: leadType }) : undefined;
 
   return (
@@ -365,14 +368,16 @@ function Kpis({
         >
           <Delta value={conversion} compareLabel={compareLabel} />
         </Kpi>
-        <Kpi
-          icon={WalletIcon}
-          label="Paid"
-          value={numberFormat.format(kpis.paid.current)}
-          hint="Created in the period and marked paid"
-        >
-          <Delta value={kpis.paid} compareLabel={compareLabel} />
-        </Kpi>
+        {showPaid ? (
+          <Kpi
+            icon={WalletIcon}
+            label="Paid"
+            value={numberFormat.format(kpis.paid.current)}
+            hint="Created in the period and marked paid"
+          >
+            <Delta value={kpis.paid} compareLabel={compareLabel} />
+          </Kpi>
+        ) : null}
         <Kpi
           tone="warning"
           icon={BellRingIcon}
@@ -387,12 +392,14 @@ function Kpis({
             </p>
           ) : null}
         </Kpi>
-        <Kpi
-          icon={CoinsIcon}
-          label="Carrier commission"
-          value={`${numberFormat.format(received)} received`}
-          hint={`${numberFormat.format(outstanding)} outstanding, orders created in the period`}
-        />
+        {showCarrier ? (
+          <Kpi
+            icon={CoinsIcon}
+            label="Carrier commission"
+            value={`${numberFormat.format(received)} received`}
+            hint={`${numberFormat.format(outstanding)} outstanding, orders created in the period`}
+          />
+        ) : null}
         {showDocuments ? (
           <Kpi
             tone="warning"
@@ -436,19 +443,16 @@ function Kpis({
             />
           </div>
         ) : (
-          <Card>
-            <CardContent className="text-sm text-muted-foreground">
-              <h2 className="mb-1 font-medium text-foreground">Commission</h2>
-              No plan of this type has a commission yet.{' '}
-              <Link
-                href={`/w/${workspaceSlug}/settings/plans`}
-                className="text-primary hover:underline"
-              >
-                Set commission on plans in Settings → Plans
-              </Link>
-              .
-            </CardContent>
-          </Card>
+          <p className="px-1 text-xs text-muted-foreground">
+            Commission figures appear here once a plan has a commission.{' '}
+            <Link
+              href={`/w/${workspaceSlug}/settings/plans`}
+              className="text-primary hover:underline"
+            >
+              Set commission on plans in Settings → Plans
+            </Link>
+            .
+          </p>
         )
       ) : null}
     </section>
@@ -491,6 +495,15 @@ function Charts({
           }))
         : [];
   const trendTotal = data.trend.reduce((sum, entry) => sum + entry.current, 0);
+  // A card whose only content is "No plan matched" or "Not set" is left out until
+  // the site records the thing it charts.
+  const showMix = data.mix.plans.some((entry) => entry.planId !== null) || mix.length > 1;
+  const showStatus = hasRecorded(data.statuses.payment) || hasRecorded(data.statuses.commission);
+  const showCommissionTrend = Boolean(
+    data.commissionTrend && data.commission?.anyPlanHasCommission,
+  );
+  // Team fills the row when it would sit alone on it.
+  const teamAlone = (Number(showMix) + Number(showStatus) + Number(showCommissionTrend)) % 2 === 0;
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -595,87 +608,93 @@ function Charts({
         </div>
       </ChartCard>
 
-      <ChartCard
-        id="chart-mix"
-        drawingIsAccessible
-        title="Mix"
-        description={
-          leadType === 'sim_order'
-            ? 'Orders by plan, and eSIM against physical SIM.'
-            : leadType === undefined
-              ? 'Leads by plan, and by lead type.'
-              : 'Leads by plan.'
-        }
-        empty={
-          data.mix.plans.length === 0 && mix.length === 0 ? 'No orders in this period.' : undefined
-        }
-        summary={{
-          columns: ['Part', 'Leads'],
-          rows: [
-            ...data.mix.plans.map((entry) => [entry.name, entry.total]),
-            ...mix.map((entry) => [entry.label, entry.total]),
-          ],
-        }}
-      >
-        <div className="flex flex-col gap-6">
-          {data.mix.plans.length > 0 ? (
-            <BarList
-              label="Plans"
-              items={data.mix.plans.map((entry) => ({
-                key: entry.planId ?? 'none',
-                label: entry.name,
-                total: entry.total,
-              }))}
-            />
-          ) : null}
-          {mix.length > 0 ? <Donut data={mix} /> : null}
-        </div>
-      </ChartCard>
+      {showMix ? (
+        <ChartCard
+          id="chart-mix"
+          drawingIsAccessible
+          title="Mix"
+          description={
+            leadType === 'sim_order'
+              ? 'Orders by plan, and eSIM against physical SIM.'
+              : leadType === undefined
+                ? 'Leads by plan, and by lead type.'
+                : 'Leads by plan.'
+          }
+          empty={
+            data.mix.plans.length === 0 && mix.length === 0
+              ? 'No orders in this period.'
+              : undefined
+          }
+          summary={{
+            columns: ['Part', 'Leads'],
+            rows: [
+              ...data.mix.plans.map((entry) => [entry.name, entry.total]),
+              ...mix.map((entry) => [entry.label, entry.total]),
+            ],
+          }}
+        >
+          <div className="flex flex-col gap-6">
+            {data.mix.plans.length > 0 ? (
+              <BarList
+                label="Plans"
+                items={data.mix.plans.map((entry) => ({
+                  key: entry.planId ?? 'none',
+                  label: entry.name,
+                  total: entry.total,
+                }))}
+              />
+            ) : null}
+            {mix.length > 0 ? <Donut data={mix} /> : null}
+          </div>
+        </ChartCard>
+      ) : null}
 
-      <ChartCard
-        id="chart-status"
-        title="Payment and commission status"
-        description="Orders created in the period, by payment status and by carrier commission status."
-        empty={
-          data.statuses.payment.length === 0 && data.statuses.commission.length === 0
-            ? 'No orders in this period.'
-            : undefined
-        }
-        summary={{
-          columns: ['Status', 'Orders'],
-          rows: [
-            ...data.statuses.payment.map((entry) => [
-              `Payment: ${statusLabel(entry.key)}`,
-              entry.total,
-            ]),
-            ...data.statuses.commission.map((entry) => [
-              `Commission: ${statusLabel(entry.key)}`,
-              entry.total,
-            ]),
-          ],
-        }}
-      >
-        <StatusBars
-          rows={[
-            {
-              label: 'Payment',
-              parts: data.statuses.payment.map((entry) => ({
-                key: `payment:${entry.key}`,
-                label: statusLabel(entry.key),
-                total: entry.total,
-              })),
-            },
-            {
-              label: 'Commission',
-              parts: data.statuses.commission.map((entry) => ({
-                key: `commission:${entry.key}`,
-                label: statusLabel(entry.key),
-                total: entry.total,
-              })),
-            },
-          ]}
-        />
-      </ChartCard>
+      {showStatus ? (
+        <ChartCard
+          id="chart-status"
+          title="Payment and commission status"
+          description="Orders created in the period, by payment status and by carrier commission status."
+          empty={
+            data.statuses.payment.length === 0 && data.statuses.commission.length === 0
+              ? 'No orders in this period.'
+              : undefined
+          }
+          summary={{
+            columns: ['Status', 'Orders'],
+            rows: [
+              ...data.statuses.payment.map((entry) => [
+                `Payment: ${statusLabel(entry.key)}`,
+                entry.total,
+              ]),
+              ...data.statuses.commission.map((entry) => [
+                `Commission: ${statusLabel(entry.key)}`,
+                entry.total,
+              ]),
+            ],
+          }}
+        >
+          <StatusBars
+            rows={[
+              {
+                label: 'Payment',
+                parts: data.statuses.payment.map((entry) => ({
+                  key: `payment:${entry.key}`,
+                  label: statusLabel(entry.key),
+                  total: entry.total,
+                })),
+              },
+              {
+                label: 'Commission',
+                parts: data.statuses.commission.map((entry) => ({
+                  key: `commission:${entry.key}`,
+                  label: statusLabel(entry.key),
+                  total: entry.total,
+                })),
+              },
+            ]}
+          />
+        </ChartCard>
+      ) : null}
 
       {data.commissionTrend && data.commission?.anyPlanHasCommission ? (
         <ChartCard
@@ -699,7 +718,7 @@ function Charts({
         </ChartCard>
       ) : null}
 
-      <Card className="min-w-0">
+      <Card className={cn('min-w-0', teamAlone && 'xl:col-span-2')}>
         <CardContent className="flex flex-col gap-3">
           <div>
             <h2 className="text-base font-medium">Team</h2>
@@ -761,10 +780,13 @@ function Charts({
           )}
         </CardContent>
       </Card>
-
-      <FollowUpsDue workspaceSlug={workspaceSlug} />
     </div>
   );
+}
+
+/** Whether any order carries a status other than "not set". */
+function hasRecorded(statuses: readonly { key: string; total: number }[]): boolean {
+  return statuses.some((entry) => entry.key !== '(not set)' && entry.total > 0);
 }
 
 /**

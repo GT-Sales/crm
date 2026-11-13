@@ -251,6 +251,35 @@ describe('Dashboard analytics', () => {
     expect(screen.queryByRole('heading', { name: 'Commission earned' })).toBeNull();
   });
 
+  it('leaves out the money and mix blocks a site has nothing recorded for', async () => {
+    resetMocks({
+      ...counts,
+      kpis: { ...counts.kpis, paid: { current: 0, previous: null } },
+      mix: {
+        plans: [{ planId: null, name: 'No plan matched', total: 12 }],
+        delivery: [],
+        leadTypes: [{ leadType: 'sim_order', total: 12 }],
+      },
+      statuses: {
+        payment: [{ key: '(not set)', total: 12 }],
+        commission: [{ key: '(not set)', total: 12 }],
+      },
+    });
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'Funnel by stage' });
+    expect(kpi('New orders')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Paid' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Carrier commission' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Mix' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Payment and commission status' })).toBeNull();
+    // What needs doing sits above the charts.
+    const followUps = screen.getByRole('heading', { name: 'Follow-ups due' });
+    const trend = screen.getByRole('heading', { name: 'New leads over time' });
+    expect(
+      followUps.compareDocumentPosition(trend) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('draws the funnel, sources, mix, statuses and team, each with a data table', async () => {
     render(<Dashboard workspaceSlug="getcanadasim" />);
     const funnel = await screen.findByRole('list', { name: 'Funnel by stage' });
