@@ -215,6 +215,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
             engine: createGatewayEngine({
               apiKey: aiConfig.apiKey,
               modelId: aiConfig.modelId,
+              ...(aiConfig.providers ? { providers: aiConfig.providers } : {}),
             }),
           }
         : {}),

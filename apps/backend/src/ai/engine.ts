@@ -74,7 +74,7 @@ function toModelMessages(
  * turns it into a typed, sanitized stream error.
  */
 export function createGatewayEngine(
-  options: { apiKey: string; modelId: string },
+  options: { apiKey: string; modelId: string; providers?: readonly string[] },
   modelForTest?: LanguageModel,
 ): AssistantEngine {
   return {
@@ -96,6 +96,14 @@ export function createGatewayEngine(
         // route never retries a partially streamed answer.
         maxRetries: 1,
         abortSignal: input.signal,
+        // Pin the hosts that may serve the model (AI_GATEWAY_PROVIDERS).
+        ...(options.providers
+          ? {
+              providerOptions: {
+                gateway: { only: [...options.providers], order: [...options.providers] },
+              },
+            }
+          : {}),
         // SDK defaults log raw provider errors (potentially prompts and bodies).
         // The route records only its fixed error code.
         onError: () => {},

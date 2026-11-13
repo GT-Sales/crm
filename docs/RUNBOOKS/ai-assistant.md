@@ -57,6 +57,12 @@ Never paste a key into chat, a ticket, a commit or this file.
    the code does not switch models on its own, so the failure mode is
    `provider_unavailable`, not an unexpected bill.
 5. Keep model fallbacks off until their cost and data handling are chosen.
+6. For an open-weights model served by several hosts (DeepSeek, Qwen, Kimi,
+   GLM …), set `AI_GATEWAY_PROVIDERS` to the hosts you vetted, in preference
+   order: US-headquartered, zero data retention and no training in the
+   catalogue's endpoint list. Without it the Gateway may pick any host,
+   including ones that keep data or are outside the US. Current choice:
+   `deepseek/deepseek-v4-flash` pinned to `baseten,azure`.
 
 ## 4. Spend and usage
 

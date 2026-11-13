@@ -40,3 +40,24 @@ describe('the AI signing key', () => {
     expect(config.signingKey).toBeUndefined();
   });
 });
+
+describe('the Gateway host pin', () => {
+  it('lets the Gateway choose when unset', () => {
+    expect(loadAiAssistantConfig(ON).providers).toBeUndefined();
+  });
+
+  it('keeps valid hosts in order, trimmed and de-duplicated', () => {
+    expect(
+      loadAiAssistantConfig({ ...ON, AI_GATEWAY_PROVIDERS: ' baseten, azure ,baseten' }).providers,
+    ).toEqual(['baseten', 'azure']);
+  });
+
+  it('drops malformed entries and never yields an empty list', () => {
+    expect(
+      loadAiAssistantConfig({ ...ON, AI_GATEWAY_PROVIDERS: 'base ten, ../x, 9x' }).providers,
+    ).toBeUndefined();
+    expect(
+      loadAiAssistantConfig({ ...ON, AI_GATEWAY_PROVIDERS: 'bad host,azure' }).providers,
+    ).toEqual(['azure']);
+  });
+});
