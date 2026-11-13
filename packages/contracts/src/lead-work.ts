@@ -47,6 +47,28 @@ export const LEGACY_IMPORT_ACTOR_ID = '00000000-0000-4000-8000-00000000a001';
 /** The mails a site sends its customers, defined with the rest of the email vocabulary. */
 export { customerEmailTemplateSchema, type CustomerEmailTemplate } from './customer-email';
 
+/** The most characters of a sent mail (subject and text together) a timeline entry keeps. */
+export const LEAD_MAIL_TEXT_MAX = 4000;
+
+/**
+ * How a mail to the customer went. `queued`: waiting for the outbox;
+ * `sent`: handed to the provider; `delivered`, `bounced`, `complained`: the
+ * provider's report; `failed`, `uncertain`: it did not go, or nobody knows
+ * (Background jobs has the retry); `skipped`: not sent because the address is
+ * on the site's do-not-email list.
+ */
+export const leadMailStatusSchema = z.enum([
+  'queued',
+  'sent',
+  'delivered',
+  'bounced',
+  'complained',
+  'failed',
+  'uncertain',
+  'skipped',
+]);
+export type LeadMailStatus = z.infer<typeof leadMailStatusSchema>;
+
 /** A contact, form or custom property key (`custom_referral_code`) an entry names; never a value. */
 const activityFieldKeySchema = propertyKeySchema;
 
@@ -103,8 +125,10 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     /**
      * `opened`: the first time someone who works leads opened it (the "New"
      * badge goes); `customer_emailed`: staff or the `automation` rule queued
-     * `template` (at `templateVersion`) to the customer (the address and the
-     * mail's contents are not kept here); `change_requested`,
+     * `template` (at `templateVersion`) to the customer. Mails queued since
+     * the Mail tab exists also carry what was written (`subject`, `text`) and
+     * how the send went (`mailStatus`); the address is never kept here;
+     * `change_requested`,
      * `change_approved`, `change_rejected`: the customer asked the website to
      * change their order (Get Canada Sim's `/track`) and how its admin
      * decided, by the website's `requestNo`; `documents_override`: staff
@@ -130,6 +154,14 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     templateName: z.string().min(1).max(80).optional(),
     /** For `customer_emailed`: the template's version (0 is the starter text). */
     templateVersion: z.int().min(0).optional(),
+    /** For `customer_emailed`: the mail's subject as it was sent. Absent on older mails and once the customer's data is erased. */
+    subject: z.string().min(1).max(LEAD_MAIL_TEXT_MAX).optional(),
+    /** For `customer_emailed`: the mail's plain-text words as they were sent. */
+    text: z.string().max(LEAD_MAIL_TEXT_MAX).optional(),
+    /** For `customer_emailed`: `text` was longer than the timeline keeps and is cut short. */
+    textCut: z.literal(true).optional(),
+    /** For `customer_emailed`: how the send went, read from the outbox and the provider's reports. */
+    mailStatus: leadMailStatusSchema.optional(),
     /** For `documents_override`: the required documents that were not approved. */
     missing: z.array(documentChecklistKeySchema).min(1).max(16).optional(),
     /** For `documents_override`: why staff moved the order on without them. */
@@ -415,14 +447,29 @@ export type LeadTrashResponse = z.infer<typeof leadTrashResponseSchema>;
  * lead's customer, sent by the outbox from the site's own sender within a
  * minute. Refused while the site cannot send (`feature_not_ready`) and when
  * the lead lacks what the mail needs (`conflict`, `details.missing` naming
- * the field: `email`, `simNumber`). `activity` is its timeline entry.
+ * the field: `email`, `simNumber`). `activity` is its timeline entry. The
+ * body is either the one hand-sent template or a message staff wrote.
  */
-export const queueCustomerEmailRequestSchema = z
-  .object({
-    /** The one mail staff send by hand: a SIM order's Canadian number (Get Canada Sim's "email the customer this number?"). */
-    template: z.literal('sim_number_ready'),
-  })
-  .strict();
+export const queueCustomerEmailRequestSchema = z.union([
+  z
+    .object({
+      /** The one template staff send by hand: a SIM order's Canadian number (Get Canada Sim's "email the customer this number?"). */
+      template: z.literal('sim_number_ready'),
+    })
+    .strict(),
+  /** A message staff wrote themselves (the lead's Mail tab): plain text, to the lead's own address. */
+  z
+    .object({
+      subject: z
+        .string()
+        .trim()
+        .min(1)
+        .max(150)
+        .refine((value) => !/[\r\n]/.test(value), 'Single-line subject'),
+      body: z.string().trim().min(1).max(3500),
+    })
+    .strict(),
+]);
 export type QueueCustomerEmailRequest = z.infer<typeof queueCustomerEmailRequestSchema>;
 
 export const queueCustomerEmailResponseSchema = z.object({

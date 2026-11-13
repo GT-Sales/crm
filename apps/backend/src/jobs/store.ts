@@ -73,7 +73,8 @@ function adminJobStatus(value: string): AdminJob['status'] {
  *
  * A customer mail (`lead_customer_email`) is scrubbed once it is `completed`
  * (sent, or staff confirmed it was): its address and rendered words are
- * needed only until then, and email tables hold no address (rule 7). It keeps
+ * needed only until then, and email tables hold no address (rule 7); the
+ * lead's timeline entry keeps the subject and text for the Mail tab. It keeps
  * `leadId`, `template` and `templateVersion`, which say what was sent; what
  * dedupes a mail is the row's own `dedupe_key`, which stays. A failed or
  * uncertain mail keeps everything, because staff Retry it or confirm it by

@@ -1430,7 +1430,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
       },
     });
     expect(JSON.stringify(jobs[0]?.payload)).toContain('+1 778-555-0142');
-    // Only the job holds the address and the number.
+    // The address stays in the job alone; the audit holds neither it nor the number.
     const stored = await admin<{ data: unknown; after: unknown }[]>`
       select a.data, e.after
       from app.lead_activities a, app.audit_events e
@@ -1447,7 +1447,71 @@ databaseTest('DatabaseLeadWorkStore', () => {
       leadId,
       includeWork: true,
     });
-    expect(page?.activities[0]).toMatchObject({ event: 'customer_emailed' });
+    // The Mail tab's copy: what was written, and where the send stands.
+    expect(page?.activities[0]).toMatchObject({ event: 'customer_emailed', mailStatus: 'queued' });
+    const sent = page?.activities[0];
+    if (sent?.kind !== 'system') throw new Error('expected the mail entry');
+    expect(sent.subject).toBeTruthy();
+    expect(sent.text).toContain('+1 778-555-0142');
+    expect(JSON.stringify(sent)).not.toContain('mail.person');
+
+    // A message staff wrote themselves, to the lead's own address.
+    const written = await mailWork.queueWrittenEmail({
+      ...mailScope,
+      requestId: crypto.randomUUID(),
+      leadId,
+      subject: 'About your order',
+      body: 'Hello,\n\nYour SIM ships tomorrow.',
+    });
+    expect(written).toMatchObject({
+      status: 'queued',
+      activity: { event: 'customer_emailed', subject: 'About your order' },
+    });
+    if (written.status !== 'queued' || written.activity.kind !== 'system') {
+      throw new Error('expected the written mail to queue');
+    }
+    expect(written.activity.text).toContain('Your SIM ships tomorrow.');
+    const [writtenJob] = await admin<
+      { payload: { toAddress: string; rendered: { subject: string } } }[]
+    >`
+      select payload from app.outbox_jobs
+      where workspace_id = ${OTHER_WORKSPACE} and payload ->> 'leadId' = ${leadId}
+      order by created_at desc limit 1
+    `;
+    expect(writtenJob?.payload).toMatchObject({
+      toAddress: 'mail.person@example.test',
+      rendered: { subject: 'About your order' },
+    });
+    // The provider's report, once there is one, is what the tab shows.
+    await admin`
+      insert into app.email_messages (workspace_id, message_id, template, message_class, lead_id, contact_hash, status)
+      select workspace_id, message_id, payload ->> 'template', 'transactional', ${leadId}, 'h', 'delivered'
+      from app.outbox_jobs
+      where workspace_id = ${OTHER_WORKSPACE} and id = (
+        select (data ->> 'jobId')::uuid from app.lead_activities where id = ${written.activity.id}
+      )
+    `;
+    const after = await work.getLead({
+      workspaceId: OTHER_WORKSPACE,
+      catalog: codePropertyCatalog,
+      actorId: ACTOR,
+      leadId,
+      includeWork: true,
+    });
+    expect(after?.activities.find((entry) => entry.id === written.activity.id)).toMatchObject({
+      mailStatus: 'delivered',
+    });
+    expect(
+      await work
+        .queueWrittenEmail({
+          ...mailScope,
+          requestId: crypto.randomUUID(),
+          leadId,
+          subject: 's',
+          body: 'b',
+        })
+        .then((o) => o.status),
+    ).toBe('no_sender');
 
     await work.setArchived({ ...mailScope, leadId, archived: true });
     expect(await queue()).toEqual({ status: 'trashed' });

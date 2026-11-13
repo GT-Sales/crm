@@ -56,6 +56,10 @@ The code was copied from the Canadian Plans platform and pruned
    `(workspace, job_type, dedupe_key)`.
 7. **No PII in logs, audit `before`/`after` may be redacted to null and never
    rewritten, email tables store a keyed `contact_hash`, never the address.**
+   A mail to a lead's customer keeps its subject and plain text in its
+   timeline entry's `body` (owner decision, 13 Nov 2026, for the lead's Mail
+   tab; `email/kept-text.ts`). It sits with the notes, so erasing a customer's
+   data nulls it the same way; the address is still never stored.
 8. **No secrets in the repo.** Keys, passwords and customer data live in
    Railway/Vercel/Supabase. Treat the repository as public.
 9. **Demo-proof tests.** Integration suites run against a disposable database

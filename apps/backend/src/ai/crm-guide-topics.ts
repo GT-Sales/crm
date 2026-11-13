@@ -92,7 +92,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     summary:
       'Opening a lead: side panel tabs, Open full page, Copy info, editing contact or details',
     body: text(
-      'Click a lead’s name in Leads to open the side panel. Its tabs are Home, Tasks, Notes, Files and Activity. "Open full page" opens the lead page itself, where everything is on one page with a back link to the lead type’s list.',
+      'Click a lead’s name in Leads to open the side panel. Its tabs are Home, Tasks, Notes, Mail, Files and Activity. "Open full page" opens the lead page itself, where everything is on one page with a back link to the lead type’s list.',
       'The header card shows the name, lead type, reference and when it was received, with Stage and Assignee menus (for those who manage leads) and, at the bottom, "Copy info" and "Archive".',
       'On Home (or the full page) you find Contact, the lead’s detail sections, Source, ID check, Other requests from this person and any change request.',
       'To edit: click "Edit" on the Contact card or on a details section, change the fields, then save. Editing needs the Leads role (or owner), and the lead must not be archived.',
@@ -147,14 +147,13 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
   },
   {
     id: 'lead-customer-email',
-    summary: 'Emailing a customer from a lead: the SIM number email, and email drafts from Ask AI',
+    summary: 'Emailing a customer from a lead: the Mail tab, the SIM number email, Ask AI drafts',
     body: text(
-      'From the lead page you can email a SIM order’s customer their number:',
-      '1. Open the lead and save the SIM number in its details.',
-      '2. When asked "Email the customer this number?", press "Email the customer", or later press "Email it to the customer".',
-      'It is queued and the customer gets it within a minute. Needs the Leads role (or owner), a customer email address, and Settings → Email set up; otherwise the lead page says what is missing.',
-      'For any other email to a lead’s customer, ask Ask AI to prepare one. Edit the draft card if needed and press "Send" to queue it.',
-      'Emails sent on stage moves come from automations (see automations) using the texts in Settings → Email.',
+      'Mail tab: open the lead and choose Mail (on the full page, the "Emails to the customer" card). It lists every email the CRM sent this customer, newest first, with who or which automation sent it and how it went (Sending, Sent, Delivered, Bounced, Not sent). Click one to read it. Emails from before 13 Nov 2026 show their name only.',
+      'To write one: press "New email", fill in Subject and Message, press "Send email". It goes to the lead’s own address within a minute. Replies do not appear in the CRM; they go to the site’s reply-to mailbox.',
+      'SIM number: save the number in the lead’s details, then press "Email the customer" when asked, or "Email it to the customer" later.',
+      'Ask AI can also prepare an email: edit the draft card and press "Send".',
+      'Sending needs the Leads role (or owner), a customer email address, and Settings → Email set up; otherwise the lead says what is missing. Emails on stage moves come from automations.',
     ),
   },
   {
