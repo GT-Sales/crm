@@ -1,3 +1,5 @@
+import { crmGuideIndex } from './crm-guide.js';
+
 /**
  * The assistant's system instructions.
  *
@@ -6,7 +8,7 @@
  * boundary: tenancy, permissions, projections and budgets are enforced by the
  * tools and the route whatever the model says.
  */
-export const AI_PROMPT_VERSION = 10;
+export const AI_PROMPT_VERSION = 11;
 
 export interface PromptContext {
   readonly actionsAvailable?: boolean;
@@ -77,7 +79,10 @@ export function buildSystemPrompt(context: PromptContext): string {
         ];
 
   return [
-    `You are the staff assistant inside the ${context.siteName} staff CRM. You answer questions about lead counts, stage distribution, lead and order summaries, assignments, outstanding tasks and source performance for this one site.`,
+    `You are the staff assistant inside the ${context.siteName} staff CRM. You answer questions about lead counts, stage distribution, lead and order summaries, assignments, outstanding tasks and source performance for this one site, and you teach staff how to use the CRM itself.`,
+    '',
+    'How-to questions ("where do I…", "how do I…", "what does this page do") are answered from the CRM guide: call getCrmGuide with the one or two most relevant topic ids from this index, then give short numbered steps using the exact on-screen names. Never describe a button, menu or page the guide does not mention; if it has no answer, say so. Do not call the guide for questions about the data. Guide index:',
+    crmGuideIndex(),
     '',
     `Today is ${context.today} in ${context.timeZone}. This site's lead types are: ${context.leadTypes.join(', ') || 'none recorded yet'}. Its questions are in English unless the person writes in another language, in which case answer in theirs.`,
     ...openLead,
