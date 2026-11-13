@@ -102,6 +102,7 @@ function mount(
     canDownload?: boolean;
     onDecide?: (...args: ['approve' | 'reject', number]) => Promise<ResolveChangeRequestResponse>;
     onReload?: () => void;
+    previewDocument?: (fileId: string) => Promise<string>;
   } = {},
 ) {
   const onDecide = vi.fn(props.onDecide ?? (() => Promise.resolve(decided)));
@@ -118,6 +119,7 @@ function mount(
       onDone={onDone}
       openDocument={openDocument}
       {...(props.onReload ? { onReload: props.onReload } : {})}
+      {...(props.previewDocument ? { previewDocument: props.previewDocument } : {})}
     />,
   );
   return { onDecide, onDone, openDocument };
@@ -201,6 +203,44 @@ describe('ChangeRequestCard', () => {
     fireEvent.click(within(passport).getByRole('button', { name: 'View Passport' }));
     expect(openDocument).toHaveBeenCalledWith(PASSPORT_FILE);
     expect(screen.getByRole('button', { name: 'View Visa or approval letter' })).toBeTruthy();
+  });
+
+  it('shows each document as a thumbnail that opens large on the card', async () => {
+    const previewDocument = vi.fn((fileId: string) =>
+      Promise.resolve(`https://storage.example/${fileId}.jpg`),
+    );
+    mount({
+      previewDocument,
+      changeRequest: changeRequest({
+        fields: {},
+        documents: [
+          { fileId: PASSPORT_FILE, documentType: 'passport' },
+          { fileId: VISA_FILE, documentType: 'visa' },
+        ],
+      }),
+    });
+    const thumb = await screen.findByRole('button', { name: 'Preview Passport' });
+    expect(thumb.querySelector('img')?.getAttribute('src')).toBe(
+      `https://storage.example/${PASSPORT_FILE}.jpg`,
+    );
+    expect(previewDocument).toHaveBeenCalledTimes(2);
+    fireEvent.click(thumb);
+    const dialog = await screen.findByRole('dialog', { name: 'Passport' });
+    expect(within(dialog).getByRole('img', { name: 'Passport' })).toBeTruthy();
+  });
+
+  it('shows no thumbnail to staff who may not download', () => {
+    const previewDocument = vi.fn(() => Promise.resolve('https://storage.example/x.jpg'));
+    mount({
+      canDownload: false,
+      previewDocument,
+      changeRequest: changeRequest({
+        fields: {},
+        documents: [{ fileId: PASSPORT_FILE, documentType: 'passport' }],
+      }),
+    });
+    expect(previewDocument).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Preview Passport' })).toBeNull();
   });
 
   it('offers no View without the download permission, but still names the documents', () => {
