@@ -7,6 +7,7 @@ import { Button, Card, CardContent } from '@gt-sales/ui';
 import { createFileDownloadLink, revealLeadIdentity } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
+import { describeError } from '../../lib/error-text';
 import { errorReason } from '../../lib/use-resource';
 
 /** How long a revealed SIN stays on screen before it is masked again. */
@@ -22,16 +23,25 @@ function formatSin(digits: string): string {
   return digits.replace(/(\d{3})(?=\d)/g, '$1 ');
 }
 
-function revealFailure(code: string): string {
-  if (code === 'permission_denied') return 'Only an owner can reveal a SIN.';
-  if (code === 'identity_not_found') return 'This SIN is no longer on the lead.';
-  return `The SIN could not be revealed. Reason: ${code}.`;
+function revealFailure(error: unknown): string {
+  const code = errorReason(error);
+  if (code === 'permission_denied')
+    return 'Only an owner can reveal a SIN. Ask the owner to do it.';
+  if (code === 'identity_not_found') {
+    return 'This SIN is no longer on the lead. Reload the page to see the latest.';
+  }
+  return describeError(error, 'reveal the SIN');
 }
 
-function downloadFailure(code: string): string {
-  if (code === 'permission_denied') return 'You need the document download permission for this.';
-  if (code === 'file_not_available') return 'The photo is not available yet.';
-  return `The photo could not be downloaded. Reason: ${code}.`;
+function downloadFailure(error: unknown): string {
+  const code = errorReason(error);
+  if (code === 'permission_denied') {
+    return "You don't have permission to download photos. Ask the owner to give your role the document download permission.";
+  }
+  if (code === 'file_not_available') {
+    return 'The photo is not available yet. Wait a minute and reload the page.';
+  }
+  return describeError(error, 'download the photo');
 }
 
 /**
@@ -105,7 +115,7 @@ function IdentityRow({
       const result = await revealLeadIdentity(accessToken, workspaceId, leadId, identity.id);
       setRevealed(result.sin);
     } catch (error) {
-      setMessage(revealFailure(errorReason(error)));
+      setMessage(revealFailure(error));
     } finally {
       setBusy(false);
     }
@@ -118,7 +128,7 @@ function IdentityRow({
       const link = await createFileDownloadLink(accessToken, workspaceId, fileId);
       downloadNavigation.open(link.url);
     } catch (error) {
-      setMessage(downloadFailure(errorReason(error)));
+      setMessage(downloadFailure(error));
     } finally {
       setBusy(false);
     }

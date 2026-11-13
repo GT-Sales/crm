@@ -309,7 +309,7 @@ describe('the board by status', () => {
       expect(within(column(/^To do, 3 tasks$/)).getByText('Send the contract')).toBeTruthy(),
     );
     expect(screen.getByRole('alert').textContent).toBe(
-      '“Send the contract” was not moved. Reason: task_not_found.',
+      'This task no longer exists. Reload the page to see the latest, then try again.',
     );
   });
 

@@ -418,7 +418,7 @@ describe('LeadRecord ID check', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Download photo' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'You need the document download permission for this.',
+      "You don't have permission to download photos. Ask the owner to give your role the document download permission.",
     );
     open.mockRestore();
   });
@@ -507,7 +507,7 @@ describe('LeadRecord documents', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'View Passport' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'This document is not available yet.',
+      'This document is not available yet. Wait a minute and reload the page.',
     );
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -950,7 +950,11 @@ describe('LeadRecord order details', () => {
         new BackendError('file_not_available', 409, NOW),
       );
       fireEvent.click(screen.getByRole('button', { name: 'View Passport' }));
-      expect(await screen.findByText('This document is not available yet.')).toBeTruthy();
+      expect(
+        await screen.findByText(
+          'This document is not available yet. Wait a minute and reload the page.',
+        ),
+      ).toBeTruthy();
       expect(tab.close).toHaveBeenCalledTimes(1);
     });
 
@@ -1377,7 +1381,7 @@ describe('LeadRecord stage moves', () => {
     );
     expect(screen.queryByRole('dialog')).toBeNull();
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'That move is not allowed from Pending.',
+      'That move is not allowed from Pending. Pick one of the stages offered.',
     );
   });
 });
@@ -1645,7 +1649,9 @@ describe('LeadRecord from the site layout', () => {
     });
     fireEvent.click(within(custom).getByRole('button', { name: 'Save' }));
     const alert = await within(custom).findByRole('alert');
-    expect(alert.textContent).toBe('The change was not saved. Reason: validation_error.');
+    expect(alert.textContent).toBe(
+      "Some of the details aren't valid, so the CRM couldn't save the change. Check the fields and try again.",
+    );
     expect(alert.className).toContain('text-destructive');
     expect(within(custom).getByLabelText('Referral code')).toBeTruthy();
   });

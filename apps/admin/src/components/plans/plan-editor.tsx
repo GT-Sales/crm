@@ -18,6 +18,17 @@ import { Button, Checkbox, FormField, Input, Label, NativeSelect } from '@gt-sal
 
 import { dollarsToCents, PropertyValueControl } from '../properties/property-value';
 import { documentTypeLabel } from './document-types';
+import { describeInvalid } from '../../lib/error-text';
+
+/** The editor's fields by their key in the plan schemas, for `describeInvalid`. */
+const PLAN_FIELD_LABELS: Readonly<Record<string, string>> = {
+  name: 'The name',
+  priceMinor: 'The price',
+  billingPeriod: 'The billing period',
+  requiredDocuments: 'The required documents',
+  customValues: 'A plan property',
+  commission: 'The commission',
+};
 
 /** How staff read each billing period, for the selector and the plan list. */
 export const BILLING_PERIOD_LABELS: Record<BillingPeriod, string> = {
@@ -201,7 +212,7 @@ export function PlanEditor({
         ...changes,
       });
       if (!parsed.success) {
-        setError('Check the fields and try again.');
+        setError(describeInvalid(parsed.error, PLAN_FIELD_LABELS));
         return;
       }
       input = parsed.data;
@@ -223,7 +234,7 @@ export function PlanEditor({
         ...(commission ? { commission } : {}),
       });
       if (!parsed.success) {
-        setError('Check the fields and try again.');
+        setError(describeInvalid(parsed.error, PLAN_FIELD_LABELS));
         return;
       }
       // The schema defaults the commission to none; only the owner may send one.

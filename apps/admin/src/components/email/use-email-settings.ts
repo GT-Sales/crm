@@ -30,6 +30,8 @@ export function useEmailSettings(workspaceId: string | undefined): {
   forbidden: boolean;
   reload(): Promise<void>;
   error?: string;
+  /** The failed load's original error, for `describeError`. */
+  failure?: unknown;
 } {
   const { accessToken } = useStaffSession();
   const load = useMemo(
@@ -50,7 +52,7 @@ export function useEmailSettings(workspaceId: string | undefined): {
         : undefined,
     [accessToken, workspaceId],
   );
-  const { data, error, reload } = useResource(load);
+  const { data, error, failure, reload } = useResource(load);
   const loaded = data?.kind === 'loaded' ? data : undefined;
   const templates = useMemo(() => [...(loaded?.templates ?? NO_TEMPLATES)], [loaded]);
 
@@ -59,6 +61,6 @@ export function useEmailSettings(workspaceId: string | undefined): {
     templates,
     forbidden: data?.kind === 'forbidden',
     reload,
-    ...(error !== undefined ? { error } : {}),
+    ...(error !== undefined ? { error, failure } : {}),
   };
 }

@@ -478,7 +478,7 @@ describe('FlowPage', () => {
     mocks.getAutomation.mockRejectedValueOnce(new mocks.FakeBackendError('automation_not_found'));
     render(<FlowPage workspaceSlug="canadawide" flowKey={FLOW} />);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'The automation could not be loaded. Reason: automation_not_found.',
+      'This automation no longer exists. Go back to Automations and pick another one.',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(

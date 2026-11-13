@@ -130,7 +130,7 @@ describe('DocumentReviewQueue', () => {
     );
     render(<DocumentReviewQueue workspaceSlug="getcanadasim" />);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'Your role does not show customer documents.',
+      "Your role doesn't show customer documents. Ask the owner if you need to review them.",
     );
   });
 });

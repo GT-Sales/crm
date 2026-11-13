@@ -59,6 +59,7 @@ import {
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
 import { memberName } from '../../lib/people';
+import { describeError } from '../../lib/error-text';
 import { errorDetailList, errorReason, useResource } from '../../lib/use-resource';
 import { PropertySections } from '../properties/property-sections';
 import { usePropertyModel } from '../properties/use-property-model';
@@ -273,7 +274,11 @@ export function LeadRecord({
         <Title className="text-xl font-semibold">
           {record.error === 'lead_not_found' ? 'Lead not found' : 'The lead could not be loaded'}
         </Title>
-        <p className="text-sm text-muted-foreground">Reason: {record.error}.</p>
+        <p className="text-sm text-muted-foreground">
+          {record.error === 'lead_not_found'
+            ? 'This lead no longer exists, or it is on another site. Go back to the leads list and reload it.'
+            : describeError(record.failure, 'load the lead')}
+        </p>
         {inPanel ? null : (
           <Link href={`/w/${workspaceSlug}/leads`} className="text-sm underline">
             Back to leads
@@ -366,7 +371,7 @@ export function LeadRecord({
       const code = errorReason(error);
       const refusal =
         body.stage === undefined ? undefined : stageMoveRefusal(code, lead.leadType, lead.stage);
-      setMessage(refusal ?? `The change was not saved. Reason: ${code}.`);
+      setMessage(refusal ?? describeError(error, 'save the change'));
       return undefined;
     } finally {
       setSaving(false);
@@ -436,7 +441,7 @@ export function LeadRecord({
       tab.show(link.url);
     } catch (error) {
       tab.close();
-      throw new Error(linkFailure(errorReason(error)));
+      throw new Error(linkFailure(error));
     }
   }
 
@@ -477,7 +482,7 @@ export function LeadRecord({
       }
       return undefined;
     } catch (error) {
-      return `The change was not saved. Reason: ${errorReason(error)}.`;
+      return describeError(error, 'save the change');
     }
   }
 
@@ -502,8 +507,8 @@ export function LeadRecord({
             : reason === 'conflict'
               ? 'The order needs the customer’s email address and a SIM number first.'
               : reason === 'feature_not_ready'
-                ? 'Emailing customers is not set up for this site yet.'
-                : `The email was not sent. Reason: ${reason}.`,
+                ? 'Emailing customers is not set up for this site yet. Ask the owner to set up Settings → Email.'
+                : describeError(error, 'send the email'),
       );
     }
   }
@@ -538,9 +543,7 @@ export function LeadRecord({
         activities: result.activity ? [result.activity, ...current.activities] : current.activities,
       }));
     } catch (error) {
-      setMessage(
-        `The lead was not ${archived ? 'archived' : 'restored'}. Reason: ${errorReason(error)}.`,
-      );
+      setMessage(describeError(error, archived ? 'archive the lead' : 'restore the lead'));
     } finally {
       setSaving(false);
     }

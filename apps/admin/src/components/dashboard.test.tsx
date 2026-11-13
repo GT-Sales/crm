@@ -362,7 +362,7 @@ describe('Dashboard analytics', () => {
   it('says when the analytics could not load', async () => {
     mocks.getAnalytics.mockRejectedValue(new Error('boom'));
     render(<Dashboard workspaceSlug="getcanadasim" />);
-    expect((await screen.findByRole('alert')).textContent).toMatch(/Could not load the dashboard/);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/couldn't load the dashboard/);
   });
 });
 
@@ -409,6 +409,10 @@ describe('Dashboard follow-ups due', () => {
     const { BackendError } = await import('../lib/api');
     mocks.listStaffTasks.mockRejectedValue(new BackendError('permission_denied', 403, 'x'));
     render(<Dashboard workspaceSlug="getcanadasim" />);
-    expect(await screen.findByText('Your role does not include lead tasks.')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'Your role does not include lead tasks. Ask the owner if you need them.',
+      ),
+    ).toBeTruthy();
   });
 });

@@ -19,7 +19,14 @@ const NO_PLANS: readonly Plan[] = [];
 export function usePlans(
   workspaceId: string | undefined,
   options: { includeInactive?: boolean } = {},
-): { plans: Plan[]; loaded: boolean; reload(): Promise<void>; error?: string } {
+): {
+  plans: Plan[];
+  loaded: boolean;
+  reload(): Promise<void>;
+  error?: string;
+  /** The failed load's original error, for `describeError`. */
+  failure?: unknown;
+} {
   const { accessToken } = useStaffSession();
   const includeInactive = options.includeInactive === true;
 
@@ -33,9 +40,9 @@ export function usePlans(
         : undefined,
     [accessToken, workspaceId, includeInactive],
   );
-  const { data, error, reload } = useResource(load);
+  const { data, error, failure, reload } = useResource(load);
   const loaded = data !== undefined;
   const plans = useMemo(() => [...(data?.plans ?? NO_PLANS)], [data]);
 
-  return { plans, loaded, reload, ...(error !== undefined ? { error } : {}) };
+  return { plans, loaded, reload, ...(error !== undefined ? { error, failure } : {}) };
 }

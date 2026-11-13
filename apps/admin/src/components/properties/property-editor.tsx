@@ -12,6 +12,16 @@ import {
   type UpdateProperty,
 } from '@gt-sales/contracts';
 import { Button, Checkbox, FormField, Input, Label, NativeSelect } from '@gt-sales/ui';
+import { describeInvalid } from '../../lib/error-text';
+
+/** The editor's fields by their key in the property schemas, for `describeInvalid`. */
+const PROPERTY_FIELD_LABELS: Readonly<Record<string, string>> = {
+  label: 'The label',
+  kind: 'The kind',
+  options: 'The options',
+  value: 'An option',
+  leadTypes: 'The lead types',
+};
 
 type CustomKind = (typeof CUSTOM_PROPERTY_KINDS)[number];
 
@@ -156,7 +166,7 @@ export function PropertyEditor({
           : { staffOnly, sensitive, leadTypes: selectedTypes }),
       });
       if (!parsed.success) {
-        setError('Check the fields and try again.');
+        setError(describeInvalid(parsed.error, PROPERTY_FIELD_LABELS));
         return;
       }
       input = parsed.data;
@@ -170,7 +180,7 @@ export function PropertyEditor({
           : { staffOnly, sensitive, leadTypes: selectedTypes }),
       });
       if (!parsed.success) {
-        setError('Check the fields and try again.');
+        setError(describeInvalid(parsed.error, PROPERTY_FIELD_LABELS));
         return;
       }
       input = parsed.data;

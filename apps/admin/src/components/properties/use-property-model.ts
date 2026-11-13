@@ -73,6 +73,7 @@ interface ModelState {
   workspaceId: string;
   model?: PropertyModelResponse;
   error?: string;
+  failure?: unknown;
 }
 
 /**
@@ -89,6 +90,8 @@ export function usePropertyModel(
   catalog: PropertyCatalog;
   reload(): Promise<void>;
   error: string | undefined;
+  /** The failed load's original error, for `describeError`. */
+  failure: unknown;
 } {
   const { accessToken } = useStaffSession();
   // A refreshed token is not a reason to ask again.
@@ -117,6 +120,7 @@ export function usePropertyModel(
           workspaceId: id,
           ...(previous?.workspaceId === id && previous.model ? { model: previous.model } : {}),
           error: errorReason(caught),
+          failure: caught,
         }));
       }
     },
@@ -143,5 +147,5 @@ export function usePropertyModel(
     if (workspaceId) await load(workspaceId);
   }, [workspaceId, load]);
 
-  return { model, catalog, reload, error: current?.error };
+  return { model, catalog, reload, error: current?.error, failure: current?.failure };
 }

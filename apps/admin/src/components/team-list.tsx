@@ -18,7 +18,8 @@ import { Search, ShieldCheck } from 'lucide-react';
 
 import { listWorkspaceMembers, revokeStaff } from '../lib/api';
 import { memberName, ROLE_LABELS } from '../lib/people';
-import { errorReason, useResource } from '../lib/use-resource';
+import { describeError } from '../lib/error-text';
+import { useResource } from '../lib/use-resource';
 import { useStaffSession } from './staff-session-provider';
 import { LoadingSkeleton } from './crm/loading-skeleton';
 
@@ -66,7 +67,9 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
       }));
       setMessage(`${memberName(member)} no longer has access to this site.`);
     } catch (error) {
-      setMessage(`${memberName(member)} still has access. Reason: ${errorReason(error)}.`);
+      setMessage(
+        `${memberName(member)} still has access. ${describeError(error, 'remove them from the site')}`,
+      );
     } finally {
       setBusy(false);
     }
@@ -138,7 +141,7 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
 
       {team.error ? (
         <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
-          The team could not be loaded. Reason: {team.error}.
+          {describeError(team.failure, 'load the team')}
         </p>
       ) : !team.data ? (
         <LoadingSkeleton label="Loading the team…" variant="list" />

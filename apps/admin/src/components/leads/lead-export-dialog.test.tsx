@@ -416,12 +416,18 @@ describe('LeadExportDialog', () => {
 
     for (const [code, message] of [
       ['rate_limited', 'Too many exports just now. Try again in a few minutes.'],
-      ['permission_denied', 'You do not have permission to export leads.'],
+      [
+        'permission_denied',
+        "You don't have permission to export leads. Ask the owner to give your role access.",
+      ],
       [
         'lead_not_found',
         'Some ticked leads are no longer available. Reload the list and try again.',
       ],
-      ['internal_error', 'Could not export. Reason: internal_error.'],
+      [
+        'internal_error',
+        "The CRM had a problem and couldn't export the leads. Try again in a minute; if it keeps happening, tell your admin.",
+      ],
     ] as const) {
       mocks.exportLeads.mockRejectedValueOnce(new backend.BackendError(code));
       await runExport();
@@ -432,7 +438,7 @@ describe('LeadExportDialog', () => {
     await runExport();
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toBe(
-        'Could not export: the connection failed or timed out. Try again.',
+        "Couldn't reach the CRM to export the leads. Check your internet connection and try again.",
       ),
     );
 

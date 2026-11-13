@@ -354,7 +354,7 @@ describe('ChangeRequestCard', () => {
     mount({ onDecide: () => Promise.reject(new BackendError('internal_error', 500, 'req-3')) });
     fireEvent.click(screen.getByRole('button', { name: 'Approve changes' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'The decision was not saved. Reason: internal_error.',
+      "The CRM had a problem and couldn't save the decision. Try again in a minute; if it keeps happening, tell your admin. (Ref: req-3)",
     );
   });
 

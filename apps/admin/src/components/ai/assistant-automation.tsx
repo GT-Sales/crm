@@ -12,6 +12,7 @@ import {
 } from '@gt-sales/contracts';
 import { useAssistant, type AutomationCardState } from './assistant-provider';
 import { BackendError } from '../../lib/api';
+import { describeError } from '../../lib/error-text';
 import dynamic from 'next/dynamic';
 const FlowCanvas = dynamic(
   () => import('../automations/canvas/flow-canvas').then((module) => module.FlowCanvas),
@@ -117,7 +118,7 @@ export function AssistantAutomation({
       )
     )
       return 'Your access changed. Sign in again or ask a site manager.';
-    return 'Could not complete this action. Check the settings or ask AI for a fresh proposal. Your edits are preserved.';
+    return `${describeError(cause, 'save this automation')} Your edits are preserved.`;
   }
   async function review() {
     setBusy(true);

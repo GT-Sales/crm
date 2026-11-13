@@ -23,6 +23,7 @@ import {
 import { AlertCircleIcon, CheckIcon, EllipsisIcon } from 'lucide-react';
 
 import { dueAtFromDay, dueDay, dueLabel, relativeTime } from '../../lib/dates';
+import { describeError } from '../../lib/error-text';
 import { assigneeName } from '../../lib/people';
 import { leadDisplayName, PersonChip } from './lead-display';
 import { TASK_STATUS_LABELS, TaskStatusBadge } from './lead-tasks';
@@ -184,7 +185,7 @@ export function TasksBoard({
   /** Tasks with a move on its way; they take no other move until it settles. */
   busyIds: ReadonlySet<string>;
   /** The Done column's own load. */
-  doneState: { loading: boolean; error?: string };
+  doneState: { loading: boolean; error?: string; failure?: unknown };
   onMove(task: WorkspaceTask, change: TaskChange): void;
 }) {
   const [dragging, setDragging] = useState<string>();
@@ -423,7 +424,7 @@ export function TasksBoard({
 
             {isDone && doneState.error ? (
               <p role="alert" className="px-1 py-4 text-center text-xs text-muted-foreground">
-                Could not load done tasks. Reason: {doneState.error}.
+                {describeError(doneState.failure ?? doneState.error, 'load the done tasks')}
               </p>
             ) : isDone && doneState.loading && entries.length === 0 ? (
               <p className="px-1 py-4 text-center text-xs text-muted-foreground">Loading…</p>

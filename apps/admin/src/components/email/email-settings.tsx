@@ -46,7 +46,7 @@ import {
   updateEmailSettings,
   updateEmailTemplate,
 } from '../../lib/api';
-import { errorReason } from '../../lib/use-resource';
+import { describeError, describeInvalid } from '../../lib/error-text';
 import { useStaffSession } from '../staff-session-provider';
 import {
   BODY_MAX,
@@ -561,7 +561,13 @@ function NewTemplateForm({
     if (errors.name || errors.subject || errors.body) return;
     const parsed = createEmailTemplateRequestSchema.safeParse({ name, subject, body });
     if (!parsed.success) {
-      setProblem('Check the name, subject and body and try again.');
+      setProblem(
+        describeInvalid(parsed.error, {
+          name: 'The name',
+          subject: 'The subject',
+          body: 'The body',
+        }),
+      );
       return;
     }
     setBusy(true);
@@ -666,7 +672,7 @@ export function EmailSettingsScreen({
   const staff = useStaffSession();
   const workspaceId = staff.workspaces.find((item) => item.slug === workspaceSlug)?.id;
   const accessToken = staff.accessToken;
-  const { settings, templates, forbidden, reload, error } = useEmailSettings(workspaceId);
+  const { settings, templates, forbidden, reload, error, failure } = useEmailSettings(workspaceId);
   const [editing, setEditing] = useState<EmailTemplateKey | undefined>(initialTemplate);
   const [creating, setCreating] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -700,9 +706,7 @@ export function EmailSettingsScreen({
     setArchivedLoading(false);
     if (!outcome.ok) {
       if (!isForbidden(outcome.error)) {
-        setActionError(
-          `Archived templates could not be loaded. Reason: ${errorReason(outcome.error)}.`,
-        );
+        setActionError(describeError(outcome.error, 'load the archived templates'));
       }
       return;
     }
@@ -725,7 +729,7 @@ export function EmailSettingsScreen({
     const outcome = await call((token, id) => updateEmailSettings(token, id, input));
     if (!outcome.ok) {
       if (isForbidden(outcome.error)) return INTEGRATIONS_PERMISSION_MESSAGE;
-      return `The settings were not saved. Reason: ${errorReason(outcome.error)}.`;
+      return describeError(outcome.error, 'save the settings');
     }
     await reload();
     return undefined;
@@ -744,10 +748,7 @@ export function EmailSettingsScreen({
       ) {
         return TEMPLATE_LIMIT_MESSAGE;
       }
-      return (
-        templateProblem(outcome.error) ??
-        `The template was not created. Reason: ${errorReason(outcome.error)}.`
-      );
+      return templateProblem(outcome.error) ?? describeError(outcome.error, 'create the template');
     }
     setCreating(false);
     await reload();
@@ -766,10 +767,7 @@ export function EmailSettingsScreen({
         void reload();
         return CONFLICT_MESSAGE;
       }
-      return (
-        templateProblem(outcome.error) ??
-        `The email was not saved. Reason: ${errorReason(outcome.error)}.`
-      );
+      return templateProblem(outcome.error) ?? describeError(outcome.error, 'save the email');
     }
     await reload();
     return undefined;
@@ -780,7 +778,7 @@ export function EmailSettingsScreen({
     const outcome = await call((token, id) => archiveEmailTemplate(token, id, key));
     if (!outcome.ok) {
       if (!isForbidden(outcome.error)) {
-        setActionError(`The template was not archived. Reason: ${errorReason(outcome.error)}.`);
+        setActionError(describeError(outcome.error, 'archive the template'));
       }
       return;
     }
@@ -800,7 +798,7 @@ export function EmailSettingsScreen({
         return;
       }
       if (!isForbidden(outcome.error)) {
-        setActionError(`The template was not restored. Reason: ${errorReason(outcome.error)}.`);
+        setActionError(describeError(outcome.error, 'restore the template'));
       }
       return;
     }
@@ -825,7 +823,7 @@ export function EmailSettingsScreen({
     if (outcome.error instanceof BackendError && outcome.error.code === 'feature_not_ready') {
       return 'There is no sender to mail from yet. Save the sender settings first.';
     }
-    return `The test was not sent. Reason: ${errorReason(outcome.error)}.`;
+    return describeError(outcome.error, 'send the test email');
   }
 
   if (forbidden) {
@@ -838,7 +836,7 @@ export function EmailSettingsScreen({
   if (!settings) {
     return error ? (
       <p role="alert" className="text-sm text-destructive">
-        The email settings could not be loaded. Reason: {error}.
+        {describeError(failure ?? error, 'load the email settings')}
       </p>
     ) : (
       <LoadingSkeleton label="Loading the email settings…" variant="form" />
@@ -857,7 +855,7 @@ export function EmailSettingsScreen({
       ) : null}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
-          The email settings could not be refreshed. Reason: {error}.
+          {describeError(failure ?? error, 'refresh the email settings')}
         </p>
       ) : null}
       {actionError ? (

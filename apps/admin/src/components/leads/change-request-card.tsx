@@ -16,6 +16,7 @@ import { Button, Card, CardContent } from '@gt-sales/ui';
 import { EyeIcon } from 'lucide-react';
 
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
+import { describeError } from '../../lib/error-text';
 import { errorReason } from '../../lib/use-resource';
 import { documentLabel } from './lead-documents';
 import { listText } from './stage-move-dialog';
@@ -170,7 +171,7 @@ function refusal(error: unknown): { text: string; reload: boolean } {
       reload: true,
     };
   }
-  return { text: `The decision was not saved. Reason: ${code}.`, reload: false };
+  return { text: describeError(error, 'save the decision'), reload: false };
 }
 
 /**
@@ -247,7 +248,7 @@ export function ChangeRequestCard({
       setDocumentFailure(
         error instanceof Error && error.message !== ''
           ? error.message
-          : 'The document could not be opened.',
+          : 'The document could not be opened. Try again.',
       );
     }
   }

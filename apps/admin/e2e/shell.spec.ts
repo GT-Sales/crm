@@ -45,9 +45,12 @@ test('invitation acceptance and recovery entry points stay usable', async ({ pag
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Recover staff access');
 });
 
-test('denial reason codes are visible and lead back to sign in', async ({ page }) => {
+test('a denial says what to do in words, never as a code, and leads back to sign in', async ({
+  page,
+}) => {
   await page.goto('/denied?reason=permission_denied');
-  await expect(page.getByText('Reason: permission_denied')).toBeVisible();
+  await expect(page.getByText(/Ask the owner to give your role access/)).toBeVisible();
+  await expect(page.getByText('permission_denied')).toHaveCount(0);
   await page.getByRole('link', { name: 'Back to sign in' }).click();
   await expect(page).toHaveURL('/login');
 });

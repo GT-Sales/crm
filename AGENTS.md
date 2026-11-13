@@ -171,6 +171,15 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/components/automations/` (`flow-words.ts` puts a flow and its step
   outcomes in words); API client
   `apps/admin/src/lib/api.ts`.
+- Error messages in the admin: `apps/admin/src/lib/error-text.ts`.
+  `describeError(error, 'save the change')` turns any failure (a
+  `BackendError`, a dropped connection, a timeout) into a plain sentence that
+  says what to do next; `describeInvalid` names the field and the limit for a
+  form's own zod check. A screen never shows a raw error code; a server
+  failure may end with `(Ref: <8 chars of the request id>)`. `useResource`
+  keeps the original error as `failure` for it. A CRM that does not answer
+  the workspace check shows "The CRM is not responding" with Try again
+  (`protected-workspace-shell.tsx`), never the denied page.
 - Source report: `apps/backend/src/reports/store.ts` (the one SQL statement,
   `sourceLabelSql` and `shapeSourceReport`) with the route in
   `src/routes/reports.ts`; contracts in `packages/contracts/src/reports.ts`;

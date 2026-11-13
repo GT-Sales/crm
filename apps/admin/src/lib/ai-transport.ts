@@ -6,6 +6,7 @@ import {
 } from '@gt-sales/contracts';
 
 import { BackendError, askAiAssistant } from './api';
+import { errorKind } from './error-text';
 
 /**
  * Ask AI's transport: the small, typed seam between the assistant's local
@@ -22,6 +23,8 @@ export type AiUiError =
   | 'denied'
   | 'rate_limited'
   | 'failed'
+  /** The CRM could not be reached: no connection, a timeout before the answer started, an edge 502–504. */
+  | 'offline'
   | 'cancelled'
   | 'timeout'
   | 'too_long';
@@ -252,6 +255,9 @@ export async function streamAnswer(input: StreamAnswerInput): Promise<AiUiError 
     return input.signal?.aborted === true ? 'cancelled' : 'failed';
   } catch (error) {
     if (isAbort(error, input.signal)) return 'cancelled';
+    // The client's whole-turn limit: the answer took too long, the CRM was there.
+    if (error instanceof Error && error.name === 'TimeoutError') return 'timeout';
+    if (errorKind(error) === 'offline') return 'offline';
     if (error instanceof BackendError) return uiErrorForBackendCode(error.code);
     return 'failed';
   }

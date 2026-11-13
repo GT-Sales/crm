@@ -230,7 +230,7 @@ describe('LeadsBoard', () => {
 
     expect(await screen.findByRole('alert')).toHaveProperty(
       'textContent',
-      'The lead could not be moved. Reason: lead_trashed.',
+      'This lead is archived. Restore it first, then try again.',
     );
     expect(within(column(/^New, 1 leads$/)).getByText('Avery Example')).toBeTruthy();
     expect(column(/^Won, 4 leads$/)).toBeTruthy();
@@ -423,7 +423,7 @@ describe('LeadsBoard', () => {
     await moveTo('Pending');
 
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'That move is not allowed from Verified.',
+      'That move is not allowed from Verified. Pick one of the stages offered.',
     );
     expect(within(column(/^Verified, 1 leads$/)).getByText('Avery Example')).toBeTruthy();
   });

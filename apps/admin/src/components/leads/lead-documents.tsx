@@ -20,6 +20,7 @@ import { createFileDownloadLink, reviewFile } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
 import { notifyDocumentsReviewed } from '../../lib/lead-work-events';
+import { describeError } from '../../lib/error-text';
 import { errorReason } from '../../lib/use-resource';
 
 /** Names for each document type, in the order the card lists them. */
@@ -78,11 +79,18 @@ function reviewBadge(review: LeadDocument['review']): { label: string; className
   return { label: 'Not reviewed', className: 'text-muted-foreground' };
 }
 
-export function linkFailure(code: string): string {
-  if (code === 'permission_denied') return 'You need the document download permission for this.';
-  if (code === 'file_not_available') return 'This document is not available yet.';
-  if (code === 'feature_not_ready') return 'Document storage is not set up yet.';
-  return `The document could not be opened. Reason: ${code}.`;
+export function linkFailure(error: unknown): string {
+  const code = errorReason(error);
+  if (code === 'permission_denied') {
+    return "You don't have permission to open documents. Ask the owner to give your role the document download permission.";
+  }
+  if (code === 'file_not_available') {
+    return 'This document is not available yet. Wait a minute and reload the page.';
+  }
+  if (code === 'feature_not_ready') {
+    return 'Document storage is not set up for this site yet. Ask the owner.';
+  }
+  return describeError(error, 'open the document');
 }
 
 /**
@@ -180,7 +188,7 @@ export function DocumentRow({
       const link = await createFileDownloadLink(accessToken, workspaceId, document.id, 'inline');
       setPreview(link.url);
     } catch (error) {
-      setMessage(linkFailure(errorReason(error)));
+      setMessage(linkFailure(error));
     } finally {
       setBusy(false);
     }
@@ -202,7 +210,7 @@ export function DocumentRow({
       await reviewFile(accessToken, workspaceId, document.id, { decision });
       notifyDocumentsReviewed(workspaceId);
     } catch (error) {
-      setMessage(`The review was not saved. Reason: ${errorReason(error)}.`);
+      setMessage(describeError(error, 'save the review'));
       setBusy(false);
       return;
     }
@@ -220,7 +228,7 @@ export function DocumentRow({
       const link = await createFileDownloadLink(accessToken, workspaceId, document.id);
       downloadNavigation.open(link.url);
     } catch (error) {
-      setMessage(linkFailure(errorReason(error)));
+      setMessage(linkFailure(error));
     } finally {
       setBusy(false);
     }

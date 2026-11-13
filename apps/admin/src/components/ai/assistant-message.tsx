@@ -29,9 +29,11 @@ export function aiErrorText(error: AiUiError): string {
       return 'That took too long. Ask about a shorter period or one lead at a time.';
     case 'too_long':
       return 'That question needed more work than one answer allows. Split it into smaller questions.';
+    case 'offline':
+      return 'Couldn’t reach the CRM to answer. Check your internet connection and try again.';
     case 'failed':
     default:
-      return 'Something went wrong while answering. Try again.';
+      return 'Ask AI had a problem and couldn’t answer. Try again; if it keeps happening, tell your admin.';
   }
 }
 

@@ -22,7 +22,7 @@ import {
 } from '@gt-sales/ui';
 
 import { BackendError, createPlan, updatePlan } from '../../lib/api';
-import { errorReason } from '../../lib/use-resource';
+import { describeError } from '../../lib/error-text';
 import { usePropertyModel } from '../properties/use-property-model';
 import { useStaffSession } from '../staff-session-provider';
 import { PLAN_DOCUMENT_TYPES } from './document-types';
@@ -44,12 +44,12 @@ function planError(error: unknown): string {
       case 'plan_limit':
         return `This site already has ${PLAN_LIMIT} plans.`;
       case 'version_conflict':
-        return 'This plan changed elsewhere. Reload and try again.';
+        return 'Someone else changed this plan while you were editing. The latest version is loaded; make your change again.';
       default:
         break;
     }
   }
-  return `The change was not saved. Reason: ${errorReason(error)}.`;
+  return describeError(error, 'save the change');
 }
 
 /** Active plans first, the inactive ones after them; each group keeps the backend's order. */
@@ -77,6 +77,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
     loaded,
     reload,
     error: loadError,
+    failure: loadFailure,
   } = usePlans(workspaceId, {
     includeInactive: true,
   });
@@ -144,7 +145,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
   if (!loaded) {
     return loadError ? (
       <p role="alert" className="text-sm text-destructive">
-        The plans could not be loaded. Reason: {loadError}.
+        {describeError(loadFailure ?? loadError, 'load the plans')}
       </p>
     ) : (
       <LoadingSkeleton label="Loading the plans…" variant="list" />
@@ -178,7 +179,7 @@ export function PlansSettings({ workspaceSlug }: { workspaceSlug: string }): JSX
       </p>
       {loadError ? (
         <p role="alert" className="text-sm text-destructive">
-          The plans could not be refreshed. Reason: {loadError}.
+          {describeError(loadFailure ?? loadError, 'refresh the plans')}
         </p>
       ) : null}
       {notice ? (

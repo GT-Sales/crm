@@ -16,7 +16,7 @@ import {
 } from '@gt-sales/ui';
 
 import { getStaffLeads } from '../lib/api';
-import { errorReason } from '../lib/use-resource';
+import { describeError } from '../lib/error-text';
 import { leadDisplayName } from './leads/lead-display';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
@@ -31,7 +31,7 @@ type LeadSearch =
   | { status: 'searching' }
   | { status: 'done'; leads: LeadListItem[]; total: number }
   | { status: 'no_access' }
-  | { status: 'failed'; reason: string };
+  | { status: 'failed'; message: string };
 
 const RESULT_CLASS =
   'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -93,7 +93,7 @@ export function QuickNavigation({
         },
         (error: unknown) => {
           if (generation.current !== current) return;
-          setSearch({ status: 'failed', reason: errorReason(error) });
+          setSearch({ status: 'failed', message: describeError(error, 'search the leads') });
         },
       );
     }, LEAD_SEARCH_DELAY_MS);
@@ -166,7 +166,7 @@ export function QuickNavigation({
                   </p>
                 ) : search.status === 'failed' ? (
                   <p role="alert" className="px-3 py-2 text-sm text-destructive">
-                    Leads could not be searched. Reason: {search.reason}.
+                    {search.message}
                   </p>
                 ) : search.status === 'done' && leads.length === 0 ? (
                   <p role="status" className="px-3 py-2 text-sm text-muted-foreground">

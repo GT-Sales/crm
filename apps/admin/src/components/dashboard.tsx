@@ -35,6 +35,7 @@ import {
 import { dueTone, followUpLabel, todayDay } from '../lib/dates';
 import { memberName } from '../lib/people';
 import { busiest } from '../lib/stats-windows';
+import { describeError } from '../lib/error-text';
 import { useResource } from '../lib/use-resource';
 import {
   COMPARE_LABELS,
@@ -172,7 +173,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
 
       {summary.error || analytics.error ? (
         <p role="alert" className="text-sm text-muted-foreground">
-          Could not load the dashboard. Reason: {summary.error ?? analytics.error}.
+          {describeError(summary.error ? summary.failure : analytics.failure, 'load the dashboard')}
         </p>
       ) : null}
 
@@ -808,8 +809,8 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
         {due.error ? (
           <p role="alert" className="text-sm text-muted-foreground">
             {due.error === 'permission_denied'
-              ? 'Your role does not include lead tasks.'
-              : `Could not load the follow-ups. Reason: ${due.error}.`}
+              ? 'Your role does not include lead tasks. Ask the owner if you need them.'
+              : describeError(due.failure, 'load the follow-ups')}
           </p>
         ) : !due.data ? (
           <LoadingSkeleton label="Loading follow-ups…" rows={4} />

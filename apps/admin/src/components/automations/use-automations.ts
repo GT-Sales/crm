@@ -20,6 +20,8 @@ export function useAutomations(workspaceId: string | undefined): {
   reload(): Promise<void>;
   replace(automation: FlowSummary): void;
   error?: string;
+  /** The failed load's original error, for `describeError`. */
+  failure?: unknown;
 } {
   const { accessToken } = useStaffSession();
   const load = useMemo(
@@ -27,7 +29,7 @@ export function useAutomations(workspaceId: string | undefined): {
       accessToken && workspaceId ? () => listAutomations(accessToken, workspaceId) : undefined,
     [accessToken, workspaceId],
   );
-  const { data, error, reload, mutate } = useResource(load);
+  const { data, error, failure, reload, mutate } = useResource(load);
   const replace = useCallback(
     (automation: FlowSummary) =>
       mutate((current) => ({
@@ -38,5 +40,5 @@ export function useAutomations(workspaceId: string | undefined): {
       })),
     [mutate],
   );
-  return { data, reload, replace, ...(error !== undefined ? { error } : {}) };
+  return { data, reload, replace, ...(error !== undefined ? { error, failure } : {}) };
 }

@@ -54,6 +54,7 @@ import {
 } from '../../lib/api';
 import { todayDay } from '../../lib/dates';
 import { memberName } from '../../lib/people';
+import { describeError } from '../../lib/error-text';
 import { errorReason, useResource } from '../../lib/use-resource';
 import { FilterChip } from '../crm/filter-chip';
 import { MenuItem, MenuPanel } from '../crm/menu';
@@ -184,13 +185,19 @@ function keepUnreadProperties(
 /** What a failed saved-view call says to the person who made it. */
 function savedViewFailure(error: unknown): string {
   const reason = errorReason(error);
-  if (reason === 'saved_view_name_taken') return 'A view with that name already exists.';
-  if (reason === 'saved_view_limit') {
-    return `You already have ${SAVED_VIEW_LIMIT} views. Delete one first.`;
+  if (reason === 'saved_view_name_taken') {
+    return 'You already have a view with that name. Choose a different name.';
   }
-  if (reason === 'version_conflict') return 'This view changed elsewhere. Reload and try again.';
-  if (reason === 'saved_view_not_found') return 'This view no longer exists. Reload and try again.';
-  return `Could not save the view. Reason: ${reason}.`;
+  if (reason === 'saved_view_limit') {
+    return `You already have ${SAVED_VIEW_LIMIT} views. Delete one you no longer use first.`;
+  }
+  if (reason === 'version_conflict') {
+    return 'This view was changed in another tab or window. Reload the page and try again.';
+  }
+  if (reason === 'saved_view_not_found') {
+    return 'This view no longer exists. Reload the page to see your views.';
+  }
+  return describeError(error, 'save the view');
 }
 
 const LEGACY_HIDDEN_COLUMNS_KEY = 'gt-table-hidden-cols:';
@@ -1477,18 +1484,18 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
 
       {summary.error ? (
         <p role="alert" className="text-sm text-muted-foreground">
-          Could not load the lead counts. Reason: {summary.error}.
+          {describeError(summary.failure, 'load the lead counts')}
         </p>
       ) : null}
       {savedViews.error ? (
         <p role="alert" className="text-sm text-muted-foreground">
-          Could not load your saved views. Reason: {savedViews.error}.
+          {describeError(savedViews.failure, 'load your saved views')}
         </p>
       ) : null}
       {catalogFailed ? (
         <p role="alert" className="text-sm text-muted-foreground">
-          Could not load the site&apos;s properties; showing built-in ones. Reason:{' '}
-          {properties.error}.
+          {describeError(properties.failure ?? properties.error, "load the site's properties")}{' '}
+          Showing the built-in properties for now.
         </p>
       ) : null}
       {exported ? (

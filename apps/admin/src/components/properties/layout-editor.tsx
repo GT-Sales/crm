@@ -8,6 +8,7 @@ import {
   type PropertyLayout,
 } from '@gt-sales/contracts';
 import { Button, Input, NativeSelect } from '@gt-sales/ui';
+import { describeInvalid } from '../../lib/error-text';
 
 const KEY_TYPE = 'application/x-property-key';
 const SECTION_TYPE = 'application/x-layout-section';
@@ -108,7 +109,13 @@ export function LayoutEditor({
     }
     const parsed = propertyLayoutSchema.safeParse(layout);
     if (!parsed.success) {
-      setError('This layout cannot be saved. Check the section names and try again.');
+      setError(
+        describeInvalid(parsed.error, {
+          sections: 'The sections',
+          label: 'A section name',
+          keys: 'A section',
+        }),
+      );
       return;
     }
     setBusy(true);

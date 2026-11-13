@@ -23,6 +23,7 @@ import {
   todayDay,
 } from '../../lib/dates';
 import { assigneeName } from '../../lib/people';
+import { describeError } from '../../lib/error-text';
 import { useResource } from '../../lib/use-resource';
 import { PropertyValueText } from '../properties/property-value';
 import type { InboxQuery } from './inbox-query';
@@ -299,7 +300,7 @@ export function LeadsTable({
   if (leads.error) {
     return (
       <p role="alert" className="py-10 text-center text-sm text-muted-foreground">
-        Could not load leads. Reason: {leads.error}.{' '}
+        {describeError(leads.failure, 'load the leads')}{' '}
         <button type="button" className="underline" onClick={() => void leads.reload()}>
           Try again
         </button>
