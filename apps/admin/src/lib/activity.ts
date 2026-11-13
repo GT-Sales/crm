@@ -40,8 +40,8 @@ export function subscribeActivity(listener: Listener): () => void {
 
 /**
  * `fetch` that counts as activity until the response headers arrive (or it
- * fails). A streamed body, such as an Ask AI answer, is not waited for, so
- * the bar never sits on screen for a whole conversation.
+ * fails). A streamed body is not waited for. Ask AI messages do not use this
+ * at all (lib/api.ts): the panel shows its own "thinking" line instead.
  */
 export const trackedFetch: typeof fetch = async (input, init) => {
   const end = beginActivity();

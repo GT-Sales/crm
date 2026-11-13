@@ -123,12 +123,13 @@ const API_BASE_URL =
  */
 export { BackendError };
 
-function client(accessToken: string) {
+function client(accessToken: string, options: { quiet?: boolean } = {}) {
   // trackedFetch drives the top loading bar (components/top-loading-bar.tsx).
+  // A quiet client leaves the bar alone: Ask AI shows its own "thinking" line.
   return createBackendClient({
     baseUrl: API_BASE_URL,
     credential: accessToken,
-    fetch: trackedFetch,
+    ...(options.quiet ? {} : { fetch: trackedFetch }),
   });
 }
 
@@ -277,7 +278,7 @@ export function askAiAssistant(
   body: AiChatRequest,
   options?: { signal?: AbortSignal },
 ): AsyncGenerator<AiStreamPart, void, undefined> {
-  return client(accessToken).staff.askAi(workspaceId, body, options);
+  return client(accessToken, { quiet: true }).staff.askAi(workspaceId, body, options);
 }
 
 export async function getLeadBoard(

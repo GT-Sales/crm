@@ -148,3 +148,34 @@ describe('deciding a change request', () => {
     ]);
   });
 });
+
+describe('Ask AI and the top loading bar', () => {
+  it('does not count an Ask AI message as page loading', async () => {
+    const { isBusy } = await import('./activity.js');
+    const { askAiAssistant } = await import('./api.js');
+    let busyDuringRequest: boolean | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        busyDuringRequest = isBusy();
+        return new Response('', { status: 503 });
+      }),
+    );
+
+    const { buildAiChatRequest } = await import('./ai-transport.js');
+    const { request } = buildAiChatRequest({
+      message: 'How many leads today?',
+      history: [],
+      limits: { maxMessageChars: 100, maxHistoryMessages: 12, maxConversationChars: 1_000 },
+      requestId: '00000000-0000-4000-8000-000000000001',
+    });
+    const stream = askAiAssistant(
+      'verified-access-token',
+      '10000000-0000-4000-8000-000000000001',
+      request,
+    );
+    await stream.next().catch(() => undefined);
+
+    expect(busyDuringRequest).toBe(false);
+  });
+});
