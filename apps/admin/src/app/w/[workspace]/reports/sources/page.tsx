@@ -1,10 +1,11 @@
-import { SourceReport } from '../../../../../components/reports/source-report';
+import { redirect } from 'next/navigation';
 
-export default async function SourceReportPage({
+/** The source report moved into the Dashboard's sources card; old links open it there. */
+export default async function ReportsPage({
   params,
 }: {
   params: Promise<{ workspace: string }>;
-}) {
+}): Promise<never> {
   const { workspace } = await params;
-  return <SourceReport workspaceSlug={workspace} />;
+  redirect(`/w/${encodeURIComponent(workspace)}/dashboard?report=sources`);
 }

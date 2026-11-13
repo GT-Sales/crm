@@ -73,9 +73,12 @@ export function ChartCard({
   empty,
   className,
   drawingIsAccessible = false,
+  action,
   children,
 }: {
   id: string;
+  /** A control beside the title (a link to the full report), shown even when the chart is empty. */
+  action?: ReactNode;
   /** The drawing is plain lists and links (no SVG): shown to assistive tech, no extra table. */
   drawingIsAccessible?: boolean;
   title: string;
@@ -89,11 +92,14 @@ export function ChartCard({
   return (
     <Card className={cn('min-w-0', className)}>
       <figure aria-labelledby={`${id}-title`} className="m-0 flex flex-col gap-3">
-        <div className="px-6">
-          <h2 id={`${id}-title`} className="text-base font-medium">
-            {title}
-          </h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
+        <div className="flex items-start justify-between gap-3 px-6">
+          <div className="min-w-0">
+            <h2 id={`${id}-title`} className="text-base font-medium">
+              {title}
+            </h2>
+            <p className="text-sm text-muted-foreground">{description}</p>
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
         </div>
         <CardContent className="min-w-0">
           {empty ? (

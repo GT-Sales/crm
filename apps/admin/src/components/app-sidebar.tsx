@@ -133,9 +133,9 @@ export function AppSidebar({ workspace }: { workspace: string }) {
                   return (
                     <SidebarMenuItem
                       key={section}
-                      className={section === 'reports' ? 'mt-6' : undefined}
+                      className={section === 'automations' ? 'mt-6' : undefined}
                     >
-                      {section === 'reports' ? (
+                      {section === 'automations' ? (
                         <p className="mb-2 px-2 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden">
                           Manage
                         </p>

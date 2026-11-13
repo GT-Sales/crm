@@ -24,7 +24,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     id: 'navigation',
     summary: 'Finding your way: the sidebar pages, top bar search, switching site, signing out',
     body: text(
-      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, then under Manage: Reports, Automations and Settings.',
+      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, then under Manage: Automations and Settings.',
       'Leads shows a count of new leads not opened yet; Documents shows how many documents wait for review.',
       'Top bar:',
       '1. "Search leads, pages…" (or Ctrl+K / Cmd+K) finds a lead by name, order number, email or phone, or jumps to a page. Press Enter to open the first result.',
@@ -210,13 +210,13 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
   },
   {
     id: 'reports-sources',
-    summary: 'Reports: the Sources report, leads per source, received, submitted, made it',
+    summary: 'The Sources report on the Dashboard: leads per source, received, submitted, made it',
     body: text(
-      'Reports opens on its one report, Sources: leads per source, how many came in, were submitted and made it.',
+      'There is no Reports page. The source report opens from the Dashboard: on the "Sources and partners" card, press "View full table".',
+      'It shows leads per source: how many came in, were submitted and made it.',
       '1. Pick a period: All time, Last 3 months, Last 30 days or Last 7 days.',
       '2. Pick the lead type.',
       'Columns: Source, Received, Submitted, Made it and Made-it rate. "Made it" means the lead reached Activated, Installed, Completed or Won.',
-      'For charts by period and source, see the Dashboard.',
     ),
   },
   {
