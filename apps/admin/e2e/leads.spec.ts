@@ -372,10 +372,11 @@ test('ticked SIM orders are exported to Excel with the chosen fields, and the ch
   await page.keyboard.press('Space');
   await expect(arjun).toBeChecked();
   await expect(page).not.toHaveURL(/lead=/);
-  const bar = page.getByRole('status', { name: 'Selected leads' });
+  // The toolbar's export icon grows into the selection's actions.
+  const bar = page.getByRole('group', { name: 'Selected leads' });
   await expect(bar).toContainText('2 selected');
 
-  await bar.getByRole('button', { name: 'Export selected' }).click();
+  await bar.getByRole('button', { name: 'Export', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Export leads to Excel' });
   await expect(dialog.getByRole('radio', { name: 'Selected leads (2)' })).toBeChecked();
   await expect(
@@ -406,7 +407,7 @@ test('ticked SIM orders are exported to Excel with the chosen fields, and the ch
   await expect(page.getByText(/^Exported 2 leads to getcanadasim-leads-sim-order-/)).toBeVisible();
   // The ticks are still there, and the next export starts from the last choice.
   await expect(bar).toContainText('2 selected');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await bar.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(dialog.getByRole('checkbox', { name: 'Visa / permit type' })).toBeChecked();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
