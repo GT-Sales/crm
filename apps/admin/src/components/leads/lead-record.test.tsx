@@ -992,9 +992,9 @@ describe('LeadRecord order details', () => {
     expect(screen.getByText('eSIM')).toBeTruthy();
     expect(screen.getByText('Call after 6pm')).toBeTruthy();
     const staff = screen.getByRole('region', { name: 'Staff details' });
-    expect(within(staff).queryByText('SIM number')).toBeNull();
-    // An empty section says what can be recorded instead of showing a bare heading.
-    expect(within(staff).getByText('Not recorded yet: SIM number.')).toBeTruthy();
+    // An empty section lists what can be recorded, each as a dash in its own row.
+    expect(within(staff).getByText('SIM number')).toBeTruthy();
+    expect(within(staff).getByTitle('Not recorded yet').textContent).toBe('—');
     fireEvent.click(within(staff).getByRole('button', { name: 'Edit' }));
     expect(within(staff).getByLabelText('SIM number')).toBeTruthy();
   });

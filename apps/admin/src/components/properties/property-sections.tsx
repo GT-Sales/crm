@@ -151,6 +151,12 @@ function PropertySection({
   // Read mode shows populated fields; Edit keeps every permitted property,
   // including unanswered fields. Zero and false are populated values.
   const rows = properties.filter((property) => !isEmpty(valueOf(property)));
+  // A section with nothing recorded lists what staff can record, each as a
+  // dash in its own row, so the card keeps its shape; once it holds a value,
+  // read mode shows the populated fields only (the rest are in Edit).
+  const nothingRecorded = rows.length === 0;
+  const missing = new Set(nothingRecorded ? editable.map((property) => property.key) : []);
+  const shown = nothingRecorded ? editable : rows;
   const frozenPlan = order ? <FrozenPlan plan={order.plan} /> : null;
   if (rows.length === 0 && extras.length === 0 && editable.length === 0) return null;
 
@@ -199,26 +205,28 @@ function PropertySection({
                 setEditing(false);
               }}
             />
-          ) : rows.length === 0 && extras.length === 0 ? (
-            // Only editable fields reach here: say what can be recorded rather
-            // than showing a bare heading.
-            <p className="text-sm text-muted-foreground">
-              Not recorded yet: {editable.map((property) => property.label).join(', ')}.
-            </p>
           ) : (
             <dl>
-              {rows.map((property) => (
-                <Row key={property.key} label={property.label}>
-                  <PropertyReading
-                    property={property}
-                    value={valueOf(property)}
-                    form={form}
-                    frozenPlan={order?.plan}
-                    canRevealSensitive={canRevealSensitive}
-                  />
-                  {isOrderPlan(property) ? frozenPlan : null}
-                </Row>
-              ))}
+              {shown.map((property) =>
+                missing.has(property.key) ? (
+                  <Row key={property.key} label={property.label}>
+                    <span className="text-muted-foreground" title="Not recorded yet">
+                      —
+                    </span>
+                  </Row>
+                ) : (
+                  <Row key={property.key} label={property.label}>
+                    <PropertyReading
+                      property={property}
+                      value={valueOf(property)}
+                      form={form}
+                      frozenPlan={order?.plan}
+                      canRevealSensitive={canRevealSensitive}
+                    />
+                    {isOrderPlan(property) ? frozenPlan : null}
+                  </Row>
+                ),
+              )}
               {extras.map((field) => (
                 <Row key={field.key} label={field.label}>
                   {field.value}
@@ -287,7 +295,8 @@ export function PropertySections(props: {
       : sections;
 
   return (
-    <>
+    // The sections share one wrapper on the lead page, so they bring their own spacing.
+    <div className="flex flex-col gap-4">
       {shown.map((section, index) => (
         <PropertySection
           // A site may name its own section "other" beside the closing one.
@@ -303,6 +312,6 @@ export function PropertySections(props: {
           onSave={props.onSave}
         />
       ))}
-    </>
+    </div>
   );
 }
