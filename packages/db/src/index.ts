@@ -151,9 +151,28 @@ export function rateLimitStatement({ bucketKey, windowSeconds, maxCount }: RateL
   return sql`select ${sql.raw(columns)} from app.rate_limit_hit(${bucketKey}, ${windowSeconds}, ${maxCount})`;
 }
 
+/**
+ * Connection hygiene for the pooled runtime (incident 2026-11-13: a network
+ * blip between Railway and the Supabase pooler left all 8 pooled connections
+ * half-open, each "idle in transaction" after its `begin`, and every request,
+ * staff sign-in included, waited on them until someone ended them by hand).
+ * Nothing here is allowed to wait forever: a connection that cannot connect in
+ * 10 s fails, one idle for 20 s is closed, every connection is replaced after
+ * 10 minutes, and TCP keepalive probes a silent peer every 15 s. The database
+ * side has the matching guard: role `app_runtime` carries
+ * `idle_in_transaction_session_timeout = 30s` (docs/RUNBOOKS/database.md).
+ */
+export const RUNTIME_CONNECTION_TIMEOUTS = {
+  connect_timeout: 10,
+  idle_timeout: 20,
+  max_lifetime: 60 * 10,
+  keep_alive: 15,
+} as const;
+
 function createClient(options: DatabaseClientOptions) {
   return postgres(options.connectionString, {
     max: options.maxConnections ?? 1,
+    ...RUNTIME_CONNECTION_TIMEOUTS,
     prepare: false,
     ssl: postgresSsl(options.ssl, process.env.DATABASE_SSL_CA),
   });

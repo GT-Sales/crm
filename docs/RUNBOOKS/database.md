@@ -27,6 +27,33 @@ values ('<sha256 of the .sql file>', <journal "when">);
 Verify against the schema, not the trackers: `select … from pg_tables /
 pg_proc / pg_policies where schemaname = 'app'`.
 
+## Runtime role settings (2026-11-13)
+
+`app_runtime` carries `idle_in_transaction_session_timeout = 30s`, set by hand
+(not a migration; re-apply it on any rebuilt database):
+
+```sql
+alter role app_runtime set idle_in_transaction_session_timeout = '30s';
+select rolname, rolconfig from pg_roles where rolname = 'app_runtime';
+```
+
+Why: on 2026-11-13 a network blip between Railway and the Supabase pooler left
+all eight pooled backend connections half-open, each `idle in transaction`
+right after its `begin`. Every request then waited on them, so staff sign-in
+failed with "Invalid email or password" until the sessions were ended by hand.
+With the setting, Postgres ends such a session after 30 s and the backend's
+pool replaces it. The backend side has the matching connection timeouts
+(`RUNTIME_CONNECTION_TIMEOUTS` in `packages/db/src/index.ts`). No legitimate
+backend transaction sits idle that long: every one runs its statements back
+to back.
+
+If sign-in hangs again, check first:
+
+```sql
+select pid, now() - state_change as idle_for, left(query, 80)
+from pg_stat_activity where usename = 'app_runtime' and state = 'idle in transaction';
+```
+
 ## First install (2026-10-25)
 
 - `0000_app_foundation` applied via `apply_migration` and recorded in both
