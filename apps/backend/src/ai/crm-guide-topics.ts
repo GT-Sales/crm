@@ -57,7 +57,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
       '2. The search box ("Search name, email, phone…") searches the open tab. It needs contact access; other roles see "Search needs contact access".',
       '3. The toolbar buttons beside it: Filters, View options, Export (round download icon, for roles that may export) and Saved views (bookmark icon).',
       '4. Click a lead’s name to open it in a side panel; Ctrl/Cmd-click opens it in a new tab.',
-      'A small dot beside the name ("New: not opened yet") marks a lead nobody has opened yet.',
+      'A bold name marks a lead nobody has opened yet; it turns to normal weight once someone opens it.',
       'Related topics: leads-filters, leads-views, lead-record, leads-archive, leads-export.',
     ),
   },

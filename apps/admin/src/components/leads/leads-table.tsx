@@ -43,7 +43,14 @@ import { describeError } from '../../lib/error-text';
 import { PropertyValueText } from '../properties/property-value';
 import type { InboxQuery } from './inbox-query';
 import { TableRowsSkeleton } from '../crm/loading-skeleton';
-import { CountdownLabel, leadDisplayName, NewBadge, PersonChip, StageBadge } from './lead-display';
+import {
+  CountdownLabel,
+  leadDisplayName,
+  leadNameWeight,
+  NewBadge,
+  PersonChip,
+  StageBadge,
+} from './lead-display';
 import { propertyColumnLabel, propertyColumnProperty } from './lead-fields';
 import { readableSource } from '../../lib/source-label';
 
@@ -575,7 +582,10 @@ export function LeadsTable({
                         <Link
                           href={leadHref(lead)}
                           data-lead-id={lead.id}
-                          className="min-w-0 truncate font-medium text-foreground hover:underline"
+                          className={cn(
+                            'min-w-0 truncate text-foreground hover:underline',
+                            leadNameWeight(lead.isNew),
+                          )}
                           onClick={(event) => {
                             // A plain click opens the panel; a modifier-click opens a tab.
                             if (!panel || event.button !== 0) return;
