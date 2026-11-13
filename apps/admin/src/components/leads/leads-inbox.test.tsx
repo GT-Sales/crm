@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   markLeadOpened: vi.fn(),
   updateStaffLead: vi.fn(),
   exportLeads: vi.fn(),
+  setLeadArchived: vi.fn(),
 }));
 
 const download = vi.hoisted(() => ({ saveBlob: vi.fn() }));
@@ -1587,8 +1588,8 @@ describe('LeadsInbox export', () => {
     });
   });
 
-  it('has no Export button and no checkboxes for someone who may not export', async () => {
-    const access = { contacts: true, manage: true };
+  it('has no Export button and no checkboxes for someone who may neither export nor archive', async () => {
+    const access = { contacts: true, manage: false };
     mocks.getLeadsSummary.mockResolvedValue({
       types: [{ leadType: 'sim_order', total: 132 }],
       archived: 0,
@@ -1604,6 +1605,26 @@ describe('LeadsInbox export', () => {
     await screen.findByRole('link', { name: 'Avery Example' });
     expect(screen.queryByRole('button', { name: 'Export' })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: /^Select / })).toBeNull();
+  });
+
+  it('ticks leads for archiving without export access, with no Export action', async () => {
+    const access = { contacts: true, manage: true };
+    mocks.getLeadsSummary.mockResolvedValue({
+      types: [{ leadType: 'sim_order', total: 132 }],
+      archived: 0,
+      trash: 0,
+      access,
+    });
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [simOrder(LEAD_1, 'Avery Example')],
+      page: { page: 1, pageSize: 50, total: 1 },
+      access,
+    });
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Avery Example' }));
+    const bar = screen.getByRole('group', { name: 'Selected leads' });
+    expect(within(bar).getByRole('button', { name: 'Archive' })).toBeTruthy();
+    expect(within(bar).queryByRole('button', { name: 'Export' })).toBeNull();
   });
 
   it('exports every lead matching the filters, as the list asked for them', async () => {
@@ -1687,10 +1708,12 @@ describe('LeadsInbox export', () => {
       expect.stringContaining('lead='),
       expect.anything(),
     );
-    const bar = screen.getByRole('status', { name: 'Selected leads' });
+    // The toolbar's export icon grows into the selection's actions; no bar pushes the table down.
+    const bar = screen.getByRole('group', { name: 'Selected leads' });
     expect(within(bar).getByText('2 selected')).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Selected leads' })).toBeNull();
 
-    fireEvent.click(within(bar).getByRole('button', { name: 'Export selected' }));
+    fireEvent.click(within(bar).getByRole('button', { name: 'Export' }));
     const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });
     const selected = within(dialog).getByRole('radio', { name: 'Selected leads (2)' });
     expect(selected instanceof HTMLInputElement && selected.checked).toBe(true);
@@ -1711,16 +1734,64 @@ describe('LeadsInbox export', () => {
     expect(await screen.findByText('2 selected')).toBeTruthy();
     navigation.search = 'type=sim_order&stage=verified';
     view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
-    await waitFor(() =>
-      expect(screen.queryByRole('status', { name: 'Selected leads' })).toBeNull(),
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Selected leads' })).toBeNull());
+  });
+
+  it('archives the ticked leads after asking, then lists and counts again', async () => {
+    mocks.setLeadArchived.mockResolvedValue({ requestId: 'req_test' });
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Avery Example' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Blake Example' }));
+    const listsBefore = mocks.getStaffLeads.mock.calls.length;
+    const bar = screen.getByRole('group', { name: 'Selected leads' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'Archive' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Archive 2 leads?' });
+    expect(mocks.setLeadArchived).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Archive' }));
+    });
+    expect(mocks.setLeadArchived.mock.calls.map((call) => [call[2], call[3]])).toEqual([
+      [LEAD_1, true],
+      [LEAD_2, true],
+    ]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByText('Archived 2 leads.')).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Selected leads' })).toBeNull();
+    await waitFor(() => expect(mocks.getStaffLeads.mock.calls.length).toBeGreaterThan(listsBefore));
+  });
+
+  it('says how many could not be archived', async () => {
+    mocks.setLeadArchived
+      .mockResolvedValueOnce({ requestId: 'req_test' })
+      .mockRejectedValueOnce(new backend.BackendError('internal_error'));
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Avery Example' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Blake Example' }));
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Selected leads' })).getByRole('button', {
+        name: 'Archive',
+      }),
     );
+    const dialog = await screen.findByRole('dialog', { name: 'Archive 2 leads?' });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Archive' }));
+    });
+    expect(
+      await screen.findByText('Archived 1 of 2. 1 couldn’t be changed; try those again.'),
+    ).toBeTruthy();
   });
 
   it('“select all matching” exports by the filters, not by ids', async () => {
     render(<LeadsInbox workspaceSlug="canadawide" />);
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select all leads on this page' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Select all 132 leads matching' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    const bar = screen.getByRole('group', { name: 'Selected leads' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'Select all 132' }));
+    expect(within(bar).getByText('All 132')).toBeTruthy();
+    // Archive works on ticked leads only.
+    expect(within(bar).getByRole('button', { name: 'Archive' }).hasAttribute('disabled')).toBe(
+      true,
+    );
+    fireEvent.click(within(bar).getByRole('button', { name: 'Export' }));
     const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });
     expect(within(dialog).queryByRole('radio')).toBeNull();
     expect(within(dialog).getByText('All leads matching the current filters (132)')).toBeTruthy();

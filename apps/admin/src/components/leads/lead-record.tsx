@@ -709,9 +709,9 @@ export function LeadRecord({
             lead.deletedAt === null ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                className="ml-auto hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                 disabled={saving}
                 onClick={() => void setArchived(true)}
               >

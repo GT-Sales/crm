@@ -41,6 +41,7 @@ import {
   DialogTitle,
 } from '@gt-sales/ui';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 import {
@@ -259,6 +260,7 @@ function FlowPageEditor({
   flowKey: string;
 }): JSX.Element {
   const staff = useStaffSession();
+  const router = useRouter();
   const workspace = staff.workspaces.find((item) => item.slug === workspaceSlug);
   const workspaceId = workspace?.id;
   const accessToken = staff.accessToken;
@@ -535,6 +537,8 @@ function FlowPageEditor({
         if (!saved) return 'The draft was not saved. Save or reload it before archiving.';
       }
       replaceDetail(await archiveAutomation(accessToken, workspaceId, key), true);
+      // An archived flow is done with: back to the list (Restore lives in its Archived view).
+      router.push(`/w/${workspaceSlug}/automations`);
       return undefined;
     } catch (caught) {
       return changeError(caught, 'archive the flow');

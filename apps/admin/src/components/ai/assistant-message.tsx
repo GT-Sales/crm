@@ -2,8 +2,8 @@
 import type { AiActionDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
-import { CheckIcon, CopyIcon } from 'lucide-react';
-import { Button, Skeleton } from '@gt-sales/ui';
+import { CheckIcon, CopyIcon, SparklesIcon } from 'lucide-react';
+import { Button } from '@gt-sales/ui';
 
 import type { AiUiError } from '../../lib/ai-transport';
 import type { AiAssistantMessage, AiMessage } from './assistant-provider';
@@ -85,15 +85,29 @@ function StreamingState({ message }: { message: AiAssistantMessage }) {
       />
     );
   }
+  return <ThinkingLine label={message.progress} />;
+}
+
+/** While nothing is said yet, the line turns over gently so a long wait never looks stuck. */
+const THINKING_WORDS = ['Thinking…', 'Looking through your CRM…', 'Putting it together…'];
+
+function ThinkingLine({ label }: { label?: string }) {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (label) return;
+    const timer = window.setInterval(
+      () => setStep((current) => (current + 1) % THINKING_WORDS.length),
+      2800,
+    );
+    return () => window.clearInterval(timer);
+  }, [label]);
+  const text = label ? `${label}…`.replace(/……$/, '…') : THINKING_WORDS[step];
   return (
-    <div className="flex flex-col gap-1" aria-hidden="true">
-      {message.text.length === 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <Skeleton className="h-3 w-4/5" />
-          <Skeleton className="h-3 w-3/5" />
-        </div>
-      ) : null}
-      <p className="text-[11px] text-muted-foreground">{message.progress ?? 'Thinking…'}</p>
+    <div className="flex items-center gap-2 py-0.5" aria-hidden="true">
+      <SparklesIcon className="size-3.5 shrink-0 animate-pulse text-primary motion-reduce:animate-none" />
+      <span key={text} className="ai-shimmer animate-in text-sm fade-in-0 duration-300">
+        {text}
+      </span>
     </div>
   );
 }

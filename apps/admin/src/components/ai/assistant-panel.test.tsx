@@ -739,7 +739,7 @@ describe('Ask AI panel', () => {
     render(<Harness />);
     await openPanel();
     ask('What is due?');
-    expect(await screen.findByText('Checking leads')).toBeTruthy();
+    expect(await screen.findByText('Checking leads…')).toBeTruthy();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
     await flush();
