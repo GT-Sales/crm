@@ -61,8 +61,13 @@ Never paste a key into chat, a ticket, a commit or this file.
    GLM …), set `AI_GATEWAY_PROVIDERS` to the hosts you vetted, in preference
    order: US-headquartered, zero data retention and no training in the
    catalogue's endpoint list. Without it the Gateway may pick any host,
-   including ones that keep data or are outside the US. Current choice:
-   `deepseek/deepseek-v4-flash` pinned to `baseten,azure`.
+   including ones that keep data or are outside the US. Check the model is on
+   the Gateway's free tier (vercel.com/ai-gateway/models?freeTier=true) if the
+   team has not purchased credits: a model outside it fails every turn with
+   `provider_unavailable` ("Ask AI isn't available"), even with free credit
+   left. DeepSeek V4 / V4.1 Flash are not on it.
+7. Current choice (2026-11-13): `openai/gpt-5-mini`, free tier, no
+   `AI_GATEWAY_PROVIDERS`.
 
 ## 4. Spend and usage
 
