@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   analyticsDelta,
   analyticsFunnel,
@@ -11,7 +11,17 @@ import {
   type AnalyticsCompared,
   type AnalyticsResponse,
 } from '@gt-sales/contracts';
-import { Card, CardContent, cn } from '@gt-sales/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  cn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@gt-sales/ui';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -61,6 +71,7 @@ import {
 import { FilterBar, rangeLabel } from './analytics/filter-bar';
 import { LoadingSkeleton } from './crm/loading-skeleton';
 import { leadDisplayName } from './leads/lead-display';
+import { SourceReport } from './reports/source-report';
 import { useStaffSession } from './staff-session-provider';
 
 /** As many follow-ups as the card lists before "Open the follow-ups in Leads". */
@@ -536,6 +547,7 @@ function Charts({
         drawingIsAccessible
         title="Sources and partners"
         description="The ten biggest UTM sources and partners in the period."
+        action={<SourcesFullTable workspaceSlug={workspaceSlug} />}
         empty={
           data.sources.length === 0 && data.partners.length === 0
             ? 'No leads in this period.'
@@ -865,5 +877,33 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * The full source report (received, submitted, made it, per source and
+ * campaign), opened from the sources card. It was the Reports page; old links
+ * to it land on the Dashboard with `?report=sources`, which opens it.
+ */
+function SourcesFullTable({ workspaceSlug }: { workspaceSlug: string }) {
+  const searchParams = useSearchParams();
+  const [open, setOpen] = useState(searchParams.get('report') === 'sources');
+  return (
+    <>
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+        View full table
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Source report</DialogTitle>
+            <DialogDescription>
+              Leads per source: how many came in, were submitted and made it.
+            </DialogDescription>
+          </DialogHeader>
+          {open ? <SourceReport workspaceSlug={workspaceSlug} /> : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

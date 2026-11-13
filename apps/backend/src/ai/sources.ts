@@ -52,13 +52,13 @@ export class SourceRegistry {
     });
   }
 
-  /** Reports → Sources: the report page never claims to reproduce an AI filter. */
+  /** Dashboard → sources card → full table: it never claims to reproduce an AI filter. */
   sourceReport(label: string, scope: string): AiSource {
     return this.add({
       id: `report-sources-${createHash('sha256').update(scope).digest('hex').slice(0, 8)}`,
       kind: 'report',
       label: `Open report · ${label}`,
-      href: `/w/${encodeURIComponent(this.context.workspaceSlug)}/reports/sources`,
+      href: `/w/${encodeURIComponent(this.context.workspaceSlug)}/dashboard?report=sources`,
       scope,
     });
   }

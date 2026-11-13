@@ -127,8 +127,8 @@ test("the source report counts CanadaWide's internet leads per source and opens 
 }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/dashboard');
-  await page.getByRole('link', { name: 'Reports' }).click();
-  await expect(page).toHaveURL(/\/w\/canadawide\/reports\/sources$/);
+  await expect(page.getByRole('link', { name: 'Reports' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'View full table' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible();
 
   const period = page.getByRole('group', { name: 'Period' });

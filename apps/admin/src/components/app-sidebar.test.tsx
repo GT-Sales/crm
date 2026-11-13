@@ -99,13 +99,11 @@ describe('AppSidebar', () => {
     );
   });
 
-  it('links Reports to the site reports', () => {
-    usePathname.mockReturnValue('/w/canadawide/reports/sources');
+  it('has no Reports link: the source report lives on the Dashboard', () => {
+    usePathname.mockReturnValue('/w/canadawide/dashboard');
     renderSidebar('canadawide');
 
-    const reports = screen.getByRole('link', { name: /^reports$/i });
-    expect(reports.getAttribute('href')).toBe('/w/canadawide/reports');
-    expect(reports.getAttribute('aria-current')).toBe('page');
+    expect(screen.queryByRole('link', { name: /^reports$/i })).toBeNull();
   });
 
   it('offers only sections that exist', () => {
@@ -117,7 +115,6 @@ describe('AppSidebar', () => {
       'Leads',
       'My tasks',
       'Documents',
-      'Reports',
       'Automations',
       'Settings',
     ]);

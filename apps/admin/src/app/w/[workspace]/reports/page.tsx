@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation';
 
-/** Reports opens on its one report so far, Sources. */
+/** The source report moved into the Dashboard's sources card; old links open it there. */
 export default async function ReportsPage({
   params,
 }: {
   params: Promise<{ workspace: string }>;
 }): Promise<never> {
   const { workspace } = await params;
-  redirect(`/w/${encodeURIComponent(workspace)}/reports/sources`);
+  redirect(`/w/${encodeURIComponent(workspace)}/dashboard?report=sources`);
 }

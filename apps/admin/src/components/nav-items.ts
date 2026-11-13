@@ -1,5 +1,4 @@
 import {
-  ChartColumnIcon,
   FileTextIcon,
   LayoutDashboardIcon,
   ListTodoIcon,
@@ -19,7 +18,6 @@ export const NAV_ITEMS = [
   { section: 'leads', label: 'Leads', icon: UsersIcon },
   { section: 'tasks', label: 'My tasks', icon: ListTodoIcon },
   { section: 'documents', label: 'Documents', icon: FileTextIcon },
-  { section: 'reports', label: 'Reports', icon: ChartColumnIcon },
   { section: 'automations', label: 'Automations', icon: ZapIcon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ] as const;
