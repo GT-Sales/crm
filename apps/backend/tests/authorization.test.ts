@@ -105,6 +105,50 @@ describe('central staff authorization', () => {
     await expect(override()).resolves.toMatchObject({ allowed: true });
   });
 
+  it('lets the roles that see contact details export leads, and anyone with the bulk export permission', () => {
+    const exportOf = (access: StaffAccessSnapshot) => decideAccess(access, 'lead.export');
+
+    for (const role of ['owner', 'leads', 'orders', 'finance'] as const) {
+      expect(exportOf(activeAccess([role]))).toMatchObject({
+        allowed: true,
+        reason: 'role_allowed',
+      });
+    }
+    // Every other permission together does not grant it.
+    const others = staffPermissionNames
+      .filter((name) => name !== 'bulk_export')
+      .map((name) => ({ name, effect: 'allow' as const }));
+    for (const role of ['partners', 'content', 'viewer'] as const) {
+      expect(exportOf(activeAccess([role], others))).toEqual({
+        allowed: false,
+        reason: 'permission_denied',
+      });
+      expect(
+        exportOf(activeAccess([role], [{ name: 'bulk_export', effect: 'allow' }])),
+      ).toMatchObject({ allowed: true, reason: 'individual_allowed' });
+    }
+    // A deny wins over the role, the owner's included, and over an allow.
+    for (const role of ['owner', 'leads'] as const) {
+      expect(
+        exportOf(
+          activeAccess(
+            [role],
+            [
+              { name: 'bulk_export', effect: 'allow' },
+              { name: 'bulk_export', effect: 'deny' },
+            ],
+          ),
+        ),
+      ).toEqual({ allowed: false, reason: 'permission_denied' });
+    }
+    // The permission still covers the older `export.bulk` action, and grants nothing else.
+    const viewerWithExport = activeAccess(['viewer'], [{ name: 'bulk_export', effect: 'allow' }]);
+    expect(decideAccess(viewerWithExport, 'export.bulk').allowed).toBe(true);
+    expect(decideAccess(viewerWithExport, 'lead.manage').allowed).toBe(false);
+    expect(decideAccess(viewerWithExport, 'revenue.view').allowed).toBe(false);
+    expect(decideAccess(activeAccess(['leads']), 'export.bulk').allowed).toBe(false);
+  });
+
   it('shows money (revenue.view) to the owner only, never through another role or a permission', async () => {
     const store = new MemoryAccessStore();
     const authorize = createAuthorize({ accessStore: store });

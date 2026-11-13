@@ -41,7 +41,12 @@ export {
   type DocumentParentType,
 } from './domain';
 
-export { healthResponseSchema, type HealthResponse } from './health';
+export {
+  healthResponseSchema,
+  readyResponseSchema,
+  type HealthResponse,
+  type ReadyResponse,
+} from './health';
 
 export {
   adminJobSchema,
@@ -277,6 +282,9 @@ export {
   leadTaskResponseSchema,
   leadTaskSchema,
   leadTaskStatusSchema,
+  ACTIVE_TASK_STATUSES,
+  isActiveTaskStatus,
+  taskStatusFilterSchema,
   leadTaskTitleSchema,
   leadTrashResponseSchema,
   queueCustomerEmailRequestSchema,
@@ -310,6 +318,7 @@ export {
   type LeadTask,
   type LeadTaskResponse,
   type LeadTaskStatus,
+  type TaskStatusFilter,
   type LeadTrashResponse,
   type QueueCustomerEmailRequest,
   type QueueCustomerEmailResponse,
@@ -652,6 +661,7 @@ export {
   type StaffFile,
 } from './files';
 export * from './document-review';
+export * from './lead-export';
 
 export {
   createExportRequestSchema,
@@ -680,6 +690,8 @@ export {
   TRACKING_MIN_LATENCY_MS,
   TRACKING_STAGE_WORDS,
   TRACKING_VERIFICATIONS_PER_EMAIL,
+  TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY,
+  TRACKING_EMAIL_DAY_WINDOW_SECONDS,
   TRACKING_WRITES_PER_EMAIL,
   changeRequestFieldsSchema,
   createTrackedChangeRequestSchema,
@@ -729,6 +741,7 @@ export {
   createBackendClient,
   type BackendClient,
   type BackendClientOptions,
+  type LeadExportFile,
   type CustomerGrantOption,
   type IdempotencyOption,
 } from './client';

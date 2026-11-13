@@ -54,14 +54,22 @@ jobs:
         # runs the real dump tools, which must be at least the server's major
         # version (the 17.6 service above); Ubuntu 24.04 ships 16, so the client
         # comes from the PostgreSQL project's own apt repository.
+        # Acquire::Retries: the runner's Ubuntu mirror sometimes fails to resolve
+        # for a moment; apt then retries instead of failing the whole job.
         run: |
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
           sudo apt-get update
           sudo apt-get install -y postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - name: Install age (the real-age encryptor test)
-        run: sudo apt-get install -y age
+        run: |
+          for attempt in 1 2 3 4 5; do
+            sudo apt-get install -y age && break
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep $((attempt * 15))
+          done
       - name: Record the dump and encryption tool versions
         run: |
           pg_dump --version

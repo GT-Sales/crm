@@ -133,37 +133,113 @@ describe('email routes', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('unsubscribes without any login given a valid signed token', async () => {
-    const contactHash = hashContact('lead@example.com', SECRET);
+  const unsubscribeUrl = () => {
     const token = buildUnsubscribeToken(SECRET, {
       workspaceId: WORKSPACE,
-      contactHash,
+      contactHash: hashContact('lead@example.com', SECRET),
       leadId: LEAD,
     });
+    return { token, url: `${baseUrl}/api/v1/email/unsubscribe?token=${encodeURIComponent(token)}` };
+  };
 
-    const response = await fetch(
-      `${baseUrl}/api/v1/email/unsubscribe?token=${encodeURIComponent(token)}`,
-    );
+  it('a GET shows a confirmation page and changes nothing (scanners and prefetchers follow GETs)', async () => {
+    const { url } = unsubscribeUrl();
+
+    const response = await fetch(url);
 
     expect(response.status).toBe(200);
-    expect(store.unsubscribed).toEqual([{ contactHash, leadId: LEAD }]);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
+    const page = await response.text();
+    expect(page).toContain('<form method="post"');
+    expect(page).toContain('/api/v1/email/unsubscribe?token=');
+    expect(store.unsubscribed).toEqual([]);
   });
 
-  it('rejects a tampered unsubscribe token', async () => {
-    const contactHash = hashContact('lead@example.com', SECRET);
-    const token = buildUnsubscribeToken(SECRET, {
-      workspaceId: WORKSPACE,
-      contactHash,
-      leadId: LEAD,
+  it('unsubscribes without any login when the confirmation form is posted', async () => {
+    const { url } = unsubscribeUrl();
+
+    const response = await fetch(url, { method: 'POST', headers: { accept: 'text/html' } });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('You are unsubscribed');
+    expect(store.unsubscribed).toEqual([
+      { contactHash: hashContact('lead@example.com', SECRET), leadId: LEAD },
+    ]);
+  });
+
+  it('answers a mail provider one-click POST (RFC 8058) with JSON', async () => {
+    const { url } = unsubscribeUrl();
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'List-Unsubscribe=One-Click',
     });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'unsubscribed' });
+    expect(store.unsubscribed).toHaveLength(1);
+  });
+
+  it('rejects a tampered unsubscribe token on both the page and the post', async () => {
+    const { token } = unsubscribeUrl();
     const tampered = token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A');
+    const url = `${baseUrl}/api/v1/email/unsubscribe?token=${encodeURIComponent(tampered)}`;
 
-    const response = await fetch(
-      `${baseUrl}/api/v1/email/unsubscribe?token=${encodeURIComponent(tampered)}`,
+    expect((await fetch(url)).status).toBe(400);
+    expect((await fetch(url, { method: 'POST' })).status).toBe(400);
+    expect((await fetch(`${baseUrl}/api/v1/email/unsubscribe`, { method: 'POST' })).status).toBe(
+      400,
     );
-
-    expect(response.status).toBe(400);
     expect(store.unsubscribed).toHaveLength(0);
+  });
+
+  it('answers a database failure on unsubscribe, the delivery view and the webhook with 503, not 400', async () => {
+    const unavailable = Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' });
+    store.recordUnsubscribe = async () => {
+      throw unavailable;
+    };
+    store.listDelivery = async () => {
+      throw unavailable;
+    };
+    store.applyProviderEvent = async () => {
+      throw unavailable;
+    };
+
+    const unsubscribe = await fetch(unsubscribeUrl().url, { method: 'POST' });
+    expect(unsubscribe.status).toBe(503);
+    expect(unsubscribe.headers.get('retry-after')).toBe('2');
+
+    const body = JSON.stringify(event());
+    const webhook = await fetch(`${baseUrl}/api/v1/webhooks/resend/launch`, {
+      method: 'POST',
+      headers: signed(body),
+      body,
+    });
+    expect(webhook.status).toBe(503);
+  });
+
+  it('answers an unexpected failure on the webhook and unsubscribe with 500 and no internals', async () => {
+    store.recordUnsubscribe = async () => {
+      throw new Error('relation "app.marketing_consents" does not exist');
+    };
+    store.applyProviderEvent = async () => {
+      throw new Error('relation "app.email_provider_events" does not exist');
+    };
+
+    const unsubscribe = await fetch(unsubscribeUrl().url, { method: 'POST' });
+    expect(unsubscribe.status).toBe(500);
+    expect(await unsubscribe.text()).not.toContain('relation');
+
+    const body = JSON.stringify(event());
+    const webhook = await fetch(`${baseUrl}/api/v1/webhooks/resend/launch`, {
+      method: 'POST',
+      headers: signed(body),
+      body,
+    });
+    expect(webhook.status).toBe(500);
+    expect(await webhook.text()).not.toContain('relation');
   });
 
   it('verifies native raw bytes and attributes events only to the registry tenant/account', async () => {
@@ -300,7 +376,8 @@ describe('email routes', () => {
         headers,
         body,
       });
-      expect(response.status).toBe(400);
+      // Too large is the client's mistake but not an "invalid request" (audit L-9).
+      expect(response.status).toBe(mode === 'oversized' ? 413 : 400);
       expect(store.events).toEqual([]);
     },
   );

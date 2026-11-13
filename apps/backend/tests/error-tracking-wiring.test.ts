@@ -7,7 +7,7 @@ import { createApp } from '../src/app.js';
 /**
  * REQ 40's "Done when": an induced error shows in the tracker carrying the
  * request id and no PII. This exercises the actual wiring in `app.ts`
- * (`createInvalidBodyError`) end to end over a real HTTP request, rather than
+ * (`createLastResortErrorHandler`) end to end over a real HTTP request, rather than
  * unit-testing the tracker in isolation (already covered in
  * `packages/adapters`/`packages/observability`).
  */

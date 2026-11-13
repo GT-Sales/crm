@@ -15,7 +15,9 @@ Playwright starts the production server itself.
 Staff working leads in a real browser against the real backend: the inbox's
 type tabs, counts and search; a board move that survives a reload; the lead
 page's assignment, note and task; completing that task from My tasks; the
-archive and restore; custom properties, saved views and plans; and a SIM order
+Tasks board moving a task by status and by date and keeping its layout; the
+archive and restore; ticked SIM orders exported to Excel (a real download);
+custom properties, saved views and plans; and a SIM order
 taken from Pending to Activated: the passport approved, the Dispatched and
 Activated automations switched on and queuing their emails, and a template
 edited, previewed and saved; and a customer's change request from the website's

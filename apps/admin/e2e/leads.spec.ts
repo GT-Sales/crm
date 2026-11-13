@@ -229,6 +229,56 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
   expect(errors).toEqual([]);
 });
 
+test('the Tasks board moves tasks by status and by date, and remembers the layout', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/tasks');
+  await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  const byStatus = page.getByRole('region', { name: 'Tasks board by status' });
+  await expect(byStatus).toBeVisible();
+  const statusColumn = (name: string) =>
+    byStatus.getByRole('region', { name: new RegExp(`^${name},`) });
+  // The seeded overdue follow-up waits in To do, under Overdue; the task the
+  // last journey completed is in Done.
+  await expect(statusColumn('To do')).toContainText('Confirm the install window');
+  await expect(statusColumn('Done')).toContainText('Book the installer');
+
+  // The menu: the keyboard and touch path.
+  await page.getByRole('button', { name: 'Move “Confirm the install window”' }).click();
+  await page.getByRole('menuitem', { name: 'In progress' }).click();
+  await expect(statusColumn('In progress')).toContainText('Confirm the install window');
+
+  // The layout and the move both survive a reload.
+  await page.reload();
+  await expect(statusColumn('In progress')).toContainText('Confirm the install window');
+
+  await page.getByRole('button', { name: 'Date', exact: true }).click();
+  const byDate = page.getByRole('region', { name: 'Tasks board by date' });
+  const dateColumn = (name: string) =>
+    byDate.getByRole('region', { name: new RegExp(`^${name},`) });
+  await expect(dateColumn('Overdue')).toContainText('Confirm the install window');
+  await expect(dateColumn('Overdue')).toContainText('In progress');
+
+  // A drag from Done to No due date reopens the task with no due date; back to Done closes it.
+  await byDate.getByText('Book the installer', { exact: true }).dragTo(dateColumn('No due date'));
+  await expect(dateColumn('No due date')).toContainText('Book the installer');
+  await expect(dateColumn('No due date')).toContainText('To do');
+  await byDate.getByText('Book the installer', { exact: true }).dragTo(dateColumn('Done'));
+  await expect(dateColumn('Done')).toContainText('Book the installer');
+
+  // Put the follow-up back as the seed had it for the journeys after this one.
+  await page.getByRole('button', { name: 'Move “Confirm the install window”' }).click();
+  await page.getByRole('menuitem', { name: 'To do' }).click();
+  await expect(dateColumn('Overdue')).not.toContainText('In progress');
+  await page.reload();
+  await expect(byDate).toBeVisible();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await expect(page.getByText('Confirm the install window')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('the archive hides a lead and restores it', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet');
@@ -305,6 +355,66 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   const rowsAfterReload = page.locator('tbody tr');
   await expect(rowsAfterReload.nth(0)).toContainText('Arjun Patel');
   await expect(rowsAfterReload.nth(1)).toContainText('Priya Sharma');
+  expect(errors).toEqual([]);
+});
+
+test('ticked SIM orders are exported to Excel with the chosen fields, and the choice is remembered', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/getcanadasim/leads?type=sim_order');
+  await expect(page.getByRole('link', { name: 'Priya Sharma' })).toBeVisible();
+
+  // One row by the mouse, one from the keyboard; neither opens the lead.
+  await page.getByRole('checkbox', { name: 'Select Priya Sharma' }).click();
+  const arjun = page.getByRole('checkbox', { name: 'Select Arjun Patel' });
+  await arjun.focus();
+  await page.keyboard.press('Space');
+  await expect(arjun).toBeChecked();
+  await expect(page).not.toHaveURL(/lead=/);
+  const bar = page.getByRole('status', { name: 'Selected leads' });
+  await expect(bar).toContainText('2 selected');
+
+  await bar.getByRole('button', { name: 'Export selected' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export leads to Excel' });
+  await expect(dialog.getByRole('radio', { name: 'Selected leads (2)' })).toBeChecked();
+  await expect(
+    dialog.getByRole('radio', { name: /All leads matching the current filters \(\d+\)/ }),
+  ).toBeVisible();
+  // The main fields are always in; a field of the form is added.
+  await expect(dialog.getByText('Always included')).toBeVisible();
+  const permit = dialog.getByRole('checkbox', { name: 'Visa / permit type' });
+  await expect(permit).not.toBeChecked();
+  await permit.click();
+  await expect(permit).toBeChecked();
+
+  const downloading = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toMatch(
+    /^getcanadasim-leads-sim-order-\d{4}-\d{2}-\d{2}\.xlsx$/,
+  );
+  // A real workbook: an .xlsx is a zip, which starts `PK`.
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const file = Buffer.concat(chunks);
+  expect(file.subarray(0, 2).toString('latin1')).toBe('PK');
+  expect(file.byteLength).toBeGreaterThan(1000);
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/^Exported 2 leads to getcanadasim-leads-sim-order-/)).toBeVisible();
+  // The ticks are still there, and the next export starts from the last choice.
+  await expect(bar).toContainText('2 selected');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Visa / permit type' })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+
+  // Clearing the ticks leaves the list as it was.
+  await bar.getByRole('button', { name: 'Clear selection' }).click();
+  await expect(bar).toHaveCount(0);
+  await expect(arjun).not.toBeChecked();
   expect(errors).toEqual([]);
 });
 

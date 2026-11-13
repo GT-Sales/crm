@@ -389,7 +389,7 @@ describe('Dashboard follow-ups due', () => {
     const first = await screen.findByRole('link', { name: /Arjun Patel/ });
     expect(mocks.listStaffTasks).toHaveBeenCalledWith('staff-token', WORKSPACE, {
       assignee: 'all',
-      status: 'open',
+      status: 'active',
       dueBy: todayDay(),
       pageSize: 6,
     });

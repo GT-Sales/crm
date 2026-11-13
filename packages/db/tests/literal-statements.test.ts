@@ -20,11 +20,13 @@ const HOSTILE = [
 
 describe('tenant context statement', () => {
   it('sets both ids for a tenant transaction and only the actor for an actor one', () => {
+    const limits =
+      "set_config('statement_timeout', '15000', true), set_config('idle_in_transaction_session_timeout', '30000', true)";
     expect(tenantContextStatement({ workspaceId: WORKSPACE, actorId: ACTOR })).toBe(
-      `select set_config('app.workspace_id', '${WORKSPACE}', true), set_config('app.actor_id', '${ACTOR}', true)`,
+      `select set_config('app.workspace_id', '${WORKSPACE}', true), set_config('app.actor_id', '${ACTOR}', true), ${limits}`,
     );
     expect(tenantContextStatement({ actorId: ACTOR })).toBe(
-      `select set_config('app.actor_id', '${ACTOR}', true)`,
+      `select set_config('app.actor_id', '${ACTOR}', true), ${limits}`,
     );
   });
 

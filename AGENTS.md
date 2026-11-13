@@ -91,6 +91,13 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Staff lead work (detail, stage, assignee, notes, tasks, board, archive):
   `src/leads/work-store.ts` for writes, `src/leads/staff-queries.ts` for reads
   (plain SQL with explicit aliases; see the comment at its top).
+- Leads export to Excel: `apps/backend/src/leads/export/` (`store.ts` the
+  read, the row cap and the audit event, `cells.ts` each value's type and the
+  formula-injection guard, `workbook.ts` the `.xlsx`) with the route in
+  `src/routes/lead-export.ts` (action `lead.export`); the fields, groups and
+  request in `packages/contracts/src/lead-export.ts`; the dialog in
+  `apps/admin/src/components/leads/lead-export-dialog.tsx` and the row
+  selection in `leads-table.tsx` (docs/HANDOFF.md §3.19).
 - Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
   credentials, files): `src/routes/staff.ts`.
 - Documents: `src/documents/` (signed upload intent → finalize with
@@ -274,7 +281,10 @@ retry never makes a second one (`app.idempotency_keys`, scope
 `lead_submission`): the key is stored as a SHA-256 hash with a fingerprint of the
 request, a retry within 24 hours returns the first lead marked `replayed`, the
 same key with another body is `idempotency_conflict`, and rows are pruned after
-7 days.
+7 days. A website may also send the lead's id (`leadId` on the create): the
+lead is created under it, and an id any lead already has is `409
+lead_id_taken` (CanadaWide does, so its intake fallback copy and a late CRM
+save are one lead, audit CW-B1).
 
 An **order number** is a SIM order's `MS-<n>`, kept as the lead's
 `externalRef` and returned on every website create and save

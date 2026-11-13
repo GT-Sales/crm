@@ -11,6 +11,15 @@ export const MAX_DOCUMENT_UPLOAD_BYTES = MAX_DOCUMENT_BYTES;
 export const UPLOAD_INTENT_TTL_SECONDS = 5 * 60;
 export const DOWNLOAD_LINK_TTL_SECONDS = 2 * 60;
 
+/**
+ * The most upload intents one record may hold open at once (`uploading` or
+ * `verifying`, not yet expired). A customer sends two or three documents; each
+ * open intent reserves a signed PUT of up to 10 MB and each finalize reads one
+ * into memory, so a stolen or abused draft grant must not be able to queue
+ * hundreds (audit L-4).
+ */
+export const MAX_OPEN_UPLOADS_PER_RECORD = 10;
+
 /** Grace period before an abandoned staging object / rejected file is cleaned up. */
 export const CLEANUP_GRACE_SECONDS = 24 * 60 * 60;
 

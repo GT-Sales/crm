@@ -57,6 +57,8 @@ export interface DatabaseClient {
   rateLimitHit(input: RateLimitInput): Promise<RateLimitResult>;
   /** The actor's staff membership in the site, any status; undefined when there is none. */
   staffAccessSnapshot(ctx: TenantContext): Promise<StaffAccessRow | undefined>;
+  /** One `select 1` round trip, refused after `timeoutMs` (the readiness check). */
+  ping(timeoutMs: number): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -92,12 +94,26 @@ function uuidLiteral(value: string): string {
  * pooler is a long way off; a statement without them takes one. Only a UUID
  * gets through, and a UUID has no quote to end the literal with.
  */
+/**
+ * Every tenant transaction's default limits (audit L-8): one slow statement or
+ * a transaction left open could otherwise hold one of the few pooled
+ * connections until the pooler gives up, and stall intake. A read that needs
+ * longer (or less) sets its own `statement_timeout` with `set_config(…, true)`
+ * after this, which wins for the rest of the transaction.
+ */
+export const TENANT_STATEMENT_TIMEOUT_MS = 15_000;
+export const TENANT_IDLE_IN_TRANSACTION_TIMEOUT_MS = 30_000;
+
 export function tenantContextStatement(ctx: { workspaceId?: string; actorId: string }): string {
   const settings: string[] = [];
   if (ctx.workspaceId !== undefined) {
     settings.push(`set_config('app.workspace_id', ${uuidLiteral(ctx.workspaceId)}, true)`);
   }
   settings.push(`set_config('app.actor_id', ${uuidLiteral(ctx.actorId)}, true)`);
+  settings.push(`set_config('statement_timeout', '${TENANT_STATEMENT_TIMEOUT_MS}', true)`);
+  settings.push(
+    `set_config('idle_in_transaction_session_timeout', '${TENANT_IDLE_IN_TRANSACTION_TIMEOUT_MS}', true)`,
+  );
   return `select ${settings.join(', ')}`;
 }
 
@@ -135,9 +151,28 @@ export function rateLimitStatement({ bucketKey, windowSeconds, maxCount }: RateL
   return sql`select ${sql.raw(columns)} from app.rate_limit_hit(${bucketKey}, ${windowSeconds}, ${maxCount})`;
 }
 
+/**
+ * Connection hygiene for the pooled runtime (incident 2026-11-13: a network
+ * blip between Railway and the Supabase pooler left all 8 pooled connections
+ * half-open, each "idle in transaction" after its `begin`, and every request,
+ * staff sign-in included, waited on them until someone ended them by hand).
+ * Nothing here is allowed to wait forever: a connection that cannot connect in
+ * 10 s fails, one idle for 20 s is closed, every connection is replaced after
+ * 10 minutes, and TCP keepalive probes a silent peer every 15 s. The database
+ * side has the matching guard: role `app_runtime` carries
+ * `idle_in_transaction_session_timeout = 30s` (docs/RUNBOOKS/database.md).
+ */
+export const RUNTIME_CONNECTION_TIMEOUTS = {
+  connect_timeout: 10,
+  idle_timeout: 20,
+  max_lifetime: 60 * 10,
+  keep_alive: 15,
+} as const;
+
 function createClient(options: DatabaseClientOptions) {
   return postgres(options.connectionString, {
     max: options.maxConnections ?? 1,
+    ...RUNTIME_CONNECTION_TIMEOUTS,
     prepare: false,
     ssl: postgresSsl(options.ssl, process.env.DATABASE_SSL_CA),
   });
@@ -208,6 +243,19 @@ export function createDatabaseClient(options: DatabaseClientOptions): DatabaseCl
         `),
       );
       return rows[0];
+    },
+    ping: async (timeoutMs) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          sqlClient`select 1`,
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('database_ping_timeout')), timeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
     },
     close: () => sqlClient.end(),
   };
@@ -286,6 +334,11 @@ export function resolveWebsiteCredential(
 /** Records one hit against a bounded per-key rate-limit window and reports whether it is allowed. */
 export function rateLimitHit(input: RateLimitInput): Promise<RateLimitResult> {
   return getDefaultClient().rateLimitHit(input);
+}
+
+/** Readiness: one round trip on the shared pool. Throws without `DATABASE_URL`. */
+export function pingDatabase(timeoutMs: number): Promise<void> {
+  return getDefaultClient().ping(timeoutMs);
 }
 
 /** Staff authorization read: the actor's membership in the site, in one call. */

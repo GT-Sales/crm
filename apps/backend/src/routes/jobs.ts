@@ -2,11 +2,16 @@ import { OutboxRunner, type OutboxRunSummary } from '@gt-sales/jobs';
 import { Router, type RequestHandler } from 'express';
 
 import { loadDeploymentEnvironment } from '../config/deployment.js';
+import {
+  defaultMachineRateLimit,
+  requireMachineAttemptBudget,
+  type MachineRateLimit,
+} from '../http/machine-attempts.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
 import { sendWebsiteError } from '../http/website-errors.js';
 import { createOutboxJobHandlers } from '../jobs/providers.js';
 import { DatabaseOutboxStore } from '../jobs/store.js';
-import { loadMachineRegistry, type MachineRegistry } from '../machines/registry.js';
+import { loadMachineRegistryOrDenyAll, type MachineRegistry } from '../machines/registry.js';
 
 export interface JobsRouteDependencies {
   registry: MachineRegistry;
@@ -16,6 +21,8 @@ export interface JobsRouteDependencies {
   }): Promise<OutboxRunSummary>;
   selector?: string;
   deploymentEnvironment?: string;
+  /** Attempts per client IP, counted before the secret is checked; omitted in route tests. */
+  rateLimit?: MachineRateLimit;
 }
 
 export function createDefaultJobsRouteDependencies(): JobsRouteDependencies & {
@@ -27,11 +34,12 @@ export function createDefaultJobsRouteDependencies(): JobsRouteDependencies & {
     handlers: createOutboxJobHandlers(),
   });
   return {
-    registry: loadMachineRegistry(),
+    registry: loadMachineRegistryOrDenyAll(),
     run: (input) => runner.run(input),
     queueHealth: (input) => store.queueHealth(input),
     selector: process.env.JOB_RUNNER_SELECTOR,
     deploymentEnvironment: loadDeploymentEnvironment(),
+    rateLimit: defaultMachineRateLimit,
   };
 }
 
@@ -76,9 +84,9 @@ export function createJobsRouter(dependencies: JobsRouteDependencies): Router {
       sendStaffAuthError(res, req.id, 'internal_error', 500);
     }
   };
-  // The scheduler issues GET. POST remains available for an authenticated
-  // manual staging invocation of the identical path.
-  router.get('/run', runJobs);
-  router.post('/run', runJobs);
+  // POST only (audit L-10): a GET with side effects is replayable by anything
+  // that logs URLs and headers. The scheduler is in-process (`src/scheduler.ts`)
+  // and never calls this over HTTP, so this is the manual entry point.
+  router.post('/run', requireMachineAttemptBudget('jobs-run', dependencies.rateLimit), runJobs);
   return router;
 }

@@ -3,9 +3,11 @@ import { Router, type Request, type Response } from 'express';
 import {
   CHANGE_REQUEST_STAGES,
   TRACKING_CODE_REQUESTS_PER_EMAIL,
+  TRACKING_EMAIL_DAY_WINDOW_SECONDS,
   TRACKING_EMAIL_WINDOW_SECONDS,
   TRACKING_MIN_LATENCY_MS,
   TRACKING_VERIFICATIONS_PER_EMAIL,
+  TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY,
   TRACKING_WRITES_PER_EMAIL,
   createTrackedChangeRequestSchema,
   finalizeUploadRequestSchema,
@@ -121,9 +123,13 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
   // is unconfigured, so a per-email bucket can never be skipped.
   const secret = tracking.configured ? dependencies.secret : undefined;
 
-  /** A ten-minute rate bucket's verdict. */
-  function allowed(bucketKey: string, maxCount: number) {
-    return auth.rateLimit({ bucketKey, windowSeconds: TRACKING_EMAIL_WINDOW_SECONDS, maxCount });
+  /** A rate bucket's verdict: ten minutes unless the caller names another window. */
+  function allowed(
+    bucketKey: string,
+    maxCount: number,
+    windowSeconds: number = TRACKING_EMAIL_WINDOW_SECONDS,
+  ) {
+    return auth.rateLimit({ bucketKey, windowSeconds, maxCount });
   }
 
   /** The grant's identity, or the answer already sent (409 unconfigured, 401 no valid grant). */
@@ -309,6 +315,20 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
           sendWebsiteError(res, req.id, 'rate_limited', 429, { 'retry-after': String(retryAfter) });
           return;
         }
+        // The daily ceiling counts only attempts the short budgets let through,
+        // so refused ones cannot spend it. After it, this email's verification
+        // stays refused until the day window ends, however many visitors ask.
+        const byDay = await allowed(
+          emailRateBucket(secret, ctx.workspaceId, normalizedEmail, 'verify_day'),
+          TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY,
+          TRACKING_EMAIL_DAY_WINDOW_SECONDS,
+        );
+        if (!byDay.allowed) {
+          sendWebsiteError(res, req.id, 'rate_limited', 429, {
+            'retry-after': String(byDay.retryAfterSeconds),
+          });
+          return;
+        }
         const outcome = await tracking.verifyCode({
           workspaceId: ctx.workspaceId,
           actorId: ctx.credentialId,
@@ -426,6 +446,9 @@ export function createTrackingRouter(dependencies: TrackingRouteDependencies): R
             return;
           case 'checklist_mismatch':
             sendDomainError(res, req.id, 'checklist_mismatch', 409);
+            return;
+          case 'too_many_open':
+            sendWebsiteError(res, req.id, 'rate_limited', 429, { 'retry-after': '60' });
             return;
         }
       } catch (error) {

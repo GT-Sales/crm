@@ -1,7 +1,7 @@
 'use client';
 
 import { LEAD_TABLE_COLUMNS, type LeadTableColumn } from '@gt-sales/contracts';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export const VIEW_PREF_EVENT = 'gt-sales:view-pref';
 
@@ -73,4 +73,44 @@ export function useStoredList(key: string): [string[], (next: string[]) => void]
     }
   }
   return [list, save];
+}
+
+function readStoredChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const saved = window.localStorage.getItem(key);
+    return allowed.find((entry) => entry === saved) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * One of a few choices kept in this browser's storage (a personal view
+ * preference, such as the Tasks page's List or Board). Storage that throws or
+ * holds something else reads as `fallback`; a save that cannot persist still
+ * changes the choice for this page.
+ */
+export function useStoredChoice<T extends string>(
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+): [T, (next: T) => void] {
+  const [choice, setChoice] = useState<T>(fallback);
+  // `allowed` is a constant list at every call site; a ref keeps a list
+  // written inline from re-running the read on each render.
+  const allowedRef = useRef(allowed);
+  allowedRef.current = allowed;
+  useEffect(() => {
+    setChoice(readStoredChoice(key, allowedRef.current, fallback));
+  }, [key, fallback]);
+  function save(next: T) {
+    setChoice(next);
+    try {
+      window.localStorage.setItem(key, next);
+    } catch {
+      // Not persisted.
+    }
+  }
+  return [choice, save];
 }

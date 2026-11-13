@@ -348,11 +348,40 @@ export class MachineRegistry {
   }
 }
 
-/** Builds the registry from `MACHINE_REGISTRY_JSON`. An unset value yields an empty (deny-all) registry. */
+/**
+ * Builds the registry from `MACHINE_REGISTRY_JSON`. An unset value yields an
+ * empty (deny-all) registry; malformed JSON or a bad entry throws. Startup
+ * code uses {@link loadMachineRegistryOrDenyAll} instead.
+ */
 export function loadMachineRegistry(rawJson = process.env.MACHINE_REGISTRY_JSON): MachineRegistry {
   if (!rawJson || rawJson.trim() === '') {
     return new MachineRegistry({ webhooks: [], schedulers: [] });
   }
   const parsed: unknown = JSON.parse(rawJson);
   return new MachineRegistry(machineRegistryConfigSchema.parse(parsed));
+}
+
+/**
+ * The registry for the app's routers and the scheduler (audit L-6). A
+ * malformed `MACHINE_REGISTRY_JSON` used to throw while the Express app was
+ * built, taking lead intake down for every site over one typo in a machine
+ * setting. Now it logs `machine_registry_invalid` (no value, never the JSON)
+ * and answers the empty, deny-all registry: machine routes refuse every
+ * caller and the scheduler does not start, which already alerts the owner
+ * (`scheduler_not_started`), while websites and staff keep working.
+ */
+export function loadMachineRegistryOrDenyAll(
+  rawJson = process.env.MACHINE_REGISTRY_JSON,
+): MachineRegistry {
+  try {
+    return loadMachineRegistry(rawJson);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'machine_registry_invalid',
+        code: error instanceof SyntaxError ? 'json_syntax' : 'schema',
+      }),
+    );
+    return new MachineRegistry({ webhooks: [], schedulers: [] });
+  }
 }

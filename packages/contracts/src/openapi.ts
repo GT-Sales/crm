@@ -165,6 +165,23 @@ function operationFor(endpoint: EndpointDef): JsonObject {
         },
       },
     };
+  } else if (endpoint.file) {
+    responses[String(endpoint.successStatus)] = {
+      description: endpoint.file.summary,
+      headers: {
+        'cache-control': {
+          description: 'Always `no-store`: an export is never cached.',
+          schema: { type: 'string' },
+        },
+        'content-disposition': {
+          description: '`attachment` with the file name.',
+          schema: { type: 'string' },
+        },
+      },
+      content: {
+        [endpoint.file.contentType]: { schema: { type: 'string', format: 'binary' } },
+      },
+    };
   } else if (endpoint.response) {
     responses[String(endpoint.successStatus)] = {
       description: 'Success.',

@@ -63,6 +63,7 @@ import { customerEmailFromEnv, type CustomerEmail } from '../email/senders.js';
 import type { ChangeRequestService } from '../tracking/change-requests.js';
 import { DatabaseEmailSettingsStore, type EmailSettingsStore } from '../email/settings-store.js';
 import { DatabaseIdentityStore, type IdentityStore } from '../leads/identity-store.js';
+import { DatabaseLeadExportStore, type LeadExportStore } from '../leads/export/store.js';
 import { DatabaseLeadStore, type LeadStore } from '../leads/store.js';
 import {
   DatabaseLeadWorkStore,
@@ -101,6 +102,7 @@ import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
 import { createAnalyticsRoutes } from './analytics.js';
+import { createLeadExportRoutes } from './lead-export.js';
 import { createReportRoutes } from './reports.js';
 import { loadAiAssistantConfig, type AiAssistantConfig } from '../ai/config.js';
 import { createGatewayEngine, type AssistantEngine } from '../ai/engine.js';
@@ -116,6 +118,8 @@ export interface StaffRouteDependencies {
   leadStore: LeadStore;
   /** The lead page, board, notes and tasks; omitted in route tests that do not reach them. */
   leadWorkStore?: LeadWorkStore;
+  /** Leads as an Excel file; omitted in route tests that do not reach it. */
+  leadExportStore?: LeadExportStore;
   jobStore?: JobAdminStore;
   documentService?: Pick<DocumentService, 'review' | 'issueDownload'>;
   /** Opens a lead's sealed SIN for an owner; absent without `SENSITIVE_FIELDS_KEY`. */
@@ -188,6 +192,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
     credentialStore: new DatabaseWebsiteCredentialStore(),
     leadStore: new DatabaseLeadStore(),
     leadWorkStore: new DatabaseLeadWorkStore(),
+    leadExportStore: new DatabaseLeadExportStore(),
     jobStore: new DatabaseOutboxStore(),
     documentService: createDocumentServiceFromEnv(),
     identityStore: identityStoreFromEnv(),
@@ -248,6 +253,9 @@ const unconfiguredPlanStore: PlanStore = {
   update: () => notConfigured('plan store'),
   listForWebsite: () => notConfigured('plan store'),
   options: () => notConfigured('plan store'),
+};
+const unconfiguredLeadExportStore: LeadExportStore = {
+  export: () => notConfigured('lead export store'),
 };
 const unconfiguredReportStore: ReportStore = {
   sourceReport: () => notConfigured('report store'),
@@ -386,6 +394,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       contacts: canSeeContacts(access),
       manage: decideAccess(access, 'lead.manage').allowed,
       revealSensitive: decideAccess(access, 'sensitive.reveal').allowed,
+      export: decideAccess(access, 'lead.export').allowed,
+      revenue: decideAccess(access, 'revenue.view').allowed,
     };
   }
 
@@ -1208,8 +1218,9 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           workspaceId: workspaceId.data,
           actorId: actor.actorId,
           assignee: query.data.assignee ?? 'me',
-          status: query.data.status ?? 'open',
+          status: query.data.status ?? 'active',
           dueBy: query.data.dueBy,
+          completedSince: query.data.completedSince,
         },
         page,
         pageSize,
@@ -1693,6 +1704,17 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       store: dependencies.reportStore ?? unconfiguredReportStore,
       decide,
       reportFailure,
+    }),
+  );
+
+  router.use(
+    createLeadExportRoutes({
+      store: dependencies.leadExportStore ?? unconfiguredLeadExportStore,
+      decide,
+      reportFailure,
+      canSeeContacts,
+      loadCatalog: (ctx) => propertyStore.catalog(ctx),
+      ...(dependencies.rateLimit === undefined ? {} : { rateLimit: dependencies.rateLimit }),
     }),
   );
 

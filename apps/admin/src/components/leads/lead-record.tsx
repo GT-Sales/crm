@@ -7,6 +7,7 @@ import {
   defaultPropertyLayout,
   leadOrderEditSchema,
   orderStorageKey,
+  isActiveTaskStatus,
   leadTypeEntry,
   leadTypeLabel,
   stageGates,
@@ -551,7 +552,7 @@ export function LeadRecord({
       const nextTasks = exists
         ? current.tasks.map((entry) => (entry.id === task.id ? task : entry))
         : [task, ...current.tasks];
-      const open = nextTasks.filter((entry) => entry.status === 'open');
+      const open = nextTasks.filter((entry) => isActiveTaskStatus(entry.status));
       const due = open
         .map((entry) => entry.dueAt)
         .filter((value): value is string => value !== null)

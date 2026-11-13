@@ -67,6 +67,8 @@ import {
   type CreateLeadNoteResponse,
   type CreateLeadTaskRequest,
   type GetWorkspaceLeadResponse,
+  type ExportLeadsRequest,
+  type LeadExportFile,
   type LeadBoardQueryInput,
   type LeadBoardResponse,
   type LeadsSummaryQuery,
@@ -198,6 +200,20 @@ export async function getStaffLeads(
   query?: ListWorkspaceLeadsQueryInput,
 ): Promise<ListWorkspaceLeadsResponse> {
   return client(accessToken).staff.listLeads(workspaceId, query);
+}
+
+/**
+ * Leads as an Excel file: the ticked ids or the inbox's filters, the main
+ * fields and the chosen ones. Resolves with the workbook's bytes; a refusal
+ * (`export_too_large`, `rate_limited`, `permission_denied`) is a `BackendError`.
+ */
+export async function exportLeads(
+  accessToken: string,
+  workspaceId: string,
+  body: ExportLeadsRequest,
+  options?: { signal?: AbortSignal },
+): Promise<LeadExportFile> {
+  return client(accessToken).staff.exportLeads(workspaceId, body, options);
 }
 
 export async function getLeadsSummary(

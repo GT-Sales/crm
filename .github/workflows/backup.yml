@@ -1,14 +1,20 @@
 # To add a deployment: one matrix entry here and in the two sibling workflows,
-# three GitHub Environments named after it, their secrets per docs/ENV.md, and
-# its auth_data below (include, unless its Supabase project keeps row security
-# on auth.users and auth.identities, as gt-sales's does).
+# one GitHub Environment named backup-<deployment> (all three workflows use
+# it), its secrets per docs/ENV.md, and its auth_data below (include, unless
+# its Supabase project keeps row security on auth.users and auth.identities,
+# as gt-sales's does).
 #
 # The nightly backup of each deployment: an encrypted copy of its database and
 # every verified document, written to its Backblaze B2 archive
-# (docs/RUNBOOKS/backup.md). It holds the archive writer key only (list and
-# write, no read, no delete) and the public recovery recipient, never the
-# private key. Retention runs from a separate workflow with a separate key
-# (backup-retention.yml).
+# (docs/RUNBOOKS/backup.md). Owner decision 2026-11-06: the environment holds
+# ONE bucket-only B2 key (Read and Write, no delete beyond Write's overwrite)
+# in B2_ARCHIVE_KEY_ID / B2_ARCHIVE_APPLICATION_KEY, which this job passes as
+# the "writer" key; the monitor and retention jobs pass the same key as their
+# reader and retention keys. So this job's key CAN also read and overwrite
+# archives: the 30-day Object Lock (governance mode) is what protects the last
+# month of restore points, and the older monthly points have no such
+# protection. It also holds the public recovery recipient, never the private
+# key. Retention runs from a separate workflow (backup-retention.yml).
 name: Backup
 on:
   schedule:

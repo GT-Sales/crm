@@ -34,7 +34,7 @@ import {
   type SiteProperty,
   type LeadStatus,
   type LeadTask,
-  type LeadTaskStatus,
+  type TaskStatusFilter,
   type LeadTypeCount,
   type LeadView,
   type RelatedLead,
@@ -151,14 +151,14 @@ const LEAD_TIMESTAMPS = sql.join(
   sql`, `,
 );
 
-/** Open tasks per lead, joined laterally so only the rows actually returned pay for it. */
+/** Active (open or in-progress) tasks per lead, joined laterally so only the rows actually returned pay for it. */
 const OPEN_TASK_SUMMARY = sql.raw(`
   left join lateral (
     select count(*)::int as open_count, min(task.due_at) as next_due
     from app.lead_tasks task
     where task.workspace_id = l.workspace_id
       and task.lead_id = l.id
-      and task.status = 'open'
+      and task.status in ('open', 'in_progress')
   ) t on true
 `);
 
@@ -573,7 +573,7 @@ function leadConditions(filters: LeadFilters): SQL {
       select 1 from app.lead_tasks due
       where due.workspace_id = l.workspace_id
         and due.lead_id = l.id
-        and due.status = 'open'
+        and due.status in ('open', 'in_progress')
         and due.due_at < ${dueCutoff(filters.dueBy)}
     )`);
   }
@@ -609,10 +609,10 @@ export interface LeadPage {
   total: number;
 }
 
-/** A lead's soonest open task, for ordering the follow-ups due before the page is cut. */
+/** A lead's soonest active task, for ordering the follow-ups due before the page is cut. */
 const NEXT_DUE = sql.raw(`(
   select min(task.due_at) from app.lead_tasks task
-  where task.workspace_id = l.workspace_id and task.lead_id = l.id and task.status = 'open'
+  where task.workspace_id = l.workspace_id and task.lead_id = l.id and task.status in ('open', 'in_progress')
 )`);
 
 /** A property's sort key: its value as its kind orders it, null (last) when absent or malformed. */
@@ -744,6 +744,123 @@ export async function selectLeadPage(
   };
 }
 
+/** Which leads an export writes: the ticked ones, or the inbox's own filters. */
+export type LeadExportSelection =
+  | { kind: 'ids'; workspaceId: string; ids: readonly string[] }
+  | { kind: 'filter'; filters: LeadFilters };
+
+/** What each export row carries beyond the list's own columns; each is read only when asked for. */
+export interface LeadExportParts {
+  /** The form, the custom values and the order: only for callers who see contact details. */
+  details: boolean;
+  /** The timeline's dates and the note count: one aggregate per lead. */
+  activity: boolean;
+}
+
+export interface LeadExportRow {
+  lead: LeadListItem;
+  /** `form.payload`, when `details` was asked for and the lead has one. */
+  form: Record<string, unknown> | null;
+  custom: Record<string, LeadPropertyValue>;
+  /** An order type's order with the defaults filled in; null for any other type. */
+  order: LeadDetail['order'] | null;
+  stageChangedAt: string | null;
+  lastActivityAt: string | null;
+  noteCount: number;
+}
+
+/** The export's WHERE: the list's own conditions, or the ticked ids among the site's unrestricted leads. */
+function exportConditions(selection: LeadExportSelection): SQL {
+  if (selection.kind === 'filter') return leadConditions(selection.filters);
+  return sql`l.workspace_id = ${selection.workspaceId}
+    and l.customer_data_restricted_at is null
+    and l.id in (${sql.join(
+      selection.ids.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    )})`;
+}
+
+/** How many leads the selection holds: the list's own total for the same filters. */
+export async function countLeadsForExport(
+  tx: TenantTransaction,
+  selection: LeadExportSelection,
+): Promise<number> {
+  const [count] = await tx.execute<{ [key: string]: unknown; total: number }>(sql`
+    select count(*)::int as total from app.leads l where ${exportConditions(selection)}
+  `);
+  return count?.total ?? 0;
+}
+
+/**
+ * Every lead of the selection (all pages, at most `limit`), in the list's own
+ * order for a filter and newest first for ticked ids. It reads through
+ * `leadConditions` and `sortOrderOf`, the list's own, so an export of the
+ * current filters is exactly what the inbox shows: restricted leads are never
+ * in it, and the archive only when the filter asks for it.
+ */
+export async function selectLeadsForExport(
+  tx: TenantTransaction,
+  selection: LeadExportSelection,
+  parts: LeadExportParts,
+  limit: number,
+): Promise<LeadExportRow[]> {
+  const { pageOrder, rowOrder } =
+    selection.kind === 'filter'
+      ? sortOrderOf(selection.filters)
+      : {
+          pageOrder: sql.raw('l.created_at desc, l.id'),
+          rowOrder: sql.raw('l.created_at desc, l.id'),
+        };
+  const details = parts.details
+    ? sql`, l.payload -> 'payload' as "formPayload", l.custom_values as "customValues", l.order_details as "orderDetails"`
+    : sql``;
+  const activityColumns = parts.activity
+    ? sql`, ${iso('act.stage_at')} as "stageChangedAt", ${iso('act.last_at')} as "lastActivityAt", coalesce(act.notes, 0)::int as "noteCount"`
+    : sql``;
+  const activityJoin = parts.activity
+    ? sql.raw(`
+      left join lateral (
+        select
+          max(entry.created_at) as last_at,
+          max(entry.created_at) filter (where entry.kind = 'status_change') as stage_at,
+          count(*) filter (where entry.kind = 'note')::int as notes
+        from app.lead_activities entry
+        where entry.workspace_id = l.workspace_id and entry.lead_id = l.id
+      ) act on true`)
+    : sql``;
+
+  const rows = await tx.execute<
+    LeadRow & {
+      stageChangedAt?: string | null;
+      lastActivityAt?: string | null;
+      noteCount?: number;
+    }
+  >(sql`
+    with picked as (
+      select l.*
+      from app.leads l
+      where ${exportConditions(selection)}
+      order by ${pageOrder}
+      limit ${limit}
+    )
+    select ${LEAD_COLUMNS} ${LEAD_TIMESTAMPS}${details}${activityColumns}
+    from picked l
+    ${OPEN_TASK_SUMMARY}
+    ${activityJoin}
+    order by ${rowOrder}
+  `);
+
+  return rows.map((row) => ({
+    lead: toLeadListItem(row),
+    form: parts.details && isRecord(row.formPayload) ? row.formPayload : null,
+    custom: parts.details ? toCustomValues(row.customValues, undefined) : {},
+    order: parts.details ? (orderOf(row).order ?? null) : null,
+    stageChangedAt: row.stageChangedAt ?? null,
+    lastActivityAt: row.lastActivityAt ?? null,
+    noteCount: row.noteCount ?? 0,
+  }));
+}
+
 /**
  * The board for one type: a column per catalogue stage in order, then any
  * stored stage the catalogue does not list, each with its full count and its
@@ -801,7 +918,7 @@ export async function selectLeadSummary(
             select 1 from app.lead_tasks due
             where due.workspace_id = l.workspace_id
               and due.lead_id = l.id
-              and due.status = 'open'
+              and due.status in ('open', 'in_progress')
               and due.due_at < ${dueCutoff(dueBy)}
           )
       )::int`
@@ -1080,7 +1197,7 @@ export interface LeadWithWork {
 /**
  * The lead page in one statement: the lead with its form, its timeline (newest
  * first, capped so one very long history cannot stall the page), its tasks
- * (open first, soonest due, undated last; then closed ones, most recently
+ * (active ones — open or in progress — first, soonest due, undated last; then closed ones, most recently
  * changed first), the same person's other requests on this site (newest
  * first, trashed ones included and marked), the identities given for a
  * credit check (newest first, a SIN masked to its last three digits) and its
@@ -1142,8 +1259,8 @@ export async function selectLeadWithWork(
           'createdAt', ${iso('k.created_at')},
           'updatedAt', ${iso('k.updated_at')}
         ) order by
-          (k.status = 'open') desc,
-          case when k.status = 'open' then k.due_at end asc nulls last,
+          (k.status in ('open', 'in_progress')) desc,
+          case when k.status in ('open', 'in_progress') then k.due_at end asc nulls last,
           k.updated_at desc,
           k.id
         ), '[]'::json)
@@ -1260,9 +1377,12 @@ export interface TaskFilters {
   workspaceId: string;
   actorId: string;
   assignee: TaskAssigneeFilter;
-  status: LeadTaskStatus;
+  /** One status, or `active` for `open` and `in_progress` together. */
+  status: TaskStatusFilter;
   /** Only tasks due on or before this calendar day (an undated task never is). */
   dueBy?: string;
+  /** Only tasks completed on or after this calendar day, from 00:00 UTC. */
+  completedSince?: string;
 }
 
 /** Tasks on the workspace's active leads, soonest due first (undated last), with each lead's summary. */
@@ -1281,6 +1401,19 @@ export async function selectWorkspaceTasks(
           ? sql`k.assigned_actor_id is null`
           : sql`k.assigned_actor_id = ${filters.assignee}`;
   const due = filters.dueBy ? sql`k.due_at < ${dueCutoff(filters.dueBy)}` : sql`true`;
+  const status =
+    filters.status === 'active'
+      ? sql`k.status in ('open', 'in_progress')`
+      : sql`k.status = ${filters.status}`;
+  const completed = filters.completedSince
+    ? sql`k.completed_at >= ${`${filters.completedSince}T00:00:00.000Z`}::timestamptz`
+    : sql`true`;
+  // Done tasks read most recently completed first (the board's Done column);
+  // everything else soonest due first.
+  const order =
+    filters.status === 'done'
+      ? sql`k.completed_at desc nulls last, k.id`
+      : sql`k.due_at asc nulls last, k.created_at asc, k.id`;
   const rows = await tx.execute<
     TaskRow & {
       total: number;
@@ -1306,12 +1439,13 @@ export async function selectWorkspaceTasks(
     from app.lead_tasks k
     inner join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
     where k.workspace_id = ${filters.workspaceId}
-      and k.status = ${filters.status}
+      and ${status}
       and ${assignee}
       and ${due}
+      and ${completed}
       and l.deleted_at is null
       and l.customer_data_restricted_at is null
-    order by k.due_at asc nulls last, k.created_at asc, k.id
+    order by ${order}
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `);
   return {

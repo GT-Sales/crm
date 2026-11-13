@@ -1,4 +1,4 @@
-import { createOwnerAlertChannelFromEnv } from '@gt-sales/adapters';
+import { createErrorTrackerFromEnv, createOwnerAlertChannelFromEnv } from '@gt-sales/adapters';
 import { closeDatabase } from '@gt-sales/db';
 
 import { createApp } from './app.js';
@@ -11,6 +11,7 @@ import {
 } from './scheduler.js';
 import { createShutdownHandler, registerShutdownHandlers } from './shutdown.js';
 import { abortActiveAssistantTurns } from './routes/ai-assistant.js';
+import { registerProcessHandlers } from './process-handlers.js';
 
 const port = Number(process.env['PORT'] ?? 4000);
 
@@ -56,3 +57,17 @@ const shutdown = createShutdownHandler({
   exit: (code) => process.exit(code),
 });
 registerShutdownHandlers(shutdown);
+registerProcessHandlers({
+  tracker: createErrorTrackerFromEnv(),
+  // The graceful shutdown exits 0 on its own; an uncaught exception must
+  // still end non-zero so the platform restarts the service.
+  shutdown: async () => {
+    await Promise.race([
+      new Promise<void>((resolve) => server.close(() => resolve())),
+      new Promise<void>((resolve) => setTimeout(resolve, 10_000).unref()),
+    ]);
+    await scheduler?.stop().catch(() => {});
+    await closeDatabase().catch(() => {});
+  },
+  exit: (code) => process.exit(code),
+});

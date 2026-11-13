@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   leadCountdownField,
   leadTypeLabel,
@@ -11,7 +11,7 @@ import {
   type LeadTableColumn,
   type PropertyCatalog,
 } from '@gt-sales/contracts';
-import { Button, cn } from '@gt-sales/ui';
+import { Button, Checkbox, cn } from '@gt-sales/ui';
 
 import { getStaffLeads } from '../../lib/api';
 import {
@@ -59,6 +59,18 @@ function ariaSortFor(
   if (currentSort === `${field}:desc`) return 'descending';
   return 'none';
 }
+
+/** The leads ticked for an action on several at once (the export). */
+export interface LeadSelection {
+  /** The ticked lead ids, across pages. */
+  selected: ReadonlySet<string>;
+  /** Every lead matching the list's filters, on every page, rather than a set of ids. */
+  allMatching: boolean;
+}
+
+export const NO_LEAD_SELECTION: LeadSelection = { selected: new Set(), allMatching: false };
+
+const countFormat = new Intl.NumberFormat('en-CA');
 
 export function cycleLeadSort(currentSort: string | undefined, field: string): string | undefined {
   if (currentSort === `${field}:asc`) return `${field}:desc`;
@@ -131,6 +143,10 @@ export function LeadsTable({
   onClearFilters,
   panel,
   reloadToken,
+  selection,
+  onSelectionChange,
+  selectionActions,
+  onLoaded,
 }: {
   workspaceSlug: string;
   workspaceId: string;
@@ -151,6 +167,17 @@ export function LeadsTable({
   panel?: { openId?: string; href(leadId: string): string; onOpen(leadId: string): void };
   /** A new value asks for the same page again (a lead changed in the side panel). */
   reloadToken?: number;
+  /**
+   * With a selection the table grows a checkbox column: a box per row, one in
+   * the header for the page, and, once the whole page is ticked, the offer to
+   * take every lead matching the filters. Without it the table is as before.
+   */
+  selection?: LeadSelection;
+  onSelectionChange?(next: LeadSelection): void;
+  /** What can be done with the ticked leads, shown beside their count. */
+  selectionActions?: ReactNode;
+  /** Told how many leads match the filters, each time a page arrives. */
+  onLoaded?(info: { total: number }): void;
 }) {
   const router = useRouter();
   const load = useMemo(
@@ -197,6 +224,14 @@ export function LeadsTable({
     seenToken.current = reloadToken;
     void reload();
   }, [reloadToken, reload]);
+  const loadedTotal = leads.data?.page.total;
+  const reportLoaded = useRef(onLoaded);
+  useEffect(() => {
+    reportLoaded.current = onLoaded;
+  }, [onLoaded]);
+  useEffect(() => {
+    if (loadedTotal !== undefined) reportLoaded.current?.({ total: loadedTotal });
+  }, [loadedTotal]);
   const rows = leads.data?.leads ?? [];
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
@@ -228,7 +263,33 @@ export function LeadsTable({
     'created',
     'activity',
   ];
+  const selecting = selection !== undefined && onSelectionChange !== undefined;
+  const isTicked = (leadId: string) =>
+    selecting && (selection.allMatching || selection.selected.has(leadId));
+  const tickedOnPage = rows.filter((lead) => isTicked(lead.id)).length;
+  const pageTicked = rows.length > 0 && tickedOnPage === rows.length;
+  const tickedCount = !selecting ? 0 : selection.allMatching ? page.total : selection.selected.size;
+
+  function tickRow(leadId: string, on: boolean) {
+    if (!selecting) return;
+    // "Every lead matching" minus one is this page's other rows, as ticks.
+    const next = new Set(selection.allMatching ? rows.map((lead) => lead.id) : selection.selected);
+    if (on) next.add(leadId);
+    else next.delete(leadId);
+    onSelectionChange({ selected: next, allMatching: false });
+  }
+  function tickPage(on: boolean) {
+    if (!selecting) return;
+    const next = new Set(selection.allMatching ? [] : selection.selected);
+    for (const lead of rows) {
+      if (on) next.add(lead.id);
+      else next.delete(lead.id);
+    }
+    onSelectionChange({ selected: next, allMatching: false });
+  }
+
   const columnCount =
+    Number(selecting) +
     1 +
     Number(!query.type && showCol('type')) +
     optionalColumns.filter(showCol).length +
@@ -253,10 +314,51 @@ export function LeadsTable({
           Loading leads…
         </span>
       ) : null}
+      {selecting && tickedCount > 0 ? (
+        <div
+          role="status"
+          aria-label="Selected leads"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm"
+        >
+          <span className="font-medium tabular-nums">
+            {selection.allMatching
+              ? `All ${countFormat.format(page.total)} leads matching are selected`
+              : `${countFormat.format(tickedCount)} selected`}
+          </span>
+          {!selection.allMatching && pageTicked && page.total > tickedCount ? (
+            <button
+              type="button"
+              className="text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onSelectionChange({ selected: new Set(), allMatching: true })}
+            >
+              Select all {countFormat.format(page.total)} leads matching
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onSelectionChange(NO_LEAD_SELECTION)}
+          >
+            Clear selection
+          </button>
+          {selectionActions ? <span className="ml-auto flex gap-2">{selectionActions}</span> : null}
+        </div>
+      ) : null}
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[880px] text-sm" aria-busy={initialLoading || leads.loading}>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+              {selecting ? (
+                <th scope="col" className="w-10 py-3 pr-0 pl-3 text-left">
+                  <Checkbox
+                    aria-label="Select all leads on this page"
+                    checked={pageTicked ? true : tickedOnPage > 0 ? 'indeterminate' : false}
+                    disabled={rows.length === 0}
+                    onCheckedChange={(checked) => tickPage(checked === true)}
+                    className="block"
+                  />
+                </th>
+              ) : null}
               <SortableHeader
                 label="Lead"
                 field="fullName"
@@ -378,12 +480,28 @@ export function LeadsTable({
                     aria-current={panel?.openId === lead.id ? 'true' : undefined}
                     className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 aria-[current=true]:bg-muted/60"
                     onClick={(event) => {
-                      // Let a real link, a modifier-click or a text selection behave natively.
-                      if (event.target instanceof HTMLElement && event.target.closest('a')) return;
+                      // Let a real link, a modifier-click or a text selection behave natively;
+                      // the checkbox cell ticks the row and opens nothing.
+                      if (
+                        event.target instanceof HTMLElement &&
+                        event.target.closest('a, [data-row-select]')
+                      ) {
+                        return;
+                      }
                       if (window.getSelection()?.toString()) return;
                       openLead(lead);
                     }}
                   >
+                    {selecting ? (
+                      <td data-row-select className="w-10 cursor-default py-3 pr-0 pl-3">
+                        <Checkbox
+                          aria-label={`Select ${leadDisplayName(lead.contact)}`}
+                          checked={isTicked(lead.id)}
+                          onCheckedChange={(checked) => tickRow(lead.id, checked === true)}
+                          className="block"
+                        />
+                      </td>
+                    ) : null}
                     <td className={cn(CELL, 'max-w-[260px]')}>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Link

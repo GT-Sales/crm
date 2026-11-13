@@ -39,6 +39,7 @@ should be rotated once the owner has a password manager for them (§6).
  ┌──────────────────────────── backend: apps/backend (Express 5, Railway, Singapore) ────────────────────────────┐
  │ requestId → requestLog → CORS(ADMIN_ORIGIN) → JSON 64 kB                                                     │
  │  /api/v1/health            liveness, no auth                                                                 │
+ │  /api/v1/ready             readiness (select 1 as app_runtime), no auth; Railway's deploy health check       │
  │  /api/internal/jobs/*      machine identity (MACHINE_REGISTRY_JSON + CRON_SECRET), manual job runs           │
  │  /api/v1/staff/*           Supabase bearer → verified by Auth API → per-IP rate limit → per-action authorize │
  │  /api/v1/website/*         service credential (hash lookup) → scope → per-endpoint rate limit → bot check    │
@@ -181,13 +182,27 @@ Website routes (`/api/v1/website`, `Authorization: Bearer gtsk_…`):
 | POST   | `/tracking/orders/:reference/uploads/intents`            | tracking         | With the grant: a held passport or visa upload for the order's change request (`documentType`, `contentType`, `sizeBytes`); the same signed target as `/uploads/intents`. 409 `change_request_not_allowed` when the order can no longer change; 409 `feature_not_ready` without a document store.                                                                                                                                                                     |
 | POST   | `/tracking/orders/:reference/uploads/:uploadId/finalize` | tracking         | With the grant: only the order's own held upload; verifies the bytes as `/uploads/:uploadId/finalize` does, then joins the file to the pending request (made if none, `version + 1` otherwise). 200 `{ changeRequest }`; 404 `upload_not_found` for any other file.                                                                                                                                                                                                   |
 
-Other: `GET /api/v1/health`; `/api/internal/jobs/run` (GET/POST, machine
-secret) for manual scheduler runs; `POST /api/internal/jobs/intake-check`
+Other: `GET /api/v1/health` (liveness); `GET /api/v1/ready` (200 once the
+database answers `select 1` within 3 s, else 503 `database_unreachable`;
+`railway.json` points the deploy health check at it, so a release with a
+broken `DATABASE_URL` never replaces a working one); `POST /api/internal/jobs/run`
+(machine secret, POST only since audit L-10; the scheduler is in-process and
+never calls it) for manual scheduler runs; both internal job routes count every
+attempt per client IP before the secret is checked (10 a minute, fail closed,
+bucket `machine:<route>:ip:<ip>`); `POST /api/internal/jobs/intake-check`
 (machine secret, scope `synthetic:check`) for one intake check run by hand,
 returning its result and never alerting (404 `intake_check_off` without
-`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md); `/api/v1/email/unsubscribe`,
+`INTAKE_CHECK_WORKSPACE_ID`; docs/RUNBOOKS/intake-check.md);
+`/api/v1/email/unsubscribe` (the signed token in the query: `GET` shows a
+confirmation page and changes nothing, `POST` records the unsubscribe, which is
+also what a mail provider's RFC 8058 one-click request sends; audit L-12),
 `/api/v1/email/staff/workspaces/:id/delivery`; `/api/v1/webhooks/resend`
-(raw body, signature-verified, `POST /:selector`).
+(raw body, signature-verified, `POST /:selector`). Every `/api` response
+carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and
+`Referrer-Policy: no-referrer` (a route may set a stricter value itself) and no
+`X-Powered-By`; the last-resort error handler answers a body it could not read
+with 400 (413 when too large), a database it could not reach with a retryable
+503 and anything else with a generic 500 (audit L-9, L-11).
 
 Scheduler (`ENABLE_SCHEDULER=true`, one replica): `outbox` 60 s,
 `document_cleanup` 1 h, `data_retention` 24 h (calls
@@ -287,7 +302,7 @@ Roles: `owner` (everything), `leads` (workspace.read, lead.manage), `orders`
 (financial.read, invoice.approve). Actions: `workspace.read`, `lead.manage`,
 `order.manage`, `staff.invite`, `staff.remove`, `staff.roles.manage`,
 `document.download`, `financial.read`, `export.bulk`, `record.delete`,
-`invoice.approve`, `integration.manage`, `sensitive.reveal`, `property.manage`, `order.override` and `revenue.view`. `sensitive.reveal`, `property.manage` and `revenue.view` (every money figure: plan commissions, commission earned and expected) are owner only; `order.override` (moving an order on without its required documents approved, with a reason) belongs to the roles `owner` and `orders`, and no individual permission grants it. Per-member overrides
+`invoice.approve`, `integration.manage`, `sensitive.reveal`, `property.manage`, `order.override`, `revenue.view` and `lead.export` (the leads export, §3.19: the roles `owner`, `leads`, `orders` and `finance`, or the individual `bulk_export` permission, which as a deny also takes it away). `sensitive.reveal`, `property.manage` and `revenue.view` (every money figure: plan commissions, commission earned and expected) are owner only; `order.override` (moving an order on without its required documents approved, with a reason) belongs to the roles `owner` and `orders`, and no individual permission grants it. Per-member overrides
 (`membership_permissions`, allow or deny) map to `document.download` through `integration.manage`; a deny always
 wins. Decision logic: `apps/backend/src/staff/authorization.ts`
 (`decideAccess` is pure; `createAuthorize` loads then decides). Authorization is
@@ -423,7 +438,10 @@ feature_not_ready`). The customer types an email; the website calls
     same as one with orders; only the latter gets a code. The code is six
     digits, lives 10 minutes and allows 5 tries; a new request replaces the
     pending one. Per email per 10 minutes: 5 code requests, 10 verifications,
-    30 customer writes; per visitor per 10 minutes: 20 code requests and 40
+    30 customer writes, and at most 30 verifications per email per 24 hours
+    (audit L-2: a guesser got 1,440 tries a day; after 30 the email's
+    verification answers 429 until the day window ends, counting only attempts
+    the 10-minute budgets let through); per visitor per 10 minutes: 20 code requests and 40
     verifications; and the endpoint budget (30 a minute per visitor,
     `RATE_LIMIT_TRACKING_*`). `POST /tracking/verify` turns the right code
     into a **grant**, which the website keeps server-side and sends as
@@ -1596,6 +1614,215 @@ look like the CanadaWide website's while Get Canada Sim keeps its look.
 - After applying the migration and deploying: on CanadaWide, Settings → Email
   → Style "Website hero", brand colour `#0966ff`, accent `#c0ff72`, then send a
   test of each email. Get Canada Sim needs nothing.
+
+### 3.15 2026-11-09: CanadaWide intake fallback (prepared, not applied)
+
+The CRM was down for about 8 minutes on 2026-11-09, and CanadaWide answered
+every lead in that window with 502 and stored nothing. Now, with the
+fallback on, a lead the CRM cannot take (unreachable, timeout, 5xx; never a
+4xx) is kept in the legacy `internet_leads` / `mobility_leads` table under
+an id the website chose, and the customer sees the normal success. pg_cron
+job `cw-intake-fallback-sync` runs `app.sync_canadawide_fallback()` every 5
+minutes and imports such rows into the `canadawide` site under that id
+(consent version `cw-intake-fallback`). Full design, switch-on steps and
+checks: [RUNBOOKS/intake-fallback.md](RUNBOOKS/intake-fallback.md).
+
+- **The website writes through a key-gated function, not the old insert:**
+  the anon insert policies stay dropped (§5.4).
+  `public.canadawide_fallback_lead` (CanadaWide repo,
+  `supabase/migrations/20261109090000_crm_intake_fallback.sql`) inserts only
+  for `CRM_FALLBACK_KEY`, whose SHA-256 is compiled into it.
+- **No duplicates.** The website sends `Idempotency-Key: cw-lead:<its id>`
+  with every intake call; the job skips a fallback row whose key hash the
+  CRM holds with a lead (the CRM did save it before the website gave up),
+  every row that already has an `app.leads` row (all intake leads, through
+  the 0002 mirror), and rows younger than 2 minutes or older than 3 days
+  (keys are pruned after 7). Insert-only, so a re-run imports nothing.
+- **Emails:** the website sends its confirmation and staff alert on the
+  fallback path as always; the import sends nothing. CRM automation flows do
+  not fire for imported fallback leads (they would only matter once flows
+  are switched on for CanadaWide).
+- **Mobility ID step:** works on Supabase as today; with `CRM_ID_STEP=on` it
+  fails (customer asked to call) until the job has imported the lead.
+- Code: CanadaWide branch `claude/crm-intake-fallback`; here
+  [manual/canadawide-intake-fallback.sql](RUNBOOKS/manual/canadawide-intake-fallback.sql)
+  and the rehearsal `apps/backend/tests/canadawide-intake-fallback.integration.test.ts`.
+- **Owner, to switch it on:** generate the key, apply the gate function with
+  its hash, apply the sync function, schedule it, set `CRM_FALLBACK_KEY` on
+  CanadaWide's Vercel project and deploy (runbook "Switching it on").
+
+### 3.16 2026-11-10: Tasks board and the In progress status (migration 0029 not applied)
+
+The owner asked for the Tasks page as a board "by status and date".
+
+- **New task status `in_progress`** between `open` (To do) and `done`
+  (`leadTaskStatusSchema`; migration `0029_task_in_progress` widens
+  `lead_tasks_status_check`, runbook [database.md](RUNBOOKS/database.md)).
+  `open` and `in_progress` are both **active** (`ACTIVE_TASK_STATUSES`,
+  `isActiveTaskStatus`): every read that meant "not finished" now reads both —
+  the lead's open-task count and next due date, the inbox's "due" filter and
+  follow-ups count, the lead page's task order, the dashboard's follow-ups and
+  analytics, the assistant's open-task reads and the `task_overdue` trigger.
+  Open ↔ in progress keeps a task's overdue timer; done or cancelled → either
+  active status is a reopen and writes it again.
+- **`GET /tasks`** takes `status=active` (now the default, was `open`), any one
+  status, and `completedSince=YYYY-MM-DD`; `status=done` lists most recently
+  completed first. OpenAPI regenerated.
+- **Tasks page** (`components/leads/my-tasks.tsx`, `tasks-board.tsx`): List
+  (as before, in-progress rows badged) or Board, and on the board Group by
+  Status (To do, In progress, Done; To do and In progress grouped Overdue /
+  Today / Upcoming / No due date) or Date (Overdue, Today, Upcoming, No due
+  date, Done; cards badged To do / In progress). Both choices are this
+  viewer's, in `localStorage` (`gt-tasks-view`, `gt-tasks-board-group`). Scope
+  gains **Everyone** (`assignee=all`, same permission as before).
+- **Moves:** native drag and drop (as the leads board) or the card's menu
+  (status, Today, Tomorrow, Pick a date…, No due date). By date, a drop on
+  Today dates the task today, on Upcoming **tomorrow** (another day from the
+  menu's date field), on No due date clears it; Overdue takes no drops; a
+  done task dropped on a date column is reopened as To do. Optimistic, put
+  back with a message if the backend refuses.
+- **Done** shows tasks completed in the last 14 days (`DONE_WINDOW_DAYS`), up
+  to 50 loaded, 10 at a time behind "Show more". Cancelled tasks are not on
+  the board.
+- **Owner, before deploying:** apply 0029 and its tracker row (runbook). A
+  backend from this change on the old constraint answers a move to In
+  progress with 500; everything else works.
+
+### 3.17 2026-11-10: security review, hard track (branch `sec/hard`, migration 0030 not applied)
+
+- **M-2 retention:** restricting an abandoned draft also tombstones its
+  files and deletes their objects, deletes its tasks, clears its contact link,
+  trims attribution to the reported source fields and order details to the
+  offer, and (migration `0030_restricted_lead_erasure`) deletes its identities
+  with their legacy mirror rows, nulls note texts and deletes contacts no lead
+  references. Leads restricted earlier are finished a batch per daily run.
+  Runbook: `docs/RUNBOOKS/database.md` § 0030; paste file
+  `docs/RUNBOOKS/manual/0030-restricted-lead-erasure.sql`.
+- **M-1 admin CSP:** `apps/admin/src/proxy.ts` sets a per-request nonce policy
+  (`src/lib/csp.ts`): `script-src 'self' 'nonce-…' 'strict-dynamic'`, no
+  `'unsafe-inline'` for scripts; the root layout reads the nonce for the theme
+  bootstrap, so every page renders per request.
+- **L-1:** a draft grant uploads and downloads only while its lead is an
+  unarchived draft.
+- **L-6/L-7/L-8:** a malformed `MACHINE_REGISTRY_JSON` disables machine
+  routes instead of the app; process-level handlers; `GET /api/v1/ready`
+  (database round trip) is Railway's deploy health check; Auth `getUser` has a
+  5 s deadline; tenant transactions carry `statement_timeout` 15 s and
+  `idle_in_transaction_session_timeout` 30 s.
+- **CW-B1:** `POST /website/leads` takes the website's own `leadId`
+  (`409 lead_id_taken` when any lead has it); CanadaWide sends it, so a late
+  CRM save and its fallback copy are one lead.
+- **Owner, before deploying:** apply 0030 before 0031 to 0033 (or accept the logged
+  `restricted_lead_erasure_function_missing` until you do).
+
+### 3.18 2026-11-10: security review, the easy fixes (migrations 0031 to 0033 not applied)
+
+From the review's report (L-2 to L-5, L-9 to L-12, L-14, L-16, I-1, I-2); the
+hard items (M-1, M-2, L-1, L-6 to L-8) are separate.
+
+- **L-2:** a second per-email bucket caps tracking-code verification at 30 per
+  24 hours (`TRACKING_VERIFICATIONS_PER_EMAIL_PER_DAY`); it counts only attempts
+  the 10-minute budgets admitted, and answers 429 with that window's
+  `retry-after`.
+- **L-4:** upload intent, finalize and download-link share a per-visitor
+  `uploads` endpoint budget (20 a minute, `RATE_LIMIT_UPLOADS_*`), and a record
+  may hold at most 10 open upload intents (`MAX_OPEN_UPLOADS_PER_RECORD`, a
+  429 `rate_limited` beyond it).
+- **L-3:** a `lead_customer_email` job is scrubbed to `{ leadId, template,
+templateVersion }` when it completes (also when staff confirm an uncertain one
+  delivered); failed, uncertain and retrying mails keep the mail. One-off paste
+  file for mails already sent:
+  [manual/scrub-sent-customer-email-jobs.sql](RUNBOOKS/manual/scrub-sent-customer-email-jobs.sql).
+  `OPERATIONAL_RETENTION_ENABLED` is documented in ENV.md with every table it
+  prunes; **it is still off**, which is the owner's call after a verified backup.
+- **L-5, L-14:** ENV.md and the three backup workflow headers describe the one
+  Read+Write B2 key in one environment that runs; `SENSITIVE_FIELDS_KEY` (lose it
+  and every stored SIN is unreadable: keep a copy in the password manager) and
+  `MARKETING_CONSENT_VERSION` are documented.
+- **L-9, L-11, L-12:** see §2.3's "Other" paragraph: honest error statuses,
+  no-store/nosniff/no-referrer on `/api`, no `X-Powered-By`, unsubscribe by POST.
+  A mail's `List-Unsubscribe` header is not built anywhere yet; when it is, point
+  it at the POST URL with `List-Unsubscribe-Post: List-Unsubscribe=One-Click`.
+- **L-10:** `/api/internal/jobs/run` is POST only and both job routes count
+  attempts per IP before the secret check. The registry's 16-character secret
+  floor was **not** raised (a shorter production secret would stop the API
+  booting); use 32+ random characters for `CRON_SECRET`.
+- **L-16, I-2 (migrations 0031 to 0033, runbook [database.md](RUNBOOKS/database.md)):**
+  invitations expire after 14 days; `app.workspaces` gets row security, forced,
+  with a backup read policy. Not applied. A pending-invitations list with revoke
+  in the admin was not built.
+- **I-1:** pnpm override `qs@<6.16.1`.
+- **Owner:** apply 0031 to 0033 and their tracker rows (list stale invitations
+  first); in Supabase Auth confirm "Confirm email" is on and anonymous, phone and
+  unverified-OAuth sign-ins are off (L-16); set `AI_ACTION_SIGNING_SECRET` (L-13);
+  decide when to turn `OPERATIONAL_RETENTION_ENABLED` on.
+
+### 3.19 2026-11-11: export leads to Excel (no migration)
+
+Staff tick leads in the inbox (a box per row, one for the page, then "Select
+all n leads matching"), or tick nothing, and press **Export** (the download
+icon beside the view menus, or "Export selected" in the selection bar). The
+dialog asks which leads (the ticked ones, or every lead matching the list's
+filters, all pages) and which fields, and the browser downloads
+`<site>-leads-<lead type>-YYYY-MM-DD.xlsx` (the day in Toronto; `all` when
+the file spans lead types).
+
+- **Fields.** Defined once in `packages/contracts/src/lead-export.ts`
+  (`leadExportFields`, `leadExportGroups`, `leadExportColumns`), read by the
+  dialog and by the backend. _Main fields_ are always written, first: order /
+  lead number (`externalRef`), created, lead type, name, email, phone, stage,
+  status, assigned to and, for an order type, plan and payment status. The
+  optional groups: _Columns shown in the table_ (pre-ticked), _Form answers_
+  (the type's form properties, by the site's labels), _Custom properties_,
+  _Order details_ (quantity, carrier commission, courier, tracking number,
+  dispatch and activation details, plan price, billing period, commission),
+  _Dates_ (updated, stage changed, last activity, archived), _Attribution and
+  source_, _Tasks summary_ (open count, next due) and _Notes_ (a count). Each
+  group has Select all / None. The last choice is kept in this browser per
+  site and lead type (`gt-export-fields:<site>:<type|all>`).
+- **The file** is made on the backend (`apps/backend/src/leads/export/`:
+  `store.ts` reads and audits, `cells.ts` types each value, `workbook.ts`
+  writes the sheets) with `write-excel-file` 4.1.1 (MIT, one dependency,
+  `fflate`; `pnpm audit --prod` clean): one sheet per lead type, a bold frozen
+  header with an auto-filter, widths from the content, timestamps as real
+  dates in UTC (the header says so) and calendar days as dates, numbers as
+  numbers, money in dollars, and everything else (phones, postal codes, SIM
+  and tracking numbers, references) as text. Text is never a formula; a value
+  that starts with `=`, `@`, a tab or a carriage return, or with `+`/`-` and
+  is not a plain phone or number, also gets a leading apostrophe, so a file
+  re-saved as CSV does not run it.
+- **Who.** `POST /api/v1/staff/workspaces/:workspaceId/leads/export`
+  (`src/routes/lead-export.ts`) needs `lead.export`: the roles that already
+  see contact details (owner, Leads, Orders, Finance), or the individual
+  `bulk_export` permission; an individual deny refuses even the owner. The
+  site comes from the URL. What is written follows the role, on the server:
+  without contact access no contact, form, custom, order, timeline or notes
+  column (and those are not read from the database); the commission only with
+  `revenue.view`; a sensitive property (`dateOfBirth`, a custom property
+  marked sensitive), a hidden one, a sealed identity (SIN) and documents are
+  never exportable. Restricted leads are never in it, as on the list.
+- **Which leads.** The filters are validated and applied by the list's own
+  code (`leadConditions`, `sortOrderOf` in `leads/staff-queries.ts`), so the
+  file is what the inbox shows, in its order. Ticked ids must all be this
+  site's unrestricted leads, else `404 lead_not_found` and nothing is
+  exported.
+- **Limits.** 5,000 leads per export (`422 export_too_large` with the count;
+  `LEAD_EXPORT_MAX_ROWS`), 1,000 ticked ids per request, 10 exports per member
+  and site per 10 minutes (`429 rate_limited`, counted before anything is
+  read; a limiter failure refuses with 503), and a 30 s statement timeout for
+  the export's own statements. The file is built in memory after the
+  transaction ends.
+- **Audit.** Every export writes `lead.exported` (entity `workspace`): who,
+  the site, the scope (the number of ids, or which filters were on: keys and
+  operators, never the search text or a filter's value), the field keys per
+  sheet and the row counts. No customer data in the audit row or the logs.
+- **Response.** The workbook's media type, `Content-Disposition: attachment`,
+  `Cache-Control: no-store`, `X-Export-Row-Count`; CORS exposes the last two
+  headers to the admin origin.
+- **Not built, for the owner to decide:** an Export on the board's own
+  toolbar selection (the board exports by its filters only), exports larger
+  than 5,000 leads (would need a background job and a download link), and a
+  per-site time zone for the timestamps (they are UTC).
 
 ## 4. What is verified, and how
 

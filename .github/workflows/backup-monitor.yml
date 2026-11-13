@@ -1,8 +1,11 @@
 # To add a deployment: one matrix entry here and in the two sibling workflows,
-# three GitHub Environments named after it, their secrets per docs/ENV.md.
+# one GitHub Environment named backup-<deployment> (all three workflows use
+# it), its secrets per docs/ENV.md.
 #
 # The hourly check that each deployment's last backup is recent: it reads the
-# archive's heartbeat with the reader key (list and read only) and emails the
+# archive's heartbeat and only lists and reads, but it runs with the
+# environment's single B2 key (B2_ARCHIVE_KEY_ID, owner decision 2026-11-06,
+# docs/RUNBOOKS/backup.md step 6), which is not read-only. It emails the
 # owner when it is older than 26 hours, missing, malformed or names another
 # deployment (docs/RUNBOOKS/backup-alert-response.md). A failed check also
 # fails this run, so GitHub notifies too.
