@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import {
+  ARCHIVE_RETRY_DELAYS_MS,
   ArchiveCredentialDeniedError,
+  s3Send,
   InMemoryArchiveBackend,
   S3ArchiveReader,
   S3ArchiveRetentionAdmin,
@@ -208,6 +210,70 @@ describe('S3ArchiveWriter / S3ArchiveReader / S3ArchiveRetentionAdmin', () => {
     ).rejects.toThrow('archive_put_failed:403');
   });
 
+  it('s3Send retries a B2 500 and a dropped connection, then returns the success', async () => {
+    const answers: Array<() => Response> = [
+      () => new Response('busy', { status: 500 }),
+      () => {
+        throw new TypeError('fetch failed');
+      },
+      () => new Response(null, { status: 200, headers: { 'x-amz-version-id': 'v2' } }),
+    ];
+    const calls: string[] = [];
+    const waits: number[] = [];
+    const fakeFetch: typeof fetch = async (_url, init) => {
+      calls.push(new Headers(init?.headers).get('authorization') ?? '');
+      const next = answers.shift();
+      if (!next) throw new Error('unexpected extra call');
+      return next();
+    };
+    const response = await s3Send(
+      config,
+      { method: 'PUT', key: 'run-1/x', headers: {}, body: new Uint8Array([1]) },
+      fakeFetch,
+      1_000,
+      async (ms) => {
+        waits.push(ms);
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(3);
+    expect(waits).toEqual([ARCHIVE_RETRY_DELAYS_MS[0], ARCHIVE_RETRY_DELAYS_MS[1]]);
+  });
+
+  it('s3Send gives up after four tries and hands back the last answer', async () => {
+    let calls = 0;
+    const alwaysBusy: typeof fetch = async () => {
+      calls += 1;
+      return new Response(null, { status: 503 });
+    };
+    const response = await s3Send(
+      config,
+      { method: 'PUT', key: 'run-1/x', headers: {}, body: new Uint8Array([1]) },
+      alwaysBusy,
+      1_000,
+      async () => undefined,
+    );
+    expect(response.status).toBe(503);
+    expect(calls).toBe(ARCHIVE_RETRY_DELAYS_MS.length + 1);
+  });
+
+  it('s3Send does not retry a refusal such as 403', async () => {
+    let calls = 0;
+    const denied: typeof fetch = async () => {
+      calls += 1;
+      return new Response(null, { status: 403 });
+    };
+    const response = await s3Send(
+      config,
+      { method: 'PUT', key: 'run-1/x', headers: {}, body: new Uint8Array([1]) },
+      denied,
+      1_000,
+      async () => undefined,
+    );
+    expect(response.status).toBe(403);
+    expect(calls).toBe(1);
+  });
+
   it('S3ArchiveReader.getObject returns undefined on 404 and throws archive_get_failed:<status> otherwise', async () => {
     const missing: typeof fetch = async () => new Response(null, { status: 404 });
     expect(await new S3ArchiveReader(config, missing).getObject('missing')).toBeUndefined();
@@ -223,15 +289,16 @@ describe('S3ArchiveWriter / S3ArchiveReader / S3ArchiveRetentionAdmin', () => {
 
   it('S3ArchiveRetentionAdmin.deleteObject treats 404 as success', async () => {
     const methods: string[] = [];
-    const statuses = [204, 404, 500];
+    // A 500 is retried (s3Send), so the last delete sees four of them.
+    const statuses = [204, 404, 500, 500, 500, 500];
     const fakeFetch: typeof fetch = async (_url, init) => {
       methods.push(init?.method ?? 'GET');
       return new Response(null, { status: statuses[methods.length - 1] });
     };
-    const admin = new S3ArchiveRetentionAdmin(config, fakeFetch);
+    const admin = new S3ArchiveRetentionAdmin(config, fakeFetch, 1_000, async () => undefined);
     await admin.deleteObject('run-1/old');
     await admin.deleteObject('run-1/already-gone');
     await expect(admin.deleteObject('run-1/x')).rejects.toThrow('archive_delete_failed:500');
-    expect(methods).toEqual(['DELETE', 'DELETE', 'DELETE']);
+    expect(methods).toEqual(['DELETE', 'DELETE', 'DELETE', 'DELETE', 'DELETE', 'DELETE']);
   });
 });
