@@ -138,7 +138,14 @@ describe('LeadRecord', () => {
     expect(screen.getByText('avery@example.test')).toBeTruthy();
     expect(screen.getByText('12 Example Street')).toBeTruthy();
     // Read as words, with the raw label kept as the tooltip.
-    expect(screen.getByText('Google · paid').getAttribute('title')).toBe('utm:google/cpc');
+    // The key facts row names the source too; the Source section keeps the raw label.
+    expect(
+      screen
+        .getAllByText('Google · paid')
+        .some((el) => el.getAttribute('title') === 'utm:google/cpc'),
+    ).toBe(true);
+    const facts = screen.getByRole('group', { name: 'Key facts' });
+    expect(within(facts).getByText('Next task')).toBeTruthy();
     expect(mocks.getStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD);
   });
 

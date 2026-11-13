@@ -8,6 +8,7 @@ import {
   leadOrderEditSchema,
   orderStorageKey,
   isActiveTaskStatus,
+  leadCountdownField,
   leadTypeEntry,
   leadTypeLabel,
   stageGates,
@@ -35,6 +36,7 @@ import {
 } from '@gt-sales/ui';
 import {
   ArchiveIcon,
+  ChevronDownIcon,
   MailIcon,
   PhoneIcon,
   ArrowLeftIcon,
@@ -57,7 +59,7 @@ import {
   setLeadArchived,
   updateStaffLead,
 } from '../../lib/api';
-import { dateTimeLabel, relativeTime } from '../../lib/dates';
+import { dateTimeLabel, dayLabel, followUpLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
 import { memberName } from '../../lib/people';
 import { describeError } from '../../lib/error-text';
@@ -65,7 +67,7 @@ import { errorDetailList, errorReason, useResource } from '../../lib/use-resourc
 import { PropertySections } from '../properties/property-sections';
 import { usePropertyModel } from '../properties/use-property-model';
 import { ChangeRequestCard } from './change-request-card';
-import { leadDisplayName, StageBadge } from './lead-display';
+import { CountdownLabel, leadDisplayName, StageBadge } from './lead-display';
 import { IdentityCheck } from './identity-check';
 import { LeadDocuments, linkFailure } from './lead-documents';
 import type { PropertyEdits } from './lead-form-editor';
@@ -103,6 +105,21 @@ function initials(name: string): string {
     .join('')
     .toUpperCase();
 }
+
+/** `not_needed` as staff read it: "Not needed". */
+function words(value: string): string {
+  const text = value.replace(/_/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The details as one card: each section keeps its heading and Edit, divided by
+ * a rule instead of standing as a card of its own.
+ */
+const DETAILS_SIDEBAR =
+  'flex min-w-0 flex-col divide-y overflow-hidden rounded-xl border bg-card shadow-sm ' +
+  '[&_[data-slot=card]]:rounded-none [&_[data-slot=card]]:border-0 [&_[data-slot=card]]:bg-transparent [&_[data-slot=card]]:shadow-none ' +
+  '[&_.flex.flex-col.gap-4]:gap-0 [&_.flex.flex-col.gap-4]:divide-y';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -603,6 +620,72 @@ export function LeadRecord({
     changeRequestNo: record.data.changeRequest?.requestNo,
     contacts: access.contacts,
   });
+  // The handful of facts staff look for first, drawn from what is recorded.
+  const countdownField = leadCountdownField(lead.leadType);
+  const countdownDay =
+    countdownField && typeof payload[countdownField.key] === 'string'
+      ? String(payload[countdownField.key])
+      : undefined;
+  const planName =
+    lead.order?.plan?.name ?? (typeof payload.plan === 'string' ? payload.plan : undefined);
+  const nextTask = tasks
+    .filter((task) => isActiveTaskStatus(task.status) && task.dueAt !== null)
+    .sort((a, b) => (a.dueAt ?? '').localeCompare(b.dueAt ?? ''))[0];
+  const openTaskCount = tasks.filter((task) => isActiveTaskStatus(task.status)).length;
+  const unreviewed = documents.filter((document) => document.review === null).length;
+  const keyFacts: { label: string; value: ReactNode }[] = access.contacts
+    ? [
+        ...(planName ? [{ label: 'Plan', value: planName }] : []),
+        ...(countdownField && countdownDay
+          ? [
+              {
+                label: countdownField.label,
+                value: (
+                  <>
+                    {dayLabel(countdownDay)} <CountdownLabel day={countdownDay} />
+                  </>
+                ),
+              },
+            ]
+          : []),
+        ...(lead.order ? [{ label: 'Payment', value: words(lead.order.paymentStatus) }] : []),
+        ...(documents.length > 0
+          ? [
+              {
+                label: 'Documents',
+                value: unreviewed > 0 ? `${String(unreviewed)} to review` : 'All reviewed',
+              },
+            ]
+          : []),
+        {
+          label: 'Next task',
+          value: nextTask?.dueAt
+            ? followUpLabel(nextTask.dueAt)
+            : openTaskCount > 0
+              ? `${String(openTaskCount)} open, no due date`
+              : 'None',
+        },
+        { label: 'Source', value: readableSource(lead.source) },
+      ]
+    : [];
+  const keyFactsRow =
+    keyFacts.length > 1 ? (
+      <dl
+        role="group"
+        aria-label="Key facts"
+        className={cn(
+          'grid gap-px overflow-hidden rounded-lg border bg-border text-sm',
+          inPanel ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6',
+        )}
+      >
+        {keyFacts.map((fact) => (
+          <div key={fact.label} className="min-w-0 bg-card px-3 py-2">
+            <dt className="text-xs text-muted-foreground">{fact.label}</dt>
+            <dd className="truncate font-medium">{fact.value}</dd>
+          </div>
+        ))}
+      </dl>
+    ) : null;
   const anchorId = (target: LeadAttentionTarget) => `lead-${lead.id}-${target}`;
   // In the panel a card may sit on another tab: open it first, then scroll
   // once that tab has rendered. Focus moves to the card for keyboard users.
@@ -782,6 +865,7 @@ export function LeadRecord({
           again.
         </p>
       ) : null}
+      {keyFactsRow}
       <LeadAttentionStrip items={attention} onJump={jumpTo} />
       {waitingChange ? (
         <p
@@ -1003,21 +1087,30 @@ export function LeadRecord({
 
   const sourceSection = (
     <Card>
-      <CardContent className="flex flex-col gap-2">
-        <h2 className="text-base font-semibold">Source</h2>
-        <dl>
-          <Field label="Source">
-            <span title={lead.source}>{readableSource(lead.source)}</span>
-          </Field>
-          {attribution.map(([key, value]) => (
-            <Field key={key} label={ATTRIBUTION_LABELS[key] ?? key}>
-              {String(value)}
+      <CardContent>
+        {/* Rarely needed: closed until asked for. */}
+        <details className="group flex flex-col gap-2">
+          <summary className="flex cursor-pointer list-none items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <h2 className="text-base font-semibold">Source</h2>
+            <ChevronDownIcon
+              aria-hidden="true"
+              className="size-4 text-muted-foreground transition-transform group-open:rotate-180"
+            />
+          </summary>
+          <dl className="mt-2">
+            <Field label="Source">
+              <span title={lead.source}>{readableSource(lead.source)}</span>
             </Field>
-          ))}
-          {lead.consentVersion ? <Field label="Consent">{lead.consentVersion}</Field> : null}
-          <Field label="Received">{dateTimeLabel(lead.createdAt)}</Field>
-          <Field label="Last activity">{dateTimeLabel(lead.updatedAt)}</Field>
-        </dl>
+            {attribution.map(([key, value]) => (
+              <Field key={key} label={ATTRIBUTION_LABELS[key] ?? key}>
+                {String(value)}
+              </Field>
+            ))}
+            {lead.consentVersion ? <Field label="Consent">{lead.consentVersion}</Field> : null}
+            <Field label="Received">{dateTimeLabel(lead.createdAt)}</Field>
+            <Field label="Last activity">{dateTimeLabel(lead.updatedAt)}</Field>
+          </dl>
+        </details>
       </CardContent>
     </Card>
   );
@@ -1121,13 +1214,15 @@ export function LeadRecord({
           forceMount
           className="flex flex-col gap-3 p-4"
         >
-          {contactSection}
-          {anchored('order', propertiesSection)}
-          {simEmailSection}
-          {identitySection}
-          {relatedSection}
           {access.contacts ? anchored('change-request', changeRequestSection) : null}
-          {sourceSection}
+          <div className={DETAILS_SIDEBAR}>
+            {contactSection}
+            {anchored('order', propertiesSection)}
+            {simEmailSection}
+            {identitySection}
+            {relatedSection}
+            {sourceSection}
+          </div>
         </TabsContent>
         {access.contacts ? (
           <>
@@ -1185,8 +1280,16 @@ export function LeadRecord({
   return (
     <div className="flex flex-col gap-6">
       {header}
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] [&_[data-slot=card]]:gap-4 [&_[data-slot=card]]:py-5">
-        <div className="flex flex-col gap-4">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] [&_[data-slot=card]]:gap-4 [&_[data-slot=card]]:py-5">
+        {/* The work gets the wide side; the details sit beside it as one divided card. */}
+        {access.contacts ? (
+          <div className="flex min-w-0 flex-col gap-4">
+            {anchored('change-request', changeRequestSection)}
+            {anchored('tasks', tasksSection)}
+            {timelineSection}
+          </div>
+        ) : null}
+        <div className={DETAILS_SIDEBAR}>
           {contactSection}
           {identitySection}
           {anchored('documents', documentsSection)}
@@ -1195,13 +1298,6 @@ export function LeadRecord({
           {simEmailSection}
           {sourceSection}
         </div>
-        {access.contacts ? (
-          <div className="flex flex-col gap-4">
-            {anchored('tasks', tasksSection)}
-            {anchored('change-request', changeRequestSection)}
-            {timelineSection}
-          </div>
-        ) : null}
       </div>
     </div>
   );
