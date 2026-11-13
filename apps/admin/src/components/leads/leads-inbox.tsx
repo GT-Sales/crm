@@ -103,7 +103,9 @@ import {
 const SEARCH_DELAY_MS = 300;
 
 /** Compact icon controls in the inbox header; their panels hold all view settings. */
-const TOOLBAR_BUTTON = 'relative size-8 shrink-0 rounded-full p-0';
+// An icon on narrow screens; from `xl` the button says what it is.
+const TOOLBAR_BUTTON = 'relative h-8 w-8 shrink-0 gap-1.5 rounded-full p-0 xl:w-auto xl:px-3';
+const TOOLBAR_LABEL = 'hidden text-xs font-normal xl:inline';
 const TOOLBAR_ICON = 'size-3.5 text-muted-foreground';
 const countFormat = new Intl.NumberFormat('en-CA');
 /** The most leads one bulk archive or restore changes. */
@@ -800,6 +802,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           className={TOOLBAR_BUTTON}
         >
           <FilterIcon aria-hidden="true" className={TOOLBAR_ICON} />
+          <span aria-hidden="true" className={TOOLBAR_LABEL}>
+            Filter
+          </span>
           {filterCount > 0 ? (
             <span
               aria-hidden="true"
@@ -1066,6 +1071,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           className={TOOLBAR_BUTTON}
         >
           <SlidersHorizontalIcon aria-hidden="true" className={TOOLBAR_ICON} />
+          <span aria-hidden="true" className={TOOLBAR_LABEL}>
+            View
+          </span>
           {viewChanged ? (
             <span
               aria-hidden="true"
@@ -1468,6 +1476,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         onClick={() => setExportOpen(true)}
       >
         <DownloadIcon aria-hidden="true" className={TOOLBAR_ICON} />
+        <span aria-hidden="true" className={TOOLBAR_LABEL}>
+          Export
+        </span>
       </Button>
     ) : null;
 

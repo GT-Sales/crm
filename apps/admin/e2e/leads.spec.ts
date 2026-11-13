@@ -331,6 +331,8 @@ test('SIM orders filter by permit type, sort by arrival ascending, add the Arriv
   await arrivalColumn.click();
   await expect(page).toHaveURL(/cols=arrivalDate/);
   await expect(arrivalColumn).toBeChecked();
+  // The menu sits over the column headers: close it before sorting by one.
+  await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: /Arrival in Canada/ }).click();
   await expect(page).toHaveURL(/sort=prop\.arrivalDate%3Aasc/);
@@ -1219,8 +1221,9 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
       height: button.getBoundingClientRect().height,
       radius: Number.parseFloat(getComputedStyle(button).borderRadius),
     }));
-    expect(dimensions.width).toBe(dimensions.height);
-    expect(dimensions.radius).toBeGreaterThanOrEqual(dimensions.width / 2);
+    // On a wide screen each is a pill that names itself beside its icon.
+    expect(dimensions.width).toBeGreaterThan(dimensions.height);
+    expect(dimensions.radius).toBeGreaterThanOrEqual(dimensions.height / 2);
   }
   await expect(page.getByLabel('Assignee', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Switch to dark mode' }).click();
@@ -1603,9 +1606,15 @@ test('loading screens show layout skeletons until their data arrives', async ({
     const table = page.getByRole('table');
     await expect(table).toHaveAttribute('aria-busy', 'true');
     await expect(table.locator('tbody tr')).toHaveCount(7);
-    expect(await table.locator('thead th').count()).toBe(
-      await table.locator('tbody tr').first().locator('td').count(),
-    );
+    // The checkbox column arrives with the caller's access, in a render of its
+    // own: two separate counts can straddle it, so compare until they agree.
+    await expect
+      .poll(async () => {
+        const head = await table.locator('thead th').count();
+        const body = await table.locator('tbody tr').first().locator('td').count();
+        return head - body;
+      })
+      .toBe(0);
     await expect(page.getByText(/Page 1 of 1 · 0 leads/)).not.toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath('design-loading-leads.png'),

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPropertyCatalog, type PropertyRow } from '@gt-sales/contracts';
@@ -12,11 +12,21 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
-const mocks = vi.hoisted(() => ({ getStaffLeads: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getStaffLeads: vi.fn(), updateStaffLead: vi.fn() }));
+
+const backend = vi.hoisted(() => ({
+  BackendError: class BackendError extends Error {
+    readonly code: string;
+    constructor(code: string) {
+      super(code);
+      this.code = code;
+    }
+  },
+}));
 
 vi.mock('../../lib/api', () => ({
   ...mocks,
-  BackendError: class extends Error {},
+  BackendError: backend.BackendError,
 }));
 
 function row(overrides: Partial<PropertyRow> & Pick<PropertyRow, 'key' | 'label' | 'kind'>) {
@@ -259,6 +269,55 @@ describe('LeadsTable', () => {
         page: { page: 1, pageSize: 50, total: 2 },
         access: { contacts: true, manage: true, export: true },
       });
+    });
+
+    it('changes a stage and an assignee from the row, without opening the lead', async () => {
+      mocks.updateStaffLead.mockReset();
+      mocks.updateStaffLead.mockResolvedValue({ requestId: 'req_test' });
+      render(<Selectable />);
+      const stage = await screen.findByRole('button', {
+        name: 'Change stage of Avery Example, now New',
+      });
+      fireEvent.pointerDown(stage, { button: 0, ctrlKey: false });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Contacted' }));
+      await waitFor(() =>
+        expect(mocks.updateStaffLead).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD_1, {
+          stage: 'contacted',
+        }),
+      );
+      expect(onOpen).not.toHaveBeenCalled();
+      // The list is read again after the change.
+      await waitFor(() => expect(mocks.getStaffLeads.mock.calls.length).toBeGreaterThan(1));
+
+      fireEvent.pointerDown(
+        screen.getByRole('button', { name: 'Change assignee of Blake Example, now unassigned' }),
+        { button: 0, ctrlKey: false },
+      );
+      expect(await screen.findByRole('menu')).toBeTruthy();
+    });
+
+    it('says why a move was refused', async () => {
+      mocks.updateStaffLead.mockReset();
+      mocks.updateStaffLead.mockRejectedValue(new backend.BackendError('illegal_stage_move'));
+      render(<Selectable />);
+      fireEvent.pointerDown(
+        await screen.findByRole('button', { name: 'Change stage of Avery Example, now New' }),
+        { button: 0, ctrlKey: false },
+      );
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Contacted' }));
+      expect((await screen.findByRole('alert')).textContent).toContain('not allowed from New');
+    });
+
+    it('offers no quick edit without lead management', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [leadRow(LEAD_1, 'Avery Example')],
+        page: { page: 1, pageSize: 50, total: 1 },
+        access: { contacts: true, manage: false, export: true },
+      });
+      render(<Selectable total={1} />);
+      await screen.findByRole('link', { name: 'Avery Example' });
+      expect(screen.queryByRole('button', { name: /^Change stage of/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Change assignee of/ })).toBeNull();
     });
 
     it('has no checkbox column unless a selection is asked for', async () => {
