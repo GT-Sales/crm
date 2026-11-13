@@ -37,20 +37,48 @@ export interface ArchiveRetentionAdmin extends ArchiveReader {
   deleteObject(key: string): Promise<void>;
 }
 
-async function s3Send(
+/**
+ * Answers worth another try: Backblaze documents 500 and 503 as "retry the
+ * request", and 429/502/504 are the same kind of passing trouble. Every other
+ * status is the request's own fault and fails at once.
+ */
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+/** Waits before attempts 2, 3 and 4 (incident 2026-11-12: one B2 500 failed the night's backup). */
+export const ARCHIVE_RETRY_DELAYS_MS = [2_000, 8_000, 20_000] as const;
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One S3 call, tried up to four times when B2 answers a retryable status or
+ * the connection fails or times out. Each attempt is signed afresh (the
+ * signature carries the time). Re-sending a PUT is safe: a backup object's
+ * key is unique to its run, and a repeat only adds a version.
+ */
+export async function s3Send(
   config: S3SigningConfig,
   req: Parameters<typeof signS3Request>[1],
   fetchImpl: typeof fetch,
   timeoutMs: number,
+  sleep: (ms: number) => Promise<void> = defaultSleep,
 ): Promise<Response> {
-  const { url, headers } = signS3Request(config, req);
-  return fetchImpl(url, {
-    method: req.method,
-    headers,
-    body: req.body ? Buffer.from(req.body) : undefined,
-    redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  for (let attempt = 0; ; attempt += 1) {
+    const { url, headers } = signS3Request(config, req);
+    const lastAttempt = attempt >= ARCHIVE_RETRY_DELAYS_MS.length;
+    try {
+      const response = await fetchImpl(url, {
+        method: req.method,
+        headers,
+        body: req.body ? Buffer.from(req.body) : undefined,
+        redirect: 'error',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (lastAttempt || !RETRYABLE_STATUSES.has(response.status)) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      if (lastAttempt) throw error;
+    }
+    await sleep(ARCHIVE_RETRY_DELAYS_MS[attempt] ?? 0);
+  }
 }
 
 function parseListObjectsV2(xml: string): ArchiveObjectMeta[] {
@@ -85,6 +113,7 @@ async function listArchiveObjects(
   prefix: string,
   fetchImpl: typeof fetch,
   timeoutMs: number,
+  sleep: (ms: number) => Promise<void> = defaultSleep,
 ): Promise<ArchiveObjectMeta[]> {
   const objects: ArchiveObjectMeta[] = [];
   const seenTokens = new Set<string>();
@@ -100,6 +129,7 @@ async function listArchiveObjects(
       },
       fetchImpl,
       timeoutMs,
+      sleep,
     );
     if (!response.ok) throw new Error(`archive_list_failed:${response.status}`);
     const xml = await response.text();
@@ -118,6 +148,8 @@ export class S3ArchiveWriter implements ArchiveWriter {
     private readonly config: S3SigningConfig,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly timeoutMs = 30_000,
+    /** Waits between retries (`s3Send`); tests pass an instant one. */
+    private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
   ) {}
 
   /**
@@ -132,13 +164,14 @@ export class S3ArchiveWriter implements ArchiveWriter {
       { method: 'PUT', key, headers: { 'content-md5': contentMd5 }, body },
       this.fetchImpl,
       this.timeoutMs,
+      this.sleep,
     );
     if (!response.ok) throw new Error(`archive_put_failed:${response.status}`);
     return { versionId: response.headers.get('x-amz-version-id') ?? undefined };
   }
 
   async listObjects(prefix: string): Promise<ArchiveObjectMeta[]> {
-    return listArchiveObjects(this.config, prefix, this.fetchImpl, this.timeoutMs);
+    return listArchiveObjects(this.config, prefix, this.fetchImpl, this.timeoutMs, this.sleep);
   }
 }
 
@@ -148,10 +181,12 @@ export class S3ArchiveReader implements ArchiveReader {
     private readonly config: S3SigningConfig,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly timeoutMs = 30_000,
+    /** Waits between retries (`s3Send`); tests pass an instant one. */
+    private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
   ) {}
 
   async listObjects(prefix: string): Promise<ArchiveObjectMeta[]> {
-    return listArchiveObjects(this.config, prefix, this.fetchImpl, this.timeoutMs);
+    return listArchiveObjects(this.config, prefix, this.fetchImpl, this.timeoutMs, this.sleep);
   }
 
   async getObject(key: string): Promise<Uint8Array | undefined> {
@@ -160,6 +195,7 @@ export class S3ArchiveReader implements ArchiveReader {
       { method: 'GET', key, headers: {} },
       this.fetchImpl,
       this.timeoutMs,
+      this.sleep,
     );
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`archive_get_failed:${response.status}`);
@@ -174,8 +210,9 @@ export class S3ArchiveRetentionAdmin implements ArchiveRetentionAdmin {
     private readonly config: S3SigningConfig,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly timeoutMs = 30_000,
+    private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
   ) {
-    this.reader = new S3ArchiveReader(config, fetchImpl, timeoutMs);
+    this.reader = new S3ArchiveReader(config, fetchImpl, timeoutMs, sleep);
   }
 
   listObjects(prefix: string): Promise<ArchiveObjectMeta[]> {
@@ -192,6 +229,7 @@ export class S3ArchiveRetentionAdmin implements ArchiveRetentionAdmin {
       { method: 'DELETE', key, headers: {} },
       this.fetchImpl,
       this.timeoutMs,
+      this.sleep,
     );
     if (!response.ok && response.status !== 404) {
       throw new Error(`archive_delete_failed:${response.status}`);

@@ -65,13 +65,21 @@ jobs:
         # "Facts"), and Ubuntu 24.04 ships 16, so the client comes from the
         # PostgreSQL project's own apt repository.
         run: |
+          # The runner's Ubuntu mirror sometimes fails to resolve for a moment
+          # (2026-11-11 backup lost); apt retries instead of failing the job.
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
           sudo apt-get update
           sudo apt-get install -y postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - name: Install age (encrypts every artifact and the manifest before upload)
-        run: sudo apt-get install -y age
+        run: |
+          for attempt in 1 2 3 4 5; do
+            sudo apt-get install -y age && break
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep $((attempt * 15))
+          done
       - name: Record the tool versions this run is taken with (for the manifest)
         run: |
           pg_dump --version | grep -q '(PostgreSQL) 17'
