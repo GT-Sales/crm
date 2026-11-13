@@ -31,7 +31,40 @@
   color: transparent;
   animation: ai-shimmer 2s linear infinite;
 }
+/* Ask AI: a 5 by 5 grid of dots; a ring of light travels out from the centre. */
+@keyframes ai-echo {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  60% {
+    opacity: 0.22;
+    transform: scale(0.85);
+  }
+}
+.ai-echo {
+  display: grid;
+  grid-template-columns: repeat(5, 3px);
+  gap: 1px;
+}
+.ai-echo > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0.22;
+  animation: ai-echo 1.5s ease-in-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
+  .ai-echo > span {
+    animation: none;
+    opacity: 0.7;
+  }
   .ai-shimmer {
     animation: none;
     background-image: none;
