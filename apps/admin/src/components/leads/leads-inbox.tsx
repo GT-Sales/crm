@@ -1074,12 +1074,6 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           <span aria-hidden="true" className={TOOLBAR_LABEL}>
             View
           </span>
-          {viewChanged ? (
-            <span
-              aria-hidden="true"
-              className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
-            />
-          ) : null}
         </Button>
       </PopoverTrigger>
       <MenuPanel
