@@ -2,7 +2,7 @@
 import type { AiActionDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
-import { CheckIcon, CopyIcon, SparklesIcon } from 'lucide-react';
+import { CheckIcon, CopyIcon } from 'lucide-react';
 import { Button } from '@gt-sales/ui';
 
 import type { AiUiError } from '../../lib/ai-transport';
@@ -88,6 +88,24 @@ function StreamingState({ message }: { message: AiAssistantMessage }) {
   return <ThinkingLine label={message.progress} />;
 }
 
+/** Steps from the centre of the 5 by 5 grid, per dot: the ring lights each step in turn. */
+const ECHO_STEPS = Array.from({ length: 25 }, (_, index) => {
+  const row = Math.floor(index / 5),
+    column = index % 5;
+  return Math.abs(row - 2) + Math.abs(column - 2);
+});
+
+/** The thinking mark: a ring of light that travels out from the centre of a dot grid. */
+function EchoDots() {
+  return (
+    <span className="ai-echo shrink-0">
+      {ECHO_STEPS.map((step, index) => (
+        <span key={index} style={{ animationDelay: `${step * 150}ms` }} />
+      ))}
+    </span>
+  );
+}
+
 /** While nothing is said yet, the line turns over gently so a long wait never looks stuck. */
 const THINKING_WORDS = ['Thinking…', 'Looking through your CRM…', 'Putting it together…'];
 
@@ -104,7 +122,7 @@ function ThinkingLine({ label }: { label?: string }) {
   const text = label ? `${label}…`.replace(/……$/, '…') : THINKING_WORDS[step];
   return (
     <div className="flex items-center gap-2 py-0.5" aria-hidden="true">
-      <SparklesIcon className="size-3.5 shrink-0 animate-pulse text-primary motion-reduce:animate-none" />
+      <EchoDots />
       <span key={text} className="ai-shimmer animate-in text-sm fade-in-0 duration-300">
         {text}
       </span>

@@ -47,7 +47,14 @@ import { assigneeName } from '../../lib/people';
 import { describeError } from '../../lib/error-text';
 import { errorReason, useResource } from '../../lib/use-resource';
 import type { InboxQuery } from './inbox-query';
-import { CountdownDay, leadDisplayName, NewBadge, PersonChip, stageDotClass } from './lead-display';
+import {
+  CountdownDay,
+  leadDisplayName,
+  leadNameWeight,
+  NewBadge,
+  PersonChip,
+  stageDotClass,
+} from './lead-display';
 import { DUE_TONE_CLASS } from './leads-table';
 import { emailSkippedText, stageMoveRefusal } from './stage-move-dialog';
 import { useStoredList } from './view-preferences';
@@ -435,7 +442,9 @@ export function LeadsBoard({
       <div
         ref={boardRef}
         id={boardId}
-        className="-mx-6 flex snap-x scroll-px-6 gap-3 overflow-x-auto px-6 pb-4"
+        // Columns reach down to the scroll bar pinned at the bottom of the window, so a
+        // whole column is a drop target however few cards it holds.
+        className="-mx-6 flex min-h-[calc(100dvh-13.5rem)] snap-x scroll-px-6 gap-3 overflow-x-auto px-6 pb-4"
         aria-label={`${query.type} board`}
         role="region"
       >
@@ -672,11 +681,14 @@ export function LeadsBoard({
                                 event.preventDefault();
                                 panel.onOpen(lead.id);
                               }}
-                              className="min-w-0 flex-1 truncate font-medium hover:underline"
+                              className={cn(
+                                'min-w-0 flex-1 truncate hover:underline',
+                                leadNameWeight(lead.isNew),
+                              )}
                             >
                               {leadDisplayName(lead.contact)}
                             </Link>
-                            {lead.isNew ? <NewBadge className="mt-0.5" /> : null}
+                            {lead.isNew ? <NewBadge /> : null}
                             {canMove ? (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -861,10 +873,12 @@ export function LeadsBoard({
           className="pointer-events-none fixed z-50 rounded-md border border-primary/80 bg-card p-3 text-sm shadow-2xl ring-2 ring-primary/30 dark:bg-background"
         >
           <div className="flex items-start gap-2">
-            <span className="min-w-0 flex-1 truncate font-medium">
+            <span
+              className={cn('min-w-0 flex-1 truncate', leadNameWeight(activeDragLead.lead.isNew))}
+            >
               {leadDisplayName(activeDragLead.lead.contact)}
             </span>
-            {activeDragLead.lead.isNew ? <NewBadge className="mt-0.5" /> : null}
+            {activeDragLead.lead.isNew ? <NewBadge /> : null}
           </div>
           {(activeDragLead.lead.contact.phone ?? activeDragLead.lead.contact.email) ? (
             <p className="mt-0.5 truncate text-xs text-muted-foreground">

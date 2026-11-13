@@ -109,20 +109,16 @@ export function CountdownDay({
 }
 
 /**
- * A lead no one who works leads has opened yet: a small dot rather than a pill,
- * so a page of new leads does not become a wall of badges. Screen readers hear
- * "New"; a pointer shows what the dot means.
+ * A lead no one who works leads has opened yet. Its name is bold (see
+ * leadNameWeight); this is the word screen readers hear.
  */
-export function NewBadge({ className }: { className?: string }) {
-  return (
-    <span
-      title="New: not opened yet"
-      className={cn('inline-flex shrink-0 items-center', className)}
-    >
-      <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-      <span className="sr-only">New</span>
-    </span>
-  );
+export function NewBadge() {
+  return <span className="sr-only">New</span>;
+}
+
+/** The weight of a lead's name: bold until someone opens the lead, like unread mail. */
+export function leadNameWeight(isNew: boolean | undefined): string {
+  return isNew ? 'font-bold' : 'font-medium';
 }
 
 export function StageBadge({
