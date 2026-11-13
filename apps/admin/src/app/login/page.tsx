@@ -52,7 +52,19 @@ export default function LoginPage() {
 
       const result = await auth.signInWithPassword({ email, password });
       if (result.error || !result.data.session) throw result.error ?? new Error('no session');
-      router.replace(await destinationAfterPrimarySignIn(result.data.session.access_token));
+      // The password was right. Only the CRM itself can fail from here, so
+      // say that rather than "invalid password" (2026-11-13: a stuck backend
+      // read as a wrong password for every staff member).
+      let destination: string;
+      try {
+        destination = await destinationAfterPrimarySignIn(result.data.session.access_token);
+      } catch {
+        setMessage(
+          'Your password is correct, but the CRM is not responding. Try again in a minute.',
+        );
+        return;
+      }
+      router.replace(destination);
     } catch {
       setMessage(
         acceptingInvitation
