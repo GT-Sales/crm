@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { headers } from 'next/headers';
 import { Inter } from 'next/font/google';
 import { SkipLink } from '@gt-sales/ui';
 
 import { StaffSessionProvider } from '../components/staff-session-provider';
+import { TopLoadingBar } from '../components/top-loading-bar';
 import './globals.css';
 
 // Feeds the shared `--font-sans-inter` token (see @gt-sales/ui tokens.css)
@@ -35,6 +36,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         />
       </head>
       <body>
+        <Suspense fallback={null}>
+          <TopLoadingBar />
+        </Suspense>
         <SkipLink />
         <StaffSessionProvider>{children}</StaffSessionProvider>
       </body>
