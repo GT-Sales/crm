@@ -221,12 +221,17 @@ export function SavedViewSwitcher({
             title={compact ? `Saved views: ${active?.name ?? 'All leads'}` : undefined}
             className={
               compact
-                ? 'relative size-8 justify-center rounded-full border p-0 text-muted-foreground'
+                ? 'relative h-8 w-8 justify-center gap-1.5 rounded-full border p-0 text-muted-foreground xl:w-auto xl:px-3'
                 : 'text-foreground'
             }
           >
             {compact ? (
-              <BookmarkIcon aria-hidden="true" />
+              <>
+                <BookmarkIcon aria-hidden="true" />
+                <span aria-hidden="true" className="hidden text-xs font-normal xl:inline">
+                  Views
+                </span>
+              </>
             ) : (
               <span className="max-w-48 truncate">{active?.name ?? 'All leads'}</span>
             )}
