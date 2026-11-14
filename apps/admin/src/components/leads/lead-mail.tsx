@@ -260,7 +260,9 @@ export function LeadMail({
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {mail.event === 'customer_replied'
-                        ? 'The customer replied'
+                        ? mail.otherSender
+                          ? 'A reply from another address'
+                          : 'The customer replied'
                         : mailSender(mail, members)}{' '}
                       ·{' '}
                       <time dateTime={mail.createdAt} title={dateTimeLabel(mail.createdAt)}>

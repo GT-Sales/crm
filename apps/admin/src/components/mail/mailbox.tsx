@@ -346,9 +346,26 @@ function Conversation({
     endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [newest]);
   const leadType = person.leadType ?? mails[0]?.lead.leadType;
+  // A conversation opened by its link has no row to read the name from: the mails carry it.
+  const name = mails[0]?.lead.name ?? person.name;
+  const total = thread.data?.page.total ?? 0;
+
+  // A mail leaves within a minute: look again, so "Sending" does not sit there
+  // inviting a second send. A few looks, not a poll.
+  const reloadThread = thread.reload;
+  const looks = useRef(0);
+  const waiting = mails.some((mail) => mail.mailStatus === 'queued');
+  useEffect(() => {
+    if (!waiting || looks.current >= 3) return;
+    const timer = window.setTimeout(() => {
+      looks.current += 1;
+      void reloadThread();
+    }, 75_000);
+    return () => window.clearTimeout(timer);
+  }, [waiting, reloadThread, thread.data]);
 
   return (
-    <section aria-label={`Emails to ${person.name}`} className="flex min-h-0 min-w-0 flex-col">
+    <section aria-label={`Emails to ${name}`} className="flex min-h-0 min-w-0 flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <Button
           type="button"
@@ -360,9 +377,9 @@ function Conversation({
         >
           <ArrowLeftIcon aria-hidden="true" className="size-4" />
         </Button>
-        <Avatar name={person.name} />
+        <Avatar name={name} />
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold">{person.name}</h2>
+          <h2 className="truncate text-base font-semibold">{name}</h2>
           {leadType ? (
             <p className="text-xs text-muted-foreground">{leadTypeLabel(leadType)}</p>
           ) : null}
@@ -384,10 +401,16 @@ function Conversation({
           <LoadingSkeleton label="Loading emails…" variant="list" rows={2} />
         ) : mails.length === 0 ? (
           <p className="m-auto text-sm text-muted-foreground">
-            No emails to {person.name} yet. Write the first one below.
+            No emails to {name} yet. Write the first one below.
           </p>
         ) : (
           <ol aria-label="Emails" className="flex flex-col gap-3">
+            {total > mails.length ? (
+              <li className="text-center text-xs text-muted-foreground">
+                These are the newest {mails.length} of {total} emails. Open the lead to read the
+                older ones.
+              </li>
+            ) : null}
             {mails.map((mail) => (
               <li
                 key={mail.id}
@@ -408,7 +431,7 @@ function Conversation({
                         <BotIcon aria-hidden="true" className="size-3.5" />
                       ) : null}
                       {mail.direction === 'in'
-                        ? `${person.name} replied`
+                        ? `${name} replied${mail.otherSender ? ' from another address' : ''}`
                         : mailSender(mail, members)}{' '}
                       · <time dateTime={mail.createdAt}>{dateTimeLabel(mail.createdAt)}</time>
                     </p>
@@ -440,7 +463,7 @@ function Conversation({
         key={person.leadId}
         accessToken={accessToken}
         workspaceId={workspaceId}
-        person={person}
+        person={{ ...person, name }}
         onSent={onSent}
       />
     </section>
@@ -484,6 +507,12 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
     window.addEventListener(LEAD_WORK_SAVED, saved);
     return () => window.removeEventListener(LEAD_WORK_SAVED, saved);
   }, [reloadPeople]);
+
+  // The list got shorter (leads archived) while a later page was open: go back to the first.
+  const emptyPage = people.data !== undefined && people.data.items.length === 0 && page > 1;
+  useEffect(() => {
+    if (emptyPage) setPage(1);
+  }, [emptyPage]);
 
   if (!accessToken || !workspaceId) return null;
   if (people.error && !people.data) {

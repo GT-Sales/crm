@@ -107,6 +107,7 @@ export class DatabaseMailbox implements MailboxStore {
           subject: entry.subject,
           text: entry.text,
           textCut: entry.textCut,
+          otherSender: entry.otherSender,
           mailStatus: entry.mailStatus,
           ...(row.mails === null ? {} : { mails: row.mails }),
           lead: { id: row.leadId, leadType: row.leadType, name: row.leadName },

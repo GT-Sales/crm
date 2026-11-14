@@ -5979,6 +5979,7 @@
                               "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                               "text": { "type": "string", "maxLength": 4000 },
                               "textCut": { "type": "boolean", "const": true },
+                              "otherSender": { "type": "boolean", "const": true },
                               "mailStatus": {
                                 "type": "string",
                                 "enum": [
@@ -7396,6 +7397,7 @@
                               "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                               "text": { "type": "string", "maxLength": 4000 },
                               "textCut": { "type": "boolean", "const": true },
+                              "otherSender": { "type": "boolean", "const": true },
                               "mailStatus": {
                                 "type": "string",
                                 "enum": [
@@ -8632,6 +8634,7 @@
                               "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                               "text": { "type": "string", "maxLength": 4000 },
                               "textCut": { "type": "boolean", "const": true },
+                              "otherSender": { "type": "boolean", "const": true },
                               "mailStatus": {
                                 "type": "string",
                                 "enum": [
@@ -9716,6 +9719,7 @@
                               "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                               "text": { "type": "string", "maxLength": 4000 },
                               "textCut": { "type": "boolean", "const": true },
+                              "otherSender": { "type": "boolean", "const": true },
                               "mailStatus": {
                                 "type": "string",
                                 "enum": [
@@ -10798,6 +10802,7 @@
                                 "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                                 "text": { "type": "string", "maxLength": 4000 },
                                 "textCut": { "type": "boolean", "const": true },
+                                "otherSender": { "type": "boolean", "const": true },
                                 "mailStatus": {
                                   "type": "string",
                                   "enum": [
@@ -11820,6 +11825,7 @@
                                 "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                                 "text": { "type": "string", "maxLength": 4000 },
                                 "textCut": { "type": "boolean", "const": true },
+                                "otherSender": { "type": "boolean", "const": true },
                                 "mailStatus": {
                                   "type": "string",
                                   "enum": [
@@ -12645,6 +12651,7 @@
                                 "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                                 "text": { "type": "string", "maxLength": 4000 },
                                 "textCut": { "type": "boolean", "const": true },
+                                "otherSender": { "type": "boolean", "const": true },
                                 "mailStatus": {
                                   "type": "string",
                                   "enum": [
@@ -13667,6 +13674,7 @@
                                 "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                                 "text": { "type": "string", "maxLength": 4000 },
                                 "textCut": { "type": "boolean", "const": true },
+                                "otherSender": { "type": "boolean", "const": true },
                                 "mailStatus": {
                                   "type": "string",
                                   "enum": [
@@ -14267,6 +14275,7 @@
                             "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                             "text": { "type": "string", "maxLength": 4000 },
                             "textCut": { "type": "boolean", "const": true },
+                            "otherSender": { "type": "boolean", "const": true },
                             "mailStatus": {
                               "type": "string",
                               "enum": [
@@ -14887,6 +14896,7 @@
                             "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                             "text": { "type": "string", "maxLength": 4000 },
                             "textCut": { "type": "boolean", "const": true },
+                            "otherSender": { "type": "boolean", "const": true },
                             "mailStatus": {
                               "type": "string",
                               "enum": [
@@ -16595,6 +16605,7 @@
                           "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
                           "text": { "type": "string", "maxLength": 4000 },
                           "textCut": { "type": "boolean", "const": true },
+                          "otherSender": { "type": "boolean", "const": true },
                           "mailStatus": {
                             "type": "string",
                             "enum": [

@@ -1562,21 +1562,48 @@ databaseTest('DatabaseLeadWorkStore', () => {
       subject: 'Re: About your order',
       text: 'Thanks, that works for me.',
     });
+    expect(answered?.activities[0]).not.toHaveProperty('otherSender');
+    // A mail from another address (a forward, an auto-responder) says so; the address is not kept.
+    expect(
+      await inbound.record({
+        ...reply,
+        inboundId: `in_${crypto.randomUUID()}`,
+        subject: 'Fwd: About your order',
+        from: 'someone.else@example.test',
+      }),
+    ).toBe('recorded');
+    const [forwarded] = await admin<{ data: Record<string, unknown>; body: string }[]>`
+      select data, body from app.lead_activities
+      where workspace_id = ${OTHER_WORKSPACE} and lead_id = ${leadId}
+        and data ->> 'event' = 'customer_replied'
+      order by created_at desc, id desc limit 1
+    `;
+    expect(forwarded?.data).toMatchObject({ otherSender: true });
+    expect(JSON.stringify(forwarded)).not.toContain('someone.else@');
     const withReply = await mailbox.list(
       { workspaceId: OTHER_WORKSPACE, actorId: ACTOR },
       { page: 1, leadId },
     );
-    expect(withReply.items.map((item) => item.direction)).toEqual(['in', 'out', 'out']);
+    expect(withReply.items.map((item) => item.direction)).toEqual(['in', 'in', 'out', 'out']);
     const latest = (
       await mailbox.list({ workspaceId: OTHER_WORKSPACE, actorId: ACTOR }, { page: 1 })
     ).items.find((item) => item.lead.id === leadId);
-    expect(latest).toMatchObject({ direction: 'in', subject: 'Re: About your order', mails: 3 });
+    expect(latest).toMatchObject({
+      direction: 'in',
+      subject: 'Fwd: About your order',
+      otherSender: true,
+      mails: 4,
+    });
 
     // With replies configured, a mail to a lead answers to the lead's own address.
     const before = {
       domain: process.env['EMAIL_INBOUND_DOMAIN'],
       sites: process.env['EMAIL_INBOUND_SITES'],
+      hook: process.env['RESEND_INBOUND_WEBHOOK_SECRET'],
+      key: process.env['RESEND_API_KEY'],
     };
+    process.env['RESEND_INBOUND_WEBHOOK_SECRET'] = 'whsec_dGVzdA==';
+    process.env['RESEND_API_KEY'] = 're_test';
     process.env['EMAIL_INBOUND_DOMAIN'] = 'reply.example.test';
     process.env['EMAIL_INBOUND_SITES'] = JSON.stringify([
       { workspaceId: OTHER_WORKSPACE, tag: 'tst' },
@@ -1607,6 +1634,10 @@ databaseTest('DatabaseLeadWorkStore', () => {
       else process.env['EMAIL_INBOUND_DOMAIN'] = before.domain;
       if (before.sites === undefined) delete process.env['EMAIL_INBOUND_SITES'];
       else process.env['EMAIL_INBOUND_SITES'] = before.sites;
+      if (before.hook === undefined) delete process.env['RESEND_INBOUND_WEBHOOK_SECRET'];
+      else process.env['RESEND_INBOUND_WEBHOOK_SECRET'] = before.hook;
+      if (before.key === undefined) delete process.env['RESEND_API_KEY'];
+      else process.env['RESEND_API_KEY'] = before.key;
       resetReplyAddressingForTests();
     }
     expect(

@@ -169,6 +169,8 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
     text: z.string().max(LEAD_MAIL_TEXT_MAX).optional(),
     /** For `customer_emailed`: `text` was longer than the timeline keeps and is cut short. */
     textCut: z.literal(true).optional(),
+    /** For `customer_replied`: the mail came from an address other than the lead's own. */
+    otherSender: z.literal(true).optional(),
     /** For `customer_emailed`: how the send went, read from the outbox and the provider's reports. */
     mailStatus: leadMailStatusSchema.optional(),
     /** For `documents_override`: the required documents that were not approved. */

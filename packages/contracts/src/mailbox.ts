@@ -44,6 +44,8 @@ export const mailboxItemSchema = z.object({
   subject: z.string().min(1).max(LEAD_MAIL_TEXT_MAX).optional(),
   text: z.string().max(LEAD_MAIL_TEXT_MAX).optional(),
   textCut: z.literal(true).optional(),
+  /** A reply that came from an address other than the customer's own. */
+  otherSender: z.literal(true).optional(),
   mailStatus: leadMailStatusSchema.optional(),
   /** In the per-customer list: how many mails this customer has been sent. */
   mails: z.int().positive().optional(),

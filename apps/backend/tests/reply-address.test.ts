@@ -12,6 +12,8 @@ const ENV = {
     { workspaceId: OTHER, tag: 'cw' },
   ]),
   EMAIL_CONTACT_HASH_SECRET: 'reply-address-test-secret-0123456789',
+  RESEND_INBOUND_WEBHOOK_SECRET: 'whsec_dGVzdA==',
+  RESEND_API_KEY: 're_test',
 };
 
 describe('reply addresses', () => {
@@ -67,6 +69,9 @@ describe('reply addresses', () => {
     expect(loadReplyAddressing({ ...ENV, EMAIL_INBOUND_SITES: '{' })).toBeUndefined();
     expect(loadReplyAddressing({ ...ENV, EMAIL_INBOUND_SITES: '[]' })).toBeUndefined();
     expect(loadReplyAddressing({ ...ENV, EMAIL_CONTACT_HASH_SECRET: 'short' })).toBeUndefined();
+    // An address the CRM could not receive on would lose the reply.
+    expect(loadReplyAddressing({ ...ENV, RESEND_INBOUND_WEBHOOK_SECRET: '' })).toBeUndefined();
+    expect(loadReplyAddressing({ ...ENV, RESEND_API_KEY: undefined })).toBeUndefined();
     // Two sites under one tag could not be told apart.
     expect(
       loadReplyAddressing({

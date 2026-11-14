@@ -38,6 +38,8 @@ export interface InboundReplyStore {
     inboundId: string;
     subject: string;
     text: string;
+    /** Who the mail is from; compared with the lead's address and never kept. */
+    from?: string;
   }): Promise<'recorded' | 'duplicate' | 'no_lead'>;
 }
 
@@ -45,8 +47,11 @@ export interface InboundMailDependencies {
   /** The webhook's signing secret; undefined, the route answers 404. */
   secret: string | undefined;
   replies: ReplyAddressing | undefined;
-  /** The mail's words from the provider; undefined when it cannot be read just now. */
-  fetchEmail(emailId: string): Promise<ReceivedEmail | undefined>;
+  /**
+   * The mail's words from the provider; undefined when it cannot be read just
+   * now (the event is delivered again), 'gone' when the provider no longer has it.
+   */
+  fetchEmail(emailId: string): Promise<ReceivedEmail | 'gone' | undefined>;
   store: InboundReplyStore;
   now?: () => number;
 }
@@ -59,8 +64,10 @@ export class DatabaseInboundReplyStore implements InboundReplyStore {
       { workspaceId: input.workspaceId, actorId: CUSTOMER_MAIL_ACTOR_ID },
       async (tx): Promise<'recorded' | 'duplicate' | 'no_lead'> => {
         // A lead whose customer data is restricted keeps nothing new about them.
-        const [lead] = await tx.execute<{ id: string }>(sql`
-          select l.id from app.leads l
+        const [lead] = await tx.execute<{ id: string; sameSender: boolean | null }>(sql`
+          select l.id,
+            lower(l.email) = lower(${input.from ?? null}::text) as "sameSender"
+          from app.leads l
           where l.workspace_id = ${input.workspaceId} and l.id = ${input.leadId}
             and l.customer_data_restricted_at is null
           for update
@@ -78,6 +85,9 @@ export class DatabaseInboundReplyStore implements InboundReplyStore {
           event: 'customer_replied',
           inboundId: input.inboundId,
           ...(kept.cut ? { textCut: true } : {}),
+          // A forwarded mail or an auto-responder answers from elsewhere: say
+          // so, without keeping the address.
+          ...(input.from !== undefined && lead.sameSender !== true ? { otherSender: true } : {}),
         };
         await tx.execute(sql`
           insert into app.lead_activities (workspace_id, lead_id, actor_id, kind, body, data)
@@ -101,13 +111,21 @@ const receivedSchema = z.object({
   html: z.string().nullish(),
 });
 
-/** Reads a received mail's words from Resend; undefined on any failure (the webhook is retried). */
+/** One line that a reply was not kept and why; never the mail, an address or an error's message. */
+function logInbound(code: string, status?: number): void {
+  console.warn(JSON.stringify({ event: 'inbound_mail', code, ...(status ? { status } : {}) }));
+}
+
+/** Reads a received mail's words from Resend; undefined on a failure worth another delivery. */
 export function resendReceivedEmailFetcher(
   apiKey: string | undefined,
   fetchImpl: typeof fetch = fetch,
 ): InboundMailDependencies['fetchEmail'] {
   return async (emailId) => {
-    if (!apiKey) return undefined;
+    if (!apiKey) {
+      logInbound('no_api_key');
+      return undefined;
+    }
     try {
       const response = await fetchImpl(
         `https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`,
@@ -117,11 +135,19 @@ export function resendReceivedEmailFetcher(
           redirect: 'error',
         },
       );
-      if (!response.ok) return undefined;
+      if (response.status === 404 || response.status === 410) {
+        logInbound('mail_gone', response.status);
+        return 'gone';
+      }
+      if (!response.ok) {
+        logInbound('fetch_refused', response.status);
+        return undefined;
+      }
       const mail = receivedSchema.parse(await response.json());
       const text = mail.text?.trim() ? mail.text : htmlToText(mail.html ?? '');
       return { subject: mail.subject?.trim() || '(no subject)', text };
     } catch {
+      logInbound('fetch_failed');
       return undefined;
     }
   };
@@ -142,6 +168,7 @@ const eventSchema = z.object({ type: z.string().min(1).max(100), data: z.unknown
 const addresses = z.array(z.string().max(320)).max(100).nullish();
 const receivedEventSchema = z.object({
   email_id: z.string().min(1).max(200),
+  from: z.string().max(400).nullish(),
   to: addresses,
   cc: addresses,
   received_for: addresses,
@@ -220,15 +247,23 @@ export function createInboundMailRouter(dependencies: InboundMailDependencies): 
         res.status(503).json({ error: 'mail_unavailable' });
         return;
       }
+      if (mail === 'gone') {
+        // Asking again would not bring it back.
+        res.status(200).json({ status: 'ignored' });
+        return;
+      }
+      const from = received.data.from ? bareAddress(received.data.from) : undefined;
       const status = await dependencies.store.record({
         ...target,
         inboundId: received.data.email_id,
         subject: mail.subject,
         text: replyText(mail.text),
+        ...(from ? { from } : {}),
       });
       res.status(200).json({ status });
     } catch {
       // No words and no address in a log: only that this delivery failed.
+      logInbound('record_failed');
       res.status(500).json({ error: 'internal_error' });
     }
   });

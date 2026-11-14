@@ -13,6 +13,9 @@ import { z } from 'zod';
  * Configured by `EMAIL_INBOUND_DOMAIN` and `EMAIL_INBOUND_SITES` (JSON
  * `[{"workspaceId":"…","tag":"cw"}]`), signed with `EMAIL_CONTACT_HASH_SECRET`.
  * Unset or invalid, mail keeps the site's own reply-to and nothing is received.
+ * The same holds while the receiving side (`RESEND_INBOUND_WEBHOOK_SECRET`,
+ * `RESEND_API_KEY`) is not set: a reply address the CRM cannot receive on
+ * would lose the customer's reply.
  */
 export interface ReplyAddressing {
   /** The reply-to address for a mail to this lead; undefined for a site with no tag. */
@@ -57,7 +60,9 @@ export function loadReplyAddressing(
     return undefined;
   }
   const sites = sitesSchema.safeParse(rawSites);
-  if (!domain.success || !sites.success || secret.length < 16) return undefined;
+  const canReceive =
+    Boolean(env['RESEND_INBOUND_WEBHOOK_SECRET']?.trim()) && Boolean(env['RESEND_API_KEY']?.trim());
+  if (!domain.success || !sites.success || secret.length < 16 || !canReceive) return undefined;
   const tagBySite = new Map(sites.data.map((site) => [site.workspaceId, site.tag]));
   const siteByTag = new Map(sites.data.map((site) => [site.tag, site.workspaceId]));
   // Two sites under one tag could not be told apart: refuse the whole setting.

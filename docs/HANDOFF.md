@@ -3037,6 +3037,17 @@ message in its corpus.
 
 A customer's reply to a CRM mail now lands on the lead.
 
+Review pass (same day, same PR): the reply-to is only rewritten when the
+webhook secret and `RESEND_API_KEY` are set too, so a reply is never sent to
+an address the CRM cannot receive on; a mail from an address other than the
+lead's own is marked `data.otherSender` and shown as "from another address"
+(the address is compared, never kept); a failed inbound fetch or save logs
+one `inbound_mail` line with a code and status, and a mail Resend no longer
+has (404/410) is let go, not retried; the Mail page re-reads a conversation
+while a mail is "Sending", names a deep-linked customer from the mails, says
+when older mails are not shown and returns to page 1 when its page empties;
+Analytics totals now start at the first charted day's midnight (Toronto).
+
 - Outgoing: with `EMAIL_INBOUND_DOMAIN` and `EMAIL_INBOUND_SITES` set,
   `queueComposedEmail` gives every mail to a lead the reply-to
   `<site tag>-<lead id>-<signature>@<inbound domain>`

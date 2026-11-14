@@ -19,6 +19,8 @@ const replies = loadReplyAddressing({
   EMAIL_INBOUND_DOMAIN: 'reply.example.test',
   EMAIL_INBOUND_SITES: JSON.stringify([{ workspaceId: SITE, tag: 'gcs' }]),
   EMAIL_CONTACT_HASH_SECRET: 'inbound-route-test-secret-0123456789',
+  RESEND_INBOUND_WEBHOOK_SECRET: 'whsec_dGVzdA==',
+  RESEND_API_KEY: 're_test',
 });
 if (!replies) throw new Error('expected reply addressing');
 const ADDRESS = replies.addressFor(SITE, LEAD) ?? '';
@@ -96,6 +98,7 @@ describe('POST inbound mail webhook', () => {
       inboundId: 'in_123',
       subject: 'Re: Your install is booked',
       text: 'Yes, Tuesday works.',
+      from: 'nadia@example.test',
     });
   });
 
@@ -137,6 +140,15 @@ describe('POST inbound mail webhook', () => {
     expect((await post(received([ADDRESS]))).status).toBe(500);
   });
 
+  it('lets go of a mail the provider no longer has', async () => {
+    start();
+    fetchEmail.mockResolvedValueOnce('gone');
+    const response = await post(received([ADDRESS]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'ignored' });
+    expect(record).not.toHaveBeenCalled();
+  });
+
   it('is not there at all until it is configured', async () => {
     start({ secret: undefined });
     expect((await post(received([ADDRESS]))).status).toBe(404);
@@ -156,9 +168,16 @@ describe('resendReceivedEmailFetcher', () => {
   });
 
   it('answers nothing without a key or when the provider refuses', async () => {
-    const refused = vi.fn(async () => new Response('no', { status: 404 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const refused = vi.fn(async () => new Response('no', { status: 401 }));
     expect(await resendReceivedEmailFetcher('re_test', refused)('x')).toBeUndefined();
     expect(await resendReceivedEmailFetcher(undefined, refused)('x')).toBeUndefined();
     expect(refused).toHaveBeenCalledTimes(1);
+    // A mail the provider no longer has is not worth asking for again.
+    const gone = vi.fn(async () => new Response('no', { status: 404 }));
+    expect(await resendReceivedEmailFetcher('re_test', gone)('x')).toBe('gone');
+    // What is logged is a code and a status, never the mail or the key.
+    expect(warn.mock.calls.map(([line]) => String(line)).join('\n')).not.toMatch(/re_test|@/);
+    warn.mockRestore();
   });
 });

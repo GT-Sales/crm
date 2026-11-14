@@ -262,7 +262,13 @@ function describeEntry(
         };
       }
       if (activity.event === 'customer_replied') {
-        return { icon: <MailIcon />, actor: null, text: 'the customer replied by email' };
+        return {
+          icon: <MailIcon />,
+          actor: null,
+          text: activity.otherSender
+            ? 'a reply came by email from another address'
+            : 'the customer replied by email',
+        };
       }
       if (activity.event === 'customer_emailed') {
         return {
