@@ -219,8 +219,12 @@ describe('hero style', () => {
     // No band and no card: the site's mark and name, the words, a quiet footer.
     expect(mail.html).not.toContain('linear-gradient');
     expect(mail.html).toContain('background:#ffffff');
-    // Its name stands at the top and again in the footer.
-    expect(mail.html.split(`>${branding.siteName}</td>`)).toHaveLength(3);
+    // Its mark stands at the top and again in the footer: the logo when it
+    // has one, else its name beside its initial.
+    const marks = branding.logoUrl
+      ? mail.html.split('<img ').length - 1
+      : mail.html.split(`>${branding.siteName}</td>`).length - 1;
+    expect(marks).toBe(2);
     expect(mail.html).toContain('Hi &lt;there&gt;\nLine two');
     expect(mail.text).toBe('Hi <there>\nLine two\n\n--\nCanadaWide Internet\nSaskatoon, SK');
   });

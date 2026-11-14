@@ -691,18 +691,22 @@ function siteHost(siteUrl: string | null): { href: string; label: string } | und
   }
 }
 
-/** The site's mark and name on one line: its logo, else its initial on the brand colour. */
+/**
+ * The site's mark: its logo alone when it has one (a site's logo is its name
+ * already), else its initial on the brand colour beside its name.
+ */
 function wordmark(branding: EmailBranding, palette: Palette, size: 'header' | 'footer'): string {
   const siteName = escapeHtml(branding.siteName);
   const big = size === 'header';
+  if (branding.logoUrl) {
+    const height = big ? 44 : 28;
+    return `<img src="${escapeHtml(branding.logoUrl)}" alt="${siteName}" height="${height}" style="display:block;height:${height}px;width:auto;max-width:${big ? 220 : 150}px;border:0;font-family:${LETTER_FONT};font-size:${big ? 20 : 15}px;font-weight:700;color:${LETTER.ink};">`;
+  }
   const mark = big ? 36 : 26;
   const initial = escapeHtml(Array.from(branding.siteName.trim())[0]?.toUpperCase() ?? '');
-  const icon = branding.logoUrl
-    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="" height="${mark}" style="display:block;height:${mark}px;width:auto;max-width:${big ? 160 : 110}px;border:0;">`
-    : `<div style="width:${mark}px;height:${mark}px;line-height:${mark}px;border-radius:${big ? 9 : 7}px;background:${palette.brand};color:${palette.onBrand};text-align:center;font-size:${big ? 18 : 13}px;font-weight:700;font-family:${LETTER_FONT};">${initial}</div>`;
   return (
     `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>` +
-    `<td valign="middle" style="padding:0 ${big ? 12 : 9}px 0 0;">${icon}</td>` +
+    `<td valign="middle" style="padding:0 ${big ? 12 : 9}px 0 0;"><div style="width:${mark}px;height:${mark}px;line-height:${mark}px;border-radius:${big ? 9 : 7}px;background:${palette.brand};color:${palette.onBrand};text-align:center;font-size:${big ? 18 : 13}px;font-weight:700;font-family:${LETTER_FONT};">${initial}</div></td>` +
     `<td valign="middle" style="font-size:${big ? 20 : 15}px;line-height:1.2;font-weight:700;letter-spacing:-0.01em;color:${LETTER.ink};font-family:${LETTER_FONT};">${siteName}</td>` +
     `</tr></table>`
   );
@@ -710,8 +714,8 @@ function wordmark(branding: EmailBranding, palette: Palette, size: 'header' | 'f
 
 /**
  * A message a person wrote (the lead's Mail tab, Ask AI's draft): a letter on
- * a plain white page rather than a card. The site's mark and name on top, the
- * words as they were written, then a quiet footer: the footer lines, and the
+ * a plain white page rather than a card. The site's logo (or mark and name) on
+ * top, the words as they were written, then a quiet footer: the footer lines, and the
  * mark again beside the site's address. No band, no button: nothing here is
  * the site's design speaking, only the person who wrote.
  */
