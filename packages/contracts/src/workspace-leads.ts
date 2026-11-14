@@ -319,6 +319,8 @@ export const leadAccessSchema = z.object({
   revealSensitive: z.boolean().optional(),
   /** May email the lead's customer (works leads, and the site can send mail). Absent means no. */
   emailCustomer: z.boolean().optional(),
+  /** Replies to this site's mail come back to the CRM and show on the lead. */
+  emailReplies: z.boolean().optional(),
   /** May view and download the lead's documents (`document.download`). Absent means no. */
   downloadDocuments: z.boolean().optional(),
   /** May approve or reject the lead's documents (`order.manage`). Absent means no. */

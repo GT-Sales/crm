@@ -4,12 +4,16 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import {
   codePropertyCatalog,
+  CUSTOMER_MAIL_ACTOR_ID,
   leadActivitySchema,
   leadDetailSchema,
   leadTaskSchema,
 } from '@gt-sales/contracts';
 
+import { DatabaseInboundReplyStore } from '../src/email/inbound.js';
 import { DatabaseMailbox } from '../src/email/mailbox.js';
+import { resetReplyAddressingForTests } from '../src/email/queue.js';
+import { loadReplyAddressing } from '../src/email/reply-address.js';
 import { hashContact } from '../src/email/hash.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
@@ -1528,6 +1532,83 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(sentBox.items[0]?.text).toContain('Your SIM ships tomorrow.');
     expect(sentBox.items[0]?.mails).toBeUndefined();
     expect(JSON.stringify(sentBox)).not.toContain('mail.person@');
+
+    // The customer answers: the reply is kept once on the lead, beside the mails.
+    const inbound = new DatabaseInboundReplyStore(database);
+    const reply = {
+      workspaceId: OTHER_WORKSPACE,
+      leadId,
+      inboundId: `in_${crypto.randomUUID()}`,
+      subject: 'Re: About your order',
+      text: 'Thanks, that works for me.',
+    };
+    expect(await inbound.record(reply)).toBe('recorded');
+    // The provider delivers an event more than once.
+    expect(await inbound.record(reply)).toBe('duplicate');
+    expect(await inbound.record({ ...reply, leadId: '53000000-0000-4000-8000-0000000000ef' })).toBe(
+      'no_lead',
+    );
+    const answered = await work.getLead({
+      workspaceId: OTHER_WORKSPACE,
+      catalog: codePropertyCatalog,
+      actorId: ACTOR,
+      leadId,
+      includeWork: true,
+    });
+    expect(answered?.activities[0]).toMatchObject({
+      kind: 'system',
+      event: 'customer_replied',
+      actorId: CUSTOMER_MAIL_ACTOR_ID,
+      subject: 'Re: About your order',
+      text: 'Thanks, that works for me.',
+    });
+    const withReply = await mailbox.list(
+      { workspaceId: OTHER_WORKSPACE, actorId: ACTOR },
+      { page: 1, leadId },
+    );
+    expect(withReply.items.map((item) => item.direction)).toEqual(['in', 'out', 'out']);
+    const latest = (
+      await mailbox.list({ workspaceId: OTHER_WORKSPACE, actorId: ACTOR }, { page: 1 })
+    ).items.find((item) => item.lead.id === leadId);
+    expect(latest).toMatchObject({ direction: 'in', subject: 'Re: About your order', mails: 3 });
+
+    // With replies configured, a mail to a lead answers to the lead's own address.
+    const before = {
+      domain: process.env['EMAIL_INBOUND_DOMAIN'],
+      sites: process.env['EMAIL_INBOUND_SITES'],
+    };
+    process.env['EMAIL_INBOUND_DOMAIN'] = 'reply.example.test';
+    process.env['EMAIL_INBOUND_SITES'] = JSON.stringify([
+      { workspaceId: OTHER_WORKSPACE, tag: 'tst' },
+    ]);
+    resetReplyAddressingForTests();
+    try {
+      const routed = await mailWork.queueWrittenEmail({
+        ...mailScope,
+        requestId: crypto.randomUUID(),
+        leadId,
+        subject: 'One more thing',
+        body: 'Reply to this one.',
+      });
+      expect(routed.status).toBe('queued');
+      const [routedJob] = await admin<{ payload: { sender: { replyToAddress?: string } } }[]>`
+        select payload from app.outbox_jobs
+        where workspace_id = ${OTHER_WORKSPACE} and payload ->> 'leadId' = ${leadId}
+        order by created_at desc limit 1
+      `;
+      const replyTo = routedJob?.payload.sender.replyToAddress ?? '';
+      expect(replyTo).toMatch(/^tst-[0-9a-f]{32}-[0-9a-f]{16}@reply\.example\.test$/);
+      expect(loadReplyAddressing()?.resolve(replyTo)).toEqual({
+        workspaceId: OTHER_WORKSPACE,
+        leadId,
+      });
+    } finally {
+      if (before.domain === undefined) delete process.env['EMAIL_INBOUND_DOMAIN'];
+      else process.env['EMAIL_INBOUND_DOMAIN'] = before.domain;
+      if (before.sites === undefined) delete process.env['EMAIL_INBOUND_SITES'];
+      else process.env['EMAIL_INBOUND_SITES'] = before.sites;
+      resetReplyAddressingForTests();
+    }
     expect(
       await work
         .queueWrittenEmail({

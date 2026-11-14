@@ -94,6 +94,7 @@ beforeEach(async () => {
     items: [
       {
         id: MAIL,
+        direction: 'out',
         createdAt: '2026-11-13T12:00:00.000Z',
         actorId: ACTOR,
         subject: 'Your SIM is on its way',
@@ -132,6 +133,8 @@ describe('GET /workspaces/:id/mail', () => {
     expect(response.status).toBe(200);
     const body = mailboxResponseSchema.parse(await response.json());
     expect(body.page).toEqual({ page: 2, pageSize: 50, total: 51 });
+    // No reply addressing in this test's environment: replies go to the site's mailbox.
+    expect(body.repliesEnabled).toBe(false);
     expect(body.items[0]).toMatchObject({
       subject: 'Your SIM is on its way',
       mailStatus: 'delivered',

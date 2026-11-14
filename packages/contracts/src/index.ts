@@ -270,6 +270,7 @@ export {
 
 export {
   LEGACY_IMPORT_ACTOR_ID,
+  CUSTOMER_MAIL_ACTOR_ID,
   LEAD_MAIL_TEXT_MAX,
   leadMailStatusSchema,
   type LeadMailStatus,

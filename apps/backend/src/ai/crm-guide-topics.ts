@@ -149,8 +149,8 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     id: 'lead-customer-email',
     summary: 'Emailing a customer from a lead: the Mail tab, the SIM number email, Ask AI drafts',
     body: text(
-      'Mail tab: open the lead and choose Mail (on the full page, the "Emails to the customer" card). It lists every email the CRM sent this customer, newest first, with who or which automation sent it and how it went (Sending, Sent, Delivered, Bounced, Not sent). Click one to read it. Emails from before 13 Nov 2026 show their name only.',
-      'To write one: press "New email", fill in Subject and Message, press "Send email". It goes to the lead’s own address within a minute. Replies do not appear in the CRM; they go to the site’s reply-to mailbox.',
+      'Mail tab: open the lead and choose Mail (on the full page, the "Emails to the customer" card). It lists every email sent to this customer, newest first, with who sent it and how it went (Sending, Sent, Delivered, Bounced, Not sent). Click one to read it. Older emails show their name only.',
+      'To write one: press "New email", fill in Subject and Message, press "Send email". It goes to the lead’s address within a minute. A customer’s reply shows in the same conversation if replies are set up for the site; else it goes to the reply-to mailbox.',
       'The Mail page in the sidebar shows sent email by customer: pick a customer on the left to read every email sent to them, and write the next one in the box underneath. "New email" finds a customer to write to. "Write with AI" asks Ask AI for a draft you can edit and send.',
       'SIM number: save the number in the lead’s details, then press "Email the customer" when asked, or "Email it to the customer" later.',
       'Ask AI can also prepare an email: edit the draft card and press "Send".',

@@ -261,6 +261,9 @@ function describeEntry(
           ),
         };
       }
+      if (activity.event === 'customer_replied') {
+        return { icon: <MailIcon />, actor: null, text: 'the customer replied by email' };
+      }
       if (activity.event === 'customer_emailed') {
         return {
           icon: <MailIcon />,

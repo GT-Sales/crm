@@ -3032,3 +3032,32 @@ lines and the mark again beside the site's address (`siteUrl`). Template mails
 (order received, dispatched, …) keep their classic and hero cards unchanged:
 `email-layout-classic-pin.test.ts` still pins them, now without the written
 message in its corpus.
+
+### Customer replies (14 Nov 2026)
+
+A customer's reply to a CRM mail now lands on the lead.
+
+- Outgoing: with `EMAIL_INBOUND_DOMAIN` and `EMAIL_INBOUND_SITES` set,
+  `queueComposedEmail` gives every mail to a lead the reply-to
+  `<site tag>-<lead id>-<signature>@<inbound domain>`
+  (`email/reply-address.ts`; an HMAC over site and lead with
+  `EMAIL_CONTACT_HASH_SECRET`), in place of the site's own reply-to. It covers
+  written and automatic mails alike.
+- Incoming: Resend's `email.received` webhook posts to
+  `POST /api/v1/webhooks/inbound-mail` (`email/inbound.ts`, raw body, Svix
+  signature checked with `RESEND_INBOUND_WEBHOOK_SECRET`). The event carries
+  no words: a mail addressed to a valid reply address is fetched from
+  `GET https://api.resend.com/emails/receiving/:id`, its quoted history cut
+  (`replyText`), and kept as a `customer_replied` system entry by
+  `CUSTOMER_MAIL_ACTOR_ID`: subject and text in `body` like the sent mails
+  (erased with them), `data.inboundId` making a redelivery a no-op. Mail to any
+  other address is ignored: this is not a mailbox. A failed fetch or write
+  answers non-2xx so Resend sends the event again. No outbox job, no migration.
+- Shown in the lead's Mail tab, the Mail page's conversations (`direction`
+  `in`, `repliesEnabled`) and the timeline; `access.emailReplies` tells the
+  lead page which footer to show.
+- Not built: attachments on a reply, a copy to the site's old mailbox, an
+  unread count, and notifying staff of a reply.
+- Found while doing this: the Resend account has **no webhooks at all**, so
+  delivery reports (Delivered, Bounced) never reach `email_messages` and mails
+  stay "Sent". That needs the per-site entries in `MACHINE_REGISTRY_JSON`.

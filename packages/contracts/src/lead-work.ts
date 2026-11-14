@@ -44,6 +44,12 @@ import { documentsOverrideReasonSchema, leadOrderEditSchema, leadOrderSchema } f
  */
 export const LEGACY_IMPORT_ACTOR_ID = '00000000-0000-4000-8000-00000000a001';
 
+/**
+ * The actor recorded on a `customer_replied` timeline entry: the customer's
+ * own mail, written by no member. The admin shows it as "Customer".
+ */
+export const CUSTOMER_MAIL_ACTOR_ID = '00000000-0000-4000-8000-00000000a002';
+
 /** The mails a site sends its customers, defined with the rest of the email vocabulary. */
 export { customerEmailTemplateSchema, type CustomerEmailTemplate } from './customer-email';
 
@@ -128,6 +134,8 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
      * `template` (at `templateVersion`) to the customer. Mails queued since
      * the Mail tab exists also carry what was written (`subject`, `text`) and
      * how the send went (`mailStatus`); the address is never kept here;
+     * `customer_replied`: the customer answered a mail by email, with their
+     * `subject` and `text` (the entry's actor is `CUSTOMER_MAIL_ACTOR_ID`);
      * `change_requested`,
      * `change_approved`, `change_rejected`: the customer asked the website to
      * change their order (Get Canada Sim's `/track`) and how its admin
@@ -142,6 +150,7 @@ export const leadActivitySchema = z.discriminatedUnion('kind', [
       'opened',
       'submitted',
       'customer_emailed',
+      'customer_replied',
       'change_requested',
       'change_approved',
       'change_rejected',

@@ -59,7 +59,7 @@ export class DatabaseMailbox implements MailboxStore {
         join app.leads l on l.workspace_id = a.workspace_id and l.id = a.lead_id
         where a.workspace_id = ${contextWorkspaceId}
           and a.kind = 'system'
-          and a.data ->> 'event' = 'customer_emailed'
+          and a.data ->> 'event' in ('customer_emailed', 'customer_replied')
           and l.deleted_at is null
           and l.customer_data_restricted_at is null
       `;
@@ -87,11 +87,16 @@ export class DatabaseMailbox implements MailboxStore {
       const parsed = rows.map((row) => rowSchema.parse(row));
       const items = parsed.flatMap((row) => {
         const entry = toLeadActivity(row);
-        if (entry.kind !== 'system' || entry.event !== 'customer_emailed') return [];
+        if (
+          entry.kind !== 'system' ||
+          (entry.event !== 'customer_emailed' && entry.event !== 'customer_replied')
+        )
+          return [];
         // A row this version cannot show (say, a newer lead type) is left out
         // rather than failing the page.
         const item = mailboxItemSchema.safeParse({
           id: entry.id,
+          direction: entry.event === 'customer_replied' ? 'in' : 'out',
           createdAt: entry.createdAt,
           actorId: entry.actorId,
           viaAi: entry.viaAi,
