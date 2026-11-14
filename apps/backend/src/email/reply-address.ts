@@ -118,11 +118,12 @@ export function htmlToText(html: string): string {
     .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    // Last, so that "&amp;lt;" stays the "&lt;" the customer typed.
+    .replace(/&amp;/gi, '&')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

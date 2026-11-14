@@ -115,4 +115,8 @@ describe('htmlToText', () => {
       ),
     ).toBe('Hi & hello\nthere\nLine two <ok>');
   });
+
+  it('decodes an entity once', () => {
+    expect(htmlToText('<p>write &amp;lt;b&amp;gt; for bold</p>')).toBe('write &lt;b&gt; for bold');
+  });
 });
