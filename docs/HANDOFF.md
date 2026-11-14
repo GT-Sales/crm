@@ -2999,7 +2999,7 @@ Every lead read "Direct": neither website sent any attribution (all 607 leads
 of the previous 30 days had `attribution = {}`). Both sites now read a
 landing's `utm_*` tags, ad click id (kept as the network's name only) or
 outside referrer into an httpOnly cookie and send it as the lead's
-`attribution` (Get Canada Sim PR #32, `ms_src`; CanadaWide PR #8, `cw_src`).
+`attribution` (Get Canada Sim PR #32, `ms_src`; CanadaWide PR #9, `cw_src`).
 CRM side: `leads/attribution.ts` approves Meta's link shims
 (`l.facebook.com`, `lm.facebook.com`, `l.instagram.com`) and a few more
 referrers, and `admin/src/lib/source-label.ts` reads a referrer as "Facebook",
