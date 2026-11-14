@@ -3021,3 +3021,14 @@ site in `UMAMI_WORKSPACE_WEBSITES` on the backend (docs/ENV.md); until then the
 page says analytics is not connected. The endpoint shapes were read from
 Umami's own source at tag v3.4.1, not its docs site: recheck them after an
 Umami upgrade.
+
+### Written messages are letters (14 Nov 2026)
+
+A message a person wrote (the Mail tab, the Mail page, Ask AI's email draft)
+no longer goes out in the site's card. `renderPlainCustomerEmail`
+(`email/layout.ts`, `letterShell`) draws it on a plain white page: the site's
+logo (or its initial on the brand colour) and name, the words, then the footer
+lines and the mark again beside the site's address (`siteUrl`). Template mails
+(order received, dispatched, …) keep their classic and hero cards unchanged:
+`email-layout-classic-pin.test.ts` still pins them, now without the written
+message in its corpus.

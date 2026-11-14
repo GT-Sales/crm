@@ -5,11 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { CUSTOMER_EMAIL_TEMPLATES } from '@gt-sales/contracts';
 
 import { sampleFillInValues } from '../src/email/fill-in-values.js';
-import {
-  renderCustomerEmail,
-  renderPlainCustomerEmail,
-  type EmailBranding,
-} from '../src/email/layout.js';
+import { renderCustomerEmail, type EmailBranding } from '../src/email/layout.js';
 import { STARTER_TEMPLATES } from '../src/email/starters.js';
 
 /**
@@ -69,11 +65,6 @@ function corpus(extra: Partial<EmailBranding> = {}): string {
     });
     expect(all.ok).toBe(true);
     parts.push(JSON.stringify(all));
-    parts.push(
-      JSON.stringify(
-        renderPlainCustomerEmail({ subject: 'Plain', body: 'Hi <there>\nLine two', branding }),
-      ),
-    );
   }
   return parts.join('\n');
 }
@@ -82,7 +73,7 @@ const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 
 describe('classic layout pin', () => {
   it('renders byte for byte what it rendered before the style setting', () => {
-    expect(sha(corpus())).toBe('54e090af166ff10e68405b39d85f00a688a80b8fbbc7b95cabcdf4c1c7f4af1e');
+    expect(sha(corpus())).toBe('6ef8a54f5b12e2ec25e5ca681e5e86a3d16039ce05d615352869ddb381e45ee2');
   });
 
   it('renders the same with style classic named and an accent colour set', () => {

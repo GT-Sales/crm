@@ -1556,7 +1556,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         toAddress: lead.email.trim(),
         contactHash: this.emailEnvironment.contactHash(lead.email.trim()),
         sender: site.sender,
-        rendered: renderPlainCustomerEmail({ ...input.draft, branding: site.branding }),
+        rendered: renderPlainCustomerEmail({
+          subject: input.draft.subject,
+          body: input.draft.body,
+          branding: site.branding,
+          siteUrl: site.siteUrl,
+        }),
       });
       const queued = await queueComposedEmail(tx, {
         ...input,
@@ -1597,6 +1602,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           subject: input.subject,
           body: input.body,
           branding: site.branding,
+          siteUrl: site.siteUrl,
         }),
       });
       const queued = await queueComposedEmail(tx, {

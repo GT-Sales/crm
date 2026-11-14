@@ -415,7 +415,7 @@ describe('renderCustomerEmail blocks', () => {
 });
 
 describe('renderPlainCustomerEmail', () => {
-  it('draws the staff message escaped, in the same card', () => {
+  it('draws the staff message escaped, as a letter under the site’s mark', () => {
     const mail = renderPlainCustomerEmail({
       subject: 'Hello',
       body: 'Line <one>\nLine two',
@@ -425,6 +425,24 @@ describe('renderPlainCustomerEmail', () => {
     expect(mail.html).toContain('white-space:pre-wrap;');
     expect(mail.html).toContain('>Line &lt;one&gt;\nLine two</div>');
     expect(mail.text).toBe('Line <one>\nLine two\n\n--\nGet Canada Sim\n123 Main St, Toronto');
+  });
+
+  it('shows the logo when the site has one, else its initial, and links the site only when it has an address', () => {
+    const plain = { subject: 'Hello', body: 'Hi' };
+    const bare = renderPlainCustomerEmail({ ...plain, branding: { ...branding, logoUrl: null } });
+    expect(bare.html).not.toContain('<img');
+    expect(bare.html).not.toContain('<a ');
+    const full = renderPlainCustomerEmail({
+      ...plain,
+      branding: { ...branding, logoUrl: 'https://cdn.example.test/logo.png' },
+      siteUrl: 'https://www.getcanadasim.com/plans?x=1',
+    });
+    expect(full.html.match(/<img src="https:\/\/cdn\.example\.test\/logo\.png"/g)).toHaveLength(2);
+    expect(full.html).toContain('<a href="https://www.getcanadasim.com"');
+    expect(full.html).toContain('>getcanadasim.com</a>');
+    // An address that is not a web address is no link.
+    const odd = renderPlainCustomerEmail({ ...plain, branding, siteUrl: 'javascript:alert(1)' });
+    expect(odd.html).not.toContain('javascript:');
   });
 });
 

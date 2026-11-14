@@ -674,6 +674,81 @@ function shell(branding: EmailBranding, palette: Palette, content: string): stri
   ].join('');
 }
 
+/** The letter's own inks: a plain page, so cooler and quieter than either card. */
+const LETTER = { ink: '#101828', body: '#344054', muted: '#667085', line: '#eaecf0' } as const;
+const LETTER_FONT =
+  "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+/** `https://www.example.com/` as people say it: `example.com`. Nothing for an address that is not a web address. */
+function siteHost(siteUrl: string | null): { href: string; label: string } | undefined {
+  if (!siteUrl) return undefined;
+  try {
+    const url = new URL(siteUrl);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    return { href: url.origin, label: url.hostname.replace(/^www\./, '') };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The site's mark and name on one line: its logo, else its initial on the brand colour. */
+function wordmark(branding: EmailBranding, palette: Palette, size: 'header' | 'footer'): string {
+  const siteName = escapeHtml(branding.siteName);
+  const big = size === 'header';
+  const mark = big ? 36 : 26;
+  const initial = escapeHtml(Array.from(branding.siteName.trim())[0]?.toUpperCase() ?? '');
+  const icon = branding.logoUrl
+    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="" height="${mark}" style="display:block;height:${mark}px;width:auto;max-width:${big ? 160 : 110}px;border:0;">`
+    : `<div style="width:${mark}px;height:${mark}px;line-height:${mark}px;border-radius:${big ? 9 : 7}px;background:${palette.brand};color:${palette.onBrand};text-align:center;font-size:${big ? 18 : 13}px;font-weight:700;font-family:${LETTER_FONT};">${initial}</div>`;
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>` +
+    `<td valign="middle" style="padding:0 ${big ? 12 : 9}px 0 0;">${icon}</td>` +
+    `<td valign="middle" style="font-size:${big ? 20 : 15}px;line-height:1.2;font-weight:700;letter-spacing:-0.01em;color:${LETTER.ink};font-family:${LETTER_FONT};">${siteName}</td>` +
+    `</tr></table>`
+  );
+}
+
+/**
+ * A message a person wrote (the lead's Mail tab, Ask AI's draft): a letter on
+ * a plain white page rather than a card. The site's mark and name on top, the
+ * words as they were written, then a quiet footer: the footer lines, and the
+ * mark again beside the site's address. No band, no button: nothing here is
+ * the site's design speaking, only the person who wrote.
+ */
+function letterShell(branding: EmailBranding, siteUrl: string | null, bodyHtml: string): string {
+  const palette = paletteFor(branding.brandColor, branding.accentColor);
+  const footerLines = footerLinesOf(branding).map(escapeHtml);
+  const site = siteHost(siteUrl);
+  const small = `font-size:13px;line-height:1.6;color:${LETTER.muted};font-family:${LETTER_FONT};`;
+  const footerText =
+    footerLines.length > 0
+      ? `<p style="margin:0 0 20px;${small}">${footerLines.join('<br>')}</p>`
+      : '';
+  const siteLink = site
+    ? `<a href="${escapeHtml(site.href)}" style="${small}color:${palette.brandDark};text-decoration:underline;">${escapeHtml(site.label)}</a>`
+    : '';
+  return [
+    '<!doctype html>',
+    '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">',
+    `<style>${RESPONSIVE_CSS}</style>`,
+    '</head>',
+    '<body style="margin:0;padding:0;background:#ffffff;-webkit-font-smoothing:antialiased;">',
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="width:100%;background:#ffffff;"><tr><td align="center" style="padding:0;">',
+    `<table role="presentation" class="gt-card" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;font-family:${LETTER_FONT};color:${LETTER.ink};">`,
+    `<tr><td class="gt-pad" style="padding:40px 40px 0;">${wordmark(branding, palette, 'header')}</td></tr>`,
+    `<tr><td class="gt-pad" style="padding:40px 40px 0;"><div style="white-space:pre-wrap;font-size:16px;line-height:1.65;color:${LETTER.body};font-family:${LETTER_FONT};">${bodyHtml}</div></td></tr>`,
+    `<tr><td class="gt-pad" style="padding:44px 40px 0;"><div style="border-top:1px solid ${LETTER.line};padding-top:24px;">${footerText}`,
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;"><tr>',
+    `<td valign="middle">${wordmark(branding, palette, 'footer')}</td>`,
+    `<td align="right" valign="middle">${siteLink}</td>`,
+    '</tr></table></div></td></tr>',
+    '<tr><td style="height:40px;line-height:40px;font-size:0;">&nbsp;</td></tr>',
+    '</table>',
+    '</td></tr></table>',
+    '</body></html>',
+  ].join('');
+}
+
 /**
  * Renders one customer mail: the template's subject and body (parsed for
  * `template`), filled with `values`, in the site's branding. A markup problem
@@ -746,33 +821,14 @@ export function renderPlainCustomerEmail(input: {
   subject: string;
   body: string;
   branding: EmailBranding;
+  /** The site's address, linked under the message; absent or null, no link. */
+  siteUrl?: string | null;
 }): { subject: string; text: string; html: string } {
   const { branding } = input;
   const footer = branding.footerText || branding.siteName;
-  const text = `${input.body}\n\n--\n${footer}`;
-  if (branding.style === 'hero') {
-    const palette = paletteFor(branding.brandColor, branding.accentColor);
-    const { font, bodyInk } = HERO_THEME;
-    return {
-      subject: input.subject,
-      text,
-      html: heroShell(
-        branding,
-        palette,
-        new Drawing({}, palette, 'hero', HERO_THEME),
-        { length: 0 },
-        `<div style="margin:0 0 22px;white-space:pre-wrap;font-size:15px;line-height:1.6;color:${bodyInk};font-family:${font};">${escapeHtml(input.body)}</div>`,
-      ),
-    };
-  }
-  const palette = paletteFor(branding.brandColor);
   return {
     subject: input.subject,
-    text,
-    html: shell(
-      branding,
-      palette,
-      `<div style="margin:0 0 22px;white-space:pre-wrap;font-size:15px;line-height:1.6;color:${BODY_INK};font-family:${FONT};">${escapeHtml(input.body)}</div>`,
-    ),
+    text: `${input.body}\n\n--\n${footer}`,
+    html: letterShell(branding, input.siteUrl ?? null, escapeHtml(input.body)),
   };
 }
