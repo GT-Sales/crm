@@ -68,7 +68,35 @@ describe('LeadDocuments', () => {
     expect(
       rows.map((row) => within(row).getByText(/^(Not reviewed|Approved|Rejected)$/).textContent),
     ).toEqual(['Not reviewed', 'Approved', 'Rejected']);
-    expect(screen.queryByRole('button', { name: /^(Approve|Reject) / })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^(Approve|Reject|Preview) / })).toBeNull();
+    expect(mocks.createFileDownloadLink).not.toHaveBeenCalled();
+  });
+
+  it('opens a signed PDF inside its row on request and lets staff hide it', async () => {
+    const url = 'https://storage.example.test/private.pdf';
+    mocks.createFileDownloadLink.mockResolvedValue({ url });
+    render(
+      <LeadDocuments
+        accessToken="staff-token"
+        workspaceId={WORKSPACE}
+        documents={[passport]}
+        canDownload
+        canReview={false}
+        onReviewed={vi.fn()}
+      />,
+    );
+    expect(mocks.createFileDownloadLink).not.toHaveBeenCalled();
+    const row = screen.getByRole('listitem');
+    fireEvent.click(within(row).getByRole('button', { name: 'Preview Passport' }));
+    expect((await within(row).findByTitle('Passport')).getAttribute('src')).toBe(url);
+    expect(mocks.createFileDownloadLink).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      PASSPORT,
+      'inline',
+    );
+    fireEvent.click(within(row).getByRole('button', { name: 'Hide preview of Passport' }));
+    expect(within(row).queryByTitle('Passport')).toBeNull();
   });
 
   it('approves or rejects a document, then has the record reloaded', async () => {

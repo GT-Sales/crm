@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Globe2Icon, ShieldCheckIcon } from 'lucide-react';
+import { LogOutIcon, UserRoundIcon } from 'lucide-react';
 import {
+  Button,
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -20,6 +21,8 @@ import {
 
 import { getLeadsSummary, listDocumentReviewQueue } from '../lib/api';
 import { DOCUMENTS_REVIEWED } from '../lib/lead-work-events';
+import { STAFF_DISPLAY_NAME_CHANGED, initials } from '../lib/people';
+import { useLeadWorkspace } from './leads/use-lead-workspace';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
 import { WorkspaceSwitcher } from './workspace-switcher';
@@ -84,9 +87,16 @@ function useDocumentsToReview(workspace: string, pathname: string): number | und
 
 export function AppSidebar({ workspace }: { workspace: string }) {
   const pathname = usePathname();
-  const { workspaces } = useStaffSession();
+  const { workspaces, email, signOut } = useStaffSession();
   const currentWorkspace = workspaces.find((site) => site.slug === workspace);
-  const workspaceName = currentWorkspace?.name ?? workspace;
+  const { members, reloadMembers } = useLeadWorkspace(workspace);
+  const displayName = members.find((member) => member.isSelf)?.displayName;
+  const name = displayName || 'Staff account';
+  useEffect(() => {
+    const refresh = () => void reloadMembers();
+    window.addEventListener(STAFF_DISPLAY_NAME_CHANGED, refresh);
+    return () => window.removeEventListener(STAFF_DISPLAY_NAME_CHANGED, refresh);
+  }, [reloadMembers]);
   const { isMobile, setOpenMobile } = useSidebar();
   const unopened = useUnopenedLeads(workspace, pathname);
   const toReview = useDocumentsToReview(workspace, pathname);
@@ -177,19 +187,35 @@ export function AppSidebar({ workspace }: { workspace: string }) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-3">
-        <div className="flex items-center gap-2.5 rounded-lg p-2 group-data-[collapsible=icon]:hidden">
-          <Globe2Icon className="size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-xs font-medium">
-            {workspaceName}
-            <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-              Site workspace
-            </span>
-          </span>
-          <ShieldCheckIcon
-            className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+      <SidebarFooter className="p-3 group-data-[collapsible=icon]:p-2">
+        <div className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <span
             aria-hidden="true"
-          />
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium group-data-[collapsible=icon]:hidden"
+          >
+            {displayName ? initials(displayName) : <UserRoundIcon className="size-4" />}
+          </span>
+          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <p title={name} className="truncate text-sm font-medium">
+              {name}
+            </p>
+            {email ? (
+              <p title={email} className="truncate text-xs text-muted-foreground">
+                {email}
+              </p>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 text-muted-foreground"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={() => void signOut()}
+          >
+            <LogOutIcon aria-hidden="true" />
+          </Button>
         </div>
       </SidebarFooter>
     </Sidebar>

@@ -18,11 +18,12 @@ test('automation builder explains setup and paths visually', async ({ page }, te
   const flowSwitch = page.getByRole('switch', { name: 'Verified follow-up', exact: true });
   if ((await flowSwitch.getAttribute('aria-checked')) !== 'true') {
     await flowSwitch.click();
-    await expect(page.getByText(/On · New matching leads run the active version/)).toBeVisible();
+    await expect(flowSwitch).toHaveAttribute('aria-checked', 'true');
   }
   await expect(flowSwitch).not.toHaveAttribute('aria-disabled', 'true');
   await flowSwitch.click();
-  await expect(page.getByText(/Off · An active version is ready/)).toBeVisible();
+  await expect(flowSwitch).toHaveAttribute('aria-checked', 'false');
+  await expect(flowSwitch).not.toHaveAttribute('aria-disabled', 'true');
   await canvas.getByRole('button', { name: /^If\/else:/ }).click();
   await expect(page.getByRole('navigation', { name: 'Flow setup' })).toBeVisible();
   await expect(canvas.getByText('Yes · matches', { exact: true })).toBeVisible();
@@ -90,7 +91,7 @@ test('automation builder explains setup and paths visually', async ({ page }, te
       width: 1440,
       height: await page.evaluate(() => document.documentElement.scrollHeight),
       setup: await page.getByRole('navigation', { name: 'Flow setup' }).boundingBox(),
-      status: await page.getByText(/Off · An active version is ready/).boundingBox(),
+      status: await flowSwitch.boundingBox(),
       endings: await canvas.locator('.react-flow__node-end').evaluateAll((elements) => {
         const rects = elements.map((el) => el.getBoundingClientRect());
         const x = Math.min(...rects.map((rect) => rect.x));

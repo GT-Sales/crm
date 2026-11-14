@@ -11,6 +11,13 @@ import {
   type WorkspaceTask,
 } from '@gt-sales/contracts';
 import { cn } from '@gt-sales/ui';
+import {
+  CalendarClockIcon,
+  CalendarDaysIcon,
+  CalendarOffIcon,
+  CalendarPlusIcon,
+  ChevronDownIcon,
+} from 'lucide-react';
 
 import { listStaffTasks, updateLeadTask } from '../../lib/api';
 import { todayDay } from '../../lib/dates';
@@ -42,6 +49,18 @@ export const TASKS_VIEW_KEY = 'gt-tasks-view';
 export const TASKS_GROUP_KEY = 'gt-tasks-board-group';
 /** How many recently done tasks the board's Done column loads. */
 const DONE_LOAD = 50;
+const DATE_GROUP_STYLES = {
+  overdue: {
+    icon: CalendarClockIcon,
+    className: 'bg-rose-500/10 text-rose-800 dark:text-rose-300',
+  },
+  today: { icon: CalendarDaysIcon, className: 'bg-sky-500/10 text-sky-800 dark:text-sky-300' },
+  upcoming: {
+    icon: CalendarPlusIcon,
+    className: 'bg-amber-500/10 text-amber-800 dark:text-amber-300',
+  },
+  undated: { icon: CalendarOffIcon, className: 'bg-muted/50 text-foreground' },
+} as const;
 
 function Segmented<T extends string>({
   label,
@@ -261,7 +280,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             : describeError(tasks.failure, 'load the tasks')}
         </p>
       ) : !tasks.data ? (
-        <LoadingSkeleton label="Loading tasks…" variant={view === 'board' ? 'board' : 'list'} />
+        <LoadingSkeleton label="Loading tasks…" variant={view === 'board' ? 'board' : 'tasks'} />
       ) : view === 'board' ? (
         <>
           <p className="text-sm text-muted-foreground">
@@ -299,42 +318,48 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
           {DATE_GROUPS.map((group) => {
             const entries = list.filter((task) => dateGroupOf(task, today) === group.key);
             if (entries.length === 0) return null;
+            const { icon: GroupIcon, className } = DATE_GROUP_STYLES[group.key];
             return (
-              <section
+              <details
                 key={group.key}
-                aria-labelledby={`tasks-${group.key}`}
-                className="overflow-hidden rounded-xl border bg-card"
+                open
+                className="group/task-group overflow-hidden rounded-lg border bg-card"
               >
-                <h2
-                  id={`tasks-${group.key}`}
+                <summary
                   className={cn(
-                    'border-b bg-muted/30 px-5 py-3 text-sm font-semibold',
-                    group.key === 'overdue' && 'text-rose-700 dark:text-rose-300',
+                    'flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden',
+                    className,
                   )}
                 >
-                  {group.label}{' '}
-                  <span className="font-normal text-muted-foreground">{entries.length}</span>
-                </h2>
-                <ul className="divide-y px-5">
+                  <ChevronDownIcon
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 -rotate-90 group-open/task-group:rotate-0"
+                  />
+                  <GroupIcon aria-hidden="true" className="size-4 shrink-0" />
+                  <h2 className="text-sm font-semibold">{group.label}</h2>
+                  <span className="text-xs font-medium tabular-nums">{entries.length}</span>
+                </summary>
+                <ul className="divide-y border-t">
                   {entries.map((task) => (
                     <TaskRow
                       key={task.id}
                       task={task}
                       members={members}
+                      compact
                       canWrite={canWrite}
                       busy={busyIds.has(task.id)}
                       onStatus={(status) => setStatus(task, status)}
                     >
                       <Link
                         href={`/w/${workspaceSlug}/leads/${task.lead.id}`}
-                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        className="min-w-0 truncate rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
                       >
                         {leadDisplayName(task.lead.contact)} · {leadTypeLabel(task.lead.leadType)}
                       </Link>
                     </TaskRow>
                   ))}
                 </ul>
-              </section>
+              </details>
             );
           })}
         </>

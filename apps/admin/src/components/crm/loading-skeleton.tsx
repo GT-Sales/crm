@@ -3,6 +3,10 @@ import { cn, Skeleton } from '@gt-sales/ui';
 
 type LoadingLayout =
   | 'list'
+  | 'tasks'
+  | 'mail'
+  | 'analytics'
+  | 'documents'
   | 'table'
   | 'form'
   | 'record'
@@ -77,9 +81,9 @@ function RecordLayout({ panel }: { panel: boolean }) {
   return (
     <>
       {panel ? (
-        <div aria-hidden="true" className="flex gap-4 border-b pb-3">
-          {Array.from({ length: 5 }, (_, index) => (
-            <Skeleton key={index} className="h-4 w-12" />
+        <div aria-hidden="true" className="flex gap-4 overflow-hidden border-b pb-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <Skeleton key={index} className="h-4 w-12 shrink-0" />
           ))}
         </div>
       ) : null}
@@ -144,14 +148,19 @@ function BoardLayout() {
   );
 }
 
-function Metrics() {
+function Metrics({ website = false }: { website?: boolean }) {
   return (
     <div
       aria-hidden="true"
-      className="grid grid-cols-2 gap-5 rounded-2xl border bg-card p-5 lg:grid-cols-4"
+      className={cn(
+        'grid rounded-xl border bg-card',
+        website
+          ? 'crm-stat-grid min-[480px]:grid-cols-2 lg:grid-cols-3'
+          : 'crm-kpi-strip sm:grid-cols-2 lg:grid-cols-4',
+      )}
     >
-      {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="space-y-3">
+      {Array.from({ length: website ? 6 : 4 }, (_, index) => (
+        <div key={index} className="crm-stat space-y-3 px-5 py-3">
           <Skeleton className="h-3.5 w-24 max-w-full" />
           <Skeleton className="h-9 w-16" />
           <Skeleton className="h-3 w-4/5" />
@@ -183,18 +192,81 @@ function Chart() {
 function DashboardLayout({ children }: { children?: ReactNode }) {
   return (
     <>
-      <div aria-hidden="true" className="flex gap-3">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-8 w-40" />
-      </div>
       <Metrics />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">
         <Chart />
-        {children ?? <Lines rows={5} />}
         <PropertyCard />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        {children ?? <Lines rows={5} />}
         <Chart />
       </div>
     </>
+  );
+}
+
+function TaskListLayout() {
+  return (
+    <div aria-hidden="true" className="space-y-4">
+      <Skeleton className="h-5 w-24" />
+      {[3, 2, 2].map((rows, index) => (
+        <div key={index} className="overflow-hidden rounded-lg border bg-card">
+          <div className="flex min-h-10 items-center gap-2 border-b bg-muted/40 px-3">
+            <Skeleton className="size-4" />
+            <Skeleton className="h-3.5 w-20" />
+            <Skeleton className="size-4 rounded-full" />
+          </div>
+          <div className="divide-y">
+            {Array.from({ length: rows }, (_, row) => (
+              <div key={row} className="flex min-h-11 items-center gap-3 px-3 py-2">
+                <Skeleton className="size-4 shrink-0" />
+                <Skeleton className="h-4 w-2/5" />
+                <Skeleton className="ml-auto hidden h-5 w-32 md:block" />
+                <Skeleton className="ml-auto h-4 w-20 md:ml-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FlowLayout() {
+  return (
+    <div aria-hidden="true" className="space-y-4">
+      <Skeleton className="h-5 w-32" />
+      <div className="space-y-2 rounded-xl border bg-card px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-7 w-72 max-w-[75%]" />
+          <Skeleton className="ml-auto h-6 w-11 shrink-0 rounded-full" />
+        </div>
+        <Skeleton className="h-4 w-80 max-w-full" />
+      </div>
+      <div className="flex gap-3 rounded-xl border bg-card p-2">
+        <Skeleton className="h-9 w-32" />
+        <Skeleton className="ml-auto h-9 w-44" />
+      </div>
+      <div className="grid grid-cols-3 divide-x overflow-hidden rounded-xl border bg-card">
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="flex min-w-0 items-center gap-2 p-3">
+            <Skeleton className="size-7 shrink-0" />
+            <Skeleton className="h-4 w-24 min-w-0" />
+          </div>
+        ))}
+      </div>
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex items-center gap-3 border-b p-3">
+          <Skeleton className="size-8" />
+          <Skeleton className="h-4 w-36" />
+        </div>
+        <div className="flex h-[30rem] flex-col items-center justify-center gap-6 px-4 sm:h-[clamp(25rem,60dvh,44rem)] sm:flex-row">
+          <Skeleton className="h-24 w-56 max-w-[80%] rounded-xl" />
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <Skeleton className="h-24 w-56 max-w-[80%] rounded-xl" />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -216,7 +288,7 @@ export function LoadingSkeleton({
    * For `workspace`: the shape of the page that is about to open, so the page's
    * own skeleton continues this one instead of a different one replacing it.
    */
-  content?: 'dashboard' | 'table' | 'list';
+  content?: Exclude<LoadingLayout, 'workspace' | 'preview'>;
   className?: string;
   /** Dashboard follow-ups keep loading independently of its statistics. */
   children?: ReactNode;
@@ -268,38 +340,65 @@ export function LoadingSkeleton({
           <Lines rows={6} />
         </>
       ) : null}
-      {variant === 'flow' ? (
+      {variant === 'flow' ? <FlowLayout /> : null}
+      {variant === 'tasks' ? <TaskListLayout /> : null}
+      {variant === 'documents' ? (
         <>
-          <Heading />
-          <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
-            <div
-              className="flex min-h-96 flex-col items-center justify-center gap-6 rounded-2xl border bg-muted/10"
-              aria-hidden="true"
-            >
-              {[0, 1, 2].map((index) => (
-                <Skeleton key={index} className="h-20 w-56 max-w-[80%] rounded-xl border" />
-              ))}
-            </div>
-            <PropertyCard />
+          <div aria-hidden="true" className="flex gap-3 border-b pb-2">
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-8 w-24" />
           </div>
+          <Lines rows={rows} />
         </>
       ) : null}
+      {variant === 'analytics' ? (
+        <>
+          <Metrics website />
+          <Chart />
+        </>
+      ) : null}
+      {variant === 'mail' ? (
+        <div
+          aria-hidden="true"
+          className="grid h-[calc(100dvh-13rem)] min-h-[28rem] overflow-hidden rounded-2xl border bg-card lg:grid-cols-[20rem_minmax(0,1fr)]"
+        >
+          <div className="lg:border-r">
+            <div className="flex justify-between gap-2 border-b p-3">
+              <Skeleton className="h-6 w-28" />
+              <Skeleton className="h-8 w-24" />
+            </div>
+            <Lines rows={6} />
+          </div>
+          <div className="hidden place-items-center lg:grid">
+            <Skeleton className="h-5 w-44" />
+          </div>
+        </div>
+      ) : null}
       {variant === 'workspace' ? (
-        <div className="flex min-h-screen gap-6">
+        <div className="flex min-h-screen">
           <div
             aria-hidden="true"
-            className="hidden w-60 shrink-0 space-y-7 border-r bg-sidebar p-5 md:block"
+            className="hidden w-64 shrink-0 space-y-6 border-r bg-sidebar p-4 md:block"
           >
-            <Skeleton className="h-8 w-full" />
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-              <Skeleton key={index} className="h-5 w-4/5" />
+            <Skeleton className="h-9 w-full" />
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className="flex items-center gap-3">
+                <Skeleton className="size-4" />
+                <Skeleton className="h-4 w-24" />
+              </div>
             ))}
           </div>
-          <div className="min-w-0 flex-1 space-y-6 p-5">
-            <Heading />
-            {content === 'dashboard' ? <DashboardLayout /> : null}
-            {content === 'table' ? <TableSkeleton /> : null}
-            {content === 'list' ? <Lines rows={6} /> : null}
+          <div className="min-w-0 flex-1">
+            <div aria-hidden="true" className="flex h-14 items-center gap-3 border-b px-3">
+              <Skeleton className="size-7" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+            <div aria-hidden="true" className="space-y-6 p-4 md:p-6">
+              {content === 'dashboard' ? <DashboardFiltersSkeleton /> : null}
+              {content === 'analytics' ? <Skeleton className="h-9 w-60 max-w-full" /> : null}
+              {content === 'tasks' || content === 'form' ? <Heading /> : null}
+              <LoadingSkeleton variant={content} />
+            </div>
           </div>
         </div>
       ) : null}
@@ -352,9 +451,15 @@ export function TableSkeleton({ columns = 6, rows = 7 }: { columns?: number; row
 /** Where the dashboard's date and filter controls will be, so the skeleton under it never moves. */
 export function DashboardFiltersSkeleton() {
   return (
-    <div aria-hidden="true" className="flex h-9 items-center gap-2">
-      <Skeleton className="h-9 w-72 max-w-[60%]" />
-      <Skeleton className="h-9 w-24" />
+    <div aria-hidden="true" className="flex flex-col gap-3">
+      <Skeleton className="h-8 w-48" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Skeleton className="h-5 w-56 max-w-full" />
+        <div className="ml-auto flex max-w-full items-center gap-2">
+          <Skeleton className="h-9 w-32 sm:w-72" />
+          <Skeleton className="h-9 w-20" />
+        </div>
+      </div>
     </div>
   );
 }

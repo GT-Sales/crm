@@ -5,7 +5,7 @@ import { Badge, Button, Input, Label } from '@gt-sales/ui';
 import { Check, Mail, ShieldCheck, User } from 'lucide-react';
 
 import { updateStaffProfile } from '../lib/api';
-import { ROLE_LABELS } from '../lib/people';
+import { ROLE_LABELS, STAFF_DISPLAY_NAME_CHANGED } from '../lib/people';
 import { describeError } from '../lib/error-text';
 import { useLeadWorkspace } from './leads/use-lead-workspace';
 import { useStaffSession } from './staff-session-provider';
@@ -54,6 +54,7 @@ export function DisplayNameForm({ workspaceSlug }: { workspaceSlug: string }) {
           result.memberships === 1 ? '' : 's'
         }.`,
       );
+      window.dispatchEvent(new Event(STAFF_DISPLAY_NAME_CHANGED));
       await reloadMembers();
     } catch (error) {
       setMessage(describeError(error, 'save your name'));

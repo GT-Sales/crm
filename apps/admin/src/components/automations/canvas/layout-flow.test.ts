@@ -124,6 +124,16 @@ describe('layoutFlow', () => {
       's_d1_no',
     ]);
 
+    const horizontal = layoutFlow(nested, { direction: 'horizontal' });
+    assertNoOverlaps(horizontal.nodes);
+    expect(horizontal.edges).toEqual(result.edges);
+    expect(horizontal.nodes.find((node) => node.id === 'if_d1')!.position.x).toBeGreaterThan(
+      horizontal.nodes[0]!.position.x + CARD_WIDTH,
+    );
+    expect(horizontal.nodes.find((node) => node.id === 's_deep_yes')!.position.y).toBeLessThan(
+      horizontal.nodes.find((node) => node.id === 's_deep_no')!.position.y,
+    );
+
     const deepYes = result.nodes.find((node) => node.id === 's_deep_yes')!;
     const deepNo = result.nodes.find((node) => node.id === 's_deep_no')!;
     expect(deepYes.position.x).toBeLessThan(deepNo.position.x);

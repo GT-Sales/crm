@@ -414,10 +414,11 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   }
 
   // The countdown date comes from the form, which these roles never see; a
-  // row's property columns carry form and custom values alike.
+  // row's property columns carry form and custom values alike. The contact ID
+  // also links requests for the same person, which is contact data.
   function withoutContact(lead: LeadListItem): LeadListItem {
     const { properties: _properties, ...rest } = lead;
-    return { ...rest, contact: {}, countdownDate: null };
+    return { ...rest, contact: {}, contactId: null, countdownDate: null };
   }
 
   /**

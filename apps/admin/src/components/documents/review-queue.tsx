@@ -61,7 +61,7 @@ export function DocumentReviewQueue({ workspaceSlug }: { workspaceSlug: string }
       </p>
     );
   }
-  if (!queue.data) return <LoadingSkeleton label="Loading documents…" variant="list" />;
+  if (!queue.data) return <LoadingSkeleton label="Loading documents…" variant="documents" />;
 
   const { items, counts, access } = queue.data;
   const tab = TABS.find((entry) => entry.status === status) ?? TABS[0];
@@ -69,7 +69,7 @@ export function DocumentReviewQueue({ workspaceSlug }: { workspaceSlug: string }
 
   return (
     <div className="flex flex-col gap-4">
-      <div role="tablist" aria-label="Document states" className="flex gap-1 border-b">
+      <div role="group" aria-label="Document states" className="flex gap-1 border-b">
         {TABS.map((entry) => {
           const count = entry.status === 'to_review' ? counts.toReview : counts.rejected;
           const active = entry.status === status;
@@ -77,8 +77,7 @@ export function DocumentReviewQueue({ workspaceSlug }: { workspaceSlug: string }
             <button
               key={entry.status}
               type="button"
-              role="tab"
-              aria-selected={active}
+              aria-pressed={active}
               onClick={() => {
                 setStatus(entry.status);
                 setPage(1);

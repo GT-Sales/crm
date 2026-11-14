@@ -3,12 +3,12 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  Line,
-  LineChart,
+  ComposedChart,
   Pie,
   PieChart,
   Tooltip,
@@ -16,6 +16,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { AnalyticsGroup, FunnelStep } from '@gt-sales/contracts';
+import { ChartNoAxesColumnIcon } from 'lucide-react';
 import { Card, CardContent, cn } from '@gt-sales/ui';
 
 /** The theme's chart colours (`--chart-1..5`), light and dark. */
@@ -90,18 +91,24 @@ export function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <Card className={cn('min-w-0', className)}>
-      <figure aria-labelledby={`${id}-title`} className="m-0 flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3 px-6">
-          <div className="min-w-0">
-            <h2 id={`${id}-title`} className="text-base font-medium">
-              {title}
-            </h2>
-            <p className="text-sm text-muted-foreground">{description}</p>
+    <Card className={cn('min-w-0 gap-0 py-0', className)}>
+      <figure aria-labelledby={`${id}-title`} className="m-0 flex flex-col">
+        <div className="crm-card-heading flex-wrap justify-between">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <ChartNoAxesColumnIcon
+              className="size-8 shrink-0 rounded-lg border p-2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <h2 id={`${id}-title`} className="text-base font-medium">
+                {title}
+              </h2>
+              <p className="text-xs text-muted-foreground">{description}</p>
+            </div>
           </div>
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
-        <CardContent className="min-w-0">
+        <CardContent className="min-w-0 px-5 py-5">
           {empty ? (
             <p className="py-8 text-center text-sm text-muted-foreground">{empty}</p>
           ) : (
@@ -165,33 +172,42 @@ export function TrendChart({
   const rows = data.map((entry) => ({ ...entry, label: bucketLabel(entry.bucket, group) }));
   return (
     <div ref={ref} className="w-full">
-      <LineChart width={width} height={240} data={rows} margin={{ top: 8, right: 8, left: -16 }}>
+      <ComposedChart
+        accessibilityLayer={false}
+        width={width}
+        height={248}
+        data={rows}
+        margin={{ top: 8, right: 8, left: -16 }}
+      >
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} />
         <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} width={48} />
         <Tooltip contentStyle={tooltipStyle} />
         {comparing ? (
-          <Line
+          <Area
             type="monotone"
             dataKey="previous"
             name="Comparison"
             stroke="var(--muted-foreground)"
             strokeOpacity={0.45}
             strokeDasharray="4 4"
+            fill="none"
             dot={false}
             isAnimationActive={false}
           />
         ) : null}
-        <Line
+        <Area
           type="monotone"
           dataKey="current"
           name="This period"
-          stroke="var(--chart-1)"
+          stroke="var(--foreground)"
+          fill="var(--foreground)"
+          fillOpacity={0.07}
           strokeWidth={2}
           dot={false}
           isAnimationActive={false}
         />
-      </LineChart>
+      </ComposedChart>
     </div>
   );
 }
@@ -211,7 +227,13 @@ export function MoneyBars({
   }));
   return (
     <div ref={ref} className="w-full">
-      <BarChart width={width} height={220} data={rows} margin={{ top: 8, right: 8, left: 0 }}>
+      <BarChart
+        accessibilityLayer={false}
+        width={width}
+        height={220}
+        data={rows}
+        margin={{ top: 8, right: 8, left: 0 }}
+      >
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} />
         <YAxis
@@ -242,7 +264,7 @@ export function Donut({ data }: { data: readonly { label: string; total: number 
   const total = data.reduce((sum, entry) => sum + entry.total, 0);
   return (
     <div className="flex flex-wrap items-center gap-6">
-      <PieChart width={160} height={160}>
+      <PieChart accessibilityLayer={false} width={160} height={160}>
         <Pie
           data={[...data]}
           dataKey="total"
@@ -293,6 +315,7 @@ export function StatusBars({
   return (
     <div ref={ref} className="w-full">
       <BarChart
+        accessibilityLayer={false}
         width={width}
         height={140}
         data={data}

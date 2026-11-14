@@ -3,12 +3,10 @@
 import { useState, type ReactNode } from 'react';
 import {
   ANALYTICS_COMPARE_MODES,
-  ANALYTICS_GROUPS,
   ANALYTICS_MAX_RANGE_DAYS,
   analyticsRangeDays,
   leadTypeLabel,
   type AnalyticsCompare,
-  type AnalyticsGroup,
 } from '@gt-sales/contracts';
 import { Button, NativeSelect, Popover, PopoverContent, PopoverTrigger, cn } from '@gt-sales/ui';
 import {
@@ -22,7 +20,6 @@ import {
 
 import {
   COMPARE_LABELS,
-  GROUP_LABELS,
   PERIOD_KEYS,
   PERIOD_LABELS,
   addDays,
@@ -254,7 +251,7 @@ function Select({
 }
 
 /**
- * The sticky bar that drives the page: period, comparison, grouping and the
+ * The controls that drive the page: period, comparison and the
  * filters. Every change goes through `onChange` with the whole next state,
  * which the page writes to the URL.
  */
@@ -336,9 +333,9 @@ export function FilterBar({
     <div
       role="search"
       aria-label="Dashboard filters"
-      className="sticky top-0 z-20 -mx-4 flex flex-col gap-2 bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
+      className="flex min-w-0 flex-col items-end gap-2"
     >
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Popover open={dateOpen} onOpenChange={setDateOpen}>
           <PopoverTrigger asChild>
             <Button type="button" variant="outline" size="sm" className="h-9 gap-2 bg-card">
@@ -351,7 +348,7 @@ export function FilterBar({
               <ChevronDownIcon className="size-4 text-muted-foreground" aria-hidden="true" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-[min(94vw,46rem)] p-0">
+          <PopoverContent align="end" className="w-[min(94vw,46rem)] p-0">
             <div className="flex flex-col sm:flex-row">
               <div
                 role="group"
@@ -423,7 +420,7 @@ export function FilterBar({
               ) : null}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-[min(92vw,20rem)]">
+          <PopoverContent align="end" className="w-[min(92vw,20rem)]">
             <div className="flex flex-col gap-3">
               {options.types.length > 1 ? (
                 <FilterField label="Lead type">
@@ -544,30 +541,9 @@ export function FilterBar({
             </div>
           </PopoverContent>
         </Popover>
-        <div
-          role="group"
-          aria-label="Group by"
-          className="ml-auto flex overflow-hidden rounded-md border border-input bg-card"
-        >
-          {ANALYTICS_GROUPS.map((group: AnalyticsGroup, index) => (
-            <button
-              key={group}
-              type="button"
-              aria-pressed={state.group === group}
-              onClick={() => onChange({ ...state, group })}
-              className={cn(
-                'h-9 px-3 text-xs font-medium transition-colors hover:bg-muted/50',
-                state.group === group ? 'bg-muted text-foreground' : 'text-muted-foreground',
-                index > 0 && 'border-l border-input',
-              )}
-            >
-              {GROUP_LABELS[group]}
-            </button>
-          ))}
-        </div>
       </div>
       {chips.length > 0 ? (
-        <ul aria-label="Active filters" className="flex flex-wrap items-center gap-1.5">
+        <ul aria-label="Active filters" className="flex flex-wrap items-center justify-end gap-1.5">
           {chips.map((chip) => (
             <li
               key={chip.key}

@@ -1744,10 +1744,15 @@ describe('LeadRecord from the site layout', () => {
       target: { value: 'Draft name' },
     });
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Notes' }), { button: 0 });
+    expect(screen.queryByRole('combobox', { name: 'Stage' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Assignee' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy info' })).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'Add a note' }), {
       target: { value: 'Call tomorrow' },
     });
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Home' }), { button: 0 });
+    expect(screen.getByRole('combobox', { name: 'Stage' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Name' }).getAttribute('value')).toBe('Draft name');
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Notes' }), { button: 0 });
     expect(screen.getByRole('textbox', { name: 'Add a note' }).textContent).toBe('Call tomorrow');

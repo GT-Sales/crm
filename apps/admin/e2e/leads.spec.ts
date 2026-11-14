@@ -95,11 +95,7 @@ test('the dashboard lists the follow-ups due, and Leads filters to them', async 
     .getByRole('button', { name: 'This year' })
     .click();
   await expect(page).toHaveURL(/\/dashboard\?period=this_year/);
-  await page.getByRole('button', { name: 'Month', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Month', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(page.getByRole('group', { name: 'Group by' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'New leads over time' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'New leads over time' })).toBeAttached();
   await page.reload();
@@ -217,7 +213,13 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
 
   await page.getByRole('link', { name: 'My tasks' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
-  await expect(page.getByText('Confirm the install window')).toBeVisible();
+  const installTask = page.getByText('Confirm the install window');
+  await expect(installTask).toBeVisible();
+  const overdue = page.locator('summary').filter({ hasText: 'Overdue' });
+  await overdue.press('Space');
+  await expect(installTask).toBeHidden();
+  await overdue.press('Space');
+  await expect(installTask).toBeVisible();
   await page.getByRole('checkbox', { name: 'Complete “Book the installer”' }).check();
   await expect(page.getByRole('checkbox', { name: 'Reopen “Book the installer”' })).toBeChecked();
 
@@ -1648,6 +1650,11 @@ test('loading screens show layout skeletons until their data arrives', async ({
     await page.screenshot({ path: testInfo.outputPath('design-loading-board.png') });
   });
   await expect(name).toBeVisible();
+  await holdRequests(/\/workspaces\/[^/]+\/tasks(?:\?|$)/, async () => {
+    await page.goto('/w/canadawide/tasks');
+    await checkSkeleton('Loading tasks…');
+  });
+  await expect(page.getByText('Confirm the install window')).toBeVisible();
   await holdRequests(/\/email\/settings(?:\?|$)/, async () => {
     await page.goto('/w/getcanadasim/settings/email');
     await checkSkeleton('Loading the email settings…');

@@ -25,7 +25,7 @@
   --popover: var(--card);
   --popover-foreground: var(--foreground);
   --muted: oklch(0.962 0.005 255);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.51 0 0);
   --accent: #eff6ff;
   --accent-foreground: #1d4ed8;
   --ring: #2563eb;
@@ -310,4 +310,29 @@
 }
 .crm-ui:not(.dark) .crm-content :where(input, textarea, select) {
   background-color: var(--card);
+}
+
+.crm-kpi-strip {
+  padding-block: 0.75rem;
+}
+.crm-kpi-strip > .crm-stat + .crm-stat {
+  border-top: 1px solid var(--border);
+}
+@media (min-width: 640px) {
+  .crm-kpi-strip:not(.crm-kpi-strip-secondary) > .crm-stat:nth-child(2) {
+    border-top: 0;
+  }
+  .crm-kpi-strip > .crm-stat:nth-child(even),
+  .crm-kpi-strip-secondary > .crm-stat + .crm-stat {
+    border-left: 1px solid var(--border);
+  }
+  .crm-kpi-strip-secondary > .crm-stat + .crm-stat {
+    border-top: 0;
+  }
+}
+@media (min-width: 1024px) {
+  .crm-kpi-strip > .crm-stat + .crm-stat {
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
 }

@@ -3,10 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { SearchIcon, ArrowUpRightIcon, UserRoundIcon } from 'lucide-react';
+import { ArrowUpRightIcon, UserRoundIcon } from 'lucide-react';
 import { leadStageLabel, leadTypeLabel, type LeadListItem } from '@gt-sales/contracts';
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -114,126 +113,103 @@ export function QuickNavigation({
   }
 
   return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9 w-10 justify-start gap-2 text-muted-foreground shadow-none sm:w-48 lg:w-56"
-        onClick={() => {
-          setQuery('');
-          setOpen(true);
-        }}
-        aria-label="Search leads and pages"
-      >
-        <SearchIcon className="size-4 shrink-0" />
-        <span className="hidden min-w-0 truncate text-xs sm:inline">Search leads, pages…</span>
-        <kbd className="ml-auto hidden shrink-0 rounded border bg-muted px-1.5 text-[10px] sm:inline">
-          ⌘ K
-        </kbd>
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Search</DialogTitle>
-            <DialogDescription>
-              Find a lead by name, order number, email or phone, or go to a page.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            aria-label="Search leads and pages"
-            placeholder="Name, MS-123, email, phone or a page…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && firstHref) {
-                event.preventDefault();
-                close();
-                router.push(firstHref);
-              }
-            }}
-          />
-          <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto">
-            {searchable ? (
-              <section aria-label="Lead results" className="flex flex-col gap-1">
-                <h3 className="px-3 text-xs font-medium text-muted-foreground">Leads</h3>
-                {search.status === 'searching' ? (
-                  <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
-                    Searching…
-                  </p>
-                ) : search.status === 'no_access' ? (
-                  <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
-                    Your role does not show customer details, so leads cannot be searched here.
-                  </p>
-                ) : search.status === 'failed' ? (
-                  <p role="alert" className="px-3 py-2 text-sm text-destructive">
-                    {search.message}
-                  </p>
-                ) : search.status === 'done' && leads.length === 0 ? (
-                  <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
-                    No active lead matches.
-                  </p>
-                ) : null}
-                {leads.map((lead) => (
-                  <Link
-                    key={lead.id}
-                    href={leadHref(lead)}
-                    onClick={close}
-                    className={RESULT_CLASS}
-                  >
-                    <UserRoundIcon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        {leadDisplayName(lead.contact)}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {[
-                          lead.externalRef,
-                          leadTypeLabel(lead.leadType),
-                          leadStageLabel(lead.leadType, lead.stage),
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    </span>
-                    <ArrowUpRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  </Link>
-                ))}
-                {search.status === 'done' && search.total > leads.length ? (
-                  <Link
-                    href={`/w/${workspaceSlug}/leads?q=${encodeURIComponent(term.slice(0, 100))}`}
-                    onClick={close}
-                    className="px-3 py-1.5 text-xs text-primary hover:underline"
-                  >
-                    See all {search.total} matches in Leads
-                  </Link>
-                ) : null}
-              </section>
-            ) : null}
-            <nav aria-label="Page results" className="flex flex-col gap-1">
-              {searchable ? (
-                <h3 className="px-3 text-xs font-medium text-muted-foreground">Pages</h3>
-              ) : null}
-              {pages.map(({ section, label, icon: Icon }) => (
-                <Link
-                  key={section}
-                  href={`/w/${workspaceSlug}/${section}`}
-                  onClick={close}
-                  className={RESULT_CLASS}
-                >
-                  <Icon className="size-4 text-muted-foreground" />
-                  {label}
-                  <ArrowUpRightIcon className="ml-auto size-3.5 text-muted-foreground" />
-                </Link>
-              ))}
-              {pages.length === 0 && !searchable ? (
-                <p role="status" className="p-4 text-sm text-muted-foreground">
-                  No matching pages.
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Search</DialogTitle>
+          <DialogDescription>
+            Find a lead by name, order number, email or phone, or go to a page.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          aria-label="Search leads and pages"
+          placeholder="Name, MS-123, email, phone or a page…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && firstHref) {
+              event.preventDefault();
+              close();
+              router.push(firstHref);
+            }
+          }}
+        />
+        <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto">
+          {searchable ? (
+            <section aria-label="Lead results" className="flex flex-col gap-1">
+              <h3 className="px-3 text-xs font-medium text-muted-foreground">Leads</h3>
+              {search.status === 'searching' ? (
+                <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
+                  Searching…
+                </p>
+              ) : search.status === 'no_access' ? (
+                <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
+                  Your role does not show customer details, so leads cannot be searched here.
+                </p>
+              ) : search.status === 'failed' ? (
+                <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                  {search.message}
+                </p>
+              ) : search.status === 'done' && leads.length === 0 ? (
+                <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
+                  No active lead matches.
                 </p>
               ) : null}
-            </nav>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+              {leads.map((lead) => (
+                <Link key={lead.id} href={leadHref(lead)} onClick={close} className={RESULT_CLASS}>
+                  <UserRoundIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">
+                      {leadDisplayName(lead.contact)}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[
+                        lead.externalRef,
+                        leadTypeLabel(lead.leadType),
+                        leadStageLabel(lead.leadType, lead.stage),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </span>
+                  <ArrowUpRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                </Link>
+              ))}
+              {search.status === 'done' && search.total > leads.length ? (
+                <Link
+                  href={`/w/${workspaceSlug}/leads?q=${encodeURIComponent(term.slice(0, 100))}`}
+                  onClick={close}
+                  className="px-3 py-1.5 text-xs text-primary hover:underline"
+                >
+                  See all {search.total} matches in Leads
+                </Link>
+              ) : null}
+            </section>
+          ) : null}
+          <nav aria-label="Page results" className="flex flex-col gap-1">
+            {searchable ? (
+              <h3 className="px-3 text-xs font-medium text-muted-foreground">Pages</h3>
+            ) : null}
+            {pages.map(({ section, label, icon: Icon }) => (
+              <Link
+                key={section}
+                href={`/w/${workspaceSlug}/${section}`}
+                onClick={close}
+                className={RESULT_CLASS}
+              >
+                <Icon className="size-4 text-muted-foreground" />
+                {label}
+                <ArrowUpRightIcon className="ml-auto size-3.5 text-muted-foreground" />
+              </Link>
+            ))}
+            {pages.length === 0 && !searchable ? (
+              <p role="status" className="p-4 text-sm text-muted-foreground">
+                No matching pages.
+              </p>
+            ) : null}
+          </nav>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -552,7 +552,8 @@ describe('FlowPage', () => {
       saving.resolve(detail({ revision: 4 }));
     });
     await waitFor(() => expect(mocks.discardAutomationDraft).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('Viewing active')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Viewing draft')).toBeNull());
+    expect(screen.getByText('Active, version 1')).toBeTruthy();
   });
 
   it('offers Reload for the backend revision_conflict and keeps unsaved edits', async () => {

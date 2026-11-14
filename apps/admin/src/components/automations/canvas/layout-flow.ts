@@ -97,6 +97,7 @@ export interface LayoutFlowOptions {
   issues?: readonly FlowIssue[];
   readOnly?: boolean;
   names?: FlowNames;
+  direction?: 'vertical' | 'horizontal';
 }
 
 export interface LayoutFlowResult {
@@ -182,12 +183,15 @@ function branchDepth(steps: readonly (FlowStep | FlowDraftStep)[]): number {
   );
 }
 
-function computeSequenceWidth(steps: readonly (FlowStep | FlowDraftStep)[]): number {
-  let width = CARD_WIDTH;
+function computeSequenceWidth(
+  steps: readonly (FlowStep | FlowDraftStep)[],
+  cardSpan: number,
+): number {
+  let width = cardSpan;
   for (const step of steps) {
     if (step.kind === 'if_else') {
-      const leftWidth = computeSequenceWidth(step.then);
-      const rightWidth = computeSequenceWidth(step.else);
+      const leftWidth = computeSequenceWidth(step.then, cardSpan);
+      const rightWidth = computeSequenceWidth(step.else, cardSpan);
       width = Math.max(width, leftWidth + BRANCH_GAP + rightWidth);
     }
   }
@@ -195,10 +199,8 @@ function computeSequenceWidth(steps: readonly (FlowStep | FlowDraftStep)[]): num
 }
 
 /**
- * Pure deterministic auto-layout for a flow's canvas: places the trigger card
- * at the top, each step card vertically below it, "+" buttons between steps
- * and at the end of every path, and splits each `if_else` into side-by-side
- * Yes (left) and No (right) branches. Nodes are emitted in pre-order (`then`
+ * Place the trigger first, followed by steps and add buttons. The Yes branch
+ * sits before No on the cross axis in either orientation. Nodes are emitted in pre-order (`then`
  * before `else`) so DOM and keyboard Tab order match the logical flow order.
  */
 export function layoutFlow(
@@ -210,6 +212,11 @@ export function layoutFlow(
   const names = options.names ?? namesFromCode();
   const totalSteps = countSteps(definition.steps);
   const stepsLimitReached = totalSteps >= AUTOMATION_MAX_STEPS;
+  const horizontal = options.direction === 'horizontal';
+  const cardSpan = horizontal ? CARD_HEIGHT : CARD_WIDTH;
+  const cardLength = horizontal ? CARD_WIDTH : CARD_HEIGHT;
+  const point = (center: number, distance: number, width: number, height: number) =>
+    horizontal ? { x: distance, y: center - height / 2 } : { x: center - width / 2, y: distance };
 
   const nodes: FlowCanvasNode[] = [];
   const edges: FlowCanvasEdge[] = [];
@@ -226,7 +233,7 @@ export function layoutFlow(
   nodes.push({
     id: 'trigger',
     type: 'trigger',
-    position: { x: -CARD_WIDTH / 2, y: 0 },
+    position: point(0, 0, CARD_WIDTH, CARD_HEIGHT),
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     initialWidth: CARD_WIDTH,
@@ -280,7 +287,7 @@ export function layoutFlow(
       nodes.push({
         id: addId,
         type: 'add_step',
-        position: { x: centerX - ADD_BUTTON_SIZE / 2, y: currentY },
+        position: point(centerX, currentY, ADD_BUTTON_SIZE, ADD_BUTTON_SIZE),
         width: ADD_BUTTON_SIZE,
         height: ADD_BUTTON_SIZE,
         initialWidth: ADD_BUTTON_SIZE,
@@ -318,7 +325,7 @@ export function layoutFlow(
         nodes.push({
           id: step.id,
           type: 'if_else',
-          position: { x: centerX - CARD_WIDTH / 2, y: currentY },
+          position: point(centerX, currentY, CARD_WIDTH, CARD_HEIGHT),
           width: CARD_WIDTH,
           height: CARD_HEIGHT,
           initialWidth: CARD_WIDTH,
@@ -340,10 +347,10 @@ export function layoutFlow(
         addEdge(previousId, step.id, pendingBranchLabel);
         pendingBranchLabel = undefined;
         previousId = step.id;
-        currentY += CARD_HEIGHT + VERTICAL_GAP + BRANCH_LABEL_GAP;
+        currentY += cardLength + VERTICAL_GAP + BRANCH_LABEL_GAP;
 
-        const leftWidth = computeSequenceWidth(step.then);
-        const rightWidth = computeSequenceWidth(step.else);
+        const leftWidth = computeSequenceWidth(step.then, cardSpan);
+        const rightWidth = computeSequenceWidth(step.else, cardSpan);
         const totalWidth = leftWidth + BRANCH_GAP + rightWidth;
         const leftEdge = centerX - totalWidth / 2;
         const yesCenterX = leftEdge + leftWidth / 2;
@@ -372,7 +379,7 @@ export function layoutFlow(
         nodes.push({
           id: step.id,
           type: 'step',
-          position: { x: centerX - CARD_WIDTH / 2, y: currentY },
+          position: point(centerX, currentY, CARD_WIDTH, CARD_HEIGHT),
           width: CARD_WIDTH,
           height: CARD_HEIGHT,
           initialWidth: CARD_WIDTH,
@@ -393,7 +400,7 @@ export function layoutFlow(
         addEdge(previousId, step.id, pendingBranchLabel);
         pendingBranchLabel = undefined;
         previousId = step.id;
-        currentY += CARD_HEIGHT + VERTICAL_GAP;
+        currentY += cardLength + VERTICAL_GAP;
       }
     });
 
@@ -409,7 +416,7 @@ export function layoutFlow(
       nodes.push({
         id: endId,
         type: 'end',
-        position: { x: centerX - 90, y: currentY },
+        position: point(centerX, currentY, 180, 36),
         width: 180,
         height: 36,
         initialWidth: 180,
@@ -423,13 +430,13 @@ export function layoutFlow(
         },
       });
       addEdge(previousId, endId, pendingBranchLabel);
-      currentY += 36 + VERTICAL_GAP;
+      currentY += (horizontal ? 180 : 36) + VERTICAL_GAP;
     }
 
     return currentY;
   }
 
-  layoutSequence(definition.steps, 'steps', 0, 0, CARD_HEIGHT + VERTICAL_GAP, 'trigger', undefined);
+  layoutSequence(definition.steps, 'steps', 0, 0, cardLength + VERTICAL_GAP, 'trigger', undefined);
 
   return { nodes, edges, totalSteps };
 }

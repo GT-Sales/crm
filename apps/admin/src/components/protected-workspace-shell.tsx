@@ -14,10 +14,28 @@ import { AssistantProvider } from './ai/assistant-provider';
 import { LoadingSkeleton } from './crm/loading-skeleton';
 
 /** The loading shape of the page a path opens: the shell's skeleton draws the same one. */
-function pageShape(pathname: string | null): 'dashboard' | 'table' | 'list' {
-  const section = pathname?.split('/')[3];
-  if (section === 'dashboard' || section === 'analytics') return 'dashboard';
-  return section === 'leads' ? 'table' : 'list';
+function pageShape(pathname: string | null) {
+  const [, , , section, subpage] = pathname?.split('/') ?? [];
+  switch (section) {
+    case 'dashboard':
+      return 'dashboard';
+    case 'analytics':
+      return 'analytics';
+    case 'leads':
+      return subpage ? 'record' : 'table';
+    case 'tasks':
+      return 'tasks';
+    case 'documents':
+      return 'documents';
+    case 'mail':
+      return 'mail';
+    case 'automations':
+      return subpage ? 'flow' : 'list';
+    case 'settings':
+      return subpage === undefined || subpage === 'email' ? 'form' : 'list';
+    default:
+      return 'list';
+  }
 }
 
 const LEAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,7 +141,7 @@ export function ProtectedWorkspaceShell({
       >
         <AppSidebar workspace={workspace.slug} />
         <div className="crm-workspace flex min-w-0 flex-1 flex-col bg-background">
-          <TopBar workspace={workspace} onSignOut={staff.signOut} />
+          <TopBar workspace={workspace} />
           <SidebarInset
             id="main-content"
             tabIndex={-1}

@@ -68,7 +68,7 @@ import {
   numberFormat,
   percentFormat,
 } from './analytics/charts';
-import { FilterBar, rangeLabel } from './analytics/filter-bar';
+import { FilterBar } from './analytics/filter-bar';
 import { DashboardFiltersSkeleton, LoadingSkeleton } from './crm/loading-skeleton';
 import { leadDisplayName } from './leads/lead-display';
 import { SourceReport } from './reports/source-report';
@@ -95,8 +95,7 @@ const statusLabel = (key: string) =>
   STATUS_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll('_', ' ');
 
 /**
- * The site's analytics dashboard. A sticky filter bar (period, comparison,
- * grouping, filters) drives every card; its state lives in the URL so a view
+ * The site's analytics dashboard. Period, comparison and filters drives every card; its state lives in the URL so a view
  * can be shared. Counts are for every role; the money cards and the
  * commission chart appear only when the backend sent them (the owner).
  */
@@ -141,6 +140,10 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
     [accessToken, workspaceId],
   );
   const plans = useResource(loadPlans).data?.plans ?? [];
+  const firstName = members
+    .find((member) => member.isSelf)
+    ?.displayName?.trim()
+    .split(/\s+/)[0];
 
   const query = useMemo(() => analyticsQueryOf(state, leadType), [state, leadType]);
   const loadAnalytics = useMemo(
@@ -168,7 +171,6 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
     return (
       <div className="crm-dashboard flex flex-col gap-6">
         <DashboardFiltersSkeleton />
-        {null}
         <LoadingSkeleton label="Loading the dashboard…" variant="dashboard">
           <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
         </LoadingSkeleton>
@@ -178,25 +180,48 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <div className="crm-dashboard flex flex-col gap-6">
-      <FilterBar
-        state={state}
-        leadType={leadType}
-        onChange={update}
-        options={{
-          types,
-          sources: (data?.sources ?? [])
-            .map((entry) => entry.key)
-            .filter((key) => key !== '(none)'),
-          partners: data?.partners ?? [],
-          members: members.map((member) => ({
-            actorId: member.actorId,
-            name: member.isSelf ? 'You' : memberName(member),
-          })),
-          plans: plans
-            .filter((plan) => leadType === undefined || plan.leadType === leadType)
-            .map((plan) => ({ id: plan.id, name: plan.name })),
-        }}
-      />
+      <header className="flex flex-col gap-3">
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
+          {firstName ? `Welcome back, ${firstName}!` : 'Welcome back!'}
+        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <p className="min-w-0 flex-1 text-base text-muted-foreground">
+            {followUps.data ? (
+              <>
+                You have{' '}
+                <strong className="font-medium text-foreground">
+                  {numberFormat.format(followUps.data.page.total)}{' '}
+                  {followUps.data.page.total === 1 ? 'follow-up' : 'follow-ups'} due
+                </strong>{' '}
+                across the team.
+              </>
+            ) : (
+              'Track leads, orders, and follow-ups.'
+            )}
+          </p>
+          <div className="ml-auto max-w-full">
+            <FilterBar
+              state={state}
+              leadType={leadType}
+              onChange={update}
+              options={{
+                types,
+                sources: (data?.sources ?? [])
+                  .map((entry) => entry.key)
+                  .filter((key) => key !== '(none)'),
+                partners: data?.partners ?? [],
+                members: members.map((member) => ({
+                  actorId: member.actorId,
+                  name: member.isSelf ? 'You' : memberName(member),
+                })),
+                plans: plans
+                  .filter((plan) => leadType === undefined || plan.leadType === leadType)
+                  .map((plan) => ({ id: plan.id, name: plan.name })),
+              }}
+            />
+          </div>
+        </div>
+      </header>
 
       {summary.error || analytics.error ? (
         <p role="alert" className="text-sm text-muted-foreground">
@@ -212,23 +237,21 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
           )}
           aria-busy={analytics.loading}
         >
-          <p className="text-sm text-muted-foreground">
-            {leadType ? leadTypeLabel(leadType) : 'All lead types'} ·{' '}
-            {rangeLabel(data.range.from, data.range.to)}
-            {data.comparison
-              ? ` · compared with ${rangeLabel(data.comparison.from, data.comparison.to)}`
-              : ''}{' '}
-            (UTC days)
-          </p>
           <Kpis
             data={data}
             leadType={leadType}
             workspaceSlug={workspaceSlug}
             compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
           />
-          {/* What needs doing comes before what happened. */}
-          <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
-          <Charts data={data} leadType={leadType} workspaceSlug={workspaceSlug} members={members} />
+          <Charts data={data} leadType={leadType} workspaceSlug={workspaceSlug} members={members}>
+            <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
+          </Charts>
+          <OperationalKpis
+            data={data}
+            leadType={leadType}
+            workspaceSlug={workspaceSlug}
+            compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
+          />
         </div>
       ) : null}
     </div>
@@ -274,35 +297,36 @@ function Kpi({
   label,
   value,
   hint,
+  previous,
   icon: Icon = InboxIcon,
-  tone = 'info',
   href,
   children,
 }: {
   label: string;
   value: string;
   hint?: string;
+  previous?: string | undefined;
   icon?: LucideIcon;
-  tone?: 'info' | 'success' | 'warning' | 'danger';
   href?: string;
   children?: ReactNode;
 }) {
   const body = (
     <>
       <h2 className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-        <Icon className="crm-stat-icon size-4 shrink-0" aria-hidden="true" />
+        <Icon className="size-4 shrink-0" aria-hidden="true" />
         {label}
       </h2>
+      {previous || hint ? (
+        <p className="text-xs text-muted-foreground">
+          {previous ? `${previous} in comparison period` : hint}
+        </p>
+      ) : null}
       <p className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{value}</p>
       {children}
-      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </>
   );
   return (
-    <div
-      data-tone={tone}
-      className="crm-stat flex min-h-[7.5rem] flex-col justify-center gap-2 px-5 py-4"
-    >
+    <div className="crm-stat flex min-w-0 flex-col gap-2 px-5 py-3">
       {href ? (
         <Link
           href={href}
@@ -328,7 +352,7 @@ function Kpis({
   workspaceSlug: string;
   compareLabel: string;
 }) {
-  const { kpis, commission } = data;
+  const { kpis } = data;
   const rate = (won: number, created: number) => (created > 0 ? won / created : 0);
   const conversion = {
     current: rate(kpis.won.current, kpis.newLeads.current),
@@ -337,32 +361,29 @@ function Kpis({
         ? null
         : rate(kpis.won.previous, kpis.newLeads.previous),
   };
-  const received = data.statuses.commission.find((entry) => entry.key === 'received')?.total ?? 0;
-  const outstanding = data.statuses.commission
-    .filter((entry) => !['received', 'clawback', '(not set)'].includes(entry.key))
-    .reduce((sum, entry) => sum + entry.total, 0);
-  const showDocuments = leadType === undefined || DOCUMENT_TYPES.has(leadType);
-  // Money figures appear once the site records them: a card of zeros says nothing.
-  const showPaid = kpis.paid.current > 0 || hasRecorded(data.statuses.payment);
-  const showCarrier = hasRecorded(data.statuses.commission);
   const typeHref = leadType ? leadsHref(workspaceSlug, { type: leadType }) : undefined;
 
   return (
     <section aria-label="Key figures" className="flex flex-col gap-4">
-      <div className="crm-stat-grid grid grid-cols-1 overflow-hidden rounded-2xl border bg-card min-[480px]:grid-cols-2 lg:grid-cols-4">
+      <div className="crm-kpi-strip grid rounded-xl border bg-card sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
           label={leadType === 'sim_order' ? 'New orders' : 'New leads'}
           value={numberFormat.format(kpis.newLeads.current)}
+          previous={
+            kpis.newLeads.previous === null
+              ? undefined
+              : numberFormat.format(kpis.newLeads.previous)
+          }
           hint="Created in the period, cancellations aside"
           {...(typeHref ? { href: typeHref } : {})}
         >
           <Delta value={kpis.newLeads} compareLabel={compareLabel} />
         </Kpi>
         <Kpi
-          tone="success"
           icon={CircleCheckIcon}
           label="Won"
           value={numberFormat.format(kpis.won.current)}
+          previous={kpis.won.previous === null ? undefined : numberFormat.format(kpis.won.previous)}
           hint={
             leadType === 'sim_order' ? 'Activated or completed in the period' : 'Won in the period'
           }
@@ -370,26 +391,17 @@ function Kpis({
           <Delta value={kpis.won} compareLabel={compareLabel} />
         </Kpi>
         <Kpi
-          tone="success"
           icon={PercentIcon}
           label="Conversion rate"
           value={percentFormat.format(conversion.current)}
+          previous={
+            conversion.previous === null ? undefined : percentFormat.format(conversion.previous)
+          }
           hint="Won ÷ new in the period"
         >
           <Delta value={conversion} compareLabel={compareLabel} />
         </Kpi>
-        {showPaid ? (
-          <Kpi
-            icon={WalletIcon}
-            label="Paid"
-            value={numberFormat.format(kpis.paid.current)}
-            hint="Created in the period and marked paid"
-          >
-            <Delta value={kpis.paid} compareLabel={compareLabel} />
-          </Kpi>
-        ) : null}
         <Kpi
-          tone="warning"
           icon={BellRingIcon}
           label="Open follow-ups"
           value={numberFormat.format(kpis.followUps.due)}
@@ -402,35 +414,76 @@ function Kpis({
             </p>
           ) : null}
         </Kpi>
-        {showCarrier ? (
-          <Kpi
-            icon={CoinsIcon}
-            label="Carrier commission"
-            value={`${numberFormat.format(received)} received`}
-            hint={`${numberFormat.format(outstanding)} outstanding, orders created in the period`}
-          />
-        ) : null}
-        {showDocuments ? (
-          <Kpi
-            tone="warning"
-            icon={FileCheckIcon}
-            label="Documents to review"
-            value={numberFormat.format(kpis.documentsToReview)}
-            hint="Across the site, never reviewed"
-            href={`/w/${workspaceSlug}/documents`}
-          />
-        ) : null}
       </div>
+    </section>
+  );
+}
+
+function OperationalKpis({
+  data,
+  leadType,
+  workspaceSlug,
+  compareLabel,
+}: {
+  data: AnalyticsResponse;
+  leadType: string | undefined;
+  workspaceSlug: string;
+  compareLabel: string;
+}) {
+  const { kpis, commission } = data;
+  const received = data.statuses.commission.find((entry) => entry.key === 'received')?.total ?? 0;
+  const outstanding = data.statuses.commission
+    .filter((entry) => !['received', 'clawback', '(not set)'].includes(entry.key))
+    .reduce((sum, entry) => sum + entry.total, 0);
+  const showDocuments = leadType === undefined || DOCUMENT_TYPES.has(leadType);
+  // Money figures appear once the site records them: a card of zeros says nothing.
+  const showPaid = kpis.paid.current > 0 || hasRecorded(data.statuses.payment);
+  const showCarrier = hasRecorded(data.statuses.commission);
+
+  if (!showPaid && !showCarrier && !showDocuments && !commission) return null;
+
+  return (
+    <section aria-label="Additional figures" className="flex flex-col gap-4">
+      {showPaid || showCarrier || showDocuments ? (
+        <div className="crm-kpi-strip crm-kpi-strip-secondary grid rounded-xl border bg-card sm:grid-cols-3">
+          {showPaid ? (
+            <Kpi
+              icon={WalletIcon}
+              label="Paid"
+              value={numberFormat.format(kpis.paid.current)}
+              hint="Created in the period and marked paid"
+            >
+              <Delta value={kpis.paid} compareLabel={compareLabel} />
+            </Kpi>
+          ) : null}
+          {showCarrier ? (
+            <Kpi
+              icon={CoinsIcon}
+              label="Carrier commission"
+              value={`${numberFormat.format(received)} received`}
+              hint={`${numberFormat.format(outstanding)} outstanding, orders created in the period`}
+            />
+          ) : null}
+          {showDocuments ? (
+            <Kpi
+              icon={FileCheckIcon}
+              label="Documents to review"
+              value={numberFormat.format(kpis.documentsToReview)}
+              hint="Across the site, never reviewed"
+              href={`/w/${workspaceSlug}/documents`}
+            />
+          ) : null}
+        </div>
+      ) : null}
 
       {commission ? (
         commission.anyPlanHasCommission ? (
           <div
             aria-label="Commission (owner only)"
             role="group"
-            className="crm-stat-grid grid grid-cols-1 overflow-hidden rounded-2xl border bg-card min-[480px]:grid-cols-3"
+            className="crm-kpi-strip crm-kpi-strip-secondary grid rounded-xl border bg-card sm:grid-cols-3"
           >
             <Kpi
-              tone="success"
               icon={CoinsIcon}
               label="Commission earned"
               value={moneyFormat.format(commission.earnedMinor.current / 100)}
@@ -445,7 +498,6 @@ function Kpis({
               hint="Open leads created in the period"
             />
             <Kpi
-              tone={commission.wonWithoutCommission > 0 ? 'warning' : 'info'}
               icon={CoinsIcon}
               label="Won without a commission"
               value={numberFormat.format(commission.wonWithoutCommission)}
@@ -457,7 +509,7 @@ function Kpis({
             Commission figures appear here once a plan has a commission.{' '}
             <Link
               href={`/w/${workspaceSlug}/settings/plans`}
-              className="text-primary hover:underline"
+              className="text-primary underline underline-offset-2"
             >
               Set commission on plans in Settings → Plans
             </Link>
@@ -474,11 +526,13 @@ function Charts({
   leadType,
   workspaceSlug,
   members,
+  children,
 }: {
   data: AnalyticsResponse;
   leadType: string | undefined;
   workspaceSlug: string;
   members: readonly Parameters<typeof memberName>[0][];
+  children: ReactNode;
 }) {
   const comparing = data.comparison !== null;
   const steps = leadType
@@ -516,280 +570,300 @@ function Charts({
   const teamAlone = (Number(showMix) + Number(showStatus) + Number(showCommissionTrend)) % 2 === 0;
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-      <ChartCard
-        id="chart-trend"
-        className="xl:col-span-2"
-        title="New leads over time"
-        description={`Per ${data.group}${comparing ? '; the faint dashed line is the comparison period, aligned day for day' : ''}.`}
-        empty={trendTotal === 0 ? 'No new leads in this period.' : undefined}
-        summary={{
-          columns: ['Bucket', 'This period', ...(comparing ? ['Comparison'] : [])],
-          rows: data.trend.map((entry) => [
-            bucketLabel(entry.bucket, data.group),
-            entry.current,
-            ...(comparing ? [entry.previous ?? 0] : []),
-          ]),
-        }}
-      >
-        <TrendChart data={data.trend} group={data.group} comparing={comparing} />
-      </ChartCard>
+    <div className="grid gap-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">
+        <ChartCard
+          id="chart-trend"
+          title="New leads over time"
+          description={`New leads per ${data.group}`}
+          empty={trendTotal === 0 ? 'No new leads in this period.' : undefined}
+          summary={{
+            columns: ['Bucket', 'This period', ...(comparing ? ['Comparison'] : [])],
+            rows: data.trend.map((entry) => [
+              bucketLabel(entry.bucket, data.group),
+              entry.current,
+              ...(comparing ? [entry.previous ?? 0] : []),
+            ]),
+          }}
+        >
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <p className="text-2xl font-semibold tracking-tight tabular-nums">
+              {numberFormat.format(trendTotal)}
+            </p>
+            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-foreground" />
+                This period
+              </span>
+              {comparing ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3 border-t border-dashed border-current" />
+                  Comparison
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <TrendChart data={data.trend} group={data.group} comparing={comparing} />
+        </ChartCard>
 
-      <ChartCard
-        id="chart-funnel"
-        drawingIsAccessible
-        title="Funnel by stage"
-        description="Leads created in the period that reached each stage, with the share of the step before."
-        empty={
-          !leadType
-            ? 'Choose a lead type to see its funnel.'
-            : steps.length === 0 || (steps[0]?.reached ?? 0) === 0
+        <ChartCard
+          id="chart-sources"
+          drawingIsAccessible
+          title="Sources and partners"
+          description="The ten biggest UTM sources and partners in the period."
+          action={<SourcesFullTable workspaceSlug={workspaceSlug} />}
+          empty={
+            data.sources.length === 0 && data.partners.length === 0
               ? 'No leads in this period.'
               : undefined
-        }
-        summary={{
-          columns: ['Stage', 'Reached', 'From the step before'],
-          rows: steps.map((step) => [
-            leadType ? leadStageLabel(leadType, step.stage) : step.stage,
-            step.reached,
-            step.conversion === null ? '' : percentFormat.format(step.conversion),
-          ]),
-        }}
-      >
-        {leadType ? (
-          <Funnel
-            steps={steps}
-            stageLabel={(stage) => leadStageLabel(leadType, stage)}
-            hrefOf={(stage) => leadsHref(workspaceSlug, { type: leadType, stage })}
-          />
-        ) : null}
-      </ChartCard>
-
-      <ChartCard
-        id="chart-sources"
-        drawingIsAccessible
-        title="Sources and partners"
-        description="The ten biggest UTM sources and partners in the period."
-        action={<SourcesFullTable workspaceSlug={workspaceSlug} />}
-        empty={
-          data.sources.length === 0 && data.partners.length === 0
-            ? 'No leads in this period.'
-            : undefined
-        }
-        summary={{
-          columns: ['Source or partner', 'Leads'],
-          rows: [
-            ...data.sources.map((entry) => [
-              entry.key === '(none)' ? 'No UTM source' : entry.key,
-              entry.total,
-            ]),
-            ...data.partners.map((entry) => [`Partner ${entry.name ?? entry.code}`, entry.total]),
-          ],
-        }}
-      >
-        <div className="grid gap-6 sm:grid-cols-2">
-          <div>
-            <h3 className="mb-2 text-sm font-medium">Sources</h3>
-            <BarList
-              label="Top sources"
-              items={data.sources.map((entry) => ({
-                key: entry.key,
-                label: entry.key === '(none)' ? 'No UTM source' : entry.key,
-                total: entry.total,
-              }))}
-            />
-          </div>
-          <div>
-            <h3 className="mb-2 text-sm font-medium">Partners</h3>
-            {data.partners.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No partner leads in this period.</p>
-            ) : (
-              <BarList
-                label="Top partners"
-                items={data.partners.map((entry) => ({
-                  key: entry.code,
-                  label: entry.name ?? entry.code,
-                  ...(entry.name ? { detail: entry.code } : {}),
-                  total: entry.total,
-                }))}
-              />
-            )}
-          </div>
-        </div>
-      </ChartCard>
-
-      {showMix ? (
-        <ChartCard
-          id="chart-mix"
-          drawingIsAccessible
-          title="Mix"
-          description={
-            leadType === 'sim_order'
-              ? 'Orders by plan, and eSIM against physical SIM.'
-              : leadType === undefined
-                ? 'Leads by plan, and by lead type.'
-                : 'Leads by plan.'
-          }
-          empty={
-            data.mix.plans.length === 0 && mix.length === 0
-              ? 'No orders in this period.'
-              : undefined
           }
           summary={{
-            columns: ['Part', 'Leads'],
+            columns: ['Source or partner', 'Leads'],
             rows: [
-              ...data.mix.plans.map((entry) => [entry.name, entry.total]),
-              ...mix.map((entry) => [entry.label, entry.total]),
+              ...data.sources.map((entry) => [
+                entry.key === '(none)' ? 'No UTM source' : entry.key,
+                entry.total,
+              ]),
+              ...data.partners.map((entry) => [`Partner ${entry.name ?? entry.code}`, entry.total]),
             ],
           }}
         >
-          <div className="flex flex-col gap-6">
-            {data.mix.plans.length > 0 ? (
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-1">
+            <div>
+              <h3 className="mb-2 text-sm font-medium">Sources</h3>
               <BarList
-                label="Plans"
-                items={data.mix.plans.map((entry) => ({
-                  key: entry.planId ?? 'none',
-                  label: entry.name,
+                label="Top sources"
+                items={data.sources.map((entry) => ({
+                  key: entry.key,
+                  label: entry.key === '(none)' ? 'No UTM source' : entry.key,
                   total: entry.total,
                 }))}
               />
-            ) : null}
-            {mix.length > 0 ? <Donut data={mix} /> : null}
-          </div>
-        </ChartCard>
-      ) : null}
-
-      {showStatus ? (
-        <ChartCard
-          id="chart-status"
-          title="Payment and commission status"
-          description="Orders created in the period, by payment status and by carrier commission status."
-          empty={
-            data.statuses.payment.length === 0 && data.statuses.commission.length === 0
-              ? 'No orders in this period.'
-              : undefined
-          }
-          summary={{
-            columns: ['Status', 'Orders'],
-            rows: [
-              ...data.statuses.payment.map((entry) => [
-                `Payment: ${statusLabel(entry.key)}`,
-                entry.total,
-              ]),
-              ...data.statuses.commission.map((entry) => [
-                `Commission: ${statusLabel(entry.key)}`,
-                entry.total,
-              ]),
-            ],
-          }}
-        >
-          <StatusBars
-            rows={[
-              {
-                label: 'Payment',
-                parts: data.statuses.payment.map((entry) => ({
-                  key: `payment:${entry.key}`,
-                  label: statusLabel(entry.key),
-                  total: entry.total,
-                })),
-              },
-              {
-                label: 'Commission',
-                parts: data.statuses.commission.map((entry) => ({
-                  key: `commission:${entry.key}`,
-                  label: statusLabel(entry.key),
-                  total: entry.total,
-                })),
-              },
-            ]}
-          />
-        </ChartCard>
-      ) : null}
-
-      {data.commissionTrend && data.commission?.anyPlanHasCommission ? (
-        <ChartCard
-          id="chart-commission"
-          title="Commission earned over time"
-          description={`Per ${data.group}, by won date. Owner only.`}
-          empty={
-            data.commissionTrend.every((entry) => entry.earnedMinor === 0)
-              ? 'No commission earned in this period.'
-              : undefined
-          }
-          summary={{
-            columns: ['Bucket', 'Earned'],
-            rows: data.commissionTrend.map((entry) => [
-              bucketLabel(entry.bucket, data.group),
-              moneyFormat.format(entry.earnedMinor / 100),
-            ]),
-          }}
-        >
-          <MoneyBars data={data.commissionTrend} group={data.group} />
-        </ChartCard>
-      ) : null}
-
-      <Card className={cn('min-w-0', teamAlone && 'xl:col-span-2')}>
-        <CardContent className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-base font-medium">Team</h2>
-            <p className="text-sm text-muted-foreground">
-              Leads created in the period per assignee, those won, and their overdue follow-ups.
-            </p>
-          </div>
-          {data.team.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No leads in this period.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <caption className="sr-only">Team</caption>
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th scope="col" className="py-2 pr-3 font-normal">
-                      Member
-                    </th>
-                    <th scope="col" className="py-2 pr-3 text-right font-normal">
-                      Assigned
-                    </th>
-                    <th scope="col" className="py-2 pr-3 text-right font-normal">
-                      Won
-                    </th>
-                    <th scope="col" className="py-2 text-right font-normal">
-                      Overdue
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.team.map((row) => (
-                    <tr key={row.actorId ?? 'none'} className="border-b last:border-0">
-                      <th scope="row" className="py-2 pr-3 text-left font-medium">
-                        <Link
-                          href={leadsHref(workspaceSlug, {
-                            ...(leadType ? { type: leadType } : {}),
-                            assignee: row.actorId ?? 'none',
-                          })}
-                          className="hover:underline"
-                        >
-                          {nameOf(row.actorId)}
-                        </Link>
-                      </th>
-                      <td className="py-2 pr-3 text-right tabular-nums">{row.assigned}</td>
-                      <td className="py-2 pr-3 text-right tabular-nums">{row.won}</td>
-                      <td
-                        className={cn(
-                          'py-2 text-right tabular-nums',
-                          row.overdue > 0 && 'font-medium text-rose-700 dark:text-rose-400',
-                        )}
-                      >
-                        {row.overdue}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <div>
+              <h3 className="mb-2 text-sm font-medium">Partners</h3>
+              {data.partners.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No partner leads in this period.</p>
+              ) : (
+                <BarList
+                  label="Top partners"
+                  items={data.partners.map((entry) => ({
+                    key: entry.code,
+                    label: entry.name ?? entry.code,
+                    ...(entry.name ? { detail: entry.code } : {}),
+                    total: entry.total,
+                  }))}
+                />
+              )}
+            </div>
+          </div>
+        </ChartCard>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        {children}
+        <ChartCard
+          id="chart-funnel"
+          drawingIsAccessible
+          title="Funnel by stage"
+          description="Leads created in the period that reached each stage, with the share of the step before."
+          empty={
+            !leadType
+              ? 'Choose a lead type to see its funnel.'
+              : steps.length === 0 || (steps[0]?.reached ?? 0) === 0
+                ? 'No leads in this period.'
+                : undefined
+          }
+          summary={{
+            columns: ['Stage', 'Reached', 'From the step before'],
+            rows: steps.map((step) => [
+              leadType ? leadStageLabel(leadType, step.stage) : step.stage,
+              step.reached,
+              step.conversion === null ? '' : percentFormat.format(step.conversion),
+            ]),
+          }}
+        >
+          {leadType ? (
+            <Funnel
+              steps={steps}
+              stageLabel={(stage) => leadStageLabel(leadType, stage)}
+              hrefOf={(stage) => leadsHref(workspaceSlug, { type: leadType, stage })}
+            />
+          ) : null}
+        </ChartCard>
+
+        {showMix ? (
+          <ChartCard
+            id="chart-mix"
+            drawingIsAccessible
+            title="Mix"
+            description={
+              leadType === 'sim_order'
+                ? 'Orders by plan, and eSIM against physical SIM.'
+                : leadType === undefined
+                  ? 'Leads by plan, and by lead type.'
+                  : 'Leads by plan.'
+            }
+            empty={
+              data.mix.plans.length === 0 && mix.length === 0
+                ? 'No orders in this period.'
+                : undefined
+            }
+            summary={{
+              columns: ['Part', 'Leads'],
+              rows: [
+                ...data.mix.plans.map((entry) => [entry.name, entry.total]),
+                ...mix.map((entry) => [entry.label, entry.total]),
+              ],
+            }}
+          >
+            <div className="flex flex-col gap-6">
+              {data.mix.plans.length > 0 ? (
+                <BarList
+                  label="Plans"
+                  items={data.mix.plans.map((entry) => ({
+                    key: entry.planId ?? 'none',
+                    label: entry.name,
+                    total: entry.total,
+                  }))}
+                />
+              ) : null}
+              {mix.length > 0 ? <Donut data={mix} /> : null}
+            </div>
+          </ChartCard>
+        ) : null}
+
+        {showStatus ? (
+          <ChartCard
+            id="chart-status"
+            title="Payment and commission status"
+            description="Orders created in the period, by payment status and by carrier commission status."
+            empty={
+              data.statuses.payment.length === 0 && data.statuses.commission.length === 0
+                ? 'No orders in this period.'
+                : undefined
+            }
+            summary={{
+              columns: ['Status', 'Orders'],
+              rows: [
+                ...data.statuses.payment.map((entry) => [
+                  `Payment: ${statusLabel(entry.key)}`,
+                  entry.total,
+                ]),
+                ...data.statuses.commission.map((entry) => [
+                  `Commission: ${statusLabel(entry.key)}`,
+                  entry.total,
+                ]),
+              ],
+            }}
+          >
+            <StatusBars
+              rows={[
+                {
+                  label: 'Payment',
+                  parts: data.statuses.payment.map((entry) => ({
+                    key: `payment:${entry.key}`,
+                    label: statusLabel(entry.key),
+                    total: entry.total,
+                  })),
+                },
+                {
+                  label: 'Commission',
+                  parts: data.statuses.commission.map((entry) => ({
+                    key: `commission:${entry.key}`,
+                    label: statusLabel(entry.key),
+                    total: entry.total,
+                  })),
+                },
+              ]}
+            />
+          </ChartCard>
+        ) : null}
+
+        {data.commissionTrend && data.commission?.anyPlanHasCommission ? (
+          <ChartCard
+            id="chart-commission"
+            title="Commission earned over time"
+            description={`Per ${data.group}, by won date. Owner only.`}
+            empty={
+              data.commissionTrend.every((entry) => entry.earnedMinor === 0)
+                ? 'No commission earned in this period.'
+                : undefined
+            }
+            summary={{
+              columns: ['Bucket', 'Earned'],
+              rows: data.commissionTrend.map((entry) => [
+                bucketLabel(entry.bucket, data.group),
+                moneyFormat.format(entry.earnedMinor / 100),
+              ]),
+            }}
+          >
+            <MoneyBars data={data.commissionTrend} group={data.group} />
+          </ChartCard>
+        ) : null}
+
+        <Card className={cn('min-w-0', teamAlone && 'xl:col-span-2')}>
+          <CardContent className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-base font-medium">Team</h2>
+              <p className="text-sm text-muted-foreground">
+                Leads created in the period per assignee, those won, and their overdue follow-ups.
+              </p>
+            </div>
+            {data.team.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No leads in this period.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">Team</caption>
+                  <thead>
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th scope="col" className="py-2 pr-3 font-normal">
+                        Member
+                      </th>
+                      <th scope="col" className="py-2 pr-3 text-right font-normal">
+                        Assigned
+                      </th>
+                      <th scope="col" className="py-2 pr-3 text-right font-normal">
+                        Won
+                      </th>
+                      <th scope="col" className="py-2 text-right font-normal">
+                        Overdue
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.team.map((row) => (
+                      <tr key={row.actorId ?? 'none'} className="border-b last:border-0">
+                        <th scope="row" className="py-2 pr-3 text-left font-medium">
+                          <Link
+                            href={leadsHref(workspaceSlug, {
+                              ...(leadType ? { type: leadType } : {}),
+                              assignee: row.actorId ?? 'none',
+                            })}
+                            className="hover:underline"
+                          >
+                            {nameOf(row.actorId)}
+                          </Link>
+                        </th>
+                        <td className="py-2 pr-3 text-right tabular-nums">{row.assigned}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{row.won}</td>
+                        <td
+                          className={cn(
+                            'py-2 text-right tabular-nums',
+                            row.overdue > 0 && 'font-medium text-rose-700 dark:text-rose-400',
+                          )}
+                        >
+                          {row.overdue}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -835,31 +909,25 @@ function FollowUpsDue({
   const total = due.data?.page.total ?? 0;
 
   return (
-    <Card className={cn('min-w-0', total > 0 && 'border-amber-500/30')}>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold">
-              <BellRingIcon
-                className="size-4 text-amber-700 dark:text-amber-400"
-                aria-hidden="true"
-              />
-              Follow-ups due
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Open tasks due today or earlier, across the team.
-            </p>
-          </div>
-          {due.data ? (
-            <span
-              className="rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-sm text-amber-700 dark:text-amber-300 tabular-nums"
-              aria-label={`${total} due`}
-            >
-              {total}
-            </span>
-          ) : null}
+    <Card className="min-w-0">
+      <div className="crm-card-heading">
+        <BellRingIcon aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-medium">Follow-ups due</h2>
+          <p className="text-xs text-muted-foreground">
+            Open tasks due today or earlier, across the team.
+          </p>
         </div>
-
+        {due.data ? (
+          <span
+            className="rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-sm text-amber-700 dark:text-amber-300 tabular-nums"
+            aria-label={`${total} due`}
+          >
+            {total}
+          </span>
+        ) : null}
+      </div>
+      <CardContent className="flex flex-col gap-3 px-5">
         {due.error ? (
           <p role="alert" className="text-sm text-muted-foreground">
             {due.error === 'permission_denied'

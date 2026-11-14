@@ -75,10 +75,10 @@ describe('DocumentReviewQueue', () => {
     );
     expect(within(list).getByText('MS-4 · SIM order · Pending')).toBeTruthy();
     expect(within(list).getByText('Required by plan')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /To review\s*1/ }).getAttribute('aria-selected')).toBe(
+    expect(screen.getByRole('button', { name: /To review\s*1/ }).getAttribute('aria-pressed')).toBe(
       'true',
     );
-    expect(screen.getByRole('tab', { name: /Rejected\s*2/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Rejected\s*2/ })).toBeTruthy();
     expect(mocks.listDocumentReviewQueue).toHaveBeenCalledWith('staff-token', WORKSPACE, {
       status: 'to_review',
       page: 1,
@@ -103,7 +103,7 @@ describe('DocumentReviewQueue', () => {
 
   it('switches to rejected documents from the first page', async () => {
     render(<DocumentReviewQueue workspaceSlug="getcanadasim" />);
-    fireEvent.click(await screen.findByRole('tab', { name: /Rejected/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Rejected/ }));
     await waitFor(() =>
       expect(mocks.listDocumentReviewQueue).toHaveBeenLastCalledWith('staff-token', WORKSPACE, {
         status: 'rejected',

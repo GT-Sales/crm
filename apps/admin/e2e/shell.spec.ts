@@ -59,3 +59,16 @@ test('unknown route returns 404', async ({ page }) => {
   const response = await page.goto('/route-does-not-exist');
   expect(response?.status()).toBe(404);
 });
+
+test('a normal page keeps its CSP when the caller supplies prefetch headers', async ({
+  request,
+}) => {
+  const response = await request.get('/login', {
+    headers: { 'next-router-prefetch': '1', purpose: 'prefetch', 'x-nonce': 'caller-nonce' },
+  });
+  expect(response.headers()['content-type']).toContain('text/html');
+  const policy = response.headers()['content-security-policy'];
+  expect(policy).toMatch(/script-src [^;]*'nonce-[^']+'/);
+  expect(policy).not.toContain('caller-nonce');
+  expect(await response.text()).not.toContain('nonce="caller-nonce"');
+});

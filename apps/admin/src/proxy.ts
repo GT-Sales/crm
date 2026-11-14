@@ -6,8 +6,8 @@ import { buildContentSecurityPolicy, createNonce } from './lib/csp';
  * Sets the nonce-based Content-Security-Policy on every page (audit M-1). The
  * policy goes on the request too, which is where Next.js reads the nonce to
  * put on its own scripts, and as `x-nonce` for the root layout's inline
- * theme bootstrap. Static assets and prefetches are skipped: they run no
- * inline script.
+ * theme bootstrap. Prefetch headers are caller-controlled, so they must not
+ * exempt an HTML response from the policy. Only static assets are skipped.
  */
 export function proxy(request: NextRequest): NextResponse {
   const nonce = createNonce();
@@ -26,13 +26,5 @@ export function proxy(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: [
-    {
-      source: '/((?!_next/static|_next/image|favicon.ico).*)',
-      missing: [
-        { type: 'header', key: 'next-router-prefetch' },
-        { type: 'header', key: 'purpose', value: 'prefetch' },
-      ],
-    },
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

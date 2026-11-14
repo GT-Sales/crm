@@ -98,7 +98,7 @@ const sampleLead: LeadListItem = {
   status: 'incomplete',
   stage: 'new',
   contact: { email: 'jane@example.test' },
-  contactId: null,
+  contactId: '30000000-0000-4000-8000-000000000011',
   assignedActorId: null,
   externalRef: null,
   source: 'utm:google/cpc',
@@ -397,7 +397,9 @@ describe('protected staff routes', () => {
     };
     // The countdown date is read from the form, which they do not see either.
     for (const role of ['viewer', 'content', 'partners'] as const) {
-      expect(await listAs([role])).toEqual([{ ...sampleLead, contact: {}, countdownDate: null }]);
+      expect(await listAs([role])).toEqual([
+        { ...sampleLead, contact: {}, contactId: null, countdownDate: null },
+      ]);
     }
     // Finance sees contacts too, through financial.read.
     for (const role of ['leads', 'orders', 'finance'] as const) {

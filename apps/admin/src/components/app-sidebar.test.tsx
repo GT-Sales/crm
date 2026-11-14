@@ -13,13 +13,18 @@ vi.mock('next/navigation', () => ({
 
 const getLeadsSummary = vi.fn();
 const listDocumentReviewQueue = vi.fn();
+const listWorkspaceMembers = vi.fn();
+const signOut = vi.fn();
 vi.mock('../lib/api', () => ({
+  listWorkspaceMembers: (...args: unknown[]) => listWorkspaceMembers(...args),
   getLeadsSummary: (...args: unknown[]) => getLeadsSummary(...args),
   listDocumentReviewQueue: (...args: unknown[]) => listDocumentReviewQueue(...args),
 }));
 vi.mock('./staff-session-provider', () => ({
   useStaffSession: () => ({
     accessToken: 'staff-token',
+    email: 'alex@example.test',
+    signOut,
     workspaces: [
       {
         id: '10000000-0000-4000-8000-000000000001',
@@ -48,6 +53,10 @@ function renderSidebar(workspace: string) {
 describe('AppSidebar', () => {
   beforeEach(() => {
     push.mockReset();
+    signOut.mockReset();
+    listWorkspaceMembers.mockResolvedValue({
+      members: [{ displayName: 'Alex Example', isSelf: true }],
+    });
     getLeadsSummary.mockReset();
     listDocumentReviewQueue.mockReset();
     // A role without document access: the queue refuses and no count shows.
@@ -70,6 +79,17 @@ describe('AppSidebar', () => {
     fireEvent.pointerDown(switcher, { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole('menuitem', { name: 'CanadaWide' }));
     expect(push).toHaveBeenCalledWith('/w/canadawide/tasks');
+  });
+
+  it('shows the signed-in identity and signs out from the sidebar footer', async () => {
+    usePathname.mockReturnValue('/w/canadawide/dashboard');
+    renderSidebar('canadawide');
+
+    expect(await screen.findByText('Alex Example')).toBeTruthy();
+    expect(screen.getByText('alex@example.test')).toBeTruthy();
+    expect(screen.queryByText('Site workspace')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(signOut).toHaveBeenCalledOnce();
   });
 
   it('marks the current section as the active page', () => {

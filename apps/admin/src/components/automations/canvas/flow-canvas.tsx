@@ -25,6 +25,8 @@ import {
 } from '@xyflow/react';
 import type { FlowDefinition, FlowDraft, FlowIssue, FlowStepKind } from '@gt-sales/contracts';
 import {
+  ScanLineIcon,
+  WorkflowIcon,
   ZapIcon,
   MailIcon,
   ListTodoIcon,
@@ -50,6 +52,7 @@ import {
 import { issueText, type FlowNames } from '../flow-words';
 import {
   ADD_BUTTON_SIZE,
+  CARD_HEIGHT,
   CARD_WIDTH,
   STEP_KIND_LABELS,
   layoutFlow,
@@ -112,7 +115,7 @@ function TriggerNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
         aria-pressed={selected}
         onClick={() => ctx.onSelectNode(id)}
         className={cn(
-          'automation-node-card nodrag nopan flex h-[116px] w-full flex-col gap-1.5 overflow-hidden rounded-lg border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'automation-node-card nodrag nopan flex h-[116px] w-full flex-col gap-1.5 overflow-hidden rounded-xl border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           selected ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary/50',
           hasIssue ? 'border-amber-400 dark:border-amber-700' : '',
         )}
@@ -120,7 +123,11 @@ function TriggerNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span className="inline-flex items-center gap-2">
-              <ZapIcon className="size-4" aria-hidden="true" /> Trigger
+              <ZapIcon
+                className="rounded-lg bg-amber-500/10 p-1.5 text-amber-700 dark:text-amber-300 size-8"
+                aria-hidden="true"
+              />{' '}
+              Trigger
             </span>
           </span>
           {hasIssue ? (
@@ -155,7 +162,7 @@ function TriggerNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
       </button>
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
@@ -175,7 +182,7 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
     <div style={{ width: CARD_WIDTH }} className="relative">
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
@@ -186,7 +193,7 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
         aria-pressed={selected}
         onClick={() => ctx.onSelectNode(id)}
         className={cn(
-          'automation-node-card nodrag nopan flex h-[116px] w-full flex-col gap-1.5 overflow-hidden rounded-lg border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'automation-node-card nodrag nopan flex h-[116px] w-full flex-col gap-1.5 overflow-hidden rounded-xl border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           selected ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary/50',
           hasIssue ? 'border-amber-400 dark:border-amber-700' : '',
         )}
@@ -194,7 +201,10 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span className="inline-flex items-center gap-2">
-              <Icon className="size-4" aria-hidden="true" />
+              <Icon
+                className="size-8 rounded-lg bg-primary/10 p-1.5 text-primary"
+                aria-hidden="true"
+              />
               {stepData.kindLabel}
             </span>
           </span>
@@ -223,24 +233,24 @@ function StepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | null {
           <Handle
             id="yes"
             type="source"
-            position={Position.Bottom}
+            position={Position.Right}
             isConnectable={false}
-            style={{ left: '25%' }}
+            style={{ top: '25%' }}
             className="!pointer-events-none !opacity-0"
           />
           <Handle
             id="no"
             type="source"
-            position={Position.Bottom}
+            position={Position.Right}
             isConnectable={false}
-            style={{ left: '75%' }}
+            style={{ top: '75%' }}
             className="!pointer-events-none !opacity-0"
           />
         </>
       ) : (
         <Handle
           type="source"
-          position={Position.Bottom}
+          position={Position.Right}
           isConnectable={false}
           className="!pointer-events-none !opacity-0"
         />
@@ -276,7 +286,7 @@ function AddStepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
     >
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
@@ -345,7 +355,7 @@ function AddStepNode({ id, data }: NodeProps<FlowCanvasNode>): JSX.Element | nul
       </DropdownMenu>
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
@@ -359,7 +369,7 @@ function EndNode({ data }: NodeProps<FlowCanvasNode>) {
     <div className="flex h-9 w-[180px] items-center justify-center gap-2 rounded-full border border-dashed bg-background text-xs text-muted-foreground">
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
@@ -400,13 +410,48 @@ export function FlowCanvas({
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 280;
 
   const { nodes, edges } = useMemo(() => {
-    const layout = layoutFlow(definition, { issues, readOnly, names });
+    const layout = layoutFlow(definition, { issues, readOnly, names, direction: 'horizontal' });
     return {
       ...layout,
       // React Flow transforms each node into its own stacking context.
       // Lift the open menu's node above later cards, not just its children.
       nodes: layout.nodes.map((node): FlowCanvasNode => ({
         ...node,
+        measured: { width: node.width, height: node.height },
+        // The layout fixes card dimensions. Keep edge anchors available when
+        // selection or flow edits replace node objects without resizing them.
+        handles: [
+          ...(node.data.kind === 'trigger'
+            ? []
+            : [{ type: 'target' as const, position: Position.Left, x: 0, y: node.height! / 2 }]),
+          ...(node.data.kind === 'end'
+            ? []
+            : node.data.kind === 'if_else'
+              ? [
+                  {
+                    id: 'yes',
+                    type: 'source' as const,
+                    position: Position.Right,
+                    x: CARD_WIDTH,
+                    y: CARD_HEIGHT / 4,
+                  },
+                  {
+                    id: 'no',
+                    type: 'source' as const,
+                    position: Position.Right,
+                    x: CARD_WIDTH,
+                    y: (3 * CARD_HEIGHT) / 4,
+                  },
+                ]
+              : [
+                  {
+                    type: 'source' as const,
+                    position: Position.Right,
+                    x: node.width!,
+                    y: node.height! / 2,
+                  },
+                ]),
+        ],
         zIndex: node.id === openMenuId ? 1000 : 0,
         // Fixed, non-selectable nodes still contain interactive buttons.
         // React Flow otherwise disables pointer events on their wrappers.
@@ -446,11 +491,18 @@ export function FlowCanvas({
 
   return (
     <CanvasContext.Provider value={contextValue}>
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <p className="text-muted-foreground">
-            Follow the arrows. Select a card to see its settings.
-          </p>
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+          <div className="flex items-center gap-2">
+            <WorkflowIcon
+              className="size-8 rounded-lg border bg-muted/40 p-2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="text-sm font-medium">Workflow canvas</p>
+              <p className="text-xs text-muted-foreground">Select a card to see its settings.</p>
+            </div>
+          </div>
           <div className="flex gap-1">
             <Button
               type="button"
@@ -466,6 +518,7 @@ export function FlowCanvas({
                 })
               }
             >
+              <ScanLineIcon className="size-4" aria-hidden="true" />
               Fit flow
             </Button>
             <Button
@@ -491,7 +544,7 @@ export function FlowCanvas({
         <div
           role="region"
           aria-label="Automation flow canvas"
-          className="automation-canvas h-[34rem] w-full overflow-hidden rounded-lg border bg-muted/10 sm:h-[40rem]"
+          className="automation-canvas h-[30rem] w-full overflow-hidden bg-muted/20 sm:h-[clamp(25rem,60dvh,44rem)]"
         >
           <ReactFlow
             nodes={nodes}
@@ -512,7 +565,7 @@ export function FlowCanvas({
             proOptions={{ hideAttribution: true }}
             onPaneClick={() => setOpenMenuId(undefined)}
           >
-            <Background gap={16} size={1} />
+            <Background gap={16} size={1} color="var(--border)" />
             {nodes.filter((node) => node.data.kind === 'step' || node.data.kind === 'if_else')
               .length > 8 ? (
               <MiniMap

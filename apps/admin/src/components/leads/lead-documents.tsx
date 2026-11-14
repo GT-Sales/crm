@@ -95,9 +95,9 @@ export function linkFailure(error: unknown): string {
 
 /**
  * The lead's documents (a passport, an approval letter, a SIM photo…), the
- * current one of each type, each with its latest review: view it in a tab of
- * its own, or download it. Both take the document download permission, and
- * every link is recorded. Staff who review documents (`canReview`) approve or
+ * current one of each type, each with its latest review. Preview, view and
+ * download require the document download permission, and every signed link
+ * is recorded. Staff who review documents (`canReview`) approve or
  * reject each, after which the record is reloaded (`onReviewed`): the review
  * writes a timeline entry and may open a stage move. Nothing shows when the
  * lead has none.
@@ -134,6 +134,7 @@ export function LeadDocuments({
               document={document}
               canDownload={canDownload}
               canReview={canReview}
+              inlinePreview
               onReviewed={onReviewed}
             />
           ))}
@@ -160,6 +161,7 @@ export function DocumentRow({
   canDownload,
   canReview,
   subject,
+  inlinePreview = false,
   onReviewed,
 }: {
   accessToken: string;
@@ -168,6 +170,7 @@ export function DocumentRow({
   canDownload: boolean;
   canReview: boolean;
   subject?: string;
+  inlinePreview?: boolean;
   onReviewed(): Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -177,16 +180,16 @@ export function DocumentRow({
   const badge = reviewBadge(document.review);
 
   // The preview's signed inline link; it lives about as long as the link does.
-  const [preview, setPreview] = useState<string>();
+  const [preview, setPreview] = useState<{ url: string; inline: boolean }>();
   const [previewFailed, setPreviewFailed] = useState(false);
 
-  async function view() {
+  async function view(inline = false) {
     setMessage(undefined);
     setPreviewFailed(false);
     setBusy(true);
     try {
       const link = await createFileDownloadLink(accessToken, workspaceId, document.id, 'inline');
-      setPreview(link.url);
+      setPreview({ url: link.url, inline });
     } catch (error) {
       setMessage(linkFailure(error));
     } finally {
@@ -200,7 +203,7 @@ export function DocumentRow({
       setMessage('Your browser blocked the new tab. Allow pop-ups for this site, or download it.');
       return;
     }
-    if (preview) tab.show(preview);
+    if (preview) tab.show(preview.url);
   }
 
   async function review(decision: FileReviewDecision) {
@@ -233,6 +236,33 @@ export function DocumentRow({
       setBusy(false);
     }
   }
+
+  const previewBody = preview ? (
+    previewFailed ? (
+      <p role="status" className="text-sm text-muted-foreground">
+        This preview could not be shown here. Open it in a new tab or download it.
+      </p>
+    ) : document.contentType === 'application/pdf' ? (
+      <iframe
+        src={preview.url}
+        title={named}
+        className={cn('w-full rounded-md border', preview.inline ? 'h-80' : 'h-[75vh]')}
+        onError={() => setPreviewFailed(true)}
+      />
+    ) : (
+      // Bypass the image optimizer so private signed URLs are never cached by it.
+      <img
+        src={preview.url}
+        alt={named}
+        onError={() => setPreviewFailed(true)}
+        className={cn(
+          'w-full rounded-md bg-muted object-contain',
+          preview.inline ? 'max-h-80' : 'max-h-[75vh]',
+        )}
+      />
+    )
+  ) : null;
+  const inlineOpen = canDownload && preview?.inline === true;
 
   return (
     <li className="flex flex-col gap-1 py-2 text-sm">
@@ -277,6 +307,21 @@ export function DocumentRow({
             ) : null}
             {canDownload ? (
               <>
+                {inlinePreview ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    aria-expanded={inlineOpen}
+                    aria-label={`${inlineOpen ? 'Hide preview of' : 'Preview'} ${named}`}
+                    onClick={() => {
+                      if (inlineOpen) setPreview(undefined);
+                      else void view(true);
+                    }}
+                  >
+                    {inlineOpen ? 'Hide preview' : 'Preview'}
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
@@ -305,8 +350,16 @@ export function DocumentRow({
           {message}
         </p>
       ) : null}
+      {inlineOpen ? (
+        <div className="mt-2 flex min-w-0 flex-col items-start gap-2">
+          {previewBody}
+          <Button variant="ghost" size="sm" onClick={openInTab}>
+            Open in new tab
+          </Button>
+        </div>
+      ) : null}
       <Dialog
-        open={preview !== undefined}
+        open={canDownload && preview !== undefined && !preview.inline}
         onOpenChange={(open) => {
           if (!open) setPreview(undefined);
         }}
@@ -318,24 +371,7 @@ export function DocumentRow({
               {FORMAT_LABELS[document.contentType]} · {sizeLabel(document.sizeBytes)}
             </DialogDescription>
           </DialogHeader>
-          {preview ? (
-            previewFailed ? (
-              <p className="text-sm text-muted-foreground">
-                This preview could not be shown here. Open it in a new tab or download it.
-              </p>
-            ) : document.contentType === 'application/pdf' ? (
-              <iframe src={preview} title={named} className="h-[75vh] w-full rounded-md border" />
-            ) : (
-              // A short-lived signed link to a private object: next/image would
-              // proxy and cache it, so a plain <img> is the right element here.
-              <img
-                src={preview}
-                alt={named}
-                onError={() => setPreviewFailed(true)}
-                className="max-h-[75vh] w-full rounded-md bg-muted object-contain"
-              />
-            )
-          ) : null}
+          {preview && !preview.inline ? previewBody : null}
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={openInTab}>
               Open in new tab

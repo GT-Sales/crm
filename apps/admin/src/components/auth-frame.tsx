@@ -43,6 +43,15 @@ export function AuthFrame({ children }: { children: ReactNode }) {
         <p className="text-xs text-muted-foreground">GT Sales · Staff workspace</p>
       </aside>
       <section className="relative flex min-w-0 items-center justify-center px-6 py-20">
+        <div className="absolute top-5 left-6 flex items-center gap-2 text-sm font-semibold lg:hidden">
+          <span
+            aria-hidden="true"
+            className="flex size-8 items-center justify-center rounded-lg bg-primary text-xs text-primary-foreground"
+          >
+            GT
+          </span>
+          GT Sales CRM
+        </div>
         <div className="absolute top-5 right-5">
           <ThemeToggle />
         </div>

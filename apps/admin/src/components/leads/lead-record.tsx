@@ -729,6 +729,8 @@ export function LeadRecord({
       </div>
     ) : null;
 
+  const activeTab = !access.contacts && panelTab !== 'files' ? 'home' : panelTab;
+  const showOverview = !inPanel || activeTab === 'home';
   const header = (
     <div
       className={cn('flex flex-col gap-4', !inPanel && 'rounded-2xl border bg-card p-5 md:p-6')}
@@ -828,56 +830,64 @@ export function LeadRecord({
           </span>
         </div>
       </div>
-      <div
-        className={cn(
-          'grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3',
-          !inPanel && 'sm:max-w-xl',
-        )}
-      >
-        {canWrite ? (
-          <>
-            <label className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Stage</span>
-              <NativeSelect
-                value={lead.stage}
-                disabled={saving}
-                onChange={(event) => changeStage(event.target.value)}
-              >
-                {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
-                {stageChoices.map((entry) => (
-                  <option key={entry.key} value={entry.key}>
-                    {entry.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </label>
-            <label className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Assignee</span>
-              <NativeSelect
-                value={lead.assignedActorId ?? ''}
-                disabled={saving}
-                onChange={(event) => void update({ assignedActorId: event.target.value || null })}
-              >
-                <option value="">Unassigned</option>
-                {self ? <option value={self.actorId}>{memberName(self)} (you)</option> : null}
-                {members
-                  .filter((member) => !member.isSelf)
-                  .map((member) => (
-                    <option key={member.actorId} value={member.actorId}>
-                      {memberName(member)}
-                    </option>
-                  ))}
-                {lead.assignedActorId &&
-                !members.some((member) => member.actorId === lead.assignedActorId) ? (
-                  <option value={lead.assignedActorId}>Former teammate</option>
-                ) : null}
-              </NativeSelect>
-            </label>
-          </>
-        ) : (
-          <StageBadge leadType={lead.leadType} stage={lead.stage} />
-        )}
-      </div>
+      {showOverview ? (
+        <>
+          <div
+            className={cn(
+              'grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3',
+              !inPanel && 'sm:max-w-xl',
+            )}
+          >
+            {canWrite ? (
+              <>
+                <label className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Stage</span>
+                  <NativeSelect
+                    value={lead.stage}
+                    disabled={saving}
+                    onChange={(event) => changeStage(event.target.value)}
+                  >
+                    {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
+                    {stageChoices.map((entry) => (
+                      <option key={entry.key} value={entry.key}>
+                        {entry.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </label>
+                <label className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Assignee</span>
+                  <NativeSelect
+                    value={lead.assignedActorId ?? ''}
+                    disabled={saving}
+                    onChange={(event) =>
+                      void update({ assignedActorId: event.target.value || null })
+                    }
+                  >
+                    <option value="">Unassigned</option>
+                    {self ? <option value={self.actorId}>{memberName(self)} (you)</option> : null}
+                    {members
+                      .filter((member) => !member.isSelf)
+                      .map((member) => (
+                        <option key={member.actorId} value={member.actorId}>
+                          {memberName(member)}
+                        </option>
+                      ))}
+                    {lead.assignedActorId &&
+                    !members.some((member) => member.actorId === lead.assignedActorId) ? (
+                      <option value={lead.assignedActorId}>Former teammate</option>
+                    ) : null}
+                  </NativeSelect>
+                </label>
+              </>
+            ) : (
+              <StageBadge leadType={lead.leadType} stage={lead.stage} />
+            )}
+          </div>
+          {keyFactsRow}
+          <LeadAttentionStrip items={attention} onJump={jumpTo} />
+        </>
+      ) : null}
       {lead.deletedAt ? (
         <p
           role="status"
@@ -887,8 +897,6 @@ export function LeadRecord({
           again.
         </p>
       ) : null}
-      {keyFactsRow}
-      <LeadAttentionStrip items={attention} onJump={jumpTo} />
       {waitingChange ? (
         <p
           role="status"
@@ -1215,7 +1223,6 @@ export function LeadRecord({
   );
 
   if (inPanel) {
-    const activeTab = !access.contacts && panelTab !== 'files' ? 'home' : panelTab;
     return (
       <Tabs
         value={activeTab}

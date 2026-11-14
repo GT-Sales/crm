@@ -8,7 +8,7 @@ import {
   type LeadTaskStatus,
 } from '@gt-sales/contracts';
 import { Button, cn, Input, NativeSelect } from '@gt-sales/ui';
-import { ListTodoIcon, PlusIcon, XIcon } from 'lucide-react';
+import { CalendarDaysIcon, ListTodoIcon, PlusIcon, XIcon } from 'lucide-react';
 
 import { createLeadTask, updateLeadTask } from '../../lib/api';
 import { dueAtFromDay, dueSentence, dueTone } from '../../lib/dates';
@@ -60,6 +60,7 @@ export function TaskRow({
   canWrite,
   busy,
   onStatus,
+  compact = false,
   children,
 }: {
   task: LeadTask;
@@ -67,6 +68,7 @@ export function TaskRow({
   canWrite: boolean;
   busy: boolean;
   onStatus(status: LeadTaskStatus): void;
+  compact?: boolean;
   /** Extra detail under the title, e.g. the lead on "My tasks". */
   children?: ReactNode;
 }) {
@@ -79,8 +81,31 @@ export function TaskRow({
   const status = pending ?? task.status;
   const assignee = assigneeName(task.assignedActorId, members);
   const closed = !isActiveTaskStatus(status);
+  const due = (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1',
+        task.dueAt && !closed && DUE_TONE_CLASS[dueTone(task.dueAt)],
+      )}
+    >
+      {compact ? <CalendarDaysIcon aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+      {task.dueAt ? dueSentence(task.dueAt) : 'No due date'}
+    </span>
+  );
+  const person = assignee ? <PersonChip name={assignee} size="xs" /> : <span>Unassigned</span>;
+  const badge =
+    status === 'in_progress' ? (
+      <TaskStatusBadge status={status} />
+    ) : status === 'cancelled' ? (
+      <span>Cancelled</span>
+    ) : null;
   return (
-    <li className="flex items-start gap-3 py-2">
+    <li
+      className={cn(
+        'flex gap-3',
+        compact ? 'min-h-11 items-start px-3 py-2 hover:bg-muted/30' : 'items-start py-2',
+      )}
+    >
       <input
         type="checkbox"
         className="mt-0.5 size-4 shrink-0 accent-primary"
@@ -93,23 +118,36 @@ export function TaskRow({
         }}
         aria-label={`${status === 'done' ? 'Reopen' : 'Complete'} “${task.title}”`}
       />
-      <div className="min-w-0 flex-1 text-sm">
-        <p className={cn('break-words', closed && 'text-muted-foreground line-through')}>
-          {task.title}
-        </p>
+      <div
+        className={cn(
+          'min-w-0 flex-1 text-sm',
+          compact &&
+            'grid items-center gap-x-3 gap-y-1 md:grid-cols-[minmax(0,1fr)_minmax(7rem,0.6fr)_minmax(10rem,auto)]',
+        )}
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p
+            className={cn(
+              'min-w-0 break-words',
+              compact && 'font-medium',
+              closed && 'text-muted-foreground line-through',
+            )}
+          >
+            {task.title}
+          </p>
+          {compact ? badge : null}
+        </div>
         {children}
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {task.dueAt ? (
-            <span className={closed ? undefined : DUE_TONE_CLASS[dueTone(task.dueAt)]}>
-              {dueSentence(task.dueAt)}
-            </span>
-          ) : (
-            <span>No due date</span>
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground',
+            compact ? 'md:justify-end' : 'mt-0.5',
           )}
-          {assignee ? <PersonChip name={assignee} size="xs" /> : <span>Unassigned</span>}
-          {status === 'in_progress' ? <TaskStatusBadge status={status} /> : null}
-          {status === 'cancelled' ? <span>Cancelled</span> : null}
-        </p>
+        >
+          {due}
+          {person}
+          {compact ? null : badge}
+        </div>
       </div>
       {canWrite && isActiveTaskStatus(status) ? (
         <Button

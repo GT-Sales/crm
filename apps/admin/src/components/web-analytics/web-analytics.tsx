@@ -324,7 +324,7 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
               onClick={() => setDays(period.days)}
               className={cn(
                 'border-l px-3 py-1.5 first:border-l-0 hover:bg-muted/50',
-                days === period.days && 'bg-primary/10 font-medium text-primary',
+                days === period.days && 'bg-primary/10 font-medium text-foreground',
               )}
             >
               Last {period.label}
@@ -343,7 +343,7 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
           {describeError(analytics.failure, 'load the analytics')}
         </p>
       ) : !data ? (
-        <LoadingSkeleton label="Loading analytics…" variant="dashboard" />
+        <LoadingSkeleton label="Loading analytics…" variant="analytics" />
       ) : data.report ? (
         <Report report={data.report} />
       ) : (

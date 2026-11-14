@@ -39,7 +39,7 @@ export function FlowSetup({
   const actionsReady = steps.length > 0 && incomplete.length === 0;
   const firstAction = incomplete[0] ?? steps[0];
   return (
-    <nav aria-label="Flow setup" className="rounded-lg border bg-card">
+    <nav aria-label="Flow setup" className="overflow-hidden rounded-xl border bg-card">
       <ol className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         {[
           {
@@ -79,12 +79,12 @@ export function FlowSetup({
               onClick={item.click}
               aria-current={item.selected ? 'step' : undefined}
               className={cn(
-                'flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default',
+                'flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default',
                 item.selected && 'bg-muted/60',
               )}
             >
               <span
-                className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium"
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg border bg-muted/40 text-xs font-medium"
                 aria-hidden="true"
               >
                 {item.done ? <CheckIcon className="size-4" /> : index + 1}

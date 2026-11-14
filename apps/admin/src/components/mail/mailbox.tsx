@@ -524,7 +524,7 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
       </p>
     );
   }
-  if (!people.data) return <LoadingSkeleton label="Loading mail…" variant="list" rows={6} />;
+  if (!people.data) return <LoadingSkeleton label="Loading mail…" variant="mail" />;
 
   const { items } = people.data;
   const pages = Math.max(1, Math.ceil(people.data.page.total / people.data.page.pageSize));

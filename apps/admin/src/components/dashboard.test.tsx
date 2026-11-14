@@ -272,11 +272,11 @@ describe('Dashboard analytics', () => {
     expect(screen.queryByRole('heading', { name: 'Carrier commission' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Mix' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Payment and commission status' })).toBeNull();
-    // What needs doing sits above the charts.
+    // The analytics overview leads, with actionable follow-ups directly below it.
     const followUps = screen.getByRole('heading', { name: 'Follow-ups due' });
     const trend = screen.getByRole('heading', { name: 'New leads over time' });
     expect(
-      followUps.compareDocumentPosition(trend) & Node.DOCUMENT_POSITION_FOLLOWING,
+      trend.compareDocumentPosition(followUps) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -309,7 +309,7 @@ describe('Dashboard analytics', () => {
     expect(within(trend).getAllByRole('row')).toHaveLength(3);
   });
 
-  it('writes the period, comparison, grouping and filters to the URL', async () => {
+  it('writes the period, comparison and filters to the URL', async () => {
     const view = render(<Dashboard workspaceSlug="getcanadasim" />);
     await screen.findByRole('heading', { name: 'New orders' });
     const periodButton = () => screen.getByRole('button', { name: /change the period/ });
@@ -323,12 +323,7 @@ describe('Dashboard analytics', () => {
       scroll: false,
     });
     view.rerender(<Dashboard workspaceSlug="getcanadasim" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Week' }));
-    expect(navigation.replace).toHaveBeenLastCalledWith(
-      '/w/getcanadasim/dashboard?period=7d&group=week',
-      { scroll: false },
-    );
-    view.rerender(<Dashboard workspaceSlug="getcanadasim" />);
+    expect(screen.queryByRole('group', { name: 'Group by' })).toBeNull();
     fireEvent.click(periodButton());
     fireEvent.change(await screen.findByRole('combobox', { name: 'Compare with' }), {
       target: { value: 'none' },
@@ -339,21 +334,21 @@ describe('Dashboard analytics', () => {
     fireEvent.change(await screen.findByRole('combobox', { name: 'Delivery' }), {
       target: { value: 'pickup' },
     });
-    expect(navigation.search).toBe('period=7d&compare=none&group=week&delivery=pickup');
+    expect(navigation.search).toBe('period=7d&compare=none&delivery=pickup');
     view.rerender(<Dashboard workspaceSlug="getcanadasim" />);
     await waitFor(() =>
       expect(mocks.getAnalytics).toHaveBeenLastCalledWith('staff-token', WORKSPACE, {
         from: addDays(TODAY, -6),
         to: TODAY,
         compare: 'none',
-        group: 'week',
+        group: 'day',
         leadType: 'sim_order',
         delivery: 'pickup',
       }),
     );
     // The active filter shows as a chip with its own remove button.
     fireEvent.click(screen.getByRole('button', { name: 'Remove Delivery: Physical SIM' }));
-    expect(navigation.search).toBe('period=7d&compare=none&group=week');
+    expect(navigation.search).toBe('period=7d&compare=none');
   });
 
   it('takes a custom range from the calendar', async () => {
