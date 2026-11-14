@@ -13,6 +13,13 @@ import { AssistantPanel } from './ai/assistant-panel';
 import { AssistantProvider } from './ai/assistant-provider';
 import { LoadingSkeleton } from './crm/loading-skeleton';
 
+/** The loading shape of the page a path opens: the shell's skeleton draws the same one. */
+function pageShape(pathname: string | null): 'dashboard' | 'table' | 'list' {
+  const section = pathname?.split('/')[3];
+  if (section === 'dashboard' || section === 'analytics') return 'dashboard';
+  return section === 'leads' ? 'table' : 'list';
+}
+
 const LEAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -96,7 +103,11 @@ export function ProtectedWorkspaceShell({
   if (staff.status !== 'signed_in' || !workspace) {
     return (
       <main id="main-content" tabIndex={-1} className="outline-none" aria-busy="true">
-        <LoadingSkeleton label="Checking workspace access" variant="workspace" />
+        <LoadingSkeleton
+          label="Checking workspace access"
+          variant="workspace"
+          content={pageShape(pathname)}
+        />
       </main>
     );
   }

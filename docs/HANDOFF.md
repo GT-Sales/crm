@@ -3037,6 +3037,25 @@ message in its corpus.
 
 A customer's reply to a CRM mail now lands on the lead.
 
+Live since 14 Nov 2026 (owner tested a real reply on CanadaWide):
+`EMAIL_INBOUND_DOMAIN` is the Resend account's built-in receiving domain
+(`ropsoo.resend.app`, no DNS record), `EMAIL_INBOUND_SITES` tags are `gcs` and
+`cw`, and a Resend webhook for `email.received` points at the Railway
+backend. `RESEND_API_KEY` on Railway is now the full-access key named
+"CRM backend (send + read replies)": a sending-only key gets 401 from
+`GET /emails/receiving/:id` (logged `inbound_mail` / `fetch_refused`). The old
+key "CRM backend (all domains)" is unused and can be deleted in Resend once
+sending has run normally for a few days. Mail sent before the switch still
+replies to the sites' own mailboxes. Branded reply domains (one per site)
+would need one inbound domain per site in `reply-address.ts` and an MX
+record on each `reply.` subdomain (DNS is on Cloudflare).
+
+One loading screen per page (same day): the dashboard keeps its single
+skeleton until the summary and the first figures are both in (it used to
+swap to a second skeleton under the filter bar), and the "Checking workspace
+access" skeleton draws the shape of the page being opened (`content`:
+dashboard, table or list by path) instead of a dashboard on every page.
+
 Review pass (same day, same PR): the reply-to is only rewritten when the
 webhook secret and `RESEND_API_KEY` are set too, so a reply is never sent to
 an address the CRM cannot receive on; a mail from an address other than the

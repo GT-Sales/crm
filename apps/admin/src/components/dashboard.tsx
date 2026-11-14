@@ -159,7 +159,9 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
   const update = (next: DashboardState) =>
     router.replace(`${pathname}${dashboardSearch(next)}`, { scroll: false });
 
-  if (!summary.data && !summary.error) {
+  // One loading screen until the first figures are in: the filter bar and the
+  // numbers arrive together, not a second skeleton after the first.
+  if (!summary.error && !analytics.error && (!summary.data || !data)) {
     // The same places as the loaded page below (filter bar, message, skeleton),
     // so the skeleton stays put when the filter bar arrives instead of a second
     // one being drawn under it.
@@ -200,12 +202,6 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
         <p role="alert" className="text-sm text-muted-foreground">
           {describeError(summary.error ? summary.failure : analytics.failure, 'load the dashboard')}
         </p>
-      ) : null}
-
-      {!data && !analytics.error ? (
-        <LoadingSkeleton label="Loading the dashboard…" variant="dashboard">
-          <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
-        </LoadingSkeleton>
       ) : null}
 
       {data ? (
