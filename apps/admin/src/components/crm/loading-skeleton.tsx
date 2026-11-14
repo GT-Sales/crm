@@ -204,6 +204,7 @@ export function LoadingSkeleton({
   variant = 'list',
   rows = 4,
   panel = false,
+  content = 'dashboard',
   className,
   children,
 }: {
@@ -211,6 +212,11 @@ export function LoadingSkeleton({
   variant?: LoadingLayout;
   rows?: number;
   panel?: boolean;
+  /**
+   * For `workspace`: the shape of the page that is about to open, so the page's
+   * own skeleton continues this one instead of a different one replacing it.
+   */
+  content?: 'dashboard' | 'table' | 'list';
   className?: string;
   /** Dashboard follow-ups keep loading independently of its statistics. */
   children?: ReactNode;
@@ -291,7 +297,9 @@ export function LoadingSkeleton({
           </div>
           <div className="min-w-0 flex-1 space-y-6 p-5">
             <Heading />
-            <DashboardLayout />
+            {content === 'dashboard' ? <DashboardLayout /> : null}
+            {content === 'table' ? <TableSkeleton /> : null}
+            {content === 'list' ? <Lines rows={6} /> : null}
           </div>
         </div>
       ) : null}
