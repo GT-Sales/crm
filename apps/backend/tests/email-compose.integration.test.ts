@@ -428,6 +428,10 @@ databaseTest('customer email composer and queue', () => {
         event: 'customer_emailed',
         template: 'sim_number_ready',
         templateVersion: 0,
+        // What was written, for the lead's Mail tab.
+        subject: payload.rendered.subject,
+        text: payload.rendered.text.trim(),
+        mailStatus: 'queued',
         createdAt: expect.any(String),
       },
     });
@@ -451,8 +455,13 @@ databaseTest('customer email composer and queue', () => {
     expect(await timeline(LEAD)).toEqual([
       {
         kind: 'system',
-        body: null,
-        data: { event: 'customer_emailed', template: 'sim_number_ready', templateVersion: 0 },
+        body: `${payload.rendered.subject}\n${payload.rendered.text.trim()}`,
+        data: {
+          event: 'customer_emailed',
+          jobId: first.jobId,
+          template: 'sim_number_ready',
+          templateVersion: 0,
+        },
       },
     ]);
     expect(await audits()).toEqual([
@@ -505,9 +514,10 @@ databaseTest('customer email composer and queue', () => {
     expect(await timeline(OTHER_LEAD)).toEqual([
       {
         kind: 'system',
-        body: null,
+        body: expect.stringContaining('\n'),
         data: {
           event: 'customer_emailed',
+          jobId: queued.jobId,
           template: 'dispatched',
           templateVersion: 0,
           automation: 'sim_order_dispatched',
@@ -559,7 +569,7 @@ databaseTest('customer email composer and queue', () => {
     ]);
   });
 
-  it('keeps addresses and the mail’s words out of the timeline and the audit', async () => {
+  it('keeps addresses out of the timeline, and the mail’s words out of its data and the audit', async () => {
     await reset();
     const leadPayload = await ready(SITE, 'sim_number_ready', simLead());
     await queue({
@@ -579,7 +589,17 @@ databaseTest('customer email composer and queue', () => {
       automation: null,
     });
 
-    const written = JSON.stringify([await timeline(LEAD), await audits()]);
+    // The entry's body holds the mail for the Mail tab (it is erased with the
+    // notes); nothing else on the timeline or in the audit does.
+    const entries = await timeline(LEAD);
+    expect(entries[0]?.body).toBe(
+      `${leadPayload.rendered.subject}\n${leadPayload.rendered.text.trim()}`,
+    );
+    expect(String(entries[0]?.body)).not.toContain(CUSTOMER);
+    const written = JSON.stringify([
+      entries.map(({ body: _body, ...rest }) => rest),
+      await audits(),
+    ]);
     for (const secret of [
       CUSTOMER,
       STAFF,

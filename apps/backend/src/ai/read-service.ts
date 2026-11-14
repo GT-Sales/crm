@@ -352,7 +352,9 @@ export class DatabaseAiReadService implements AiReadService {
       `);
 
       const activityRows = await tx.execute<{ [key: string]: unknown }>(sql`
-        select a.kind, a.created_at as at, a.body
+        select a.kind, a.created_at as at,
+          -- A sent mail keeps its words in body too; the summary carries notes only.
+          case when a.kind = 'system' then null else a.body end as body
         from app.lead_activities a
         where a.workspace_id = ${contextWorkspaceId}
           and a.lead_id = ${query.leadId}

@@ -5972,6 +5972,22 @@
                                 "minimum": 0,
                                 "maximum": 9007199254740991
                               },
+                              "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                              "text": { "type": "string", "maxLength": 4000 },
+                              "textCut": { "type": "boolean", "const": true },
+                              "mailStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "queued",
+                                  "sent",
+                                  "delivered",
+                                  "bounced",
+                                  "complained",
+                                  "failed",
+                                  "uncertain",
+                                  "skipped"
+                                ]
+                              },
                               "missing": {
                                 "minItems": 1,
                                 "maxItems": 16,
@@ -7371,6 +7387,22 @@
                                 "minimum": 0,
                                 "maximum": 9007199254740991
                               },
+                              "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                              "text": { "type": "string", "maxLength": 4000 },
+                              "textCut": { "type": "boolean", "const": true },
+                              "mailStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "queued",
+                                  "sent",
+                                  "delivered",
+                                  "bounced",
+                                  "complained",
+                                  "failed",
+                                  "uncertain",
+                                  "skipped"
+                                ]
+                              },
                               "missing": {
                                 "minItems": 1,
                                 "maxItems": 16,
@@ -8590,6 +8622,22 @@
                                 "minimum": 0,
                                 "maximum": 9007199254740991
                               },
+                              "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                              "text": { "type": "string", "maxLength": 4000 },
+                              "textCut": { "type": "boolean", "const": true },
+                              "mailStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "queued",
+                                  "sent",
+                                  "delivered",
+                                  "bounced",
+                                  "complained",
+                                  "failed",
+                                  "uncertain",
+                                  "skipped"
+                                ]
+                              },
                               "missing": {
                                 "minItems": 1,
                                 "maxItems": 16,
@@ -9657,6 +9705,22 @@
                                 "minimum": 0,
                                 "maximum": 9007199254740991
                               },
+                              "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                              "text": { "type": "string", "maxLength": 4000 },
+                              "textCut": { "type": "boolean", "const": true },
+                              "mailStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "queued",
+                                  "sent",
+                                  "delivered",
+                                  "bounced",
+                                  "complained",
+                                  "failed",
+                                  "uncertain",
+                                  "skipped"
+                                ]
+                              },
                               "missing": {
                                 "minItems": 1,
                                 "maxItems": 16,
@@ -10722,6 +10786,22 @@
                                   "minimum": 0,
                                   "maximum": 9007199254740991
                                 },
+                                "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                                "text": { "type": "string", "maxLength": 4000 },
+                                "textCut": { "type": "boolean", "const": true },
+                                "mailStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "queued",
+                                    "sent",
+                                    "delivered",
+                                    "bounced",
+                                    "complained",
+                                    "failed",
+                                    "uncertain",
+                                    "skipped"
+                                  ]
+                                },
                                 "missing": {
                                   "minItems": 1,
                                   "maxItems": 16,
@@ -11727,6 +11807,22 @@
                                   "minimum": 0,
                                   "maximum": 9007199254740991
                                 },
+                                "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                                "text": { "type": "string", "maxLength": 4000 },
+                                "textCut": { "type": "boolean", "const": true },
+                                "mailStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "queued",
+                                    "sent",
+                                    "delivered",
+                                    "bounced",
+                                    "complained",
+                                    "failed",
+                                    "uncertain",
+                                    "skipped"
+                                  ]
+                                },
                                 "missing": {
                                   "minItems": 1,
                                   "maxItems": 16,
@@ -12534,6 +12630,22 @@
                                   "type": "integer",
                                   "minimum": 0,
                                   "maximum": 9007199254740991
+                                },
+                                "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                                "text": { "type": "string", "maxLength": 4000 },
+                                "textCut": { "type": "boolean", "const": true },
+                                "mailStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "queued",
+                                    "sent",
+                                    "delivered",
+                                    "bounced",
+                                    "complained",
+                                    "failed",
+                                    "uncertain",
+                                    "skipped"
+                                  ]
                                 },
                                 "missing": {
                                   "minItems": 1,
@@ -13540,6 +13652,22 @@
                                   "minimum": 0,
                                   "maximum": 9007199254740991
                                 },
+                                "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                                "text": { "type": "string", "maxLength": 4000 },
+                                "textCut": { "type": "boolean", "const": true },
+                                "mailStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "queued",
+                                    "sent",
+                                    "delivered",
+                                    "bounced",
+                                    "complained",
+                                    "failed",
+                                    "uncertain",
+                                    "skipped"
+                                  ]
+                                },
                                 "missing": {
                                   "minItems": 1,
                                   "maxItems": 16,
@@ -14123,6 +14251,22 @@
                               "minimum": 0,
                               "maximum": 9007199254740991
                             },
+                            "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                            "text": { "type": "string", "maxLength": 4000 },
+                            "textCut": { "type": "boolean", "const": true },
+                            "mailStatus": {
+                              "type": "string",
+                              "enum": [
+                                "queued",
+                                "sent",
+                                "delivered",
+                                "bounced",
+                                "complained",
+                                "failed",
+                                "uncertain",
+                                "skipped"
+                              ]
+                            },
                             "missing": {
                               "minItems": 1,
                               "maxItems": 16,
@@ -14342,10 +14486,23 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": { "template": { "type": "string", "const": "sim_number_ready" } },
-                "required": ["template"],
-                "additionalProperties": false
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": { "template": { "type": "string", "const": "sim_number_ready" } },
+                    "required": ["template"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "subject": { "type": "string", "minLength": 1, "maxLength": 150 },
+                      "body": { "type": "string", "minLength": 1, "maxLength": 3500 }
+                    },
+                    "required": ["subject", "body"],
+                    "additionalProperties": false
+                  }
+                ]
               }
             }
           }
@@ -14712,6 +14869,22 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 9007199254740991
+                            },
+                            "subject": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                            "text": { "type": "string", "maxLength": 4000 },
+                            "textCut": { "type": "boolean", "const": true },
+                            "mailStatus": {
+                              "type": "string",
+                              "enum": [
+                                "queued",
+                                "sent",
+                                "delivered",
+                                "bounced",
+                                "complained",
+                                "failed",
+                                "uncertain",
+                                "skipped"
+                              ]
                             },
                             "missing": {
                               "minItems": 1,

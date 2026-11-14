@@ -306,14 +306,14 @@ export async function updateStaffLead(
   return client(accessToken).staff.updateLead(workspaceId, leadId, body);
 }
 
-/** Queues a mail to the lead's customer (a SIM order's number), sent within a minute. */
+/** Queues a mail to the lead's customer (a SIM order's number, or a message staff wrote), sent within a minute. */
 export async function emailLeadCustomer(
   accessToken: string,
   workspaceId: string,
   leadId: string,
-  template: QueueCustomerEmailRequest['template'],
+  mail: QueueCustomerEmailRequest,
 ): Promise<QueueCustomerEmailResponse> {
-  return client(accessToken).staff.emailLeadCustomer(workspaceId, leadId, { template });
+  return client(accessToken).staff.emailLeadCustomer(workspaceId, leadId, mail);
 }
 
 /** Clears the lead's "New" badge for the team; idempotent. */

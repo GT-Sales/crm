@@ -264,6 +264,19 @@ function memoryWorkStore() {
         template: 'sim_number_ready',
       },
     })),
+    queueWrittenEmail: vi.fn<LeadWorkStore['queueWrittenEmail']>(async (input) => ({
+      status: 'queued',
+      activity: {
+        id: '92000000-0000-4000-8000-000000000e06',
+        actorId: ACTOR,
+        createdAt: NOW,
+        kind: 'system',
+        event: 'customer_emailed',
+        subject: input.subject,
+        text: input.body,
+        mailStatus: 'queued',
+      },
+    })),
     createTask: vi.fn<LeadWorkStore['createTask']>(async () => ({ status: 'saved', task })),
     updateTask: vi.fn<LeadWorkStore['updateTask']>(async () => ({ status: 'saved', task })),
     listTasks: vi.fn<LeadWorkStore['listTasks']>(async () => ({
@@ -752,6 +765,27 @@ describe('staff lead work routes', () => {
     });
 
     expect((await send({ template: 'something_else' })).status).toBe(400);
+
+    // A message staff wrote in the Mail tab goes to its own store method.
+    const written = await send({ subject: '  Your order  ', body: 'Hello,\nall set.' });
+    expect(written.status).toBe(202);
+    expect(queueCustomerEmailResponseSchema.parse(await written.json()).activity).toMatchObject({
+      event: 'customer_emailed',
+      subject: 'Your order',
+      text: 'Hello,\nall set.',
+      mailStatus: 'queued',
+    });
+    expect(work.queueWrittenEmail.mock.calls[0]?.[0]).toMatchObject({
+      leadId: LEAD,
+      subject: 'Your order',
+      body: 'Hello,\nall set.',
+    });
+    // Neither both shapes at once, nor a subject over two lines, nor an empty message.
+    expect((await send({ template: 'sim_number_ready', subject: 'a', body: 'b' })).status).toBe(
+      400,
+    );
+    expect((await send({ subject: 'a\nb', body: 'b' })).status).toBe(400);
+    expect((await send({ subject: 'a', body: '   ' })).status).toBe(400);
 
     work.queueCustomerEmail.mockResolvedValueOnce({ status: 'missing', missing: ['SIM number'] });
     const missing = await send();

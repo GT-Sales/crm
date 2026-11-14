@@ -1072,7 +1072,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
-  // A mail to the lead's customer (a SIM order's number), queued for the
+  // A mail to the lead's customer (a SIM order's number, or a message staff
+  // wrote in the Mail tab), queued for the
   // outbox and sent from the site's own sender. Refused while the site cannot
   // send, so staff learn it now rather than from a failed job.
   router.post('/workspaces/:workspaceId/leads/:leadId/customer-emails', async (req, res) => {
@@ -1099,13 +1100,20 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       }
       const store = leadWork(req, res);
       if (!store) return;
-      const outcome = await store.queueCustomerEmail({
+      const scope = {
         workspaceId: params.workspaceId,
         actorId: actor.actorId,
         requestId: req.id,
         leadId: params.id,
-        template: body.data.template,
-      });
+      };
+      const outcome =
+        'template' in body.data
+          ? await store.queueCustomerEmail({ ...scope, template: body.data.template })
+          : await store.queueWrittenEmail({
+              ...scope,
+              subject: body.data.subject,
+              body: body.data.body,
+            });
       if (outcome.status === 'not_found') {
         sendDomainError(res, req.id, 'lead_not_found', 404);
         return;

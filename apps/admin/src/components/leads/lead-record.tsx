@@ -73,6 +73,7 @@ import { LeadDocuments, linkFailure } from './lead-documents';
 import type { PropertyEdits } from './lead-form-editor';
 import { leadSummaryText } from './lead-summary';
 import { LeadAttentionStrip, leadAttention, type LeadAttentionTarget } from './lead-attention';
+import { LeadMail } from './lead-mail';
 import { LeadTasks } from './lead-tasks';
 import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
 import { RelatedRequests } from './related-requests';
@@ -527,7 +528,9 @@ export function LeadRecord({
     setSimEmail('sending');
     setSimEmailMessage(undefined);
     try {
-      const result = await emailLeadCustomer(accessToken, workspaceId, leadId, 'sim_number_ready');
+      const result = await emailLeadCustomer(accessToken, workspaceId, leadId, {
+        template: 'sim_number_ready',
+      });
       addActivities([result.activity]);
       setSimEmail('sent');
     } catch (error) {
@@ -545,6 +548,25 @@ export function LeadRecord({
               : reason === 'feature_not_ready'
                 ? 'Emailing customers is not set up for this site yet. Ask the owner to set up Settings → Email.'
                 : describeError(error, 'send the email'),
+      );
+    }
+  }
+
+  /** A message written in the Mail tab; throws the words to show when it cannot go. */
+  async function sendWrittenMail(mail: { subject: string; body: string }) {
+    if (!accessToken || !workspaceId) throw new Error('Sign in again to send email.');
+    try {
+      const result = await emailLeadCustomer(accessToken, workspaceId, leadId, mail);
+      addActivities([result.activity]);
+    } catch (error) {
+      const reason = errorReason(error);
+      throw new Error(
+        reason === 'conflict'
+          ? 'The customer has no usable email address.'
+          : reason === 'feature_not_ready'
+            ? 'Emailing customers is not set up for this site yet. Ask the owner to set up Settings → Email.'
+            : describeError(error, 'send the email'),
+        { cause: error },
       );
     }
   }
@@ -1150,6 +1172,30 @@ export function LeadRecord({
     />
   ) : null;
 
+  const customerEmail = lead.contact.email?.trim() || undefined;
+  const mailSection = (
+    <Card>
+      <CardContent>
+        <LeadMail
+          activities={activities}
+          members={members}
+          customerEmail={customerEmail}
+          canSend={access.emailCustomer === true && canWrite && customerEmail !== undefined}
+          cannotSendReason={
+            !canWrite
+              ? undefined
+              : !access.emailCustomer
+                ? 'Emailing customers is not set up for this site yet. The owner sets it up in Settings → Email.'
+                : customerEmail === undefined
+                  ? 'This customer has no email address. Add one to write to them.'
+                  : undefined
+          }
+          onSend={sendWrittenMail}
+        />
+      </CardContent>
+    </Card>
+  );
+
   const timelineSection = (
     <Card>
       <CardContent>
@@ -1193,6 +1239,10 @@ export function LeadRecord({
               <TabsTrigger value="notes" className="gap-1.5 px-2 text-xs">
                 <StickyNoteIcon className="size-3.5" aria-hidden="true" />
                 Notes
+              </TabsTrigger>
+              <TabsTrigger value="mail" className="gap-1.5 px-2 text-xs">
+                <MailIcon className="size-3.5" aria-hidden="true" />
+                Mail
               </TabsTrigger>
             </>
           ) : null}
@@ -1264,6 +1314,11 @@ export function LeadRecord({
           )}
         </TabsContent>
         {access.contacts ? (
+          <TabsContent value="mail" hidden={activeTab !== 'mail'} forceMount className="p-4">
+            {mailSection}
+          </TabsContent>
+        ) : null}
+        {access.contacts ? (
           <TabsContent
             value="activity"
             hidden={activeTab !== 'activity'}
@@ -1286,6 +1341,7 @@ export function LeadRecord({
           <div className="flex min-w-0 flex-col gap-4">
             {anchored('change-request', changeRequestSection)}
             {anchored('tasks', tasksSection)}
+            {mailSection}
             {timelineSection}
           </div>
         ) : null}

@@ -331,6 +331,7 @@ databaseTest('the built-in flows send customer emails as the phase 4 rules did',
         actorId: CREDENTIAL,
         data: {
           event: 'customer_emailed',
+          jobId: job?.id,
           template: 'order_received',
           templateVersion: 1,
           automation: 'order_received',
@@ -409,6 +410,7 @@ databaseTest('the built-in flows send customer emails as the phase 4 rules did',
         actorId: STAFF,
         data: {
           event: 'customer_emailed',
+          jobId: first[0]?.id,
           template: 'dispatched',
           templateVersion: 1,
           automation: 'sim_order_dispatched',
@@ -817,7 +819,12 @@ databaseTest('the built-in flows send customer emails as the phase 4 rules did',
       expect(await emailed(leadId)).toEqual([
         {
           actorId: STAFF,
-          data: { event: 'customer_emailed', template: 'sim_number_ready', templateVersion: 2 },
+          data: {
+            event: 'customer_emailed',
+            jobId: queued[0]?.id,
+            template: 'sim_number_ready',
+            templateVersion: 2,
+          },
         },
       ]);
       expect(await runs(leadId)).toEqual([]);

@@ -1098,12 +1098,9 @@ describe('LeadRecord order details', () => {
     const ask = await screen.findByRole('group', { name: 'Email the customer this number?' });
     fireEvent.click(within(ask).getByRole('button', { name: 'Email the customer' }));
     await waitFor(() =>
-      expect(mocks.emailLeadCustomer).toHaveBeenCalledWith(
-        'staff-token',
-        WORKSPACE,
-        LEAD,
-        'sim_number_ready',
-      ),
+      expect(mocks.emailLeadCustomer).toHaveBeenCalledWith('staff-token', WORKSPACE, LEAD, {
+        template: 'sim_number_ready',
+      }),
     );
     expect((await screen.findByRole('status')).textContent).toContain('within a minute');
     const timeline = screen.getByRole('region', { name: 'Timeline' });

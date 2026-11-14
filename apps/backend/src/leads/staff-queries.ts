@@ -52,6 +52,7 @@ import {
 import { LATEST_REVIEW, currentLeadDocuments } from './documents-check.js';
 import { toLeadOrder } from './order.js';
 import { deriveSource } from './source.js';
+import { sentMailOf } from '../email/kept-text.js';
 
 /**
  * The staff side's lead reads, as plain SQL with explicit table aliases. The
@@ -1107,7 +1108,34 @@ export interface ActivityRow {
   body: string | null;
   data: unknown;
   createdAt: string;
+  /** How a `customer_emailed` entry's send went; read with the lead page only. */
+  mailStatus?: string | null;
 }
+
+/**
+ * How the mail behind a `customer_emailed` entry `a` went: the provider's
+ * last report when the send got that far, else where its outbox job stands.
+ * Null for other entries and for mails queued before entries named their job.
+ */
+const MAIL_STATUS = sql.raw(`(
+  select case
+    when m.status is not null and m.status <> 'queued' then m.status
+    when j.status in ('pending', 'processing') then 'queued'
+    when j.status in ('failed', 'uncertain') then j.status
+    when j.provider_id like 'skipped:%' then 'skipped'
+    else 'sent'
+  end
+  from app.outbox_jobs j
+  left join app.email_messages m
+    on m.workspace_id = j.workspace_id and m.message_id = j.message_id
+  where a.kind = 'system'
+    and a.data ->> 'event' = 'customer_emailed'
+    and j.workspace_id = a.workspace_id
+    and j.id = case
+      when a.data ->> 'jobId' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+      then (a.data ->> 'jobId')::uuid
+    end
+)`);
 
 /**
  * A stored timeline row as the contract's entry. `data` carries the kind's
@@ -1118,12 +1146,22 @@ export interface ActivityRow {
 export function toLeadActivity(row: ActivityRow): LeadActivity {
   const data =
     typeof row.data === 'object' && row.data !== null && !Array.isArray(row.data) ? row.data : {};
+  // A mail to the customer keeps its subject and text in `body` (keptMailText).
+  const mail =
+    row.kind === 'system' &&
+    Object.hasOwn(data, 'event') &&
+    Reflect.get(data, 'event') === 'customer_emailed'
+      ? sentMailOf(row.body)
+      : undefined;
   const parsed = leadActivitySchema.safeParse({
     ...data,
+    ...(mail ?? {}),
+    ...(row.mailStatus ? { mailStatus: row.mailStatus } : {}),
     id: row.id,
     actorId: row.actorId,
     kind: row.kind,
-    body: row.body ?? undefined,
+    // A mail's body is served as `subject` and `text`, not twice.
+    body: mail ? undefined : (row.body ?? undefined),
     createdAt: row.createdAt,
   });
   if (parsed.success) return parsed.data;
@@ -1236,6 +1274,7 @@ export async function selectLeadWithWork(
           'kind', a.kind,
           'body', a.body,
           'data', a.data,
+          'mailStatus', ${MAIL_STATUS},
           'createdAt', ${iso('a.created_at')}
         ) order by a.created_at desc, a.id desc), '[]'::json)
         from (

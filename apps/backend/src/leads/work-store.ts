@@ -137,7 +137,7 @@ export type CustomerEmailOutcome =
 
 export interface QueueCustomerEmailInput extends WriteScope {
   leadId: string;
-  template: QueueCustomerEmailRequest['template'];
+  template: Extract<QueueCustomerEmailRequest, { template: unknown }>['template'];
 }
 
 export type TaskOutcome =
@@ -281,6 +281,10 @@ export interface LeadWorkStore {
     | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' }
   >;
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome>;
+  /** Queues a message staff wrote themselves to the lead's own address. */
+  queueWrittenEmail(
+    input: WriteScope & { leadId: string; subject: string; body: string },
+  ): Promise<CustomerEmailOutcome>;
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
   listTasks(
@@ -1568,6 +1572,49 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     });
   }
 
+  /** A message staff wrote in the lead's Mail tab: plain text, to the lead's own address. */
+  queueWrittenEmail(
+    input: WriteScope & { leadId: string; subject: string; body: string },
+  ): Promise<CustomerEmailOutcome> {
+    return this.database.withTenantTx(input, async (tx): Promise<CustomerEmailOutcome> => {
+      const lead = await lockLead(tx, input.workspaceId, input.leadId);
+      if (!lead) return { status: 'not_found' };
+      if (lead.trashed) return { status: 'trashed' };
+      if (!this.emailEnvironment.providerReady) return { status: 'no_sender' };
+      const site = await resolveSiteSender(tx, input.workspaceId);
+      if (!site) return { status: 'no_sender' };
+      const toAddress = customerEmailJobPayloadSchema.shape.toAddress.safeParse(lead.email?.trim());
+      if (!toAddress.success) return { status: 'missing', missing: ['customer email'] };
+      const payload = customerEmailJobPayloadSchema.parse({
+        leadId: input.leadId,
+        // A per-message custom-template transport label; never read as a saved template.
+        template: `tpl_${input.requestId.replace(/-/g, '').slice(0, 16)}`,
+        templateVersion: 0,
+        toAddress: toAddress.data,
+        contactHash: this.emailEnvironment.contactHash(toAddress.data),
+        sender: site.sender,
+        rendered: renderPlainCustomerEmail({
+          subject: input.subject,
+          body: input.body,
+          branding: site.branding,
+        }),
+      });
+      const queued = await queueComposedEmail(tx, {
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        requestId: input.requestId,
+        leadId: input.leadId,
+        // One mail per request: sending again is a second, deliberate mail.
+        dedupeKey: `${input.leadId}:${input.requestId}`,
+        payload,
+        automation: null,
+        templateName: 'Written message',
+      });
+      if (!queued.activity) throw new Error('this request already queued its mail');
+      return { status: 'queued', activity: queued.activity };
+    });
+  }
+
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome> {
     return this.database.withTenantTx(input, async (tx): Promise<CustomerEmailOutcome> => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
@@ -1586,8 +1633,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         return { status: 'missing', missing: composed.missing ?? [] };
       }
 
-      // Sent by the outbox, after this commits; the address and the mail's
-      // words live only in the job, never on the timeline or in the audit.
+      // Sent by the outbox, after this commits; the address lives only in
+      // the job, and the mail's words also on its timeline entry (Mail tab).
       const queued = await queueComposedEmail(tx, {
         workspaceId: input.workspaceId,
         actorId: input.actorId,
