@@ -3,6 +3,8 @@ import type {
   AnalyticsResponse,
   DocumentReviewQueueQuery,
   DocumentReviewQueueResponse,
+  MailboxQuery,
+  MailboxResponse,
   AiAutomationDraft,
   AiAutomationProposal,
   AiAutomationSaveResponse,
@@ -753,6 +755,15 @@ export async function reviewFile(
   body: ReviewFileRequest,
 ): Promise<ReviewFileResponse> {
   return client(accessToken).staff.reviewFile(workspaceId, fileId, body);
+}
+
+/** Mail: one page of the site's sent box, newest first. */
+export async function listMailbox(
+  accessToken: string,
+  workspaceId: string,
+  query?: MailboxQuery,
+): Promise<MailboxResponse> {
+  return client(accessToken).staff.listMailbox(workspaceId, query);
 }
 
 /** Documents → the site's review queue (contact access; review and download recheck their own). */

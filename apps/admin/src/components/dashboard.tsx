@@ -69,7 +69,7 @@ import {
   percentFormat,
 } from './analytics/charts';
 import { FilterBar, rangeLabel } from './analytics/filter-bar';
-import { LoadingSkeleton } from './crm/loading-skeleton';
+import { DashboardFiltersSkeleton, LoadingSkeleton } from './crm/loading-skeleton';
 import { leadDisplayName } from './leads/lead-display';
 import { SourceReport } from './reports/source-report';
 import { useStaffSession } from './staff-session-provider';
@@ -151,13 +151,27 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
     [accessToken, workspaceId, summary.data, query],
   );
   const analytics = useResource(loadAnalytics);
+  // Loaded here, not in the card: the card is drawn inside the skeleton and
+  // then in the page, and must not ask again when it moves.
+  const followUps = useFollowUpsDue(workspaceSlug);
   const data = analytics.data;
 
   const update = (next: DashboardState) =>
     router.replace(`${pathname}${dashboardSearch(next)}`, { scroll: false });
 
   if (!summary.data && !summary.error) {
-    return <LoadingSkeleton label="Loading the dashboard…" variant="dashboard" />;
+    // The same places as the loaded page below (filter bar, message, skeleton),
+    // so the skeleton stays put when the filter bar arrives instead of a second
+    // one being drawn under it.
+    return (
+      <div className="crm-dashboard flex flex-col gap-6">
+        <DashboardFiltersSkeleton />
+        {null}
+        <LoadingSkeleton label="Loading the dashboard…" variant="dashboard">
+          <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
+        </LoadingSkeleton>
+      </div>
+    );
   }
 
   return (
@@ -190,7 +204,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
 
       {!data && !analytics.error ? (
         <LoadingSkeleton label="Loading the dashboard…" variant="dashboard">
-          <FollowUpsDue workspaceSlug={workspaceSlug} />
+          <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
         </LoadingSkeleton>
       ) : null}
 
@@ -217,7 +231,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
             compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
           />
           {/* What needs doing comes before what happened. */}
-          <FollowUpsDue workspaceSlug={workspaceSlug} />
+          <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
           <Charts data={data} leadType={leadType} workspaceSlug={workspaceSlug} members={members} />
         </div>
       ) : null}
@@ -793,7 +807,8 @@ function hasRecorded(statuses: readonly { key: string; total: number }[]): boole
  * The whole team's open tasks due today or earlier (the viewer's today; due
  * dates are calendar days), most overdue first, each linking to its lead.
  */
-function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
+/** The follow-ups card's tasks, loaded once by the dashboard however often the card moves. */
+function useFollowUpsDue(workspaceSlug: string) {
   const { accessToken, workspaces } = useStaffSession();
   const workspaceId = workspaces.find((entry) => entry.slug === workspaceSlug)?.id;
   const today = todayDay();
@@ -810,7 +825,16 @@ function FollowUpsDue({ workspaceSlug }: { workspaceSlug: string }) {
         : undefined,
     [accessToken, workspaceId, today],
   );
-  const due = useResource(load);
+  return useResource(load);
+}
+
+function FollowUpsDue({
+  workspaceSlug,
+  due,
+}: {
+  workspaceSlug: string;
+  due: ReturnType<typeof useFollowUpsDue>;
+}) {
   const tasks = due.data?.tasks ?? [];
   const total = due.data?.page.total ?? 0;
 

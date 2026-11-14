@@ -62,6 +62,12 @@ describe('sanitizeAttribution', () => {
     expect(sanitizeAttribution({ referrerHost: 'm.facebook.com' })).toEqual({
       referrerHost: 'm.facebook.com',
     });
+    // A click out of the Facebook or Instagram app reports Meta's link shim.
+    for (const host of ['l.facebook.com', 'lm.facebook.com', 'l.instagram.com']) {
+      expect(sanitizeAttribution({ referrerHost: `https://${host}/` })).toEqual({
+        referrerHost: host,
+      });
+    }
   });
 
   it('drops a referrer host that is not on the approved allowlist', () => {

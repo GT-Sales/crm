@@ -95,6 +95,7 @@ import {
   documentReviewQueueQuerySchema,
   documentReviewQueueResponseSchema,
 } from './document-review';
+import { mailboxQuerySchema, mailboxResponseSchema } from './mailbox';
 import {
   TRACKING_GRANT_HEADER,
   createTrackedChangeRequestSchema,
@@ -591,6 +592,17 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: documentReviewQueueQuerySchema,
     response: documentReviewQueueResponseSchema,
+  },
+  {
+    operationId: 'listMailbox',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/mail',
+    summary:
+      "The site's sent box: every mail queued to a customer of an active lead, newest first, with what was written (when kept) and how the send went. Needs contact access.",
+    auth: 'staff',
+    successStatus: 200,
+    query: mailboxQuerySchema,
+    response: mailboxResponseSchema,
   },
 
   // Staff — properties, record layouts and saved views

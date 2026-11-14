@@ -24,7 +24,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     id: 'navigation',
     summary: 'Finding your way: the sidebar pages, top bar search, switching site, signing out',
     body: text(
-      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, then under Manage: Automations and Settings.',
+      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, Mail, then under Manage: Automations and Settings.',
       'Leads shows a count of new leads not opened yet; Documents shows how many documents wait for review.',
       'Top bar:',
       '1. "Search leads, pages…" (or Ctrl+K / Cmd+K) finds a lead by name, order number, email or phone, or jumps to a page. Press Enter to open the first result.',
@@ -151,6 +151,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     body: text(
       'Mail tab: open the lead and choose Mail (on the full page, the "Emails to the customer" card). It lists every email the CRM sent this customer, newest first, with who or which automation sent it and how it went (Sending, Sent, Delivered, Bounced, Not sent). Click one to read it. Emails from before 13 Nov 2026 show their name only.',
       'To write one: press "New email", fill in Subject and Message, press "Send email". It goes to the lead’s own address within a minute. Replies do not appear in the CRM; they go to the site’s reply-to mailbox.',
+      'The Mail page in the sidebar shows sent email by customer: pick a customer on the left to read every email sent to them, and write the next one in the box underneath. "New email" finds a customer to write to. "Write with AI" asks Ask AI for a draft you can edit and send.',
       'SIM number: save the number in the lead’s details, then press "Email the customer" when asked, or "Email it to the customer" later.',
       'Ask AI can also prepare an email: edit the draft card and press "Send".',
       'Sending needs the Leads role (or owner), a customer email address, and Settings → Email set up; otherwise the lead says what is missing. Emails on stage moves come from automations.',

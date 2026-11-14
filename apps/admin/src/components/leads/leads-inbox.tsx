@@ -43,7 +43,9 @@ import {
   NativeSelect,
   Popover,
   PopoverTrigger,
+  Skeleton,
 } from '@gt-sales/ui';
+import { TableSkeleton } from '../crm/loading-skeleton';
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
@@ -300,6 +302,9 @@ function splitSort(sort: string | undefined): { field?: string; direction?: 'asc
  * there are any; and a table or (for one type) a board. Every choice is in
  * the URL.
  */
+/** Each site's one lead type (or none), as last seen this session: see `soleType`. */
+const soleTypeBySite = new Map<string, string | undefined>();
+
 export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -337,7 +342,22 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   );
   // A site that holds one lead type opens on that type's tab: an "All leads"
   // tab beside it would only repeat the same list, without the board.
-  const soleType = summary.data && tabTypes.length === 1 ? tabTypes[0]?.leadType : undefined;
+  const knownSoleType = summary.data && tabTypes.length === 1 ? tabTypes[0]?.leadType : undefined;
+  useEffect(() => {
+    if (summary.data) soleTypeBySite.set(workspaceSlug, knownSoleType);
+  }, [summary.data, knownSoleType, workspaceSlug]);
+  // On a later visit the answer from the last one stands in until the summary
+  // is back, so the type's list starts loading at once.
+  const soleType = summary.data ? knownSoleType : soleTypeBySite.get(workspaceSlug);
+  // Until the site's lead types are known, a bare `/leads` cannot tell whether
+  // it will open on "All leads" or on the site's one type. Loading "All leads"
+  // first and then the type showed two lists in a row, so it waits.
+  const decidingType =
+    !query.type &&
+    !query.archived &&
+    !query.view &&
+    !summary.error &&
+    (!summary.data || soleType !== undefined);
   const access = summary.data?.access;
   const canUseProperties = access?.contacts === true && !query.archived;
   const totalActive = types.reduce((sum, entry) => sum + entry.total, 0);
@@ -1499,7 +1519,9 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           aria-label="Lead types"
           className="flex w-full min-w-0 overflow-x-auto overflow-y-hidden lg:w-auto lg:flex-1"
         >
-          {soleType ? null : (
+          {decidingType ? (
+            <Skeleton aria-hidden="true" className="my-1 h-8 w-28" />
+          ) : soleType ? null : (
             <TabButton
               active={!query.type && !query.archived}
               onClick={() =>
@@ -1633,7 +1655,12 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
 
       <div className="flex min-w-0 items-start">
         <div data-slot="lead-list" className="min-w-0 flex-1">
-          {!accessToken || !workspaceId ? null : onBoard && query.type ? (
+          {!accessToken || !workspaceId ? null : decidingType ? (
+            <div role="status" aria-busy="true" aria-label="Loading leads…">
+              <span className="sr-only">Loading leads…</span>
+              <TableSkeleton />
+            </div>
+          ) : onBoard && query.type ? (
             <LeadsBoard
               // The board loads once per mount; a new key asks again.
               key={listVersion}

@@ -16,12 +16,26 @@ const APPROVED_REFERRER_HOSTS = new Set([
   'www.google.com',
   'bing.com',
   'www.bing.com',
+  'duckduckgo.com',
+  'search.yahoo.com',
+  'ca.search.yahoo.com',
   'facebook.com',
+  'www.facebook.com',
+  'web.facebook.com',
   'm.facebook.com',
+  // Meta's link shims: what a click out of the Facebook or Instagram app reports.
   'l.facebook.com',
+  'lm.facebook.com',
   'instagram.com',
+  'www.instagram.com',
+  'l.instagram.com',
   'tiktok.com',
+  'www.tiktok.com',
   'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'linkedin.com',
+  'www.linkedin.com',
   't.co',
 ]);
 
@@ -34,7 +48,7 @@ const APPROVED_REFERRER_HOSTS = new Set([
  */
 const LANDING_ROUTE_TEMPLATES: readonly RegExp[] = [
   /^\/$/,
-  /^\/(?:order|plans|privacy|terms|track)$/,
+  /^\/(?:order|plans|privacy|terms|track|mobility|plan)$/,
   /^\/plans\/[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/,
 ];
 

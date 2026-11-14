@@ -664,6 +664,7 @@ export {
   type StaffFile,
 } from './files';
 export * from './document-review';
+export * from './mailbox';
 export * from './lead-export';
 
 export {

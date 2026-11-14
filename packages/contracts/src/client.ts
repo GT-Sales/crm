@@ -3,6 +3,7 @@ import {
   type DocumentReviewQueueQuery,
   type DocumentReviewQueueResponse,
 } from './document-review';
+import { mailboxResponseSchema, type MailboxQuery, type MailboxResponse } from './mailbox';
 import {
   aiAutomationTokenRequestSchema,
   aiAutomationReviseRequestSchema,
@@ -627,6 +628,7 @@ export interface BackendClient {
       workspaceId: string,
       query?: DocumentReviewQueueQuery,
     ): Promise<DocumentReviewQueueResponse>;
+    listMailbox(workspaceId: string, query?: MailboxQuery): Promise<MailboxResponse>;
     /** `query.object` picks lead (the default) or plan properties on these five. */
     getPropertyModel(
       workspaceId: string,
@@ -1433,6 +1435,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/documents/review-queue`,
           query: { status: query?.status, page: query?.page },
           responseSchema: documentReviewQueueResponseSchema,
+        }),
+      listMailbox: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/mail`,
+          query: { page: query?.page, leadId: query?.leadId },
+          responseSchema: mailboxResponseSchema,
         }),
       getPropertyModel: (workspaceId, query) =>
         call({
