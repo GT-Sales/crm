@@ -2992,3 +2992,17 @@ mailbox.
 Also on 14 Nov: Leads and the dashboard no longer draw a second skeleton
 (`decidingType` in `leads-inbox.tsx`; follow-ups loaded once in
 `dashboard.tsx`), and Umami on Coolify moved from 3.0.3 to 3.4.1.
+
+### Lead sources (14 Nov 2026)
+
+Every lead read "Direct": neither website sent any attribution (all 607 leads
+of the previous 30 days had `attribution = {}`). Both sites now read a
+landing's `utm_*` tags, ad click id (kept as the network's name only) or
+outside referrer into an httpOnly cookie and send it as the lead's
+`attribution` (Get Canada Sim PR #32, `ms_src`; CanadaWide PR #8, `cw_src`).
+CRM side: `leads/attribution.ts` approves Meta's link shims
+(`l.facebook.com`, `lm.facebook.com`, `l.instagram.com`) and a few more
+referrers, and `admin/src/lib/source-label.ts` reads a referrer as "Facebook",
+"Instagram", "Google · search". Older leads stay "Direct": their source was
+never recorded. A CanadaWide lead that goes through the intake fallback (CRM
+down) still arrives without a source.

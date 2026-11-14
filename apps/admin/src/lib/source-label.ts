@@ -1,6 +1,6 @@
 /**
  * A lead's source as staff say it, from the backend's `deriveSource` label:
- * `utm:google/cpc` → `Google · paid`, `referrer:facebook.com` → `facebook.com`,
+ * `utm:google/cpc` → `Google · paid`, `referrer:l.facebook.com` → `Facebook`,
  * `partner:MAPLE10` → `Partner MAPLE10`, `direct` → `Direct`. The raw label stays
  * available (callers put it in a tooltip). Attribution is customer-influenced
  * text: it is only ever shown as text.
@@ -35,6 +35,24 @@ const SOURCE_WORDS: Readonly<Record<string, string>> = {
   whatsapp: 'WhatsApp',
 };
 
+/**
+ * A referring site as staff say it. A click out of the Facebook or Instagram
+ * app arrives from Meta's link shim (`l.facebook.com`), which says nothing to
+ * staff; a search engine's own pages are a search.
+ */
+const REFERRER_WORDS: readonly (readonly [RegExp, string])[] = [
+  [/(^|\.)facebook\.com$/, 'Facebook'],
+  [/(^|\.)instagram\.com$/, 'Instagram'],
+  [/(^|\.)google\.com$/, 'Google · search'],
+  [/(^|\.)bing\.com$/, 'Bing · search'],
+  [/(^|\.)yahoo\.com$/, 'Yahoo · search'],
+  [/^duckduckgo\.com$/, 'DuckDuckGo · search'],
+  [/(^|\.)tiktok\.com$/, 'TikTok'],
+  [/(^|\.)youtube\.com$/, 'YouTube'],
+  [/(^|\.)linkedin\.com$/, 'LinkedIn'],
+  [/^t\.co$/, 'X (Twitter)'],
+];
+
 function words(value: string): string {
   const trimmed = value.trim();
   const known = SOURCE_WORDS[trimmed.toLowerCase()];
@@ -50,7 +68,10 @@ export function readableSource(source: string): string {
     if (!medium) return label;
     return `${label} · ${MEDIUM_WORDS[medium.trim().toLowerCase()] ?? medium.trim()}`;
   }
-  if (source.startsWith('referrer:')) return source.slice('referrer:'.length);
+  if (source.startsWith('referrer:')) {
+    const host = source.slice('referrer:'.length);
+    return REFERRER_WORDS.find(([pattern]) => pattern.test(host))?.[1] ?? host;
+  }
   if (source.startsWith('partner:')) {
     const rest = source.slice('partner:'.length);
     return rest.endsWith(' (unmatched)')
