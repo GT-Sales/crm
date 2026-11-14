@@ -1,4 +1,5 @@
 import {
+  ChartNoAxesColumnIcon,
   FileTextIcon,
   LayoutDashboardIcon,
   ListTodoIcon,
@@ -20,6 +21,7 @@ export const NAV_ITEMS = [
   { section: 'tasks', label: 'My tasks', icon: ListTodoIcon },
   { section: 'documents', label: 'Documents', icon: FileTextIcon },
   { section: 'mail', label: 'Mail', icon: MailIcon },
+  { section: 'analytics', label: 'Analytics', icon: ChartNoAxesColumnIcon },
   { section: 'automations', label: 'Automations', icon: ZapIcon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ] as const;

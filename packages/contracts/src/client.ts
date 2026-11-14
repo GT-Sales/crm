@@ -5,6 +5,11 @@ import {
 } from './document-review';
 import { mailboxResponseSchema, type MailboxQuery, type MailboxResponse } from './mailbox';
 import {
+  webAnalyticsResponseSchema,
+  type WebAnalyticsQuery,
+  type WebAnalyticsResponse,
+} from './web-analytics';
+import {
   aiAutomationTokenRequestSchema,
   aiAutomationReviseRequestSchema,
   aiAutomationSimulateRequestSchema,
@@ -629,6 +634,7 @@ export interface BackendClient {
       query?: DocumentReviewQueueQuery,
     ): Promise<DocumentReviewQueueResponse>;
     listMailbox(workspaceId: string, query?: MailboxQuery): Promise<MailboxResponse>;
+    getWebAnalytics(workspaceId: string, query?: WebAnalyticsQuery): Promise<WebAnalyticsResponse>;
     /** `query.object` picks lead (the default) or plan properties on these five. */
     getPropertyModel(
       workspaceId: string,
@@ -1442,6 +1448,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/mail`,
           query: { page: query?.page, leadId: query?.leadId },
           responseSchema: mailboxResponseSchema,
+        }),
+      getWebAnalytics: (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/web-analytics`,
+          query: { days: query?.days },
+          responseSchema: webAnalyticsResponseSchema,
         }),
       getPropertyModel: (workspaceId, query) =>
         call({

@@ -116,6 +116,7 @@ describe('AppSidebar', () => {
       'My tasks',
       'Documents',
       'Mail',
+      'Analytics',
       'Automations',
       'Settings',
     ]);
