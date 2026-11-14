@@ -31,6 +31,8 @@ import {
   type PropertyCatalog,
   DOCUMENT_REVIEW_PAGE_SIZE,
   documentReviewQueueQuerySchema,
+  MAILBOX_PAGE_SIZE,
+  mailboxQuerySchema,
 } from '@gt-sales/contracts';
 import {
   rateLimitHit,
@@ -96,6 +98,7 @@ import {
   DatabaseDocumentReviewQueue,
   type DocumentReviewQueueStore,
 } from '../documents/review-queue.js';
+import { DatabaseMailbox, type MailboxStore } from '../email/mailbox.js';
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
@@ -148,6 +151,7 @@ export interface StaffRouteDependencies {
   flowStore?: FlowStore;
   /** Documents → review queue; the database store when absent. */
   documentReviewQueue?: DocumentReviewQueueStore;
+  mailbox?: MailboxStore;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
@@ -1593,6 +1597,42 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           review: decideAccess(decision.access, 'order.manage').allowed,
           download: decideAccess(decision.access, 'document.download').allowed,
         },
+        requestId: req.id,
+      });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  // The site's sent box (Mail page): every mail queued to a customer. It names
+  // customers and carries what was written, so it needs contact access.
+  router.get('/workspaces/:workspaceId/mail', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = mailboxQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      if (!leadAccessOf(decision.access).contacts) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      const page = query.data.page ?? 1;
+      const mailbox = dependencies.mailbox ?? new DatabaseMailbox();
+      const result = await mailbox.list(
+        { workspaceId: workspaceId.data, actorId: actor.actorId },
+        { page },
+      );
+      res.json({
+        items: result.items,
+        page: { page, pageSize: MAILBOX_PAGE_SIZE, total: result.total },
         requestId: req.id,
       });
     } catch (error) {

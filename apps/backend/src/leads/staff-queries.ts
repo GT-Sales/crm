@@ -1117,7 +1117,7 @@ export interface ActivityRow {
  * last report when the send got that far, else where its outbox job stands.
  * Null for other entries and for mails queued before entries named their job.
  */
-const MAIL_STATUS = sql.raw(`(
+export const MAIL_STATUS = sql.raw(`(
   select case
     when m.status is not null and m.status <> 'queued' then m.status
     when j.status in ('pending', 'processing') then 'queued'

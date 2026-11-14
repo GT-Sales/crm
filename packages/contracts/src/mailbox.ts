@@ -1,0 +1,52 @@
+import { z } from 'zod';
+
+import { isoDateTimeSchema, pageInfoSchema, requestIdSchema } from './common';
+import { automationKeySchema } from './automation-keys';
+import { emailTemplateKeySchema } from './customer-email';
+import { leadTypeSchema } from './leads';
+import { LEAD_MAIL_TEXT_MAX, leadMailStatusSchema } from './lead-work';
+
+/**
+ * Mail → the site's sent box: every mail the CRM queued to a customer of an
+ * active, unrestricted lead, newest first. Each row is that lead's
+ * `customer_emailed` timeline entry (see `leadActivitySchema`) with the lead
+ * it belongs to. Read-only; writing a mail happens on the lead.
+ */
+export const MAILBOX_PAGE_SIZE = 50;
+
+export const mailboxQuerySchema = z
+  .object({ page: z.coerce.number().int().positive().max(1000).optional() })
+  .strict();
+export type MailboxQuery = z.infer<typeof mailboxQuerySchema>;
+
+export const mailboxItemSchema = z.object({
+  /** The timeline entry's id. */
+  id: z.uuid(),
+  createdAt: isoDateTimeSchema,
+  /** Who queued it; the member who activated the flow when `automation` is set. */
+  actorId: z.uuid(),
+  viaAi: z.literal(true).optional(),
+  automation: automationKeySchema.optional(),
+  automationName: z.string().min(1).max(80).optional(),
+  template: emailTemplateKeySchema.optional(),
+  templateName: z.string().min(1).max(80).optional(),
+  /** Absent on mails queued before the CRM kept what it sent. */
+  subject: z.string().min(1).max(LEAD_MAIL_TEXT_MAX).optional(),
+  text: z.string().max(LEAD_MAIL_TEXT_MAX).optional(),
+  textCut: z.literal(true).optional(),
+  mailStatus: leadMailStatusSchema.optional(),
+  lead: z.object({
+    id: z.uuid(),
+    leadType: leadTypeSchema,
+    /** The customer's name, else their email: what staff recognise the lead by. */
+    name: z.string().max(320).nullable(),
+  }),
+});
+export type MailboxItem = z.infer<typeof mailboxItemSchema>;
+
+export const mailboxResponseSchema = z.object({
+  items: z.array(mailboxItemSchema).max(MAILBOX_PAGE_SIZE),
+  page: pageInfoSchema,
+  requestId: requestIdSchema,
+});
+export type MailboxResponse = z.infer<typeof mailboxResponseSchema>;

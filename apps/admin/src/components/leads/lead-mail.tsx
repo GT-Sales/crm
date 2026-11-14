@@ -23,7 +23,10 @@ export function sentMails(activities: readonly LeadActivity[]): SystemActivity[]
   );
 }
 
-const STATUS: Record<LeadMailStatus, { label: string; title: string; className: string }> = {
+export const MAIL_STATUS_BADGE: Record<
+  LeadMailStatus,
+  { label: string; title: string; className: string }
+> = {
   queued: {
     label: 'Sending',
     title: 'Waiting to go out; mails leave within a minute.',
@@ -64,14 +67,20 @@ const STATUS: Record<LeadMailStatus, { label: string; title: string; className: 
 };
 
 /** What a mail is called when it kept no subject: the template it came from. */
-function mailTitle(mail: SystemActivity): string {
+/** What both mail lists read off a mail: the lead's own tab and the site's Mail page. */
+export type MailSummary = Pick<
+  SystemActivity,
+  'actorId' | 'viaAi' | 'automation' | 'automationName' | 'template' | 'templateName' | 'subject'
+>;
+
+export function mailTitle(mail: MailSummary): string {
   if (mail.subject) return mail.subject;
   return mail.template
     ? `${emailTemplateLabel(mail.template, mail.templateName)} email`
     : 'Email to the customer';
 }
 
-function mailSender(mail: SystemActivity, members: readonly AssignableMember[]): string {
+export function mailSender(mail: MailSummary, members: readonly AssignableMember[]): string {
   if (mail.automation) return `Automation${mail.automationName ? `: ${mail.automationName}` : ''}`;
   const who = actorName(mail.actorId, members);
   return mail.viaAi ? `${who}, with Ask AI` : who;
@@ -210,7 +219,7 @@ export function LeadMail({
       ) : (
         <ol aria-label="Emails sent" className="flex flex-col divide-y rounded-lg border">
           {mails.map((mail) => {
-            const status = mail.mailStatus ? STATUS[mail.mailStatus] : undefined;
+            const status = mail.mailStatus ? MAIL_STATUS_BADGE[mail.mailStatus] : undefined;
             const isOpen = open === mail.id;
             const hasText = mail.text !== undefined && mail.text.length > 0;
             return (

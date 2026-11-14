@@ -9,6 +9,7 @@ import {
   leadTaskSchema,
 } from '@gt-sales/contracts';
 
+import { DatabaseMailbox } from '../src/email/mailbox.js';
 import { hashContact } from '../src/email/hash.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
@@ -1501,6 +1502,22 @@ databaseTest('DatabaseLeadWorkStore', () => {
     expect(after?.activities.find((entry) => entry.id === written.activity.id)).toMatchObject({
       mailStatus: 'delivered',
     });
+
+    // The site's Mail page lists the same mails, newest first, with their lead.
+    const sentBox = await new DatabaseMailbox(database).list(
+      { workspaceId: OTHER_WORKSPACE, actorId: ACTOR },
+      { page: 1 },
+    );
+    const mine = sentBox.items.filter((item) => item.lead.id === leadId);
+    expect(mine.map((item) => item.subject)).toEqual(['About your order', sent.subject]);
+    expect(mine[0]).toMatchObject({
+      id: written.activity.id,
+      mailStatus: 'delivered',
+      lead: { leadType: 'sim_order', name: 'Mail Person' },
+    });
+    expect(mine[0]?.text).toContain('Your SIM ships tomorrow.');
+    expect(sentBox.total).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(sentBox)).not.toContain('mail.person@');
     expect(
       await work
         .queueWrittenEmail({
