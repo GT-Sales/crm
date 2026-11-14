@@ -7,7 +7,7 @@ export default async function LeadsPage({ params }: { params: Promise<{ workspac
   const { workspace } = await params;
   // The inbox reads its filters from the URL, so it renders on the client.
   return (
-    <Suspense fallback={<LoadingSkeleton label="Loading leads…" variant="list" />}>
+    <Suspense fallback={<LoadingSkeleton label="Loading leads…" variant="table" />}>
       <LeadsInbox workspaceSlug={workspace} />
     </Suspense>
   );

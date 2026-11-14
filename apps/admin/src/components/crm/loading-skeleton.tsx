@@ -2,7 +2,16 @@ import type { ReactNode } from 'react';
 import { cn, Skeleton } from '@gt-sales/ui';
 
 type LoadingLayout =
-  'list' | 'form' | 'record' | 'board' | 'dashboard' | 'report' | 'flow' | 'workspace' | 'preview';
+  | 'list'
+  | 'table'
+  | 'form'
+  | 'record'
+  | 'board'
+  | 'dashboard'
+  | 'report'
+  | 'flow'
+  | 'workspace'
+  | 'preview';
 
 function Lines({ rows = 4 }: { rows?: number }) {
   return (
@@ -217,6 +226,19 @@ export function LoadingSkeleton({
     >
       <span className="sr-only">{label}</span>
       {variant === 'list' ? <Lines rows={rows} /> : null}
+      {variant === 'table' ? (
+        <>
+          <div aria-hidden="true" className="flex flex-wrap items-center gap-3">
+            <Skeleton className="h-8 w-28" />
+            <div className="ml-auto flex items-center gap-2">
+              <Skeleton className="h-8 w-56 max-w-[40vw] rounded-full" />
+              <Skeleton className="h-8 w-20 rounded-full" />
+              <Skeleton className="h-8 w-20 rounded-full" />
+            </div>
+          </div>
+          <TableSkeleton />
+        </>
+      ) : null}
       {variant === 'preview' ? (
         <div aria-hidden="true" className="min-h-[32rem] space-y-7 rounded-xl border p-6">
           <Skeleton className="mx-auto h-10 w-32" />
@@ -294,5 +316,37 @@ export function TableRowsSkeleton({ columns, rows = 7 }: { columns: number; rows
         </tr>
       ))}
     </>
+  );
+}
+
+/** A whole table's shape, for a list whose columns are not known yet. */
+export function TableSkeleton({ columns = 6, rows = 7 }: { columns?: number; rows?: number }) {
+  return (
+    <div aria-hidden="true" className="overflow-hidden rounded-xl border">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b">
+            {Array.from({ length: columns }, (_, column) => (
+              <th key={column} className="px-3 py-3 text-left">
+                <Skeleton className="h-3 w-14" />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <TableRowsSkeleton columns={columns} rows={rows} />
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Where the dashboard's date and filter controls will be, so the skeleton under it never moves. */
+export function DashboardFiltersSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex h-9 items-center gap-2">
+      <Skeleton className="h-9 w-72 max-w-[60%]" />
+      <Skeleton className="h-9 w-24" />
+    </div>
   );
 }

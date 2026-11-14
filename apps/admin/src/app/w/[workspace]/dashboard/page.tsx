@@ -1,7 +1,10 @@
 import { Suspense } from 'react';
 
 import { Dashboard } from '../../../../components/dashboard';
-import { LoadingSkeleton } from '../../../../components/crm/loading-skeleton';
+import {
+  DashboardFiltersSkeleton,
+  LoadingSkeleton,
+} from '../../../../components/crm/loading-skeleton';
 
 export default async function DashboardPage({
   params,
@@ -11,7 +14,14 @@ export default async function DashboardPage({
   const { workspace } = await params;
   // The dashboard keeps its period and filters in the URL (useSearchParams).
   return (
-    <Suspense fallback={<LoadingSkeleton label="Loading the dashboard…" variant="dashboard" />}>
+    <Suspense
+      fallback={
+        <div className="crm-dashboard flex flex-col gap-6">
+          <DashboardFiltersSkeleton />
+          <LoadingSkeleton label="Loading the dashboard…" variant="dashboard" />
+        </div>
+      }
+    >
       <Dashboard workspaceSlug={workspace} />
     </Suspense>
   );
