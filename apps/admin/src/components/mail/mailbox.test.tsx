@@ -63,9 +63,11 @@ const NOW = '2026-11-13T10:00:00.000Z';
 const NADIA = '90000000-0000-4000-8000-000000000001';
 const MARCO = '90000000-0000-4000-8000-000000000002';
 const nadia = { id: NADIA, leadType: 'sim_order', name: 'Nadia Khan' };
-const page = (items: unknown[], total = items.length) =>
+const page = (items: Record<string, unknown>[], total = items.length, repliesEnabled = false) =>
   mailboxResponseSchema.parse({
-    items,
+    // A mail the CRM sent, unless the fixture says it is the customer's reply.
+    items: items.map((item) => ({ direction: 'out', ...item })),
+    repliesEnabled,
     page: { page: 1, pageSize: 50, total },
     requestId: '70000000-0000-4000-8000-000000000001',
   });
@@ -238,6 +240,37 @@ describe('Mailbox', () => {
       '/w/getcanadasim/mail?lead=90000000-0000-4000-8000-000000000003',
       { scroll: false },
     );
+  });
+
+  it('shows the customer’s reply in the conversation, set apart from the site’s mails', async () => {
+    mocks.lead.current = NADIA;
+    const reply = {
+      id: '92000000-0000-4000-8000-000000000009',
+      createdAt: '2026-11-13T12:00:00.000Z',
+      actorId: '00000000-0000-4000-8000-00000000a002',
+      direction: 'in',
+      subject: 'Re: Your SIM is on its way',
+      text: 'Thanks, got it.',
+      lead: nadia,
+    };
+    mocks.listMailbox.mockImplementation(async (_token, _site, query: { leadId?: string }) =>
+      query.leadId
+        ? page([reply, ...thread().items], 3, true)
+        : page([{ ...reply, mails: 3 }], 1, true),
+    );
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+
+    const conversation = await screen.findByRole('region', { name: 'Emails to Nadia Khan' });
+    const mails = await within(conversation).findAllByRole('listitem');
+    // Oldest first, so the reply is last.
+    expect(mails).toHaveLength(3);
+    expect(mails[2]?.getAttribute('data-direction')).toBe('in');
+    expect(mails[2]?.textContent).toContain('Nadia Khan replied');
+    expect(mails[2]?.textContent).toContain('Thanks, got it.');
+    expect(mails[1]?.getAttribute('data-direction')).toBe('out');
+    // The list marks a customer who had the last word.
+    const list = screen.getByRole('list', { name: 'Customers written to' });
+    expect(within(list).getByLabelText('Replied')).toBeTruthy();
   });
 
   it('says so when nothing was sent, and when the role cannot read mail', async () => {

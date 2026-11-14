@@ -1112,6 +1112,9 @@ export interface ActivityRow {
   mailStatus?: string | null;
 }
 
+/** The entries that are a mail: one the CRM sent, or the customer's reply. Both keep their words in `body`. */
+const MAIL_EVENTS: ReadonlySet<unknown> = new Set(['customer_emailed', 'customer_replied']);
+
 /**
  * How the mail behind a `customer_emailed` entry `a` went: the provider's
  * last report when the send got that far, else where its outbox job stands.
@@ -1150,7 +1153,7 @@ export function toLeadActivity(row: ActivityRow): LeadActivity {
   const mail =
     row.kind === 'system' &&
     Object.hasOwn(data, 'event') &&
-    Reflect.get(data, 'event') === 'customer_emailed'
+    MAIL_EVENTS.has(Reflect.get(data, 'event'))
       ? sentMailOf(row.body)
       : undefined;
   const parsed = leadActivitySchema.safeParse({

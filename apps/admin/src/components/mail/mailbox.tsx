@@ -11,6 +11,7 @@ import {
   BotIcon,
   MailIcon,
   PenLineIcon,
+  ReplyIcon,
   SendIcon,
   SparklesIcon,
   XIcon,
@@ -345,9 +346,26 @@ function Conversation({
     endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [newest]);
   const leadType = person.leadType ?? mails[0]?.lead.leadType;
+  // A conversation opened by its link has no row to read the name from: the mails carry it.
+  const name = mails[0]?.lead.name ?? person.name;
+  const total = thread.data?.page.total ?? 0;
+
+  // A mail leaves within a minute: look again, so "Sending" does not sit there
+  // inviting a second send. A few looks, not a poll.
+  const reloadThread = thread.reload;
+  const looks = useRef(0);
+  const waiting = mails.some((mail) => mail.mailStatus === 'queued');
+  useEffect(() => {
+    if (!waiting || looks.current >= 3) return;
+    const timer = window.setTimeout(() => {
+      looks.current += 1;
+      void reloadThread();
+    }, 75_000);
+    return () => window.clearTimeout(timer);
+  }, [waiting, reloadThread, thread.data]);
 
   return (
-    <section aria-label={`Emails to ${person.name}`} className="flex min-h-0 min-w-0 flex-col">
+    <section aria-label={`Emails to ${name}`} className="flex min-h-0 min-w-0 flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <Button
           type="button"
@@ -359,9 +377,9 @@ function Conversation({
         >
           <ArrowLeftIcon aria-hidden="true" className="size-4" />
         </Button>
-        <Avatar name={person.name} />
+        <Avatar name={name} />
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold">{person.name}</h2>
+          <h2 className="truncate text-base font-semibold">{name}</h2>
           {leadType ? (
             <p className="text-xs text-muted-foreground">{leadTypeLabel(leadType)}</p>
           ) : null}
@@ -383,19 +401,39 @@ function Conversation({
           <LoadingSkeleton label="Loading emails…" variant="list" rows={2} />
         ) : mails.length === 0 ? (
           <p className="m-auto text-sm text-muted-foreground">
-            No emails to {person.name} yet. Write the first one below.
+            No emails to {name} yet. Write the first one below.
           </p>
         ) : (
-          <ol aria-label="Emails sent" className="flex flex-col gap-3">
+          <ol aria-label="Emails" className="flex flex-col gap-3">
+            {total > mails.length ? (
+              <li className="text-center text-xs text-muted-foreground">
+                These are the newest {mails.length} of {total} emails. Open the lead to read the
+                older ones.
+              </li>
+            ) : null}
             {mails.map((mail) => (
-              <li key={mail.id} className="rounded-xl border bg-card p-4 text-sm">
+              <li
+                key={mail.id}
+                data-direction={mail.direction}
+                className={cn(
+                  'rounded-xl border bg-card p-4 text-sm',
+                  // The customer's own words stand apart from the site's.
+                  mail.direction === 'in' && 'border-primary/40 bg-primary/5',
+                )}
+              >
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium break-words">{mailTitle(mail)}</p>
                     <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      {mail.automation ? <BotIcon aria-hidden="true" className="size-3.5" /> : null}
-                      {mailSender(mail, members)} ·{' '}
-                      <time dateTime={mail.createdAt}>{dateTimeLabel(mail.createdAt)}</time>
+                      {mail.direction === 'in' ? (
+                        <ReplyIcon aria-hidden="true" className="size-3.5 text-primary" />
+                      ) : mail.automation ? (
+                        <BotIcon aria-hidden="true" className="size-3.5" />
+                      ) : null}
+                      {mail.direction === 'in'
+                        ? `${name} replied${mail.otherSender ? ' from another address' : ''}`
+                        : mailSender(mail, members)}{' '}
+                      · <time dateTime={mail.createdAt}>{dateTimeLabel(mail.createdAt)}</time>
                     </p>
                   </div>
                   <StatusBadge item={mail} />
@@ -425,7 +463,7 @@ function Conversation({
         key={person.leadId}
         accessToken={accessToken}
         workspaceId={workspaceId}
-        person={person}
+        person={{ ...person, name }}
         onSent={onSent}
       />
     </section>
@@ -435,8 +473,8 @@ function Conversation({
 /**
  * Mail: the site's sent mail as conversations. The customers written to on the
  * left (their latest mail each); the chosen customer's mails on the right, with
- * a writing box under them. Replies are not here: they go to the site's
- * reply-to mailbox. The chosen customer is `?lead=` in the address, which is
+ * a writing box under them, the customer's replies among them when the site
+ * receives them (else they go to its reply-to mailbox). The chosen customer is `?lead=` in the address, which is
  * also how Ask AI knows whom a draft is for.
  */
 export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
@@ -469,6 +507,12 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
     window.addEventListener(LEAD_WORK_SAVED, saved);
     return () => window.removeEventListener(LEAD_WORK_SAVED, saved);
   }, [reloadPeople]);
+
+  // The list got shorter (leads archived) while a later page was open: go back to the first.
+  const emptyPage = people.data !== undefined && people.data.items.length === 0 && page > 1;
+  useEffect(() => {
+    if (emptyPage) setPage(1);
+  }, [emptyPage]);
 
   if (!accessToken || !workspaceId) return null;
   if (people.error && !people.data) {
@@ -571,7 +615,21 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
                         </time>
                       </span>
                       <span className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-sm">{mailTitle(item)}</span>
+                        {item.direction === 'in' ? (
+                          <ReplyIcon
+                            aria-label="Replied"
+                            className="size-3.5 shrink-0 text-primary"
+                          />
+                        ) : null}
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate text-sm',
+                            // The customer had the last word: it is waiting to be read.
+                            item.direction === 'in' && 'font-semibold',
+                          )}
+                        >
+                          {mailTitle(item)}
+                        </span>
                         {(item.mails ?? 1) > 1 ? (
                           <span
                             title={`${item.mails} emails`}
@@ -641,7 +699,9 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
             Choose a customer to read the emails sent to them, or press New email.
           </p>
           <p className="text-xs text-muted-foreground">
-            Customer replies go to this site’s reply-to mailbox, not here.
+            {people.data.repliesEnabled
+              ? 'When a customer replies to one of these emails, the reply appears in their conversation.'
+              : 'Customer replies go to this site’s reply-to mailbox, not here.'}
           </p>
         </div>
       )}

@@ -62,6 +62,24 @@ function totals(value: z.infer<typeof totalsSchema> | undefined): WebAnalyticsTo
 }
 
 /** `YYYY-MM-DD` of an instant in the reporting time zone. */
+/** The start of the business's day that holds this instant. */
+function startOfDay(instant: number): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(instant));
+  const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+  const start =
+    instant -
+    (part('hour') * 3600 + part('minute') * 60 + part('second')) * 1000 -
+    (instant % 1000);
+  // The night the clocks go forward has an hour less behind it.
+  return dayOf(new Date(start)) === dayOf(new Date(instant)) ? start : start + 3_600_000;
+}
+
 function dayOf(instant: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: TIME_ZONE,
@@ -132,7 +150,9 @@ export function loadWebAnalyticsReader(
       }
 
       const endAt = now.getTime();
-      const startAt = endAt - days * DAY_MS;
+      // From the start of the first day the chart shows, so the totals and
+      // the days add up to the same period.
+      const startAt = startOfDay(endAt - (days - 1) * DAY_MS);
       const range = { startAt: String(startAt), endAt: String(endAt) };
       const metric = (type: string) =>
         get(websiteId, 'metrics', { ...range, type, limit: String(TOP) }, metricsSchema);

@@ -89,7 +89,9 @@ describe('web analytics from Umami', () => {
     }
     const stats = fetchMock.mock.calls.find(([input]) => String(input).includes('/stats?'));
     const range = new URL(String(stats?.[0])).searchParams;
-    expect(Number(range.get('endAt')) - Number(range.get('startAt'))).toBe(7 * 86_400_000);
+    // Seven days as the chart counts them: from the start of 8 Nov in Toronto.
+    expect(Number(range.get('endAt'))).toBe(NOW.getTime());
+    expect(new Date(Number(range.get('startAt'))).toISOString()).toBe('2026-11-08T05:00:00.000Z');
   });
 
   it('reuses a report for a minute instead of asking Umami again', async () => {

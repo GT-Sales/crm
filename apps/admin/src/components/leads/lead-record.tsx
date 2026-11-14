@@ -1190,6 +1190,7 @@ export function LeadRecord({
                   ? 'This customer has no email address. Add one to write to them.'
                   : undefined
           }
+          repliesEnabled={access.emailReplies === true}
           onSend={sendWrittenMail}
         />
       </CardContent>

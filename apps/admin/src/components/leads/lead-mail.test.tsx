@@ -126,6 +126,45 @@ describe('LeadMail', () => {
     expect(onSend).toHaveBeenCalledTimes(2);
   });
 
+  it('shows the customer’s reply among the mails, and says where replies go', () => {
+    const reply = leadActivitySchema.parse({
+      id: '92000000-0000-4000-8000-000000000008',
+      actorId: '00000000-0000-4000-8000-00000000a002',
+      createdAt: '2026-11-08T10:00:00.000Z',
+      kind: 'system',
+      event: 'customer_replied',
+      subject: 'Re: About your order',
+      text: 'Thanks, that works.',
+    });
+    const view = render(
+      <LeadMail
+        activities={[reply, mail(3, { subject: 'About your order', text: 'Hello.' })]}
+        members={members}
+        customerEmail="nadia@example.test"
+        canSend={false}
+        repliesEnabled
+        onSend={vi.fn()}
+      />,
+    );
+    const rows = within(screen.getByRole('list', { name: 'Emails sent' })).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain('Re: About your order');
+    expect(rows[0]?.textContent).toContain('The customer replied');
+    expect(screen.getByText(/the reply appears here/)).toBeTruthy();
+    view.unmount();
+
+    render(
+      <LeadMail
+        activities={[]}
+        members={members}
+        customerEmail="nadia@example.test"
+        canSend={false}
+        onSend={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/reply-to mailbox, not here/)).toBeTruthy();
+  });
+
   it('says why nobody can write from here', () => {
     render(
       <LeadMail

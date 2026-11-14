@@ -9,7 +9,7 @@ import { LEAD_MAIL_TEXT_MAX, leadMailStatusSchema } from './lead-work';
 /**
  * Mail → the site's sent mail, as conversations: the customers of active,
  * unrestricted leads the CRM has written to (their latest mail each), and one
- * customer's mails. Each row is a lead's `customer_emailed` timeline entry
+ * customer's mails, their replies among them. Each row is a lead's `customer_emailed` timeline entry
  * (see `leadActivitySchema`) with the lead it belongs to. Read-only; a mail
  * is written through the lead's `customer-emails` route.
  */
@@ -30,6 +30,8 @@ export type MailboxQuery = z.infer<typeof mailboxQuerySchema>;
 export const mailboxItemSchema = z.object({
   /** The timeline entry's id. */
   id: z.uuid(),
+  /** `out`: a mail the CRM sent the customer; `in`: the customer's reply. */
+  direction: z.enum(['out', 'in']),
   createdAt: isoDateTimeSchema,
   /** Who queued it; the member who activated the flow when `automation` is set. */
   actorId: z.uuid(),
@@ -42,6 +44,8 @@ export const mailboxItemSchema = z.object({
   subject: z.string().min(1).max(LEAD_MAIL_TEXT_MAX).optional(),
   text: z.string().max(LEAD_MAIL_TEXT_MAX).optional(),
   textCut: z.literal(true).optional(),
+  /** A reply that came from an address other than the customer's own. */
+  otherSender: z.literal(true).optional(),
   mailStatus: leadMailStatusSchema.optional(),
   /** In the per-customer list: how many mails this customer has been sent. */
   mails: z.int().positive().optional(),
@@ -57,6 +61,8 @@ export type MailboxItem = z.infer<typeof mailboxItemSchema>;
 export const mailboxResponseSchema = z.object({
   items: z.array(mailboxItemSchema).max(MAILBOX_PAGE_SIZE),
   page: pageInfoSchema,
+  /** Whether replies to this site's mail come back to the CRM (else they go to its reply-to mailbox). */
+  repliesEnabled: z.boolean(),
   requestId: requestIdSchema,
 });
 export type MailboxResponse = z.infer<typeof mailboxResponseSchema>;

@@ -8,18 +8,19 @@ import {
   type LeadMailStatus,
 } from '@gt-sales/contracts';
 import { Badge, Button, Input, Label, Textarea, cn } from '@gt-sales/ui';
-import { BotIcon, ChevronDownIcon, MailIcon, PenLineIcon } from 'lucide-react';
+import { BotIcon, ChevronDownIcon, MailIcon, PenLineIcon, ReplyIcon } from 'lucide-react';
 
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { actorName } from '../../lib/people';
 
 type SystemActivity = Extract<LeadActivity, { kind: 'system' }>;
 
-/** The mails to the customer among a lead's timeline entries, newest first as the timeline is. */
+/** The mails among a lead's timeline entries (sent, and the customer's replies), newest first as the timeline is. */
 export function sentMails(activities: readonly LeadActivity[]): SystemActivity[] {
   return activities.filter(
     (entry): entry is SystemActivity =>
-      entry.kind === 'system' && entry.event === 'customer_emailed',
+      entry.kind === 'system' &&
+      (entry.event === 'customer_emailed' || entry.event === 'customer_replied'),
   );
 }
 
@@ -96,6 +97,7 @@ export function LeadMail({
   customerEmail,
   canSend,
   cannotSendReason,
+  repliesEnabled = false,
   onSend,
 }: {
   activities: readonly LeadActivity[];
@@ -105,6 +107,8 @@ export function LeadMail({
   canSend: boolean;
   /** Why this person cannot write from here, said in place of the form. */
   cannotSendReason?: string;
+  /** Replies to this site's mail come back to the CRM. */
+  repliesEnabled?: boolean;
   /** Queues the mail; resolves once it is on the list, rejects with words to show. */
   onSend: (mail: { subject: string; body: string }) => Promise<void>;
 }) {
@@ -138,7 +142,7 @@ export function LeadMail({
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <h2 className="mr-auto text-sm font-medium">
-          Emails to the customer
+          Emails with the customer
           {mails.length > 0 ? (
             <span className="ml-1.5 font-normal text-muted-foreground">{mails.length}</span>
           ) : null}
@@ -231,7 +235,9 @@ export function LeadMail({
                   className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left hover:bg-muted/40"
                 >
                   <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">
-                    {mail.automation ? (
+                    {mail.event === 'customer_replied' ? (
+                      <ReplyIcon aria-hidden="true" className="text-primary" />
+                    ) : mail.automation ? (
                       <BotIcon aria-hidden="true" />
                     ) : (
                       <MailIcon aria-hidden="true" />
@@ -253,7 +259,12 @@ export function LeadMail({
                       ) : null}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {mailSender(mail, members)} ·{' '}
+                      {mail.event === 'customer_replied'
+                        ? mail.otherSender
+                          ? 'A reply from another address'
+                          : 'The customer replied'
+                        : mailSender(mail, members)}{' '}
+                      ·{' '}
                       <time dateTime={mail.createdAt} title={dateTimeLabel(mail.createdAt)}>
                         {relativeTime(mail.createdAt)}
                       </time>
@@ -297,7 +308,9 @@ export function LeadMail({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Replies from the customer go to this site’s reply-to mailbox, not here.
+        {repliesEnabled
+          ? 'When the customer replies to one of these emails, the reply appears here.'
+          : 'Replies from the customer go to this site’s reply-to mailbox, not here.'}
       </p>
     </div>
   );

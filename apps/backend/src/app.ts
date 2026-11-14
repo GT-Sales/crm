@@ -1,3 +1,8 @@
+import {
+  createDefaultInboundMailDependencies,
+  createInboundMailRouter,
+  type InboundMailDependencies,
+} from './email/inbound.js';
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { pingDatabase } from '@gt-sales/db';
@@ -52,6 +57,8 @@ export interface CreateAppOptions {
   /** The manual intake check run; by default the database stores and `INTAKE_CHECK_WORKSPACE_ID`. */
   intakeCheck?: IntakeCheckRouteDependencies;
   email?: EmailRouteDependencies;
+  /** Customer replies coming in; defaults to the environment's settings. */
+  inboundMail?: InboundMailDependencies;
   errorTracker?: ErrorTracker;
   /** The readiness check's database round trip; by default the shared pool. */
   ping?: (timeoutMs: number) => Promise<void>;
@@ -180,6 +187,12 @@ export function createApp(options: CreateAppOptions = {}): Express {
     '/api/v1/webhooks/resend',
     express.raw({ type: 'application/json', limit: '64kb' }),
     createResendWebhookRouter(emailDependencies),
+  );
+  // Customer replies to a lead's mail (email/inbound.ts).
+  app.use(
+    '/api/v1/webhooks/inbound-mail',
+    express.raw({ type: 'application/json', limit: '64kb' }),
+    createInboundMailRouter(options.inboundMail ?? createDefaultInboundMailDependencies()),
   );
   // A revision carries the existing 65 KiB maximum flow plus a small envelope.
   // Keep chat and every other endpoint at their existing 64 KiB limit.

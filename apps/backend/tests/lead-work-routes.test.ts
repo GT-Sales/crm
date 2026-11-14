@@ -716,6 +716,7 @@ describe('staff lead work routes', () => {
       manage: false,
       revealSensitive: false,
       emailCustomer: false,
+      emailReplies: false,
       downloadDocuments: false,
       reviewDocuments: false,
       overrideDocuments: false,

@@ -100,6 +100,7 @@ import {
   type DocumentReviewQueueStore,
 } from '../documents/review-queue.js';
 import { DatabaseMailbox, type MailboxStore } from '../email/mailbox.js';
+import { loadReplyAddressing, type ReplyAddressing } from '../email/reply-address.js';
 import { loadWebAnalyticsReader, type WebAnalyticsReader } from '../analytics/web-analytics.js';
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
@@ -155,6 +156,7 @@ export interface StaffRouteDependencies {
   documentReviewQueue?: DocumentReviewQueueStore;
   mailbox?: MailboxStore;
   webAnalytics?: WebAnalyticsReader;
+  replyAddressing?: ReplyAddressing;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
@@ -336,6 +338,8 @@ function isUniqueViolation(error: unknown): boolean {
 export function createStaffRouter(dependencies: StaffRouteDependencies): Router {
   // One reader for the process: it keeps a short cache of each site's report.
   const defaultWebAnalytics = loadWebAnalyticsReader();
+  // Whether a site's customers' replies come back to the CRM (email/reply-address.ts).
+  const replyAddressing = dependencies.replyAddressing ?? loadReplyAddressing();
   const router = Router();
   router.use(requireStaffSession(dependencies.sessionVerifier, dependencies.rateLimit));
 
@@ -756,6 +760,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
             actorId: actor.actorId,
           })) ??
             false),
+        emailReplies: replyAddressing?.enabledFor(params.workspaceId) ?? false,
         downloadDocuments: decideAccess(decision.access, 'document.download').allowed,
         reviewDocuments: decideAccess(decision.access, 'order.manage').allowed,
         overrideDocuments: decideAccess(decision.access, 'order.override').allowed,
@@ -1669,6 +1674,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       res.json({
         items: result.items,
         page: { page, pageSize: MAILBOX_PAGE_SIZE, total: result.total },
+        repliesEnabled: replyAddressing?.enabledFor(workspaceId.data) ?? false,
         requestId: req.id,
       });
     } catch (error) {

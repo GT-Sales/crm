@@ -16,6 +16,18 @@ import {
 
 import { toLeadActivity } from '../leads/staff-queries.js';
 import { keptMailText } from './kept-text.js';
+import { loadReplyAddressing, type ReplyAddressing } from './reply-address.js';
+
+let cachedReplies: { value: ReplyAddressing | undefined } | undefined;
+/** Reply addressing from the environment, read once per process. */
+function replies(): ReplyAddressing | undefined {
+  cachedReplies ??= { value: loadReplyAddressing() };
+  return cachedReplies.value;
+}
+/** Test helper: read the reply settings again on the next mail. */
+export function resetReplyAddressingForTests(): void {
+  cachedReplies = undefined;
+}
 
 /** The flow a mail is queued for: what the timeline and the audit name. */
 export interface QueuedByAutomation {
@@ -56,10 +68,16 @@ export async function queueComposedEmail(
     aiCardId?: string;
   },
 ): Promise<{ queued: boolean; jobId: string | null; activity: LeadActivity | null }> {
-  const { payload } = input;
-  if ((payload.leadId ?? null) !== input.leadId) {
+  if ((input.payload.leadId ?? null) !== input.leadId) {
     throw new Error('the composed mail is for a different lead');
   }
+  // A mail to a lead answers to the lead's own reply address, so the
+  // customer's reply comes back to its conversation (reply-address.ts).
+  const replyTo =
+    input.leadId === null ? undefined : replies()?.addressFor(input.workspaceId, input.leadId);
+  const payload: CustomerEmailJobPayload = replyTo
+    ? { ...input.payload, sender: { ...input.payload.sender, replyToAddress: replyTo } }
+    : input.payload;
 
   const [job] = await tx
     .insert(outboxJobs)

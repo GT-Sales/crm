@@ -156,7 +156,7 @@ function verifySanitySignature(
 /** Resend uses Standard Webhooks/Svix: id.timestamp.rawBody, whsec_ base64 key.
  * Protocol: resend-node/src/webhooks/webhooks.ts and standard-webhooks JS verifier.
  */
-function verifyResendSignature(
+export function verifyResendSignature(
   input: {
     id: string;
     timestamp: string;
