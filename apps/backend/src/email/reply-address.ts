@@ -112,19 +112,21 @@ export function replyText(text: string): string {
 
 /** A mail's HTML as plain text, for a reply that came with no text part. */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>(\s*)/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    // Last, so that "&amp;lt;" stays the "&lt;" the customer typed.
-    .replace(/&amp;/gi, '&')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (
+    html
+      .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, '')
+      .replace(/<br\s*\/?>(\s*)/gi, '\n')
+      .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      // Last, so that "&amp;lt;" stays the "&lt;" the customer typed.
+      .replace(/&amp;/gi, '&')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
