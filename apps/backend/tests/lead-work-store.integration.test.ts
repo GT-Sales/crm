@@ -1503,20 +1503,30 @@ databaseTest('DatabaseLeadWorkStore', () => {
       mailStatus: 'delivered',
     });
 
-    // The site's Mail page lists the same mails, newest first, with their lead.
-    const sentBox = await new DatabaseMailbox(database).list(
+    // The site's Mail page: this customer once, with their latest mail and how many.
+    const mailbox = new DatabaseMailbox(database);
+    const people = await mailbox.list(
       { workspaceId: OTHER_WORKSPACE, actorId: ACTOR },
       { page: 1 },
     );
-    const mine = sentBox.items.filter((item) => item.lead.id === leadId);
-    expect(mine.map((item) => item.subject)).toEqual(['About your order', sent.subject]);
-    expect(mine[0]).toMatchObject({
+    const person = people.items.filter((item) => item.lead.id === leadId);
+    expect(person).toHaveLength(1);
+    expect(person[0]).toMatchObject({
       id: written.activity.id,
+      subject: 'About your order',
       mailStatus: 'delivered',
+      mails: 2,
       lead: { leadType: 'sim_order', name: 'Mail Person' },
     });
-    expect(mine[0]?.text).toContain('Your SIM ships tomorrow.');
-    expect(sentBox.total).toBeGreaterThanOrEqual(2);
+    // And that customer's conversation, newest first.
+    const sentBox = await mailbox.list(
+      { workspaceId: OTHER_WORKSPACE, actorId: ACTOR },
+      { page: 1, leadId },
+    );
+    expect(sentBox.total).toBe(2);
+    expect(sentBox.items.map((item) => item.subject)).toEqual(['About your order', sent.subject]);
+    expect(sentBox.items[0]?.text).toContain('Your SIM ships tomorrow.');
+    expect(sentBox.items[0]?.mails).toBeUndefined();
     expect(JSON.stringify(sentBox)).not.toContain('mail.person@');
     expect(
       await work

@@ -156,8 +156,14 @@ describe('GET /workspaces/:id/mail', () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it('rejects an unknown query key', async () => {
+  it('reads one customer’s mails when a lead is named', async () => {
+    expect((await get(mailUrl(`?leadId=${LEAD}`))).status).toBe(200);
+    expect(list.mock.calls[0]?.[1]).toEqual({ page: 1, leadId: LEAD });
+  });
+
+  it('rejects a malformed lead or an unknown query key', async () => {
     expect((await get(mailUrl('?leadId=x'))).status).toBe(400);
+    expect((await get(mailUrl('?stage=new'))).status).toBe(400);
     expect(list).not.toHaveBeenCalled();
   });
 });

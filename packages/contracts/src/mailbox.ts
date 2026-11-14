@@ -7,15 +7,23 @@ import { leadTypeSchema } from './leads';
 import { LEAD_MAIL_TEXT_MAX, leadMailStatusSchema } from './lead-work';
 
 /**
- * Mail → the site's sent box: every mail the CRM queued to a customer of an
- * active, unrestricted lead, newest first. Each row is that lead's
- * `customer_emailed` timeline entry (see `leadActivitySchema`) with the lead
- * it belongs to. Read-only; writing a mail happens on the lead.
+ * Mail → the site's sent mail, as conversations: the customers of active,
+ * unrestricted leads the CRM has written to (their latest mail each), and one
+ * customer's mails. Each row is a lead's `customer_emailed` timeline entry
+ * (see `leadActivitySchema`) with the lead it belongs to. Read-only; a mail
+ * is written through the lead's `customer-emails` route.
  */
 export const MAILBOX_PAGE_SIZE = 50;
 
 export const mailboxQuerySchema = z
-  .object({ page: z.coerce.number().int().positive().max(1000).optional() })
+  .object({
+    page: z.coerce.number().int().positive().max(1000).optional(),
+    /**
+     * With a lead: every mail to that lead's customer, newest first. Without:
+     * one row per customer, their latest mail, most recently written to first.
+     */
+    leadId: z.uuid().optional(),
+  })
   .strict();
 export type MailboxQuery = z.infer<typeof mailboxQuerySchema>;
 
@@ -35,6 +43,8 @@ export const mailboxItemSchema = z.object({
   text: z.string().max(LEAD_MAIL_TEXT_MAX).optional(),
   textCut: z.literal(true).optional(),
   mailStatus: leadMailStatusSchema.optional(),
+  /** In the per-customer list: how many mails this customer has been sent. */
+  mails: z.int().positive().optional(),
   lead: z.object({
     id: z.uuid(),
     leadType: leadTypeSchema,

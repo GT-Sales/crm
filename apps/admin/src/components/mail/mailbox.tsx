@@ -1,19 +1,43 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { leadTypeLabel, type MailboxItem } from '@gt-sales/contracts';
-import { Badge, Button, Card, CardContent, cn, Input, Label, Textarea } from '@gt-sales/ui';
-import { ArrowUpRightIcon, BotIcon, MailIcon, PenLineIcon, SendIcon, XIcon } from 'lucide-react';
+import { Badge, Button, cn, Input, Label, Textarea } from '@gt-sales/ui';
+import {
+  ArrowLeftIcon,
+  ArrowUpRightIcon,
+  BotIcon,
+  MailIcon,
+  PenLineIcon,
+  SendIcon,
+  SparklesIcon,
+  XIcon,
+} from 'lucide-react';
 
 import { emailLeadCustomer, getStaffLeads, listMailbox } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { describeError } from '../../lib/error-text';
+import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
+import { initials } from '../../lib/people';
 import { errorReason, useResource } from '../../lib/use-resource';
+import { useOptionalAssistant } from '../ai/assistant-provider';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { leadDisplayName } from '../leads/lead-display';
 import { MAIL_STATUS_BADGE, mailSender, mailTitle } from '../leads/lead-mail';
 import { useLeadWorkspace } from '../leads/use-lead-workspace';
+
+const LEAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SEARCH_MIN = 2;
+const SEARCH_DELAY_MS = 250;
+
+/** The customer a conversation is with: a lead of this site. */
+interface Person {
+  leadId: string;
+  name: string;
+  leadType?: string;
+}
 
 /** The start of a mail's text on one line, for the list. */
 function snippet(text: string | undefined): string {
@@ -34,48 +58,38 @@ function StatusBadge({ item }: { item: MailboxItem }) {
   );
 }
 
-/** The customer a new mail is for: a lead of this site. */
-interface Recipient {
-  leadId: string;
-  name: string;
-  /** Known when picked from the search; a mail goes to the lead's own address either way. */
-  email?: string;
+function Avatar({ name }: { name: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+    >
+      {initials(name) || '?'}
+    </span>
+  );
 }
 
-const SEARCH_MIN = 2;
-const SEARCH_DELAY_MS = 250;
-
-/**
- * Write to a customer from the Mail page: pick the lead, then the same subject
- * and message the lead's own Mail tab takes. It is sent to the lead's address.
- */
-function Compose({
+/** "New email": find the customer to write to among the site's leads. */
+function FindCustomer({
   accessToken,
   workspaceId,
-  initial,
-  onSent,
+  onPick,
   onCancel,
 }: {
   accessToken: string;
   workspaceId: string;
-  initial?: Recipient;
-  onSent: (mailId: string) => void;
+  onPick: (person: Person) => void;
   onCancel: () => void;
 }) {
-  const formId = useId();
-  const [to, setTo] = useState<Recipient | undefined>(initial);
+  const inputId = useId();
   const [term, setTerm] = useState('');
-  const [found, setFound] = useState<Recipient[]>();
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState<string>();
+  const [found, setFound] = useState<(Person & { email?: string })[]>();
   const generation = useRef(0);
 
   useEffect(() => {
     const current = ++generation.current;
     const text = term.trim();
-    if (to || text.length < SEARCH_MIN) {
+    if (text.length < SEARCH_MIN) {
       setFound(undefined);
       return;
     }
@@ -91,6 +105,7 @@ function Compose({
             page.leads.map((lead) => ({
               leadId: lead.id,
               name: leadDisplayName(lead.contact),
+              leadType: lead.leadType,
               ...(lead.contact.email ? { email: lead.contact.email } : {}),
             })),
           );
@@ -101,19 +116,88 @@ function Compose({
       );
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [term, to, accessToken, workspaceId]);
+  }, [term, accessToken, workspaceId]);
+
+  return (
+    <div className="flex flex-col gap-2 border-b p-3">
+      <div className="flex items-center gap-2">
+        <Label htmlFor={inputId} className="mr-auto">
+          Write to
+        </Label>
+        <Button type="button" size="sm" variant="ghost" aria-label="Close" onClick={onCancel}>
+          <XIcon aria-hidden="true" className="size-4" />
+        </Button>
+      </div>
+      <Input
+        id={inputId}
+        value={term}
+        autoFocus
+        autoComplete="off"
+        placeholder="Name, email, phone or order number"
+        onChange={(event) => setTerm(event.target.value)}
+      />
+      {found ? (
+        found.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No customer matches.</p>
+        ) : (
+          <ul aria-label="Customers found" className="divide-y rounded-md border">
+            {found.map((person) => (
+              <li key={person.leadId}>
+                <button
+                  type="button"
+                  onClick={() => onPick(person)}
+                  className="flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-muted/40"
+                >
+                  <span className="font-medium">{person.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {person.email ?? 'No email address'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/** The writing box under a conversation, with Ask AI to draft the mail. */
+function Reply({
+  accessToken,
+  workspaceId,
+  person,
+  onSent,
+}: {
+  accessToken: string;
+  workspaceId: string;
+  person: Person;
+  onSent: () => void;
+}) {
+  const formId = useId();
+  const assistant = useOptionalAssistant();
+  const aiReady =
+    assistant?.capabilities.status === 'ready' && assistant.capabilities.data.available;
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [asking, setAsking] = useState(false);
+  const [brief, setBrief] = useState('');
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (sending || !to || !subject.trim() || !body.trim()) return;
+    if (sending || !subject.trim() || !body.trim()) return;
     setSending(true);
     setMessage(undefined);
     try {
-      const result = await emailLeadCustomer(accessToken, workspaceId, to.leadId, {
+      await emailLeadCustomer(accessToken, workspaceId, person.leadId, {
         subject: subject.trim(),
         body: body.trim(),
       });
-      onSent(result.activity.id);
+      setSubject('');
+      setBody('');
+      onSent();
     } catch (error) {
       const reason = errorReason(error);
       setMessage(
@@ -127,143 +211,245 @@ function Compose({
                 ? 'This lead is archived. Restore it to email the customer.'
                 : describeError(error, 'send the email'),
       );
+    } finally {
       setSending(false);
     }
   }
 
+  function askAi(event: FormEvent) {
+    event.preventDefault();
+    const wanted = brief.trim();
+    if (!assistant || !wanted) return;
+    // Ask AI already knows the customer: the page's address names the lead.
+    assistant.open();
+    assistant.send(`Write an email to this customer (${person.name}). ${wanted}`);
+    setBrief('');
+    setAsking(false);
+  }
+
   return (
-    <Card aria-label="New email">
-      <CardContent>
-        <form onSubmit={(event) => void send(event)} className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <h2 className="mr-auto text-base font-semibold">New email</h2>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label="Close"
-              disabled={sending}
-              onClick={onCancel}
-            >
-              <XIcon aria-hidden="true" className="size-4" />
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${formId}-to`}>To</Label>
-            {to ? (
-              <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium">{to.name}</span>
-                  {to.email ? <span className="text-muted-foreground"> · {to.email}</span> : null}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={sending}
-                  onClick={() => {
-                    setTo(undefined);
-                    setTerm('');
-                  }}
-                >
-                  Change
-                </Button>
-              </div>
-            ) : (
-              <>
-                <Input
-                  id={`${formId}-to`}
-                  value={term}
-                  autoFocus
-                  autoComplete="off"
-                  placeholder="Search a customer by name, email, phone or order number"
-                  onChange={(event) => setTerm(event.target.value)}
-                />
-                {found ? (
-                  found.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No customer matches.</p>
-                  ) : (
-                    <ul aria-label="Customers found" className="divide-y rounded-md border">
-                      {found.map((lead) => (
-                        <li key={lead.leadId}>
-                          <button
-                            type="button"
-                            onClick={() => setTo(lead)}
-                            className="flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-muted/40"
-                          >
-                            <span className="font-medium">{lead.name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {lead.email ?? 'No email address'}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )
-                ) : null}
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${formId}-subject`}>Subject</Label>
-            <Input
-              id={`${formId}-subject`}
-              value={subject}
-              maxLength={150}
-              required
-              onChange={(event) => setSubject(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${formId}-body`}>Message</Label>
-            <Textarea
-              id={`${formId}-body`}
-              value={body}
-              rows={9}
-              maxLength={3500}
-              required
-              onChange={(event) => setBody(event.target.value)}
-            />
-          </div>
+    <div className="border-t bg-background p-3">
+      {asking ? (
+        <form
+          onSubmit={askAi}
+          aria-label="Write with AI"
+          className="mb-3 flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
+        >
+          <Label htmlFor={`${formId}-brief`}>What should the email say?</Label>
+          <Textarea
+            id={`${formId}-brief`}
+            value={brief}
+            rows={2}
+            autoFocus
+            maxLength={600}
+            placeholder="For example: tell them the SIM was mailed today and arrives in 3 to 5 days"
+            onChange={(event) => setBrief(event.target.value)}
+          />
           <p className="text-xs text-muted-foreground">
-            Sent from this site’s own sender, in the site’s email design, within a minute.
+            Ask AI writes a draft in its panel. You can edit it there and press Send; nothing goes
+            out until you do.
           </p>
-          {message ? (
-            <p role="alert" className="text-sm text-destructive">
-              {message}
-            </p>
-          ) : null}
           <div className="flex items-center gap-2">
-            <Button
-              type="submit"
-              size="sm"
-              disabled={sending || !to || !subject.trim() || !body.trim()}
-            >
-              {sending ? 'Sending…' : 'Send email'}
+            <Button type="submit" size="sm" disabled={!brief.trim()}>
+              <SparklesIcon aria-hidden="true" className="size-3.5" />
+              Write the draft
             </Button>
-            <Button type="button" size="sm" variant="ghost" disabled={sending} onClick={onCancel}>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setAsking(false)}>
               Cancel
             </Button>
           </div>
         </form>
-      </CardContent>
-    </Card>
+      ) : null}
+      <form
+        onSubmit={(event) => void send(event)}
+        aria-label="New email"
+        className="flex flex-col gap-2"
+      >
+        <Label htmlFor={`${formId}-subject`} className="sr-only">
+          Subject
+        </Label>
+        <Input
+          id={`${formId}-subject`}
+          value={subject}
+          maxLength={150}
+          placeholder="Subject"
+          onChange={(event) => setSubject(event.target.value)}
+        />
+        <Label htmlFor={`${formId}-body`} className="sr-only">
+          Message
+        </Label>
+        <Textarea
+          id={`${formId}-body`}
+          value={body}
+          rows={4}
+          maxLength={3500}
+          placeholder={`Write to ${person.name}…`}
+          onChange={(event) => setBody(event.target.value)}
+        />
+        {message ? (
+          <p role="alert" className="text-sm text-destructive">
+            {message}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {aiReady && !asking ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => setAsking(true)}>
+              <SparklesIcon aria-hidden="true" className="size-3.5 text-primary" />
+              Write with AI
+            </Button>
+          ) : null}
+          <span className="mr-auto text-xs text-muted-foreground">
+            Sent from this site’s own sender, within a minute.
+          </span>
+          <Button type="submit" size="sm" disabled={sending || !subject.trim() || !body.trim()}>
+            <SendIcon aria-hidden="true" className="size-3.5" />
+            {sending ? 'Sending…' : 'Send'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** One customer's mails, oldest at the top like a conversation, the writing box under them. */
+function Conversation({
+  accessToken,
+  workspaceId,
+  workspaceSlug,
+  person,
+  version,
+  onSent,
+  onBack,
+}: {
+  accessToken: string;
+  workspaceId: string;
+  workspaceSlug: string;
+  person: Person;
+  /** Bumped when a mail to this site was sent elsewhere (Ask AI, the lead page). */
+  version: number;
+  onSent: () => void;
+  onBack: () => void;
+}) {
+  const { members } = useLeadWorkspace(workspaceSlug);
+  const load = useMemo(
+    () => () => listMailbox(accessToken, workspaceId, { leadId: person.leadId }),
+    // `version` asks again without changing the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accessToken, workspaceId, person.leadId, version],
+  );
+  const thread = useResource(load);
+  const endRef = useRef<HTMLDivElement>(null);
+  const mails = useMemo(() => [...(thread.data?.items ?? [])].reverse(), [thread.data]);
+  const newest = mails[mails.length - 1]?.id;
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [newest]);
+  const leadType = person.leadType ?? mails[0]?.lead.leadType;
+
+  return (
+    <section aria-label={`Emails to ${person.name}`} className="flex min-h-0 min-w-0 flex-col">
+      <header className="flex items-center gap-3 border-b px-4 py-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          aria-label="Back to the list"
+          className="lg:hidden"
+          onClick={onBack}
+        >
+          <ArrowLeftIcon aria-hidden="true" className="size-4" />
+        </Button>
+        <Avatar name={person.name} />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold">{person.name}</h2>
+          {leadType ? (
+            <p className="text-xs text-muted-foreground">{leadTypeLabel(leadType)}</p>
+          ) : null}
+        </div>
+        <Button asChild size="sm" variant="outline">
+          <Link href={`/w/${workspaceSlug}/leads/${person.leadId}`}>
+            Open lead
+            <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+          </Link>
+        </Button>
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-muted/20 p-4">
+        {thread.error && !thread.data ? (
+          <p role="alert" className="text-sm text-destructive">
+            {describeError(thread.failure, 'load the emails')}
+          </p>
+        ) : !thread.data ? (
+          <LoadingSkeleton label="Loading emails…" variant="list" rows={2} />
+        ) : mails.length === 0 ? (
+          <p className="m-auto text-sm text-muted-foreground">
+            No emails to {person.name} yet. Write the first one below.
+          </p>
+        ) : (
+          <ol aria-label="Emails sent" className="flex flex-col gap-3">
+            {mails.map((mail) => (
+              <li key={mail.id} className="rounded-xl border bg-card p-4 text-sm">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium break-words">{mailTitle(mail)}</p>
+                    <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                      {mail.automation ? <BotIcon aria-hidden="true" className="size-3.5" /> : null}
+                      {mailSender(mail, members)} ·{' '}
+                      <time dateTime={mail.createdAt}>{dateTimeLabel(mail.createdAt)}</time>
+                    </p>
+                  </div>
+                  <StatusBadge item={mail} />
+                </div>
+                {mail.text ? (
+                  <p className="mt-3 break-words whitespace-pre-wrap">{mail.text}</p>
+                ) : (
+                  <p className="mt-3 text-muted-foreground">
+                    The words of this email were not kept: it was sent before the CRM saved email
+                    text, or the customer’s data has been erased.
+                  </p>
+                )}
+                {mail.textCut ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    This is the start of a long email; the rest was not kept.
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <Reply
+        // A different customer is a fresh, empty box.
+        key={person.leadId}
+        accessToken={accessToken}
+        workspaceId={workspaceId}
+        person={person}
+        onSent={onSent}
+      />
+    </section>
   );
 }
 
 /**
- * Mail: the site's sent box. The list on the left, the chosen mail beside it
- * (under it on a narrow screen). Replies are not here: they go to the site's
- * reply-to mailbox.
+ * Mail: the site's sent mail as conversations. The customers written to on the
+ * left (their latest mail each); the chosen customer's mails on the right, with
+ * a writing box under them. Replies are not here: they go to the site's
+ * reply-to mailbox. The chosen customer is `?lead=` in the address, which is
+ * also how Ask AI knows whom a draft is for.
  */
 export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
-  const { workspaceId, accessToken, members } = useLeadWorkspace(workspaceSlug);
+  const { workspaceId, accessToken } = useLeadWorkspace(workspaceSlug);
+  const router = useRouter();
+  const pathname = usePathname();
+  const queried = useSearchParams().get('lead');
+  const leadId = queried !== null && LEAD_ID.test(queried) ? queried : undefined;
   const [page, setPage] = useState(1);
-  const [openId, setOpenId] = useState<string>();
-  /** The new-email form: open with no customer chosen, or for one. */
-  const [writing, setWriting] = useState<{ to?: Recipient }>();
+  const [finding, setFinding] = useState(false);
+  /** A customer picked by search, who may have no mail yet and so no row in the list. */
+  const [picked, setPicked] = useState<Person>();
+  const [version, setVersion] = useState(0);
   const load = useMemo(
     () =>
       accessToken && workspaceId
@@ -271,218 +457,194 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
         : undefined,
     [accessToken, workspaceId, page],
   );
-  const box = useResource(load);
+  const people = useResource(load);
+  const reloadPeople = people.reload;
+
+  // A mail sent from Ask AI or a lead panel shows here without a refresh.
+  useEffect(() => {
+    const saved = () => {
+      setVersion((current) => current + 1);
+      void reloadPeople();
+    };
+    window.addEventListener(LEAD_WORK_SAVED, saved);
+    return () => window.removeEventListener(LEAD_WORK_SAVED, saved);
+  }, [reloadPeople]);
 
   if (!accessToken || !workspaceId) return null;
-  if (box.error && !box.data) {
+  if (people.error && !people.data) {
     return (
       <p role="alert" className="text-sm text-destructive">
-        {box.error === 'permission_denied'
+        {people.error === 'permission_denied'
           ? "Your role doesn't show customer emails. Ask the owner if you need to read them."
-          : describeError(box.failure, 'load the mail')}
+          : describeError(people.failure, 'load the mail')}
       </p>
     );
   }
-  if (!box.data) return <LoadingSkeleton label="Loading mail…" variant="list" rows={6} />;
+  if (!people.data) return <LoadingSkeleton label="Loading mail…" variant="list" rows={6} />;
 
-  const { items } = box.data;
-  const total = box.data.page.total;
-  const pages = Math.max(1, Math.ceil(total / box.data.page.pageSize));
-  const open = items.find((item) => item.id === openId) ?? items[0];
-
-  const composeForm = writing ? (
-    <Compose
-      // A different customer is a fresh form.
-      key={writing.to?.leadId ?? 'new'}
-      accessToken={accessToken}
-      workspaceId={workspaceId}
-      {...(writing.to ? { initial: writing.to } : {})}
-      onCancel={() => setWriting(undefined)}
-      onSent={(mailId) => {
-        setWriting(undefined);
-        setOpenId(mailId);
-        setPage(1);
-        box.reload();
-      }}
-    />
-  ) : null;
+  const { items } = people.data;
+  const pages = Math.max(1, Math.ceil(people.data.page.total / people.data.page.pageSize));
+  const choose = (next: string | undefined) =>
+    router.replace(next ? `${pathname}?lead=${next}` : pathname, { scroll: false });
+  const row = items.find((item) => item.lead.id === leadId);
+  const person: Person | undefined =
+    leadId === undefined
+      ? undefined
+      : row
+        ? {
+            leadId,
+            name: row.lead.name ?? 'Unnamed customer',
+            leadType: row.lead.leadType,
+          }
+        : picked?.leadId === leadId
+          ? picked
+          : { leadId, name: 'Customer' };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 border-b">
-        <span className="-mb-px flex items-center gap-2 border-b-2 border-primary px-3 py-2 text-sm font-medium">
-          <SendIcon aria-hidden="true" className="size-3.5" />
-          Sent
-          <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{total}</span>
-        </span>
-        <span className="ml-auto hidden pb-2 text-xs text-muted-foreground md:inline">
-          Customer replies go to this site’s reply-to mailbox, not here.
-        </span>
-        <Button type="button" size="sm" className="mb-2" onClick={() => setWriting({})}>
-          <PenLineIcon aria-hidden="true" className="size-3.5" />
-          New email
-        </Button>
-      </div>
-
-      {box.error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {describeError(box.failure, 'refresh the mail')}
-        </p>
-      ) : null}
-
-      {items.length === 0 && writing ? composeForm : null}
-      {items.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+    <div className="grid h-[calc(100dvh-13rem)] min-h-[28rem] overflow-hidden rounded-2xl border bg-card lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <aside
+        aria-label="Customers"
+        className={cn('flex min-h-0 flex-col lg:border-r', person && 'hidden lg:flex')}
+      >
+        <div className="flex items-center gap-2 border-b px-3 py-2.5">
+          <span className="mr-auto text-sm font-medium">
+            Sent
+            <span className="ml-1.5 font-normal text-muted-foreground">
+              {people.data.page.total}
+            </span>
+          </span>
+          <Button type="button" size="sm" onClick={() => setFinding(true)}>
+            <PenLineIcon aria-hidden="true" className="size-3.5" />
+            New email
+          </Button>
+        </div>
+        {finding ? (
+          <FindCustomer
+            accessToken={accessToken}
+            workspaceId={workspaceId}
+            onCancel={() => setFinding(false)}
+            onPick={(found) => {
+              setPicked(found);
+              setFinding(false);
+              choose(found.leadId);
+            }}
+          />
+        ) : null}
+        {people.error ? (
+          <p role="alert" className="px-3 py-2 text-sm text-destructive">
+            {describeError(people.failure, 'refresh the mail')}
+          </p>
+        ) : null}
+        {items.length === 0 ? (
+          <div className="m-auto flex flex-col items-center gap-2 p-6 text-center">
             <MailIcon className="size-6 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">
               No emails have been sent to customers yet.
             </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <Card className="py-0">
-            <CardContent className="p-0">
-              <ul aria-label="Sent emails" className="divide-y">
-                {items.map((item) => {
-                  const active = item.id === open?.id;
-                  return (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        aria-current={active ? 'true' : undefined}
-                        onClick={() => setOpenId(item.id)}
-                        className={cn(
-                          'flex w-full flex-col gap-0.5 px-4 py-3 text-left hover:bg-muted/40',
-                          active && 'bg-primary/5',
-                        )}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {item.lead.name ?? 'Unnamed customer'}
-                          </span>
-                          <time
-                            dateTime={item.createdAt}
-                            title={dateTimeLabel(item.createdAt)}
-                            className="shrink-0 text-xs text-muted-foreground"
+          </div>
+        ) : (
+          <ul aria-label="Customers written to" className="min-h-0 flex-1 divide-y overflow-y-auto">
+            {items.map((item) => {
+              const name = item.lead.name ?? 'Unnamed customer';
+              const active = item.lead.id === leadId;
+              return (
+                <li key={item.lead.id}>
+                  <button
+                    type="button"
+                    aria-current={active ? 'true' : undefined}
+                    onClick={() => choose(item.lead.id)}
+                    className={cn(
+                      'flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-muted/40',
+                      active && 'bg-primary/5',
+                    )}
+                  >
+                    <Avatar name={name} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+                        <time
+                          dateTime={item.createdAt}
+                          title={dateTimeLabel(item.createdAt)}
+                          className="shrink-0 text-xs text-muted-foreground"
+                        >
+                          {relativeTime(item.createdAt)}
+                        </time>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm">{mailTitle(item)}</span>
+                        {(item.mails ?? 1) > 1 ? (
+                          <span
+                            title={`${item.mails} emails`}
+                            className="shrink-0 rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums"
                           >
-                            {relativeTime(item.createdAt)}
-                          </time>
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm">{mailTitle(item)}</span>
-                          <StatusBadge item={item} />
-                        </span>
-                        {snippet(item.text) ? (
-                          <span className="truncate text-xs text-muted-foreground">
-                            {snippet(item.text)}
+                            {item.mails}
                           </span>
                         ) : null}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </CardContent>
-          </Card>
-
-          {writing ? (
-            composeForm
-          ) : open ? (
-            <Card aria-label="Email" className="lg:sticky lg:top-20">
-              <CardContent className="flex flex-col gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-base font-semibold break-words">{mailTitle(open)}</h2>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-                      <span>
-                        To{' '}
-                        <span className="font-medium text-foreground">
-                          {open.lead.name ?? 'Unnamed customer'}
-                        </span>
                       </span>
-                      <span aria-hidden="true">·</span>
-                      <span>{leadTypeLabel(open.lead.leadType)}</span>
-                    </p>
-                    <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      {open.automation ? <BotIcon aria-hidden="true" className="size-3.5" /> : null}
-                      {mailSender(open, members)} · {dateTimeLabel(open.createdAt)}
-                    </p>
-                  </div>
-                  <StatusBadge item={open} />
-                </div>
-                <div className="border-t pt-4 text-sm">
-                  {open.text ? (
-                    <>
-                      <p className="break-words whitespace-pre-wrap">{open.text}</p>
-                      {open.textCut ? (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          This is the start of a long email; the rest was not kept.
-                        </p>
-                      ) : null}
-                    </>
-                  ) : (
-                    <p className="text-muted-foreground">
-                      The words of this email were not kept: it was sent before the CRM saved email
-                      text, or the customer’s data has been erased.
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() =>
-                      setWriting({
-                        to: {
-                          leadId: open.lead.id,
-                          name: open.lead.name ?? 'Unnamed customer',
-                        },
-                      })
-                    }
-                  >
-                    <PenLineIcon aria-hidden="true" className="size-3.5" />
-                    Write to this customer
-                  </Button>
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/w/${workspaceSlug}/leads/${open.lead.id}`}>
-                      Open lead
-                      <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {snippet(item.text) || MAIL_STATUS_BADGE[item.mailStatus ?? 'sent'].label}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {pages > 1 ? (
+          <div className="flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              Previous
+            </Button>
+            <span className="mx-auto">
+              Page {page} of {pages}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={page >= pages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        ) : null}
+      </aside>
+
+      {person ? (
+        <Conversation
+          // Another customer starts from an empty conversation, not the last one's mails.
+          key={person.leadId}
+          accessToken={accessToken}
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+          person={person}
+          version={version}
+          onBack={() => choose(undefined)}
+          onSent={() => {
+            setVersion((current) => current + 1);
+            setPage(1);
+            void reloadPeople();
+          }}
+        />
+      ) : (
+        <div className="hidden flex-col items-center justify-center gap-2 p-6 text-center lg:flex">
+          <MailIcon className="size-7 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">
+            Choose a customer to read the emails sent to them, or press New email.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Customer replies go to this site’s reply-to mailbox, not here.
+          </p>
         </div>
       )}
-
-      {pages > 1 ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            Previous
-          </Button>
-          <span>
-            Page {page} of {pages}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page >= pages}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 }

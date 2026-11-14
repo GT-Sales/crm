@@ -1628,7 +1628,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       const mailbox = dependencies.mailbox ?? new DatabaseMailbox();
       const result = await mailbox.list(
         { workspaceId: workspaceId.data, actorId: actor.actorId },
-        { page },
+        { page, ...(query.data.leadId ? { leadId: query.data.leadId } : {}) },
       );
       res.json({
         items: result.items,

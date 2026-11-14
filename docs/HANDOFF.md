@@ -2977,12 +2977,17 @@ sends a lead's customer, so staff can read them back.
 ### Site Mail page (14 Nov 2026)
 
 `Mail` in the sidebar (`components/mail/mailbox.tsx`, route
-`/w/:site/mail`): the site's sent box, a list with the chosen mail beside it
-and a link to its lead. Read endpoint `GET …/mail` (`email/mailbox.ts`,
-contract `mailbox.ts`), contact access, reads the same timeline entries the
-lead's Mail tab does. "New email" searches the site's leads and sends through
-the lead's own `customer-emails` route. No inbox: replies still go to
-the site's reply-to mailbox.
+`/w/:site/mail`): the site's sent mail as conversations. Left: the customers
+written to, their latest mail each (`GET …/mail`, one row per lead with
+`mails`). Right: the chosen customer's mails oldest first (`GET …/mail?leadId=`)
+with a writing box under them that sends through the lead's own
+`customer-emails` route. The chosen customer is `?lead=` in the address, which
+is also what gives Ask AI its lead context: "Write with AI" opens the Ask AI
+panel and sends it the brief, and the existing email draft card (edit, Send)
+does the rest, so no new AI route or permission exists. "New email" searches
+the site's leads. Store `email/mailbox.ts`, contract `mailbox.ts`, contact
+access, no migration. No inbox: replies still go to the site's reply-to
+mailbox.
 
 Also on 14 Nov: Leads and the dashboard no longer draw a second skeleton
 (`decidingType` in `leads-inbox.tsx`; follow-ups loaded once in

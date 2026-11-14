@@ -1440,7 +1440,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
         call({
           method: 'GET',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/mail`,
-          query: { page: query?.page },
+          query: { page: query?.page, leadId: query?.leadId },
           responseSchema: mailboxResponseSchema,
         }),
       getPropertyModel: (workspaceId, query) =>
