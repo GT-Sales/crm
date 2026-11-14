@@ -210,13 +210,21 @@ describe('hero style', () => {
     expect(top).toContain('color:#15130f;letter-spacing:-0.01em;');
   });
 
-  it('draws a staff-written message in the hero card, escaped', () => {
+  it('draws a staff-written message as a plain letter, not in the hero card', () => {
     const mail = renderPlainCustomerEmail({
       subject: 'Hello',
       body: 'Hi <there>\nLine two',
       branding,
     });
-    expect(mail.html).toContain('linear-gradient(135deg,#0966ff,');
+    // No band and no card: the site's mark and name, the words, a quiet footer.
+    expect(mail.html).not.toContain('linear-gradient');
+    expect(mail.html).toContain('background:#ffffff');
+    // Its mark stands at the top and again in the footer: the logo when it
+    // has one, else its name beside its initial.
+    const marks = branding.logoUrl
+      ? mail.html.split('<img ').length - 1
+      : mail.html.split(`>${branding.siteName}</td>`).length - 1;
+    expect(marks).toBe(2);
     expect(mail.html).toContain('Hi &lt;there&gt;\nLine two');
     expect(mail.text).toBe('Hi <there>\nLine two\n\n--\nCanadaWide Internet\nSaskatoon, SK');
   });
