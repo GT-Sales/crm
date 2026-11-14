@@ -24,7 +24,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     id: 'navigation',
     summary: 'Finding your way: the sidebar pages, top bar search, switching site, signing out',
     body: text(
-      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, Mail, then under Manage: Automations and Settings.',
+      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, Mail, Analytics (website visitors from Umami), then under Manage: Automations and Settings.',
       'Leads shows a count of new leads not opened yet; Documents shows how many documents wait for review.',
       'Top bar:',
       '1. "Search leads, pages…" (or Ctrl+K / Cmd+K) finds a lead by name, order number, email or phone, or jumps to a page. Press Enter to open the first result.',

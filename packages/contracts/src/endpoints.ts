@@ -96,6 +96,7 @@ import {
   documentReviewQueueResponseSchema,
 } from './document-review';
 import { mailboxQuerySchema, mailboxResponseSchema } from './mailbox';
+import { webAnalyticsQuerySchema, webAnalyticsResponseSchema } from './web-analytics';
 import {
   TRACKING_GRANT_HEADER,
   createTrackedChangeRequestSchema,
@@ -603,6 +604,17 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: mailboxQuerySchema,
     response: mailboxResponseSchema,
+  },
+  {
+    operationId: 'getWebAnalytics',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/web-analytics',
+    summary:
+      "The site's website traffic for the last 7, 30 (default) or 90 days, read from its Umami website: totals with the period before, per-day visitors and views, top pages, referrers, countries and devices. `report` is null with `unavailable` when there is no connection, no website for the site, or Umami did not answer.",
+    auth: 'staff',
+    successStatus: 200,
+    query: webAnalyticsQuerySchema,
+    response: webAnalyticsResponseSchema,
   },
 
   // Staff — properties, record layouts and saved views

@@ -33,6 +33,7 @@ import {
   documentReviewQueueQuerySchema,
   MAILBOX_PAGE_SIZE,
   mailboxQuerySchema,
+  webAnalyticsQuerySchema,
 } from '@gt-sales/contracts';
 import {
   rateLimitHit,
@@ -99,6 +100,7 @@ import {
   type DocumentReviewQueueStore,
 } from '../documents/review-queue.js';
 import { DatabaseMailbox, type MailboxStore } from '../email/mailbox.js';
+import { loadWebAnalyticsReader, type WebAnalyticsReader } from '../analytics/web-analytics.js';
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
@@ -152,6 +154,7 @@ export interface StaffRouteDependencies {
   /** Documents → review queue; the database store when absent. */
   documentReviewQueue?: DocumentReviewQueueStore;
   mailbox?: MailboxStore;
+  webAnalytics?: WebAnalyticsReader;
   /** The site's email settings and templates; omitted in route tests that do not reach them. */
   emailSettingsStore?: EmailSettingsStore;
   /** The transaction runner the test mail is composed and queued in; the database's by default. */
@@ -331,6 +334,8 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 export function createStaffRouter(dependencies: StaffRouteDependencies): Router {
+  // One reader for the process: it keeps a short cache of each site's report.
+  const defaultWebAnalytics = loadWebAnalyticsReader();
   const router = Router();
   router.use(requireStaffSession(dependencies.sessionVerifier, dependencies.rateLimit));
 
@@ -1599,6 +1604,37 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
         },
         requestId: req.id,
       });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
+  // The site's website traffic (Analytics page), read from Umami. Totals only,
+  // no customer details, so any member of the site may read it.
+  router.get('/workspaces/:workspaceId/web-analytics', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const query = webAnalyticsQuerySchema.safeParse(req.query);
+    if (!workspaceId.success || !query.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { decision } = await decide(req, workspaceId.data, 'workspace.read');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const reader = dependencies.webAnalytics ?? defaultWebAnalytics;
+      const outcome = await reader.read({
+        workspaceId: workspaceId.data,
+        days: query.data.days ?? 30,
+      });
+      res.json(
+        outcome.status === 'ok'
+          ? { report: outcome.report, requestId: req.id }
+          : { report: null, unavailable: outcome.status, requestId: req.id },
+      );
     } catch (error) {
       reportFailure(req, error);
       sendStaffAuthError(res, req.id, 'internal_error', 500);

@@ -5,6 +5,8 @@ import type {
   DocumentReviewQueueResponse,
   MailboxQuery,
   MailboxResponse,
+  WebAnalyticsQuery,
+  WebAnalyticsResponse,
   AiAutomationDraft,
   AiAutomationProposal,
   AiAutomationSaveResponse,
@@ -755,6 +757,15 @@ export async function reviewFile(
   body: ReviewFileRequest,
 ): Promise<ReviewFileResponse> {
   return client(accessToken).staff.reviewFile(workspaceId, fileId, body);
+}
+
+/** Analytics: the site's website traffic from Umami, for the last 7, 30 or 90 days. */
+export async function getWebAnalytics(
+  accessToken: string,
+  workspaceId: string,
+  query?: WebAnalyticsQuery,
+): Promise<WebAnalyticsResponse> {
+  return client(accessToken).staff.getWebAnalytics(workspaceId, query);
 }
 
 /** Mail: one page of the site's sent box, newest first. */

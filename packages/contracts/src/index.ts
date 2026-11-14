@@ -665,6 +665,7 @@ export {
 } from './files';
 export * from './document-review';
 export * from './mailbox';
+export * from './web-analytics';
 export * from './lead-export';
 
 export {
