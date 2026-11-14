@@ -1,14 +1,20 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mailboxResponseSchema } from '@gt-sales/contracts';
 
 import { BackendError } from '../../lib/api';
 import { Mailbox } from './mailbox';
 
-const mocks = vi.hoisted(() => ({ listMailbox: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  listMailbox: vi.fn(),
+  getStaffLeads: vi.fn(),
+  emailLeadCustomer: vi.fn(),
+}));
 vi.mock('../../lib/api', async (original) => ({
   ...(await original<typeof import('../../lib/api')>()),
   listMailbox: mocks.listMailbox,
+  getStaffLeads: mocks.getStaffLeads,
+  emailLeadCustomer: mocks.emailLeadCustomer,
 }));
 const SELF = '20000000-0000-4000-8000-000000000001';
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
@@ -112,5 +118,60 @@ describe('Mailbox', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(
       "Your role doesn't show customer emails",
     );
+  });
+
+  it('writes to a customer found by search, then shows the new mail', async () => {
+    mocks.listMailbox.mockResolvedValue(box());
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [
+        {
+          id: '90000000-0000-4000-8000-000000000003',
+          contact: { fullName: 'Priya Sharma', email: 'priya@example.test', phone: null },
+        },
+      ],
+    });
+    mocks.emailLeadCustomer.mockResolvedValue({
+      activity: { id: '92000000-0000-4000-8000-000000000009' },
+    });
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByRole('list', { name: 'Sent emails' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'New email' }));
+    const form = screen.getByLabelText('New email');
+    const send = within(form).getByRole('button', { name: 'Send email' });
+    fireEvent.change(within(form).getByLabelText('Subject'), { target: { value: 'Hello' } });
+    fireEvent.change(within(form).getByLabelText('Message'), { target: { value: 'All set.' } });
+    // No customer chosen yet.
+    expect(send).toHaveProperty('disabled', true);
+
+    fireEvent.change(within(form).getByLabelText('To'), { target: { value: 'priya' } });
+    const found = await within(form).findByRole('list', { name: 'Customers found' });
+    expect(mocks.getStaffLeads).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+      q: 'priya',
+      view: 'active',
+      pageSize: 6,
+    });
+    fireEvent.click(within(found).getByRole('button', { name: /Priya Sharma/ }));
+    expect(form.textContent).toContain('priya@example.test');
+
+    fireEvent.click(send);
+    await waitFor(() => expect(screen.queryByLabelText('New email')).toBeNull());
+    expect(mocks.emailLeadCustomer).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE,
+      '90000000-0000-4000-8000-000000000003',
+      { subject: 'Hello', body: 'All set.' },
+    );
+    // The list is read again so the new mail shows.
+    expect(mocks.listMailbox).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes again to the customer of the open mail', async () => {
+    mocks.listMailbox.mockResolvedValue(box());
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByRole('list', { name: 'Sent emails' });
+    fireEvent.click(screen.getByRole('button', { name: 'Write to this customer' }));
+    expect(screen.getByLabelText('New email').textContent).toContain('Nadia Khan');
+    expect(mocks.getStaffLeads).not.toHaveBeenCalled();
   });
 });

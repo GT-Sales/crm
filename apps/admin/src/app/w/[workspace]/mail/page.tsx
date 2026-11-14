@@ -7,8 +7,8 @@ export default async function MailPage({ params }: { params: Promise<{ workspace
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Mail</h1>
         <p className="text-sm text-muted-foreground">
-          Every email this site has sent its customers, newest first. To write one, open the lead
-          and use its Mail tab.
+          Every email this site has sent its customers, newest first. Write a new one here or from a
+          lead&apos;s Mail tab.
         </p>
       </div>
       <Mailbox workspaceSlug={workspace} />

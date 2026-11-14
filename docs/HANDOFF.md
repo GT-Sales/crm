@@ -2980,7 +2980,8 @@ sends a lead's customer, so staff can read them back.
 `/w/:site/mail`): the site's sent box, a list with the chosen mail beside it
 and a link to its lead. Read endpoint `GET …/mail` (`email/mailbox.ts`,
 contract `mailbox.ts`), contact access, reads the same timeline entries the
-lead's Mail tab does. Writing stays on the lead. No inbox: replies still go to
+lead's Mail tab does. "New email" searches the site's leads and sends through
+the lead's own `customer-emails` route. No inbox: replies still go to
 the site's reply-to mailbox.
 
 Also on 14 Nov: Leads and the dashboard no longer draw a second skeleton

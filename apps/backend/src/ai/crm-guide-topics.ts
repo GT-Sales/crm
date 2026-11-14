@@ -151,7 +151,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     body: text(
       'Mail tab: open the lead and choose Mail (on the full page, the "Emails to the customer" card). It lists every email the CRM sent this customer, newest first, with who or which automation sent it and how it went (Sending, Sent, Delivered, Bounced, Not sent). Click one to read it. Emails from before 13 Nov 2026 show their name only.',
       'To write one: press "New email", fill in Subject and Message, press "Send email". It goes to the lead’s own address within a minute. Replies do not appear in the CRM; they go to the site’s reply-to mailbox.',
-      'The Mail page in the sidebar lists the emails sent to all customers of the site, newest first; click one to read it and "Open lead" to go to its lead.',
+      'The Mail page in the sidebar lists the emails sent to all customers of the site, newest first; click one to read it. "New email" there lets you search a customer and write to them; "Write to this customer" writes again to the open mail’s customer.',
       'SIM number: save the number in the lead’s details, then press "Email the customer" when asked, or "Email it to the customer" later.',
       'Ask AI can also prepare an email: edit the draft card and press "Send".',
       'Sending needs the Leads role (or owner), a customer email address, and Settings → Email set up; otherwise the lead says what is missing. Emails on stage moves come from automations.',
