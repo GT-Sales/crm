@@ -426,7 +426,13 @@ the database (merge design decision 18). For documents the order matters:
 then the storage objects; never the other way round.** The backup copies every
 object a row points at and fails the whole run when one is missing
 (`backup_incomplete`), so an object deleted before its row breaks every
-nightly backup until the row is fixed.
+nightly backup until the row is fixed. The one exception is a row already
+tombstoned (`app.files.status = 'deleted'`): its missing object counts as
+purged (`counts.purgedObjects` in the manifest) and the run goes on. The app
+itself purges that way when a customer replaces a held change-request upload
+and when abandoned-lead erasure runs; until 16 Nov 2026 that broke the backup
+(14–16 Nov had no restore point). So tombstone the row first, then delete the
+object.
 
 A deleted customer stays in the restore points taken before the deletion
 until retention prunes them: up to 30 days in the daily points and up to 12

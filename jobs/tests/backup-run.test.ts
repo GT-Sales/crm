@@ -183,6 +183,7 @@ describe('runBackup', () => {
       manifestKey: `${RUN_ID}/manifest.json.enc`,
       artifactCount: 6,
       referencedObjectCount: 1,
+      purgedObjectCount: 0,
       rowCountTables: 2,
       durationMs: 0,
       heartbeatPublished: true,
@@ -213,7 +214,7 @@ describe('runBackup', () => {
     expect(manifest.artifacts.map((artifact) => artifact.name)).toEqual(artifactNames);
     expect(manifest.rowCounts).toEqual(countCopyRows(DATA_SQL));
     expect(manifest.rowCounts).toEqual({ 'app.leads': 3, 'app.files': 0 });
-    expect(manifest.counts).toEqual({ referencedObjects: 1 });
+    expect(manifest.counts).toEqual({ referencedObjects: 1, purgedObjects: 0 });
     expect(manifest.exclusions).toEqual(BASE_EXCLUSIONS);
 
     // Every artifact is stored encrypted and decrypts to what the manifest describes.
@@ -284,6 +285,58 @@ describe('runBackup', () => {
     expect(error.missingOrMismatchedObjects).toEqual(['documents/docs/passport.pdf']);
     expect(backend.size()).toBe(0);
     expect((await readLatestHeartbeat(backend.asReader())).status).toBe('missing');
+  });
+
+  it('counts a purged object of a tombstoned file and still completes the run', async () => {
+    // A customer replaced a held change-request upload: the row is deleted,
+    // keeps its key, and the object was removed on purpose.
+    const { backend, deps, document, decryptor } = setup();
+    deps.referencedObjects = new FakeReferencedObjectManifestSource([
+      {
+        workspaceId: 'w1',
+        bucket: 'documents',
+        objectKey: 'docs/passport.pdf',
+        checksumSha256: sha256Hex(document),
+        sizeBytes: document.byteLength,
+      },
+      {
+        workspaceId: 'w1',
+        bucket: 'documents',
+        objectKey: 'docs/replaced.pdf',
+        checksumSha256: sha256Hex(encode('replaced')),
+        sizeBytes: 8,
+        fileDeleted: true,
+      },
+    ]);
+    const summary = await runBackup(deps);
+    expect(summary.referencedObjectCount).toBe(2);
+    expect(summary.purgedObjectCount).toBe(1);
+    const manifest = await decryptManifest(backend, decryptor);
+    expect(manifest.counts).toEqual({ referencedObjects: 2, purgedObjects: 1 });
+    expect(manifest.artifacts.map((artifact) => artifact.name)).toContain(
+      'objects/w1/docs/passport.pdf',
+    );
+    expect(manifest.artifacts.map((artifact) => artifact.name)).not.toContain(
+      'objects/w1/docs/replaced.pdf',
+    );
+    expect((await readLatestHeartbeat(backend.asReader())).status).toBe('ok');
+  });
+
+  it('fails with backup_incomplete when a tombstoned file keeps a different object', async () => {
+    const { backend, deps, document } = setup();
+    deps.referencedObjects = new FakeReferencedObjectManifestSource([
+      {
+        workspaceId: 'w1',
+        bucket: 'documents',
+        objectKey: 'docs/passport.pdf',
+        checksumSha256: sha256Hex(encode('something else')),
+        sizeBytes: document.byteLength,
+        fileDeleted: true,
+      },
+    ]);
+    const error = await runBackup(deps).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BackupIncompleteError);
+    expect(backend.size()).toBe(0);
   });
 
   it('fails with backup_incomplete on a checksum mismatch', async () => {
