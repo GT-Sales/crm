@@ -52,7 +52,7 @@ function expectConnectionOnlyInEnv(call: RecordedCall | undefined) {
 describe('PsqlReferencedObjectManifestSource', () => {
   it('PsqlReferencedObjectManifestSource parses tab-separated rows and the exact query', async () => {
     const { run, calls } = recordingRun(
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\r\nw2\tdocuments\tleads/def.png\t${SUM_B}\t2048\r\n`,
+      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\tf\r\nw2\tdocuments\tleads/def.png\t${SUM_B}\t2048\tt\r\n`,
     );
     const objects = await new PsqlReferencedObjectManifestSource(
       DB_URL,
@@ -66,6 +66,7 @@ describe('PsqlReferencedObjectManifestSource', () => {
         objectKey: 'leads/abc.pdf',
         checksumSha256: SUM_A,
         sizeBytes: 1024,
+        fileDeleted: false,
       },
       {
         workspaceId: 'w2',
@@ -73,6 +74,7 @@ describe('PsqlReferencedObjectManifestSource', () => {
         objectKey: 'leads/def.png',
         checksumSha256: SUM_B,
         sizeBytes: 2048,
+        fileDeleted: true,
       },
     ]);
     expect(calls).toHaveLength(1);
@@ -88,23 +90,28 @@ describe('PsqlReferencedObjectManifestSource', () => {
     expect(REFERENCED_OBJECTS_QUERY).toContain('from app.files where object_key is not null');
     expect(REFERENCED_OBJECTS_QUERY).toContain('from app.file_revisions r join app.files f');
     expect(REFERENCED_OBJECTS_QUERY).not.toContain('checksum_sha256 is not null');
+    // Tombstoned rows stay in the list; the flag only changes how a missing object is judged.
+    expect(REFERENCED_OBJECTS_QUERY).not.toContain("status <> 'deleted'");
+    expect(REFERENCED_OBJECTS_QUERY).toContain("f.status = 'deleted'");
   });
 
   it('PsqlReferencedObjectManifestSource throws malformed_referenced_object_row on an empty checksum', async () => {
     const { run } = recordingRun(
-      `w1\tdocuments\tleads/ok.pdf\t${SUM_A}\t1\nw1\tdocuments\tleads/abc.pdf\t\t1024\n`,
+      `w1\tdocuments\tleads/ok.pdf\t${SUM_A}\t1\tf\nw1\tdocuments\tleads/abc.pdf\t\t1024\tf\n`,
     );
     await expect(
       new PsqlReferencedObjectManifestSource(DB_URL, run).listReferencedObjects(),
     ).rejects.toThrow(new Error('malformed_referenced_object_row:w1/leads/abc.pdf'));
   });
 
-  it('rejects a checksum that is not 64 hex characters, a bad size and a short row', async () => {
+  it('rejects a checksum that is not 64 hex characters, a bad size, a bad deleted flag and a short row', async () => {
     for (const row of [
-      `w1\tdocuments\tleads/abc.pdf\tdeadbeef\t1024`,
-      `w1\tdocuments\tleads/abc.pdf\t${'g'.repeat(64)}\t1024`,
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t`,
-      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t-1`,
+      `w1\tdocuments\tleads/abc.pdf\tdeadbeef\t1024\tf`,
+      `w1\tdocuments\tleads/abc.pdf\t${'g'.repeat(64)}\t1024\tf`,
+      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t\tf`,
+      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t-1\tf`,
+      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024`,
+      `w1\tdocuments\tleads/abc.pdf\t${SUM_A}\t1024\tyes`,
       `w1\tdocuments\tleads/abc.pdf`,
     ]) {
       const { run } = recordingRun(`${row}\n`);

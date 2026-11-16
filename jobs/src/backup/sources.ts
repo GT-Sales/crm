@@ -36,6 +36,13 @@ export interface ReferencedObject {
   objectKey: string;
   checksumSha256: string;
   sizeBytes: number;
+  /**
+   * The file row is tombstoned (`status = 'deleted'`). Some deletes purge the
+   * object on purpose (a customer replacing a held change-request upload,
+   * abandoned-lead erasure) while the row and its revisions keep the key, so
+   * for these rows only a missing object is a purge, not a lost document.
+   */
+  fileDeleted?: boolean;
 }
 
 export interface ReferencedObjectManifestSource {
@@ -47,13 +54,16 @@ export interface ReferencedObjectManifestSource {
  * tombstoning can happen after the dump; a retained verified object still
  * belongs to that snapshot, while staging and candidate keys do not. Rows are
  * not filtered on their checksum: one whose checksum cannot be verified must
- * fail the backup, never be skipped.
+ * fail the backup, never be skipped. The last column says whether the file is
+ * tombstoned, which only changes how a missing object is judged (run.ts).
  */
 export const REFERENCED_OBJECTS_QUERY = `
-  select workspace_id, bucket, object_key, checksum_sha256, size_bytes
+  select workspace_id, bucket, object_key, checksum_sha256, size_bytes,
+    status = 'deleted'
   from app.files where object_key is not null
   union
-  select r.workspace_id, f.bucket, r.object_key, r.checksum_sha256, r.size_bytes
+  select r.workspace_id, f.bucket, r.object_key, r.checksum_sha256, r.size_bytes,
+    f.status = 'deleted'
   from app.file_revisions r join app.files f
     on f.workspace_id = r.workspace_id and f.id = r.file_id
 `;
@@ -80,19 +90,33 @@ export class PsqlReferencedObjectManifestSource implements ReferencedObjectManif
     ]);
     return outputLines(text).map((line) => {
       const fields = line.split('\t');
-      const [workspaceId = '', bucket = '', objectKey = '', checksumSha256 = '', size = ''] =
-        fields;
+      const [
+        workspaceId = '',
+        bucket = '',
+        objectKey = '',
+        checksumSha256 = '',
+        size = '',
+        deleted = '',
+      ] = fields;
       if (
-        fields.length !== 5 ||
+        fields.length !== 6 ||
         !workspaceId ||
         !bucket ||
         !objectKey ||
         !SHA256_HEX.test(checksumSha256) ||
-        !SIZE.test(size)
+        !SIZE.test(size) ||
+        (deleted !== 't' && deleted !== 'f')
       ) {
         throw new Error(`malformed_referenced_object_row:${workspaceId}/${objectKey}`);
       }
-      return { workspaceId, bucket, objectKey, checksumSha256, sizeBytes: Number(size) };
+      return {
+        workspaceId,
+        bucket,
+        objectKey,
+        checksumSha256,
+        sizeBytes: Number(size),
+        fileDeleted: deleted === 't',
+      };
     });
   }
 }

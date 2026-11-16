@@ -150,6 +150,7 @@ async function main(): Promise<void> {
         runId: summary.runId,
         artifactCount: summary.artifactCount,
         referencedObjectCount: summary.referencedObjectCount,
+        purgedObjectCount: summary.purgedObjectCount,
         rowCountTables: summary.rowCountTables,
         durationMs: summary.durationMs,
       }),

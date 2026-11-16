@@ -99,6 +99,8 @@ export interface BackupRunSummary {
   manifestKey: string;
   artifactCount: number;
   referencedObjectCount: number;
+  /** Referenced by a tombstoned file whose object was deliberately deleted. */
+  purgedObjectCount: number;
   rowCountTables: number;
   durationMs: number;
   heartbeatPublished: true;
@@ -150,10 +152,16 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
 
   // 7. Copy every referenced object. A snapshot is usable only when every one
   // is present with the recorded checksum and size; never accept a partial
-  // copy. The running total uses the bytes actually fetched, so a stale
-  // recorded size cannot carry the runner past its memory limit.
+  // copy. The one exception is an object that is missing while its file row
+  // is tombstoned: some deletes purge the object on purpose and keep the key
+  // on the row (a replaced change-request upload, abandoned-lead erasure), so
+  // that object is counted as purged in the manifest instead. A tombstoned
+  // file whose object is present but different still fails. The running
+  // total uses the bytes actually fetched, so a stale recorded size cannot
+  // carry the runner past its memory limit.
   const objectArtifacts = new Map<string, Uint8Array>();
   const problems: string[] = [];
+  let purgedObjects = 0;
   let heldBytes = databaseBytes;
   for (const object of referenced) {
     const bytes = await deps.storageSource.getObject(
@@ -162,7 +170,8 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     );
     const label = `${object.bucket}/${object.objectKey}`;
     if (!bytes) {
-      problems.push(label);
+      if (object.fileDeleted === true) purgedObjects += 1;
+      else problems.push(label);
       continue;
     }
     heldBytes += bytes.byteLength;
@@ -194,7 +203,7 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     toolVersions: deps.toolVersions,
     artifacts: [...artifacts.entries()].map(([name, bytes]) => manifestArtifact(name, bytes)),
     rowCounts,
-    counts: { referencedObjects: referenced.length },
+    counts: { referencedObjects: referenced.length, purgedObjects },
     exclusions: [...BASE_EXCLUSIONS, ...(deps.exclusions ?? [])],
   });
 
@@ -236,6 +245,7 @@ export async function runBackup(deps: BackupRunDependencies): Promise<BackupRunS
     manifestKey,
     artifactCount: artifacts.size,
     referencedObjectCount: referenced.length,
+    purgedObjectCount: purgedObjects,
     rowCountTables: Object.keys(rowCounts).length,
     durationMs: completedAt.getTime() - startedAt.getTime(),
     heartbeatPublished: true,
