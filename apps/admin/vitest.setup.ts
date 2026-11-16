@@ -9,6 +9,16 @@ class ResizeObserverStub {
 }
 vi.stubGlobal('ResizeObserver', ResizeObserverStub);
 
+// jsdom has no SVG layout. The automation canvas gives React Flow measured
+// nodes, so it draws edges at once, and a labelled edge (an if/else Yes/No)
+// sizes its label with getBBox; without it the whole page fails to render.
+if (typeof SVGElement !== 'undefined' && !('getBBox' in SVGElement.prototype)) {
+  Object.defineProperty(SVGElement.prototype, 'getBBox', {
+    configurable: true,
+    value: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+  });
+}
+
 afterEach(() => {
   cleanup();
 });
