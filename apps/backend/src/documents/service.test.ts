@@ -11,7 +11,7 @@ const resolver: DocumentContextResolver = {
 };
 
 /**
- * IMPLEMENTATION_PLAN §13: the expired-upload sweep must not hand back
+ * The expired-upload sweep must not hand back
  * physical-delete keys while the independent backup runner's lease is active,
  * so it cannot race the backup's referenced-object manifest/copy step.
  */

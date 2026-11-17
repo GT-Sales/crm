@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 
 /**
- * Private-document storage behind the file-access interface named in
- * IMPLEMENTATION_PLAN.md §8: `createUpload`, `verifyUpload`, `issueDownload`,
+ * Private-document storage behind the file-access interface: `createUpload`, `verifyUpload`, `issueDownload`,
  * `copyForExport`. Two implementations live in this package:
  *
  *  - `S3R2DocumentStore` (r2-s3.ts): the real Cloudflare R2 adapter. All

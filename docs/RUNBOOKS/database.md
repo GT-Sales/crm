@@ -2,7 +2,7 @@
 
 Project: Supabase `gtsales-crm` (`xykrphbgpwisqacpyeiv`, Mumbai). The CRM
 owns the `app` schema. Get Canada Sim's live tables stay in `public` until
-the cutover (merge design §12); nothing here touches them.
+the cutover (docs/PLAN.md §7); nothing here touches them.
 
 ## How migrations are tracked
 
@@ -154,8 +154,8 @@ from pg_stat_activity where usename = 'app_runtime' and state = 'idle in transac
 
 ## 0007_backup_reader + 0008_backup_reader_policies
 
-- The backup job's read-only login `backup_reader` (merge design spec §10,
-  [backup.md](backup.md)):
+- The backup job's read-only login `backup_reader` (merge decision 19,
+  docs/PLAN.md §1.1; [backup.md](backup.md)):
   `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS`,
   no password. It dumps with `pg_dump --enable-row-security`, so instead of
   `BYPASSRLS` or `pg_read_all_data` (both need a superuser, which Supabase's
@@ -227,8 +227,7 @@ from pg_stat_activity where usename = 'app_runtime' and state = 'idle in transac
 
 ## 0009_properties
 
-- Phase 2's property engine (docs/superpowers/plans/2026-10-29-phase-2-properties-layout-views.md),
-  generated from `packages/db/src/schema.ts`. Additive only: three new tables
+- Merge phase 2's property engine, generated from `packages/db/src/schema.ts`. Additive only: three new tables
   and one new column with a default, so it can go in before the code that
   reads them.
 - `app.properties`: a site's property definitions per `object` (`lead` now,
@@ -300,9 +299,7 @@ NULL` and its check. Record the date and the Supabase tracker versions
 
 ## 0011_plans
 
-- Phase 3's plans and order details
-  (docs/superpowers/plans/2026-10-30-phase-3-plans-stages-archive.md),
-  generated from `packages/db/src/schema.ts`. Additive: one new table and two
+- Merge phase 3's plans and order details, generated from `packages/db/src/schema.ts`. Additive: one new table and two
   new columns with constant defaults.
 - `app.plans`: a site's plans, one order lead type each. `lead_type`
   (`^[a-z0-9_]{1,64}$`), `name` (1–120 characters once trimmed),
@@ -414,9 +411,7 @@ Completed; carrier commission set to Invoiced (phase 3 migration)`, data
 
 ## 0013_order_tools
 
-- Phase 4's order tools and customer email
-  (docs/superpowers/plans/2026-10-30-phase-4-order-tools-email.md),
-  generated from `packages/db/src/schema.ts`. Additive: six new tables and
+- Merge phase 4's order tools and customer email, generated from `packages/db/src/schema.ts`. Additive: six new tables and
   one new nullable column, no data migration.
 - `app.idempotency_keys`: a website's double-submit protection. `scope`
   (`lead_submission`), `key_hash` (`^[0-9a-f]{64}$`), `request_fingerprint`
@@ -524,9 +519,7 @@ app_runtime`. The scheduler's `data_retention` run (on only with
 
 ## 0015_order_numbers
 
-- Merge phase 5, step A
-  (docs/superpowers/plans/2026-10-30-phase-5-gcs-orders-and-tracking.md),
-  generated from `packages/db/src/schema.ts`. Additive: one new table, no
+- Merge phase 5, step A, generated from `packages/db/src/schema.ts`. Additive: one new table, no
   data migration.
 - `app.site_counters`: a site's own running numbers, one row per site and
   counter. `workspace_id` (FK → workspaces, cascade), `counter` (check
@@ -585,9 +578,7 @@ app_runtime`. The scheduler's `data_retention` run (on only with
 
 ## 0017_customer_tracking
 
-- Merge phase 5, step B
-  (docs/superpowers/plans/2026-10-30-phase-5-gcs-orders-and-tracking.md),
-  generated from `packages/db/src/schema.ts`. Additive: two new tables, one
+- Merge phase 5, step B, generated from `packages/db/src/schema.ts`. Additive: two new tables, one
   new column with a constant default, three widened checks, no data
   migration.
 - `app.tracking_challenges`: one six-digit code a customer asked for on
@@ -656,7 +647,7 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
   0018 tracker rows (both trackers) and run the paste file's verification
   selects for the prune function and the tracker rows.
 - Before applying, check that every sending site has saved Settings →
-  Email (docs/HANDOFF.md §5.1, check 1): the backend deployed after these
+  Email (docs/HANDOFF.md §5.1, the Senders check): the backend deployed after these
   migrations no longer reads `EMAIL_SENDERS_JSON`, so a site without saved
   settings stops sending customer mail at that deploy. On 2026-10-30
   production had no saved settings for either site and had sent no customer
@@ -695,10 +686,7 @@ lower(btrim(email)))`: the tracking lookups match a site's leads by the
 
 ## 0019_automation_flows
 
-- Merge phase 8, step A
-  (docs/superpowers/plans/2026-10-31-phase-8-automation-flows-step-a.md;
-  spec docs/superpowers/specs/2026-10-31-phase-8-automation-flows-design.md
-  §4), generated from `packages/db/src/schema.ts` and then reordered by hand
+- Merge phase 8, step A (automation flows), generated from `packages/db/src/schema.ts` and then reordered by hand
   before any apply (the `(workspace_id, id)` unique constraints on
   `automations` and `automation_runs` come before the composite FKs that
   reference them; `db:generate` reports no drift). Additive: every new

@@ -15,8 +15,8 @@ BEGIN;
 -- ---------------------------------------------------------------------------
 -- 0007_backup_reader
 -- ---------------------------------------------------------------------------
--- The backup job's read-only login, backup_reader (merge design spec §10,
--- docs/superpowers/specs/2026-10-28-merge-canadian-plans-design.md; procedure
+-- The backup job's read-only login, backup_reader (merge decision 19,
+-- docs/PLAN.md §1.1; procedure
 -- in docs/RUNBOOKS/backup.md). It dumps the database with
 -- `pg_dump --enable-row-security`, so it must read every row of every table
 -- without being able to change any of them.

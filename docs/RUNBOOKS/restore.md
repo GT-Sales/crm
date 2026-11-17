@@ -178,7 +178,7 @@ Only for a real incident, after steps 1–4 passed:
 1. **Supabase settings** are not in the backup. On the target: Authentication
    → URL Configuration (Site URL and redirect URLs as on production, the
    admin's address), Authentication → Emails → SMTP (as in
-   [HANDOFF.md](../HANDOFF.md) §5.1 step 4), leaked-password protection, and
+   [HANDOFF.md](../HANDOFF.md) §1, Auth), leaked-password protection, and
    new Storage S3 keys for the backend.
 2. **Point the backend at the target.** Railway → service `crm` →
    Variables: `DATABASE_URL` (`app_runtime.<target ref>` with its new

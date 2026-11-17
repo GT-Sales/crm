@@ -35,7 +35,7 @@ opened in the CRM: only leads that came through the CRM's intake.
 ## Re-running it
 
 Run it again **right before staff move to the CRM**, and whenever new leads
-reach the legacy tables before the CanadaWide switch (HANDOFF.md §5.1 step 1):
+reach the legacy tables before the CanadaWide switch (HANDOFF.md §5.1, CanadaWide):
 until then CanadaWide still writes there directly, and the old admin is still
 where staff change statuses and notes. Every run is safe to repeat:
 
@@ -207,7 +207,7 @@ page that has them.
 
 ## The final run (switch day)
 
-On switch day (merge phase 5, Task A11) Get Canada Sim's checkout moves to
+On switch day (merge phase 5, HANDOFF.md §5.1) Get Canada Sim's checkout moves to
 the CRM and the import runs one last time. The seed and the checks are in
 [`manual/gcs-switch-day.sql`](manual/gcs-switch-day.sql). Run it as the
 import is run: Supabase SQL editor, as `postgres`, one block at a time.

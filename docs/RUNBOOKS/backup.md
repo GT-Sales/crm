@@ -125,8 +125,7 @@ role but the owner has a grant on it, and staff reach sites through the
 | `public` | `rate_limits`             | `postgres` | yes |
 
 That is 26 tables in `app` (25 with RLS) and 15 in `public` (all with RLS),
-41 in all. This is the inventory the 0007 migration loop must cover
-(`docs/HANDOFF.md` §1 gives the same 26 for `app`).
+41 in all. This is the inventory the 0007 migration loop must cover.
 
 ### Migration history
 
@@ -421,7 +420,7 @@ GitHub → Actions (enable the three workflows first if they were disabled):
 ## 8. Deleting customer data by hand
 
 Customers ask through the website's contact page, and a developer deletes in
-the database (merge design decision 18). For documents the order matters:
+the database (merge decision 18, docs/PLAN.md §1.1). For documents the order matters:
 **delete or null the `app.files` rows (and their `app.file_revisions`) first,
 then the storage objects; never the other way round.** The backup copies every
 object a row points at and fails the whole run when one is missing
@@ -486,7 +485,7 @@ redo every deletion made since that restore point.
 
 - **Legacy buckets.** `mobility-ids` (CanadaWide's ID photos, not yet
   imported into `app.files`) and `blog-images` (public) are outside this
-  backup until the cutover and the import (merge design §12). Only the
+  backup until the cutover and the import (docs/PLAN.md §7). Only the
   `documents` bucket is copied.
 - **`public.posts_backup_pickup_fix`** is a leftover one-off table. It is
   dumped like any other `public` table, which does no harm.

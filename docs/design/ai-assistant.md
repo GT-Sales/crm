@@ -1,21 +1,11 @@
 # Ask AI — design, decisions and evidence
 
-Status: **version 1 implemented; live-provider verification pending** (no Gateway
-key or model was configured while building it). This file records what was
-built, why each choice is safe, and what a reviewer should check before the
-assistant touches real data.
-
-Progress (phase gates from `docs/AI-ASSISTANT-IMPLEMENTATION-PROMPT.md`):
-
-- [x] Discovery gate — SDK chosen from the installed package, boundaries read
-      in the source, no unresolved architecture choice that could bypass tenancy.
-- [x] Phase A — contracts, registry, capability route, disabled behaviour.
-- [x] Phase B — authorization-aware reads, projections, five tools, turn budgets.
-- [~] Phase C — streaming backend with a fake model (model loop, SSE, limits,
-  cancellation and errors implemented and tested; the real Gateway engine
-  compiles against `ai@7.0.159` but has never been run against a provider).
-- [ ] Phase D — admin panel (in progress, separate change; see §10).
-- [x] Phase E — docs, runbook and offline verification; live smoke test not run.
+The read-only core of Ask AI (version 1): its trust boundaries, the fields the
+model may see, its limits and the decisions behind them. Ask AI is on for both
+sites (docs/HANDOFF.md §3.1); confirmed actions are in
+[ai-actions.md](ai-actions.md), [interactive-ai.md](interactive-ai.md) and
+[ai-lead-updates.md](ai-lead-updates.md), and operation in
+`docs/RUNBOOKS/ai-assistant.md`.
 
 ## 1. Discovery: versions and evidence
 
@@ -164,7 +154,7 @@ and must be reviewed by the owner before real data is used.
    temporarily accepts old frames for staggered backend/frontend deployment.
    `@ai-sdk/react` / `useChat` is still not installed: the small existing provider
    keeps cancellation, capability errors and actor/Site lifecycle in one place.
-   This is a documented departure from the prompt's requested hook package,
+   This is a documented departure from the requested hook package,
    not a claim that it was installed. No SDK UI arrays or client tool results
    are forwarded to the model.
 2. **No new tables or migrations.** History lives in React memory only; a
@@ -176,9 +166,9 @@ and must be reviewed by the owner before real data is used.
    database's, not a promise from the application.
 5. **`findLeads` matching text is not echoed** in logs or source labels.
 
-## 10. Admin panel (Phase D)
+## 10. Admin panel
 
-Implemented in the same branch:
+The admin side:
 
 | File                                   | Role                                                                                                                                                                                                                                                                                                    |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -193,84 +183,20 @@ Every stream part is checked against the turn's generation before it can touch
 state, so Stop, New chat, unmount and a credential change all make late chunks
 no-ops. Nothing is persisted: no `localStorage`, `sessionStorage` or IndexedDB.
 
-## 11. Evidence
+## 11. Evidence and known limits
 
-See §12 for the exact checks and results recorded when this document was written;
-the runbook (`docs/RUNBOOKS/ai-assistant.md`) lists the remaining live checks.
+The runbook (`docs/RUNBOOKS/ai-assistant.md` §10) lists what has not been
+verified live. Known limitations to state plainly:
 
-Known limitations to state plainly:
-
-- The Gateway engine has never run against a real provider here (no key); the
-  offline tests exercise the fake engine, the tools and the transport.
-- The review executed the SQL against disposable local Postgres 17 as
-  `app_runtime`, found and fixed runtime table-access and Date-binding failures.
 - Synthetic notes containing instructions are covered by the prompt and by the
   projection (notes only on request); there is no automated "model ignores the
   injection" test, because that requires a real model.
-- Real Chromium journeys now cover 375 px and desktop, both themes, focus,
+- Real Chromium journeys cover 375 px and desktop, both themes, focus,
   cancellation, sources and nested lead sheets. Physical on-screen keyboards,
   assistive technology and deployed clipboard behavior still need device checks.
 
-## 12. Original implementation evidence (historical; superseded by §13)
-
-Recorded after the final run of each command, on the branch
-`claude/ai-chat-implementation`:
-
-| Check                                                                        | Result                                                               |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `pnpm run typecheck` (every package)                                         | pass                                                                 |
-| `pnpm --filter @gt-sales/contracts test`                                     | 20 files, 404 tests pass                                             |
-| `pnpm --filter backend exec vitest run --exclude "**/*.integration.test.ts"` | 59 files, 734 pass / 9 skipped                                       |
-| AI backend suites (`tests/ai-*.test.ts`)                                     | 59 pass; `ai-reads.integration.test.ts` 8 skipped without a database |
-| `pnpm --filter admin exec vitest run`                                        | 49 files, 515 tests pass                                             |
-| `pnpm run lint`                                                              | clean                                                                |
-| `pnpm run format`                                                            | clean                                                                |
-| `pnpm run test:tooling`                                                      | 47 pass                                                              |
-| `pnpm --filter backend build`                                                | pass                                                                 |
-| `pnpm --filter admin build`                                                  | pass                                                                 |
-| `pnpm --filter @gt-sales/contracts build`                                    | regenerates `docs/api/openapi.json` with the two AI operations       |
-| `pnpm --filter admin exec playwright test --project=desktop`                 | 7 pass (includes "Ask AI never renders when unauthenticated")        |
-| `pnpm --filter admin test:e2e:leads`                                         | **not run** — needs Postgres and the backend harness                 |
-
-A separate adversarial review of this change produced 12 "should-fix" findings
-and no blockers. All of them were addressed before this record: nested records
-now count against the turn budget and an over-budget summary is refused rather
-than silently oversized; source cards are capped and labels truncated; the
-source report's **Other** row survives truncation; the rate-limiter fallback
-refuses instead of allowing; a mid-turn revocation aborts the model loop and is
-reported as `access_lost`; the identical-read cache reauthorizes; notes are read
-in their own bounded query; an unknown lead type is distinguished from a real
-zero; the open-lead id is validated and given to the model as a hint only; the
-panel's Close cancels its stream; a stream without `done` is a failed answer; and
-graceful shutdown aborts in-flight turns. Its four test-quality notes were also
-fixed (capability deny case, revocation-mid-tool case, 48 KiB byte-ceiling case,
-and transport tests for frame parsing and end-of-stream).
-
-Not run / not available here: database integration suites (no Postgres), the
-lead browser journeys against a real backend, `pnpm run test` as a whole, and any
-live Gateway call.
-
-## 13. Branch review and fixes, 2026-11-02
-
-The original branch was not complete against the plan. In particular, production
-`app_runtime` could not read `app.workspaces` in the capability query, and bound
-JavaScript Dates failed in the real SQL driver. The review now uses the existing
-`app.list_staff_workspaces()` function and ISO timestamptz parameters; no grants
-or migrations were added.
-
-Also fixed: contact lookup and safe order projections; member-filter validation;
-submitted-only counts; archived-summary opt-in; final output schema validation;
-actual serialized byte/record accounting, including nested notes/tasks and Other;
-source report deadline and as-of boundary; source scope identities; fail-closed
-limiter fallback; selected lead ID in the prompt; SDK error-log suppression;
-stream reader cancellation; whole-request abort/deadline cleanup; revoked-chat
-clearing; token refresh; context removal and trimmed-history notice; Unicode
-limits; mobile focus and Ask AI access from the mobile lead sheet.
-
-See [the review report](../review/ai-assistant.md) for current validation results.
 The real SDK loop is tested with `MockLanguageModelV4`; browser journeys use a
 synthetic engine over real HTTP, database authorization and reads. Neither is
 reported as live-provider quality. The opt-in synthetic Gateway smoke is
-`apps/backend/scripts/ai-live-smoke.ts`; its guard was checked, but no paid/live
-provider request was made. Evaluation prompts and expectations are in
-`apps/backend/tests/fixtures/ai-evaluation.json`.
+`apps/backend/scripts/ai-live-smoke.ts`. Evaluation prompts and expectations
+are in `apps/backend/tests/fixtures/ai-evaluation.json`.

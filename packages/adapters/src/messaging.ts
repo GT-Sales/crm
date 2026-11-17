@@ -366,8 +366,7 @@ export class FakeAnalyticsSink implements AnalyticsSink {
 }
 
 /**
- * Durable suppression-change ledger publisher (IMPLEMENTATION_PLAN.md §13
- * "External deletion/suppression ledger"). The real ledger (a dedicated B2
+ * Durable suppression-change ledger publisher. The real ledger (a dedicated B2
  * bucket with append-only credentials, built in T4R) does not exist yet, so
  * this is the interface the email module publishes through today and a fake
  * for tests; wiring the real publisher is tracked as a blocker below.

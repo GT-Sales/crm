@@ -2,7 +2,7 @@ import { MAX_DOCUMENT_BYTES } from '@gt-sales/contracts';
 
 /**
  * T17 document configuration. The size ceiling is the recorded 10 MB decision
- * (shared from contracts). Signed-URL lifetimes follow IMPLEMENTATION_PLAN.md §8:
+ * (shared from contracts). Signed-URL lifetimes are
  * a 5-minute upload PUT and a 2-minute download GET, both short-lived bearer
  * capabilities. The bucket name comes from the environment; nothing hardcodes a
  * production value.

@@ -109,8 +109,7 @@ export type ImportWebsiteDocumentOutcome =
 /**
  * Consulted by `runCleanup` so expired-upload sweeps cannot physically delete
  * an R2 object while the independent backup runner's referenced-object
- * manifest or copy step is in flight (IMPLEMENTATION_PLAN §13: "Prevent object
- * cleanup racing the archive with a snapshot reference set and lease."). The
+ * manifest or copy step is in flight. The
  * default no-op keeps every existing caller and test behaviour unchanged.
  */
 export interface BackupLeaseGate {

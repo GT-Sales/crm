@@ -138,7 +138,7 @@ export interface WebhookOwnerAlertChannelConfig {
   fetchImpl?: typeof fetch;
 }
 
-/** Optional chat-channel alert (IMPLEMENTATION_PLAN §10: "and optionally a chat channel"). */
+/** Optional chat-channel alert. */
 export class WebhookOwnerAlertChannel implements OwnerAlertChannel {
   private readonly fetchImpl: typeof fetch;
 

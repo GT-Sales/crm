@@ -1,7 +1,7 @@
 # GT Sales CRM — guide for AI agents and new sessions
 
 Read this first, then [docs/HANDOFF.md](docs/HANDOFF.md) (what is live, what
-was done, what comes next and how, with the architecture map),
+waits for an owner step, what comes next and how, with the architecture map),
 [docs/PLAN.md](docs/PLAN.md) (decisions, phases) and [docs/ENV.md](docs/ENV.md)
 (every variable). Keep all three current when you change what they describe.
 
@@ -53,7 +53,10 @@ The code was copied from the Canadian Plans platform and pruned
    resume their own leads and upload documents against them, nothing else.
 6. **Side effects go through the outbox** (`app.outbox_jobs`), never straight
    from a request handler: emails, analytics, alerts. Dedupe on
-   `(workspace, job_type, dedupe_key)`.
+   `(workspace, job_type, dedupe_key)`. A mail the provider refuses outright
+   (Resend's HTTP 429) is retried with backoff under the same idempotency key
+   up to the attempt limit; a timeout or a 5xx may have been sent, so it ends
+   `uncertain` and waits for staff.
 7. **No PII in logs, audit `before`/`after` may be redacted to null and never
    rewritten, email tables store a keyed `contact_hash`, never the address.**
    A mail to a lead's customer keeps its subject and plain text in its
@@ -101,13 +104,14 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/routes/lead-export.ts` (action `lead.export`); the fields, groups and
   request in `packages/contracts/src/lead-export.ts`; the dialog in
   `apps/admin/src/components/leads/lead-export-dialog.tsx` and the row
-  selection in `leads-table.tsx` (docs/HANDOFF.md §3.19).
+  selection in `leads-table.tsx` (docs/HANDOFF.md §2.3).
 - Staff routes (sites, access, profile, leads, board, tasks, members, jobs,
   credentials, files): `src/routes/staff.ts`.
 - Documents: `src/documents/` (signed upload intent → finalize with
   signature verification → attach; staff review and download links).
 - Scheduler: `src/scheduler.ts` (`outbox`, `document_cleanup`,
-  `data_retention`, `automations`, `intake_check`), identities in
+  `data_retention`, `automations`, and `intake_check` when
+  `INTAKE_CHECK_WORKSPACE_ID` is set), identities in
   `src/machines/registry.ts`.
 - Site properties and record layouts: `apps/backend/src/properties/`
   (`store.ts` for definitions, tombstones and layouts, `catalog.ts` for the
@@ -153,15 +157,15 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/email/settings-store.ts` and `src/routes/email-settings.ts`; contracts
   in `packages/contracts/src/{automation-keys,automation-flows,automation-api}.ts`
   (the built-ins' labels and phase 4 triggers stay in `automations.ts`).
-- Admin pages: `apps/admin/src/app/w/[workspace]/{leads,leads/[leadId],tasks,documents,reports/sources,automations,automations/[key],settings}`
+- Admin pages: `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,documents,mail,analytics,automations,automations/[key],settings}`
   (Settings → Properties at `settings/properties`, Settings → Email at
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
-  dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus, side panel and
-  page header in `src/components/crm/` (tokens in `src/app/crm-theme.css`);
-  the Shadcnblocks-inspired admin shell supports light/dark mode via
-  `theme-toggle.tsx`, Ctrl/Cmd K navigation via `quick-navigation.tsx`, and
-  contextual settings links via `settings-navigation.tsx`; design references
-  and the product mapping are in `docs/design/2026-11-01-admin-redesign.md`;
+  dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus and side panel
+  in `src/components/crm/` (tokens in `src/app/crm-theme.css`);
+  the Shadcnblocks-inspired admin shell (docs/PLAN.md §1, reuse note) supports
+  light/dark mode via `theme-toggle.tsx`, Ctrl/Cmd K navigation via
+  `quick-navigation.tsx`, and contextual settings links via
+  `settings-navigation.tsx`;
   property rendering, editing and the settings screens in
   `src/components/properties/`; Settings → Plans in `src/components/plans/`
   (`settings/plans`, with plan properties at `settings/plans/properties`);
@@ -187,9 +191,10 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Source report: `apps/backend/src/reports/store.ts` (the one SQL statement,
   `sourceLabelSql` and `shapeSourceReport`) with the route in
   `src/routes/reports.ts`; contracts in `packages/contracts/src/reports.ts`;
-  the admin page at `apps/admin/src/app/w/[workspace]/reports/sources` with
-  its screen in `src/components/reports/` (its periods in
-  `src/lib/stats-windows.ts`).
+  in the admin it is the Dashboard's sources card
+  (`src/components/reports/source-report.tsx`, opened by
+  `/dashboard?report=sources`; the old `reports` and `reports/sources`
+  routes redirect there), its periods in `src/lib/stats-windows.ts`.
 - Analytics dashboard: `apps/backend/src/analytics/store.ts` (the one
   aggregate statement) with the route in `src/routes/analytics.ts`; contracts
   in `packages/contracts/src/analytics.ts`; the admin screen
@@ -199,15 +204,13 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
 - Intake check: `apps/backend/src/intake-check/` (`check.ts` the run and its
   steps, `store.ts` the test site's reads and deletes, `alert-rule.ts` when
   the owner hears about it), the manual run in `src/routes/intake-check.ts`;
-  the scheduler's four tasks (`outbox`, `document_cleanup`, `data_retention`,
-  `intake_check`) in `src/scheduler.ts`; the runbook
+  the scheduler's `intake_check` task in `src/scheduler.ts`; the runbook
   `docs/RUNBOOKS/intake-check.md` and its paste file
   `docs/RUNBOOKS/manual/intake-check-site.sql`.
 - Historical CanadaWide import: `packages/db/sql/canadawide-legacy-import.sql`
   (docs/RUNBOOKS/legacy-import.md).
-- Hand-off pages for the remaining merge phases (5 to 8), with the rules,
-  gate, shipping steps and working method they share:
-  `docs/superpowers/phases/` (start with its `README.md`).
+- Decisions, rulings and review findings the code cites by name (D1, R4, O9,
+  P7, L-3, ENG-5, …): `docs/PLAN.md` §11.
 
 ## Vocabulary
 
@@ -332,10 +335,14 @@ lead type (owner decisions O9 and O12): the first staff stage move of an
 incomplete lead marks it submitted, freezes its plan and fires the submitted
 and stage flows; the customer can then no longer finish that checkout
 (O13). A move of such a lead into a closing stage (`isClosingStage` in
-`leads/work-store.ts`: a SIM order's Cancelled, internet Lost and
+`leads/types.ts`: a SIM order's Cancelled, internet Lost and
 Non-serviceable address, mobility Lost, a partner application's Declined, a
 contact message's Closed) is no rescue: the lead stays unsubmitted, nothing is
-frozen and no flow fires (controller ruling, 2026-10-31).
+frozen and no flow fires (controller ruling, 2026-10-31). If the customer then
+submits that draft it is a fresh submission: a SIM order moves to Pending and
+every other type back to its first stage, with the `submitted` timeline entry
+and `stage` in the audit, and the flows of that stage fire, never the closing
+stage's.
 
 **Email settings** are a site's sender and look (`app.workspace_email_settings`,
 Settings → Email): from name and address, reply-to, logo, brand colour, footer,
@@ -432,7 +439,7 @@ their verified sign-in address, recorded when they sign in and never shown;
 a `notify_staff` step mails it. Phase 4's rows keep their `outcome` and read
 as legacy runs. Runs are pruned 90 days after they finish.
 
-The **source report** (Reports → Sources) counts one lead type's leads per
+The **source report** (the Dashboard's sources card) counts one lead type's leads per
 **source** over 7, 30 or 90 days or all time: the source is the label
 `deriveSource` gives a lead's attribution (`partner:<code>`, with
 ` (unmatched)` when no partner application matched the code; else
