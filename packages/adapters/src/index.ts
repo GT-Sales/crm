@@ -19,6 +19,7 @@ export {
   type AnalyticsEventName,
   type AnalyticsSink,
   type EmailAdapter,
+  type EmailDeliveryResult,
   type EmailMessage,
   type EmailMessageClass,
   type EmailTemplate,

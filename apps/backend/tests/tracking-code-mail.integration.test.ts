@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { FakeEmailAdapter } from '@gt-sales/adapters';
+import { FakeEmailAdapter, type EmailDeliveryResult, type EmailMessage } from '@gt-sales/adapters';
 import { TRACKING_CODE_JOB_TYPE, trackingCodeJobPayloadSchema } from '@gt-sales/contracts';
 import { createDatabaseClient, type DatabaseClient } from '@gt-sales/db';
 import { applyMigrations } from '@gt-sales/db/migrations';
@@ -231,6 +231,52 @@ databaseTest('the tracking code mail (sealed until sent, scrubbed after)', () =>
     expect(await run()).toMatchObject({ claimed: 1, completed: 1 });
     expect(email.deliveries).toEqual([]);
     expect((await jobs())[0]?.providerId).toBe('skipped:tracking_challenge_inactive');
+  });
+
+  it('keeps the sealed code through a refused send and sends it on the retry', async () => {
+    await request();
+    const { code, challengeId } = await lastJobCode();
+    let refusals = 1;
+    email = new (class extends FakeEmailAdapter {
+      override async send(message: EmailMessage): Promise<EmailDeliveryResult> {
+        if (refusals > 0) {
+          refusals -= 1;
+          return { status: 'refused', errorCode: 'resend_http_429' };
+        }
+        return super.send(message);
+      }
+    })();
+    expect(await run()).toMatchObject({ claimed: 1, retried: 1, uncertain: 0, failed: 0 });
+    const [waiting] = await admin<
+      { id: string; status: string; lastErrorCode: string | null; payload: unknown }[]
+    >`
+      select id, status, last_error_code as "lastErrorCode", payload from app.outbox_jobs
+      where workspace_id = ${SITE} and job_type = ${TRACKING_CODE_JOB_TYPE}
+    `;
+    expect(waiting).toMatchObject({ status: 'pending', lastErrorCode: 'resend_http_429' });
+    expect(trackingCodeJobPayloadSchema.parse(waiting?.payload).challengeId).toBe(challengeId);
+    const [mail] = await admin<{ status: string; lastErrorCode: string | null }[]>`
+      select m.status, m.last_error_code as "lastErrorCode" from app.email_messages m
+      join app.outbox_jobs j on j.workspace_id = m.workspace_id and j.message_id = m.message_id
+      where j.id = ${waiting?.id ?? ''}
+    `;
+    expect(mail).toEqual({ status: 'queued', lastErrorCode: 'resend_http_429' });
+    expect(email.deliveries).toEqual([]);
+
+    // The backoff of a first attempt is at most 7.5 s; the code lasts 10 minutes.
+    expect(await run(SITE, { now: new Date(Date.now() + 10_000) })).toMatchObject({
+      claimed: 1,
+      completed: 1,
+    });
+    expect(email.deliveries).toHaveLength(1);
+    expect(email.deliveries[0]?.rendered?.text).toContain(code);
+    expect((await jobs())[0]).toMatchObject({ status: 'completed', payload: { challengeId } });
+    const [sent] = await admin<{ status: string; lastErrorCode: string | null }[]>`
+      select m.status, m.last_error_code as "lastErrorCode" from app.email_messages m
+      join app.outbox_jobs j on j.workspace_id = m.workspace_id and j.message_id = m.message_id
+      where j.id = ${waiting?.id ?? ''}
+    `;
+    expect(sent).toEqual({ status: 'sent', lastErrorCode: null });
   });
 
   it('sends nothing once the code was verified first', async () => {

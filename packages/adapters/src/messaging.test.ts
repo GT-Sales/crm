@@ -191,6 +191,25 @@ describe('a pre-rendered customer email', () => {
     },
   );
 
+  it('reports a 429 as refused, which is safe to send again, and a 500 as uncertain', async () => {
+    const { adapter, send } = adapterWithStub();
+    send.mockResolvedValueOnce(
+      Response.json(
+        { name: 'rate_limit_exceeded' },
+        { status: 429, headers: { 'retry-after': '1' } },
+      ),
+    );
+    expect(await adapter.send({ ...message, template: 'dispatched' })).toEqual({
+      status: 'refused',
+      errorCode: 'resend_http_429',
+    });
+    send.mockResolvedValueOnce(Response.json({ name: 'application_error' }, { status: 500 }));
+    expect(await adapter.send({ ...message, template: 'dispatched' })).toEqual({
+      status: 'uncertain',
+      errorCode: 'resend_http_500',
+    });
+  });
+
   it('uses the deployment’s sender for a message without one', async () => {
     const { adapter, send } = adapterWithStub();
     const { sender: _sender, ...withoutSender } = message;

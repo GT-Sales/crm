@@ -97,8 +97,16 @@ export interface RenderedEmail {
 export type ProviderDeliveryResult =
   { status: 'delivered'; providerId: string } | { status: 'uncertain'; errorCode: string };
 
+/**
+ * A send's outcome. `refused` is the provider's definite answer that it took
+ * nothing and asks to be called again later (Resend's HTTP 429), so the job is
+ * retried with the same idempotency key; `uncertain` (a timeout, a 5xx) may
+ * have been sent and is never retried automatically.
+ */
+export type EmailDeliveryResult = ProviderDeliveryResult | { status: 'refused'; errorCode: string };
+
 export interface EmailAdapter {
-  send(message: EmailMessage): Promise<ProviderDeliveryResult>;
+  send(message: EmailMessage): Promise<EmailDeliveryResult>;
 }
 
 /**
@@ -140,7 +148,7 @@ export class FakeEmailAdapter implements EmailAdapter {
   readonly deliveries: EmailMessage[] = [];
   private readonly providerIds = new Map<string, string>();
 
-  async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
+  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
     const existing = this.providerIds.get(message.messageId);
     if (existing) return { status: 'delivered', providerId: existing };
     const providerId = `fake-email:${message.messageId}`;
@@ -190,7 +198,7 @@ export class SesEmailAdapter implements EmailAdapter {
     return this.client;
   }
 
-  async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
+  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
     const { SendEmailCommand } = await import('@aws-sdk/client-sesv2');
     const client = await this.getClient();
     const sender = message.sender ?? this.config.sender;
@@ -245,7 +253,10 @@ export class ResendEmailAdapter implements EmailAdapter {
       /** The deployment's own sender, for a message queued without its site's. */
       sender: SenderIdentity;
       apiUrl?: string;
-      /** Upper bound per send; a timeout is an "uncertain" outcome, retried with the same idempotency key. */
+      /**
+       * Upper bound per send. A timeout is an "uncertain" outcome, which is not
+       * retried automatically; only a 429 ("refused") is, with the same idempotency key.
+       */
       timeoutMs?: number;
     },
   ) {
@@ -253,7 +264,7 @@ export class ResendEmailAdapter implements EmailAdapter {
     if (!config.sender.fromAddress) throw new Error('Resend adapter requires a from address.');
   }
 
-  async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
+  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
     const sender = message.sender ?? this.config.sender;
     const content = contentFor(message, sender.fromName);
     if (!content) return { status: 'uncertain', errorCode: 'rendered_message_missing' };
@@ -278,6 +289,8 @@ export class ResendEmailAdapter implements EmailAdapter {
           tags: [{ name: 'cp_message_id', value: message.messageId }],
         }),
       });
+      // A 429 is a refusal before anything was accepted: safe to send again.
+      if (response.status === 429) return { status: 'refused', errorCode: 'resend_http_429' };
       if (!response.ok) {
         return { status: 'uncertain', errorCode: `resend_http_${response.status}` };
       }

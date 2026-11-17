@@ -1,4 +1,9 @@
-import type { AnalyticsSink, EmailAdapter, EmailTemplate } from '@gt-sales/adapters';
+import type {
+  AnalyticsSink,
+  EmailAdapter,
+  EmailDeliveryResult,
+  EmailTemplate,
+} from '@gt-sales/adapters';
 import {
   CUSTOMER_EMAIL_JOB_TYPE,
   TRACKING_CODE_JOB_TYPE,
@@ -78,7 +83,7 @@ export interface EmailDeliveryRecorder {
     workspaceId: string;
     actorId: string;
     messageId: string;
-    result: import('@gt-sales/adapters').ProviderDeliveryResult;
+    result: EmailDeliveryResult;
   }): Promise<void>;
 }
 
@@ -224,6 +229,21 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   );
 }
 
+/**
+ * A send's result for the runner: delivered completes the job; uncertain (it
+ * may have been sent) parks it for staff; refused (the provider took nothing,
+ * as on a 429) throws a retryable error, so the runner's backoff and attempt
+ * limit apply and the next attempt sends with the same idempotency key.
+ */
+function emailJobResult(result: EmailDeliveryResult): JobHandlerResult {
+  if (result.status === 'refused') {
+    throw new JobHandlerError(safeErrorCode(result.errorCode, 'provider_refused'), true);
+  }
+  return result.status === 'delivered'
+    ? { status: 'completed', providerId: result.providerId }
+    : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+}
+
 function transactionalEmailHandler(
   email: EmailAdapter,
   eligibility: EmailEligibilityChecker,
@@ -279,9 +299,7 @@ function transactionalEmailHandler(
       messageId: job.messageId,
       result,
     });
-    return result.status === 'delivered'
-      ? { status: 'completed', providerId: result.providerId }
-      : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+    return emailJobResult(result);
   };
 }
 
@@ -344,9 +362,7 @@ export async function sendRenderedCustomerEmail(
     messageId: job.messageId,
     result,
   });
-  return result.status === 'delivered'
-    ? { status: 'completed', providerId: result.providerId }
-    : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+  return emailJobResult(result);
 }
 
 /**
@@ -463,12 +479,7 @@ export function createJobHandlerRegistry(dependencies: {
           messageId: job.messageId,
           result,
         });
-        return result.status === 'delivered'
-          ? { status: 'completed', providerId: result.providerId }
-          : {
-              status: 'uncertain',
-              errorCode: safeErrorCode(result.errorCode, 'provider_uncertain'),
-            };
+        return emailJobResult(result);
       },
     ],
     [

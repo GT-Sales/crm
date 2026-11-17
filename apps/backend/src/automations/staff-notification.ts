@@ -322,6 +322,8 @@ export function createStaffNotificationHandler(options: {
       messageId: job.messageId,
       result,
     });
+    // Refused (a 429): nothing was sent, so the runner retries it with backoff.
+    if (result.status === 'refused') throw new JobHandlerError(result.errorCode, true);
     return result.status === 'delivered'
       ? { status: 'completed', providerId: result.providerId }
       : { status: 'uncertain', errorCode: 'provider_uncertain' };

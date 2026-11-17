@@ -300,6 +300,77 @@ databaseTest('rescued checkouts count as submitted', () => {
     }
   });
 
+  it('a SIM order the customer submits after staff cancelled its draft is a fresh order at Pending', async () => {
+    await seedBuiltInFlow(admin, {
+      workspaceId: SITE,
+      key: 'sim_order_cancelled',
+      enabled: true,
+      actorId: STAFF,
+    });
+    const { leadId, grant } = await draft(SITE, 'sim_order', {
+      email: 'closed-then-submitted@example.test',
+      planId: PLAN,
+    });
+    expect(await move(SITE, leadId, 'cancelled')).toMatchObject({ status: 'updated' });
+    expect(await leadRow(leadId)).toMatchObject({ status: 'incomplete', stage: 'cancelled' });
+
+    const submitted = await leadStore.updateLead({
+      ...website(SITE),
+      leadId,
+      grantToken: grant,
+      form: { schemaVersion: 1, payload: { delivery: 'esim' } },
+      submit: true,
+    });
+    expect(submitted).toMatchObject({ status: 'updated' });
+    const row = await leadRow(leadId);
+    expect(row).toMatchObject({ status: 'submitted', stage: 'pending' });
+    expect(row?.orderDetails).toMatchObject({ planId: PLAN, plan: { planId: PLAN } });
+    const entries = await admin<{ id: string; actorId: string }[]>`
+      select id, actor_id as "actorId" from app.lead_activities
+      where lead_id = ${leadId} and kind = 'system' and data ->> 'event' = 'submitted'
+    `;
+    expect(entries.map((entry) => entry.actorId)).toEqual([CREDENTIAL]);
+    const [audit] = await admin<{ after: Record<string, unknown> }[]>`
+      select after from app.audit_events
+      where entity_id = ${leadId} and action = 'lead.updated' and actor_id = ${CREDENTIAL}
+    `;
+    expect(audit?.after).toMatchObject({ stage: 'pending' });
+    expect(
+      await admin`
+        select payload ->> 'template' as template from app.outbox_jobs
+        where payload ->> 'leadId' = ${leadId}
+        order by template
+      `,
+    ).toEqual([{ template: 'information_needed' }, { template: 'order_received' }]);
+    expect(await runs(leadId)).toEqual([
+      { automationKey: 'order_received', status: 'completed', occurrence: 'submitted' },
+      { automationKey: flowKey('8406', 1), status: 'completed', occurrence: entries[0]?.id },
+    ]);
+  });
+
+  it('another type submitted after a closing move returns to its first stage', async () => {
+    const { leadId, grant } = await draft(TYPES_SITE, 'internet', {
+      email: 'lost-then-submitted@example.test',
+    });
+    expect(await move(TYPES_SITE, leadId, 'lost')).toMatchObject({ status: 'updated' });
+    expect(
+      await leadStore.updateLead({
+        ...website(TYPES_SITE),
+        leadId,
+        grantToken: grant,
+        contact: { phone: '+14165550123' },
+        submit: true,
+      }),
+    ).toMatchObject({ status: 'updated' });
+    expect(await leadRow(leadId)).toMatchObject({ status: 'submitted', stage: 'new' });
+    expect(
+      await admin`
+        select 1 from app.lead_activities
+        where lead_id = ${leadId} and kind = 'system' and data ->> 'event' = 'submitted'
+      `,
+    ).toHaveLength(1);
+  });
+
   it('a rescued plan no longer available stays unfrozen', async () => {
     const { leadId } = await draft(OLD_PLAN_SITE, 'sim_order', {
       email: 'rescue-old-plan@example.test',

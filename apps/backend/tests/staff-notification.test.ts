@@ -114,6 +114,22 @@ describe('the staff notification mail', () => {
     expect(plain.deliveries[0]?.rendered?.text.split('\n')).toHaveLength(1);
   });
 
+  it('asks for a retry when the provider refused the send, and reports an unconfirmed one as uncertain', async () => {
+    const handler = (result: Awaited<ReturnType<FakeEmailAdapter['send']>>) =>
+      createStaffNotificationHandler({
+        email: { send: async () => result },
+        eligibility: eligible,
+        environment,
+        members: members({ active: true, notificationEmail: 'sam@staff.example' }),
+      });
+    await expect(
+      handler({ status: 'refused', errorCode: 'resend_http_429' })(job(payload(''))),
+    ).rejects.toMatchObject({ code: 'resend_http_429', retryable: true });
+    expect(
+      await handler({ status: 'uncertain', errorCode: 'resend_http_500' })(job(payload(''))),
+    ).toEqual({ status: 'uncertain', errorCode: 'provider_uncertain' });
+  });
+
   it('skips a revoked member and a member without an address', async () => {
     for (const [member, reason] of [
       [undefined, 'member_unavailable'],
