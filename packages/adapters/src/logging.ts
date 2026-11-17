@@ -1,7 +1,7 @@
 import { buildLogRecord, type LogFields } from '@gt-sales/observability';
 
 /**
- * Server-side structured-log emitter (REQ 40, IMPLEMENTATION_PLAN §10). Every
+ * Server-side structured-log emitter. Every
  * field is reduced/scrubbed by {@link buildLogRecord} before this ever calls
  * `console.*`, so a caller cannot accidentally print raw PII by passing it
  * through `extra`.

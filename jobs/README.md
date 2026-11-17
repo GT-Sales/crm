@@ -7,8 +7,6 @@ tenants itself. The backend scheduler registry supplies the explicit workspace s
 Each handler runs under a per-handler abort timeout (the signal is passed as the
 handler's optional second argument) and the whole run stops claiming new jobs
 after a run deadline. A timeout is recorded `uncertain` with `handler_timeout`.
-`createFailingJobHandlerRegistry(code)` builds a registry whose handlers fail
-permanently with one code, used when no provider adapter is configured.
 
 Jobs are claimed one at a time immediately before execution, up to `batchSize`
 per authorized workspace. Pending jobs do not spend their lease waiting behind

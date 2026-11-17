@@ -1,5 +1,5 @@
 /**
- * The staff admin's Content-Security-Policy (REQ 37, audit M-1). The staff
+ * The staff admin's Content-Security-Policy. The staff
  * session lives in localStorage (supabase-js), so an injected script could
  * read it; `script-src` therefore allows only scripts carrying this request's
  * nonce, and whatever those load (`'strict-dynamic'`). No `'unsafe-inline'`

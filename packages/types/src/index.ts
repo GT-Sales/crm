@@ -61,7 +61,6 @@ export type WebsiteScopeName = (typeof websiteScopeNames)[number];
 
 /** Distinguishes how a request authenticated, so a staff-only route can refuse a website caller. */
 export const callerTypes = tuple('staff', 'website', 'machine');
-export type CallerType = (typeof callerTypes)[number];
 
 /**
  * Scopes a verified machine identity may hold. Scheduler identities in the
@@ -88,4 +87,3 @@ export type PaymentStatus = (typeof paymentStatuses)[number];
 
 /** The commission the carrier pays on an order, tracked by hand. */
 export const carrierCommissionStatuses = tuple('not_yet', 'invoiced', 'received', 'clawback');
-export type CarrierCommissionStatus = (typeof carrierCommissionStatuses)[number];

@@ -1,10 +1,10 @@
 import type { AnalyticsEvent, AnalyticsSink, ProviderDeliveryResult } from './messaging.js';
 
 /**
- * Server-only analytics sinks (IMPLEMENTATION_PLAN §9 "Analytics"). These carry
+ * Server-only analytics sinks. These carry
  * no browser-safe code: only the backend's outbox runner imports them, and an
  * event never contains contact data, a raw URL or attribution — just a stable
- * logical id and an opaque lead/order identifier (invariant 12).
+ * logical id and an opaque lead/order identifier (AGENTS.md rule 7).
  */
 
 /** One sanitized structured log line. No PII, URL or free text. */
@@ -46,7 +46,7 @@ export interface UmamiAnalyticsOptions {
    */
   readonly endpoint: string;
   /**
-   * Maps a workspace to its Umami website id (one site per website, REQ 35).
+   * Maps a workspace to its Umami website id (one site per website).
    * An unmapped workspace fails closed rather than sending to the wrong site.
    */
   readonly websiteIdForWorkspace: (workspaceId: string) => string | undefined;

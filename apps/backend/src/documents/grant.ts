@@ -9,7 +9,7 @@ type DocumentDatabase = Pick<import('@gt-sales/db').DatabaseClient, 'withTenantT
  * Resolves a storefront draft grant to the lead it authorises, inside the
  * already-established website tenant context. Uploads/downloads made by a
  * customer must prove ownership of the parent lead this way — a service
- * credential alone is not proof of which draft the caller owns (invariant 2).
+ * credential alone is not proof of which draft the caller owns (AGENTS.md rule 5).
  *
  * A grant is proof of a DRAFT: once its lead is submitted (or rescued by
  * staff, O13) or archived, it no longer uploads or downloads anything (audit

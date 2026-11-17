@@ -108,10 +108,6 @@ const GROUP_LABELS: Record<LeadExportGroupKey, string> = {
   notes: 'Notes',
 };
 
-export function leadExportGroupLabel(group: LeadExportGroupKey): string {
-  return GROUP_LABELS[group];
-}
-
 /** How a column's cells are written: text never becomes a number, a date is a real date. */
 export type LeadExportValueKind = 'text' | 'number' | 'money' | 'date' | 'dateTime';
 

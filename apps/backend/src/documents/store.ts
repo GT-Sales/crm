@@ -25,7 +25,7 @@ import {
  * security logic in `service.ts` can be exercised against an in-memory
  * implementation (memory-store.ts) as well as Postgres. The DB implementation
  * relies on conditional `UPDATE ... WHERE status = ...` statements — never a row
- * lock held across the external R2 call (invariant 7) — to make concurrent and
+ * lock held across the external R2 call — to make concurrent and
  * repeated finalize calls resolve to exactly one attached object.
  */
 
@@ -197,7 +197,7 @@ export interface DocumentRecordStore {
     now: Date;
     graceSeconds: number;
   }): Promise<{ expiredIntents: number; cleanedObjects: string[] }>;
-  /** Audit a signed download link (invariant 11); never records customer data. */
+  /** Audit a signed download link; never records customer data. */
   recordDownloadIssued(input: {
     workspaceId: string;
     actorId: string;

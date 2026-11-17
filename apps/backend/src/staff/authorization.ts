@@ -86,8 +86,6 @@ export type AuthorizationAllowReason = 'role_allowed' | 'individual_allowed';
 export type AuthorizationDenyReason =
   'membership_missing' | 'membership_pending' | 'membership_revoked' | 'permission_denied';
 
-export type AuthorizationReason = AuthorizationAllowReason | AuthorizationDenyReason;
-
 export type AuthorizationDecision =
   | { allowed: true; reason: AuthorizationAllowReason; access: StaffAccessSnapshot }
   | { allowed: false; reason: AuthorizationDenyReason };

@@ -31,7 +31,6 @@ export const outboxJobTypes = [
   // Composed in the backend, which holds the document store.
   'legacy_document_import',
 ] as const;
-export type OutboxJobType = (typeof outboxJobTypes)[number];
 
 const emailJobTypeToTemplate: Record<string, EmailTemplate> = {
   order_acknowledgement_email: 'order_acknowledgement',
@@ -43,8 +42,7 @@ const emailJobTypeToTemplate: Record<string, EmailTemplate> = {
 };
 
 /**
- * Re-checked immediately before every send (REQ 27, IMPLEMENTATION_PLAN.md
- * §9 "Email"): transactional sends only ever consult deliverability
+ * Re-checked immediately before every send: transactional sends only ever consult deliverability
  * suppression; marketing sends additionally require recorded opt-in and
  * re-verify the lead/order hasn't completed, cancelled, or been unsubscribed
  * since the follow-up was scheduled.
@@ -167,23 +165,6 @@ class HandlerTimeoutError extends Error {
     super('handler_timeout');
     this.name = 'HandlerTimeoutError';
   }
-}
-
-/**
- * A registry whose every registered handler fails permanently with one code.
- * Used when no provider adapter is configured (for example a production
- * deployment without real email/analytics credentials): the job is recorded as
- * failed so it is visible in admin instead of silently invoking a fake.
- */
-export function createFailingJobHandlerRegistry(errorCode: string): JobHandlerRegistry {
-  const safe = safeErrorCode(errorCode, 'provider_not_configured');
-  const handlers: [string, JobHandler][] = outboxJobTypes.map((jobType) => [
-    jobType,
-    async () => {
-      throw new JobHandlerError(safe, false);
-    },
-  ]);
-  return new Map(handlers);
 }
 
 const acknowledgementPayloadSchema = z

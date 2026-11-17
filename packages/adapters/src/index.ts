@@ -3,15 +3,12 @@
  * and analytics provider adapters, with in-memory fakes for tests. Never
  * imported by a browser bundle.
  */
-export const ADAPTERS_PACKAGE_PLACEHOLDER = true as const;
-
 export {
   analyticsEventNames,
   FakeAnalyticsSink,
   FakeEmailAdapter,
   FakeSuppressionLedgerPublisher,
   ResendEmailAdapter,
-  SesEmailAdapter,
   emailTemplates,
   messageClassForTemplate,
   transactionalEmailTemplates,

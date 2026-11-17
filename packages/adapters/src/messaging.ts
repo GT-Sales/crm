@@ -26,7 +26,7 @@ const siteContentEmailTemplates = [
 const renderedStaffEmailTemplates = ['staff_notification'] as const;
 
 /**
- * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
+ * Email templates the CRM sends,
  * plus the site-content templates a site's staff edit. `abandoned_form_marketing` is the one marketing template; every
  * other template is transactional and is never gated on marketing opt-out.
  */
@@ -57,7 +57,7 @@ export function messageClassForTemplate(template: EmailTemplate): EmailMessageCl
  * necessarily carries the raw address (the provider needs it); the
  * `email_messages` audit/status table never stores it, keying instead on a
  * `contactHash` for suppression/consent matching, so admin views and delivery
- * history never surface a bare address (§4 invariant 12).
+ * history never surface a bare address (AGENTS.md rule 7).
  */
 export interface EmailMessage {
   workspaceId: string;
@@ -159,90 +159,19 @@ export class FakeEmailAdapter implements EmailAdapter {
 }
 
 /**
- * The server-emitted conversion events (IMPLEMENTATION_PLAN §9). Both are
+ * The server-emitted conversion events. Both are
  * emitted once from the transactional outbox, never from the browser, so a
- * submission is counted exactly once (REQ 35).
+ * submission is counted exactly once.
  */
 export const analyticsEventNames = ['lead_saved', 'order_submitted'] as const;
 export type AnalyticsEventName = (typeof analyticsEventNames)[number];
 
 /**
- * Amazon SES v2 implementation, structurally selected pending
- * OPEN_INPUTS #23 (production access, region, verified sender domain, quota).
- * All configuration comes from environment variables — never hardcoded — and
- * the adapter throws at construction if any are missing, so a deployment
- * cannot silently send unauthenticated mail. Never wired for anything but the
- * explicit `EMAIL_PROVIDER=ses` opt-in (see apps/backend/src/jobs/providers.ts);
+ * Resend implementation, the production email provider. Talks to Resend's
+ * HTTP API directly (no SDK dependency); configuration is env-only and the
+ * adapter throws at construction, so it fails closed. Only wired for the
+ * explicit `EMAIL_PROVIDER=resend` opt-in (see apps/backend/src/jobs/providers.ts);
  * `EMAIL_PROVIDER=fake` in CI/previews never reaches this class.
- */
-export class SesEmailAdapter implements EmailAdapter {
-  private client: import('@aws-sdk/client-sesv2').SESv2Client | undefined;
-
-  constructor(
-    private readonly config: {
-      region: string;
-      sender: SenderIdentity;
-      configurationSetName?: string;
-    },
-  ) {
-    if (!config.region) throw new Error('SES adapter requires a region.');
-    if (!config.sender.fromAddress) throw new Error('SES adapter requires a from address.');
-  }
-
-  /** Lazily constructed so importing this module never requires AWS credentials at load time. */
-  private async getClient(): Promise<import('@aws-sdk/client-sesv2').SESv2Client> {
-    if (!this.client) {
-      const { SESv2Client } = await import('@aws-sdk/client-sesv2');
-      this.client = new SESv2Client({ region: this.config.region });
-    }
-    return this.client;
-  }
-
-  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
-    const { SendEmailCommand } = await import('@aws-sdk/client-sesv2');
-    const client = await this.getClient();
-    const sender = message.sender ?? this.config.sender;
-    const content = contentFor(message, sender.fromName);
-    if (!content) return { status: 'uncertain', errorCode: 'rendered_message_missing' };
-    const { subject, text, html } = content;
-    try {
-      const result = await client.send(
-        new SendEmailCommand({
-          FromEmailAddress: formatFrom(sender),
-          ReplyToAddresses: sender.replyToAddress ? [sender.replyToAddress] : undefined,
-          ConfigurationSetName: this.config.configurationSetName,
-          Destination: { ToAddresses: [message.toAddress] },
-          Content: {
-            Simple: {
-              Subject: { Data: subject },
-              Body: { Text: { Data: text }, Html: html ? { Data: html } : undefined },
-            },
-          },
-          // SES's own dedup is at-most-once per API call; the logical message
-          // id still gates whether this call happens at all (outbox dedupe).
-        }),
-      );
-      const providerId = result.MessageId;
-      if (!providerId) return { status: 'uncertain', errorCode: 'ses_missing_message_id' };
-      return { status: 'delivered', providerId };
-    } catch (error) {
-      // A thrown SDK error after the request left the process is ambiguous —
-      // the message may already be queued by SES — so this is uncertain, not
-      // failed, and the outbox/job layer decides whether to retry or reconcile.
-      const errorCode = error instanceof Error ? error.name : 'ses_send_error';
-      return { status: 'uncertain', errorCode };
-    }
-  }
-}
-
-/**
- * Resend implementation, the current production email provider (OPEN_INPUTS
- * #23: Resend selected for launch, AWS SES deferred — see
- * docs/OPEN_INPUTS.md). Talks to Resend's HTTP API directly (no SDK
- * dependency, matching the SES adapter's env-only, throw-at-construction
- * fail-closed shape). Only wired for the explicit `EMAIL_PROVIDER=resend`
- * opt-in (see apps/backend/src/jobs/providers.ts); `EMAIL_PROVIDER=fake` in
- * CI/previews never reaches this class.
  */
 const resendResponseSchema = z.object({ id: z.string().optional() });
 
@@ -414,7 +343,7 @@ export interface AnalyticsEvent {
 }
 
 /**
- * The analytics seam (PLATFORM_CONTEXT §6). Only an Umami and a fake/log sink
+ * The analytics seam. Only an Umami and a fake/log sink
  * exist in Phase A; Google Ads/Meta are Phase B sinks over the same events.
  */
 export interface AnalyticsSink {

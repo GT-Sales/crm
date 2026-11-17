@@ -2,9 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { logEvent } from '@gt-sales/adapters';
 
 /**
- * Structured per-request access log (REQ 40, IMPLEMENTATION_PLAN §10:
- * "Structured JSON logs with request ID, workspace ID, actor ID, and
- * route"). Runs after every request completes (`res.on('finish')`) so it
+ * Structured per-request access log: structured JSON with request ID,
+ * workspace ID, actor ID and route. Runs after every request completes (`res.on('finish')`) so it
  * always has the final status code, and pulls workspace/actor identity from
  * whichever auth middleware ran (staff session, website credential, or a
  * route's own `:workspaceId` param) rather than requiring every route to log

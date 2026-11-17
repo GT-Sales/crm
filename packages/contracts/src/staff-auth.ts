@@ -52,8 +52,8 @@ export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 
 /**
  * The canonical error envelope `{ code, message, requestId, details? }`
- * (PLATFORM_CONTEXT.md §7). `details` is optional structured context and never
- * carries PII (invariant 12). The wire response nests it under `error`.
+ * `details` is optional structured context and never
+ * carries PII (AGENTS.md rule 7). The wire response nests it under `error`.
  */
 export const apiErrorSchema = z.object({
   code: apiErrorCodeSchema,

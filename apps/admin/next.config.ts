@@ -3,7 +3,7 @@ import type { NextConfig } from 'next';
 import { originOf } from './src/lib/csp';
 
 /**
- * Security response headers for the staff admin (REQ 37, §16 gate 12). Admin
+ * Security response headers for the staff admin. Admin
  * authenticates to the backend with a Supabase access token sent as an
  * `Authorization: Bearer` header (held in the browser, never an ambient cookie),
  * so it is not exposed to CSRF; these headers add transport hardening and

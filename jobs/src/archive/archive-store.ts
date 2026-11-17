@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto';
  * endpoint and kept apart from the systems it backs up. The nightly runner
  * must be unable to read or delete what it has already written, so a stolen
  * runner credential cannot erase or exfiltrate the history
- * (docs/superpowers/specs/2026-10-28-merge-canadian-plans-design.md §10:
- * "archive-write without archive-delete"). The writer/reader/retention-admin
+ * (docs/PLAN.md §1.1, merge decision 19: the archive key may write but
+ * never delete). The writer/reader/retention-admin
  * roles are separate TypeScript interfaces on purpose: code holding only an
  * `ArchiveWriter` cannot even call a delete method. They match the three B2
  * application keys in docs/RUNBOOKS/backup.md (writer: listFiles+writeFiles;

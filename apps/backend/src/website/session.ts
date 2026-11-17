@@ -74,7 +74,7 @@ export function requireHumanProof(
     try {
       admitted = await deps.botCheck(req, action);
     } catch {
-      // Fail closed, but visibly: no token or body is logged (invariant 12).
+      // Fail closed, but visibly: no token or body is logged (AGENTS.md rule 7).
       logRequestError({
         requestId: req.id,
         route: `website:${action}`,
@@ -186,7 +186,7 @@ export interface EndpointRateLimit {
 
 /**
  * Per-endpoint rate limits for the abuse-sensitive public write surface
- * (REQ 37: "rate limits ... on public endpoints"). These are intentionally far
+ * (rate limits on public endpoints). These are intentionally far
  * tighter than the coarse per-credential ceiling in {@link requireWebsiteCredential}
  * so a flood of one endpoint (e.g. order submissions) is capped without starving
  * the others. Values sized for the Phase A 100-orders/day target with generous

@@ -1074,8 +1074,6 @@ export const fileReviewEvents = appSchema
   )
   .enableRLS();
 
-export type FileRecord = typeof files.$inferSelect;
-export type FileRevision = typeof fileRevisions.$inferSelect;
 export type FileReviewEvent = typeof fileReviewEvents.$inferSelect;
 
 // ---------------------------------------------------------------------------
@@ -1358,12 +1356,6 @@ export const emailProviderEvents = appSchema
     ],
   )
   .enableRLS();
-
-export type EmailMessageRow = typeof emailMessages.$inferSelect;
-export type EmailSuppressionRow = typeof emailSuppressions.$inferSelect;
-export type MarketingConsentRow = typeof marketingConsents.$inferSelect;
-export type FollowUpScheduleRow = typeof followUpSchedules.$inferSelect;
-export type EmailProviderEventRow = typeof emailProviderEvents.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Properties, layouts and saved views (phase 2)

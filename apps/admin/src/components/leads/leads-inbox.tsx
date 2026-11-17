@@ -1345,8 +1345,6 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       ...(query.where && query.where.length > 0 ? { where: [...query.where] } : {}),
       ...(query.sort && !onBoard ? { sort: query.sort } : {}),
     }),
-    // `whereKey` stands for `query.where`, which is a new array on every parse.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       query.type,
       query.stage,
@@ -1355,7 +1353,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       query.archived,
       query.due,
       query.sort,
-      whereKey,
+      query.where,
       onBoard,
       today,
     ],

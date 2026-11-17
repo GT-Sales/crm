@@ -89,8 +89,6 @@ export const leadTypes = {
   contact_message: { oneShot: false, requiredContact: [] },
 } as const satisfies Record<keyof typeof leadTypeCatalog, LeadTypeDefinition>;
 
-export type RegisteredLeadType = keyof typeof leadTypes;
-
 const registry: ReadonlyMap<string, LeadTypeDefinition> = new Map(Object.entries(leadTypes));
 
 export function leadTypeDefinition(leadType: string): LeadTypeDefinition | undefined {

@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
  *  - `InMemoryR2DocumentStore` (below): a deterministic fake with no network,
  *    used by every test and by non-production environments.
  *
- * The security-critical guarantee (PLATFORM_CONTEXT.md invariant 8): the
+ * The security-critical guarantee: the
  * uploader writes only to a *staging* object; `verifyUpload` first copies that
  * staging object to a private *candidate* object the uploader can no longer
  * reach, then verifies the candidate's bytes. The exact candidate object is
@@ -28,7 +28,7 @@ export function documentObjectKey(workspaceId: string, key: string): string {
 
 /**
  * Detects one of the three allowed document types from a file's leading bytes.
- * The declared `Content-Type` is never trusted (invariant 8); only the magic
+ * The declared `Content-Type` is never trusted; only the magic
  * bytes decide. Returns `undefined` for anything else.
  */
 export function detectDocumentType(bytes: Uint8Array): DocumentMediaType | undefined {
@@ -197,7 +197,7 @@ export interface DeleteFromBucketInput {
 /**
  * Every method is workspace-scoped so an implementation can enforce a
  * per-workspace key prefix. Verification always runs against the immutable
- * candidate copy, never the mutable staging object (invariant 8).
+ * candidate copy, never the mutable staging object.
  */
 export interface R2DocumentStore {
   /** Idempotent private deletion; the caller supplies the persisted bucket. */

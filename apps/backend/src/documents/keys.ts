@@ -3,7 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import type { DocumentMediaType } from '@gt-sales/adapters';
 
 /**
- * Server-generated, non-guessable object keys (REQ 22/23: random object
+ * Server-generated, non-guessable object keys (random object
  * identifiers that reveal nothing about the customer). Keys are namespaced by
  * workspace and stage; the uploader only ever receives the staging key.
  */

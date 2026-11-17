@@ -1,9 +1,9 @@
 /**
  * @gt-sales/observability — browser-safe structured logging and error
- * reporting primitives (REQ 40, IMPLEMENTATION_PLAN §10). Pure functions only
+ * reporting primitives. Pure functions only
  * (no network, no Node-only APIs), so backend, admin, jobs and every
  * storefront can share one scrubber and one log/event shape instead of each
- * inventing its own PII allowlist (PLATFORM_CONTEXT §4a).
+ * inventing its own PII allowlist.
  *
  * `@gt-sales/adapters` builds the server-only transports (an HTTP
  * Sentry-class client, owner alert email/webhook senders) on top of the pure
@@ -143,8 +143,8 @@ export function safeRoute(value: unknown): string | undefined {
 }
 
 /**
- * The one structured-log envelope every app emits (REQ 40: "requestId,
- * workspaceId, actorId, route, duration"). `extra` is free-form context
+ * The one structured-log envelope every app emits (requestId,
+ * workspaceId, actorId, route, duration). `extra` is free-form context
  * (e.g. an outbox job's failed count) and is always scrubbed before it can
  * reach a log line.
  */
@@ -185,7 +185,7 @@ export function buildLogRecord(fields: LogFields): LogRecord {
   return record;
 }
 
-/** Context attached to every reported exception (REQ 40: "release tags"). */
+/** Context attached to every reported exception (including release tags). */
 export interface ErrorTrackerContext {
   requestId: string;
   workspaceId?: string;
@@ -242,7 +242,7 @@ function errorMessage(error: unknown): string {
  * Reduces a thrown value to the minimal event shape a Sentry-class store
  * endpoint accepts, scrubbing the message so a PII-carrying error (an
  * unexpected `Error(email)` from a careless throw, say) can never leak
- * (invariant 12). Never carries a stack trace with interpolated values,
+ * (AGENTS.md rule 7). Never carries a stack trace with interpolated values,
  * request bodies, or any other free-form payload. A failed database query
  * (the `query` + `params` shape) reports only `Failed query` and its SQLSTATE,
  * and any message is cut at a `params:` line, since bound values are PII.

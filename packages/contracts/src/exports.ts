@@ -5,7 +5,7 @@ import { isoDateTimeSchema, requestIdSchema } from './common';
 /**
  * Controlled data extraction — `POST /workspaces/:id/exports` (Phase B).
  * Caller: Owner or export permission. Phase A builds only this seam: a clean
- * serialization boundary (PLATFORM_CONTEXT.md §6). No handler here.
+ * serialization boundary. No handler here.
  */
 
 export const exportKindSchema = z.enum(['orders', 'partners', 'commissions', 'audit']);
