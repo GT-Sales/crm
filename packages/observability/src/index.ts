@@ -221,12 +221,31 @@ function eventId(): string {
   return id;
 }
 
+/** The message to report: a failed query's is never used, a `params:` line ends any other. */
+function errorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'params' in error) {
+    if (typeof Reflect.get(error, 'query') === 'string') {
+      const cause: unknown = Reflect.get(error, 'cause');
+      const code: unknown =
+        typeof cause === 'object' && cause !== null ? Reflect.get(cause, 'code') : undefined;
+      return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)
+        ? `Failed query (${code})`
+        : 'Failed query';
+    }
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const cut = message.search(/^params:/m);
+  return cut === -1 ? message : message.slice(0, cut).trimEnd();
+}
+
 /**
  * Reduces a thrown value to the minimal event shape a Sentry-class store
  * endpoint accepts, scrubbing the message so a PII-carrying error (an
  * unexpected `Error(email)` from a careless throw, say) can never leak
  * (invariant 12). Never carries a stack trace with interpolated values,
- * request bodies, or any other free-form payload.
+ * request bodies, or any other free-form payload. A failed database query
+ * (the `query` + `params` shape) reports only `Failed query` and its SQLSTATE,
+ * and any message is cut at a `params:` line, since bound values are PII.
  */
 export function buildErrorEvent(
   error: unknown,
@@ -234,7 +253,7 @@ export function buildErrorEvent(
   platform: 'node' | 'javascript' = 'node',
 ): CapturedErrorEvent {
   const type = error instanceof Error ? error.name : 'Error';
-  const rawMessage = error instanceof Error ? error.message : String(error);
+  const rawMessage = errorMessage(error);
   const message = scrubStringContent(rawMessage).slice(0, 500);
   return {
     event_id: eventId(),

@@ -296,6 +296,18 @@ function splitSort(sort: string | undefined): { field?: string; direction?: 'asc
 }
 
 /**
+ * The previous reference while `value` serializes the same (`undefined`
+ * included), so a re-parse of the URL does not hand consumers a new array.
+ */
+function useStableValue<T>(value: T): T {
+  const key = JSON.stringify(value) ?? 'undefined';
+  const [held, setHeld] = useState({ key, value });
+  if (held.key === key) return held.value;
+  setHeld({ key, value });
+  return value;
+}
+
+/**
  * The leads inbox: a tab per lead type the site has and the archive, with the
  * search and compact Filters, View options and Saved views menus at the end
  * of that row; the active filters as chips under it while
@@ -313,9 +325,17 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const { workspaceId, accessToken, members } = useLeadWorkspace(workspaceSlug);
   const properties = usePropertyModel(workspaceId);
   const catalog = properties.catalog;
-  const query = useMemo(
+  const parsedQuery = useMemo(
     () => parseInboxQuery(new URLSearchParams(urlKey), catalog),
     [urlKey, catalog],
+  );
+  // Every parse builds new `where` and `cols` arrays; keep the old ones while
+  // their content is the same, so opening a panel does not reload the list.
+  const where = useStableValue(parsedQuery.where);
+  const columns = useStableValue(parsedQuery.columns);
+  const query = useMemo<InboxQuery>(
+    () => ({ ...parsedQuery, where, columns }),
+    [parsedQuery, where, columns],
   );
   // A link naming a custom property can only be read once the site's
   // catalogue is here; until then the list waits rather than load without it.

@@ -166,4 +166,54 @@ describe('buildErrorEvent / FakeErrorTracker', () => {
     expect(event.exception.values[0].type).toBe('Error');
     expect(event.exception.values[0].value).toContain('plain string failure');
   });
+
+  describe('failed database queries', () => {
+    // The shape drizzle-orm's DrizzleQueryError has: no import, the package must not need it.
+    class QueryError extends Error {
+      constructor(
+        readonly query: string,
+        readonly params: unknown[],
+        readonly cause?: unknown,
+      ) {
+        super(`Failed query: ${query}\nparams: ${params.join(',')}`);
+        this.name = 'DrizzleQueryError';
+      }
+    }
+    const context = { requestId: 'req-1', release: 'v1' };
+    const sql = 'select "id" from "leads" where "name" = $1';
+
+    test('reports only the SQLSTATE of the cause, never the statement or the values', () => {
+      const cause = Object.assign(new Error('duplicate key value (name)=(Jane Doe)'), {
+        code: '57014',
+      });
+      const event = buildErrorEvent(new QueryError(sql, ['Jane Doe', '12 Elm St'], cause), context);
+      const { type, value } = event.exception.values[0];
+      expect(type).toBe('DrizzleQueryError');
+      expect(value).toBe('Failed query (57014)');
+      expect(value).not.toContain('Jane');
+      expect(value).not.toContain('select');
+    });
+
+    test('reports plain "Failed query" when the cause has no usable code', () => {
+      for (const cause of [
+        undefined,
+        new Error('Jane Doe'),
+        Object.assign(new Error('x'), { code: 'ECONNRESET' }),
+        Object.assign(new Error('x'), { code: 57014 }),
+      ]) {
+        const event = buildErrorEvent(new QueryError(sql, ['Jane Doe'], cause), context);
+        expect(event.exception.values[0].value).toBe('Failed query');
+      }
+    });
+
+    test('cuts any other message at the params line', () => {
+      const event = buildErrorEvent(new Error('Statement failed\nparams: Jane Doe'), context);
+      expect(event.exception.values[0].value).toBe('Statement failed');
+    });
+
+    test('leaves an ordinary message alone', () => {
+      const event = buildErrorEvent(new Error('Upstream timed out after 30s'), context);
+      expect(event.exception.values[0].value).toBe('Upstream timed out after 30s');
+    });
+  });
 });
