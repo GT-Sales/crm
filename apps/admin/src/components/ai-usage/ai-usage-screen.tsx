@@ -154,10 +154,22 @@ function LoadFailed({ failure, onRetry }: { failure: unknown; onRetry: () => voi
   );
 }
 
-/** The totals as tiles, in rows of four; a field the backend did not send has no tile. */
+/**
+ * The totals as tiles, in rows of four (three when four would leave one tile
+ * alone); a field the backend did not send has no tile.
+ */
 function totalTiles(totals: AiUsageTotals): { label: string; value: string; note?: string }[] {
   const tiles: ({ label: string; value: string; note?: string } | undefined)[] = [
     { label: 'Turns', value: count.format(totals.turns) },
+    totals.highEffortTurns === undefined
+      ? undefined
+      : {
+          label: 'High effort turns',
+          value: count.format(totals.highEffortTurns),
+          ...(totals.turns > 0
+            ? { note: `${percentFormat.format(totals.highEffortTurns / totals.turns)} of turns` }
+            : {}),
+        },
     totals.completedTurns === undefined
       ? undefined
       : { label: 'Completed', value: count.format(totals.completedTurns) },
@@ -190,9 +202,12 @@ function totalTiles(totals: AiUsageTotals): { label: string; value: string; note
 function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
   const { totals } = usage;
   const members = useMemo(() => sortMembers(usage.members), [usage.members]);
+  // A backend that counts High turns sends them on every member.
+  const highColumn = usage.members.some((member) => member.highEffortTurns !== undefined);
   const tiles = totalTiles(totals);
-  const strips = Array.from({ length: Math.ceil(tiles.length / 4) }, (_, index) =>
-    tiles.slice(index * 4, index * 4 + 4),
+  const perRow = tiles.length > 4 && tiles.length % 4 === 1 ? 3 : 4;
+  const strips = Array.from({ length: Math.ceil(tiles.length / perRow) }, (_, index) =>
+    tiles.slice(index * perRow, index * perRow + perRow),
   );
   // Only an answer with the monitoring fields has other sections to tell the people table apart from.
   const monitoring =
@@ -208,7 +223,10 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
         {strips.map((strip, index) => (
           <div
             key={index}
-            className="crm-kpi-strip grid rounded-xl border bg-card sm:grid-cols-2 lg:grid-cols-4"
+            className={cn(
+              'crm-kpi-strip grid rounded-xl border bg-card sm:grid-cols-2',
+              perRow === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4',
+            )}
           >
             {strip.map((tile) => (
               <Tile key={tile.label} {...tile} />
@@ -260,6 +278,11 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
                   <th scope="col" className={cn(HEAD_CELL, 'text-right')}>
                     Turns
                   </th>
+                  {highColumn ? (
+                    <th scope="col" className={cn(HEAD_CELL, 'text-right')}>
+                      High
+                    </th>
+                  ) : null}
                   <th scope="col" className={cn(HEAD_CELL, 'text-right')}>
                     Tokens in
                   </th>
@@ -291,6 +314,11 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
                       {memberLabel(member)}
                     </th>
                     <td className={cn(CELL, NUMBER)}>{count.format(member.turns)}</td>
+                    {highColumn ? (
+                      <td className={cn(CELL, NUMBER)}>
+                        {count.format(member.highEffortTurns ?? 0)}
+                      </td>
+                    ) : null}
                     <td className={cn(CELL, NUMBER)}>{count.format(member.inputTokens)}</td>
                     <td className={cn(CELL, NUMBER)}>{count.format(member.outputTokens)}</td>
                     <td className={cn(CELL, NUMBER, 'font-medium')}>

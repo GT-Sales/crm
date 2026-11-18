@@ -56,9 +56,46 @@ export const AI_ASSISTANT_LIMITS = {
   perSitePerMinute: 60,
   /** Chat requests per site in a UTC day: the runaway stop beside the Gateway budget. */
   perSitePerDay: 500,
+  /*
+   * High effort (`effort: 'high'`, for harder questions). Each replaces its
+   * Normal counterpart on a High turn only; a Normal turn never reads them.
+   * The per-result and per-turn data bytes, the record limit and every
+   * permission check are the same at both levels: High may think longer, it
+   * may not read more broadly.
+   */
+  /** Model generations of a High turn, the answer step included (Normal: `maxModelSteps`). */
+  maxModelStepsHigh: 8,
+  /** Tool calls of a High turn, parallel calls included (Normal: `maxToolCalls`). */
+  maxToolCallsHigh: 10,
+  /** Answer tokens of one High generation (Normal: `maxOutputTokens`). */
+  maxOutputTokensHigh: 4_000,
+  /**
+   * Added to a High generation's output limit only when reasoning is requested
+   * (`AI_HIGH_EFFORT_REASONING`): some providers count reasoning tokens inside
+   * the output limit, so the answer keeps its own `maxOutputTokensHigh`.
+   */
+  maxReasoningTokensHigh: 8_000,
+  /** A whole High turn, tools and model included (Normal: `requestTimeoutMs`). */
+  requestTimeoutMsHigh: 180_000,
+  /** Distinct lead summaries of a High turn (Normal: `maxLeadSummaries`). */
+  maxLeadSummariesHigh: 5,
+  /** High requests per actor per site in a fixed one-hour window, on top of the Normal limits. */
+  highPerActorPerHour: 20,
+  /** High requests per site in a UTC day, on top of the Normal limits. */
+  highPerSitePerDay: 100,
 } as const;
 
 export type AiAssistantLimits = typeof AI_ASSISTANT_LIMITS;
+
+/**
+ * How hard the model works on one question. `normal` is the assistant as it
+ * always was; `high` gives a harder question a larger budget, the deployment's
+ * High model when one is set and, when configured, model reasoning. Absent on
+ * a request means `normal`.
+ */
+export const AI_EFFORTS = ['normal', 'high'] as const;
+export const aiEffortSchema = z.enum(AI_EFFORTS);
+export type AiEffort = z.infer<typeof aiEffortSchema>;
 
 /**
  * Limits of the saved chat (stored conversations and attached files). Product
@@ -234,6 +271,12 @@ export const aiCapabilitiesResponseSchema = z.object({
       maxTextFileBytes: z.int().positive(),
     })
     .optional(),
+  /**
+   * The effort levels this site offers right now (`AI_HIGH_EFFORT_ENABLED`).
+   * Absent from an older backend and from one where High is off: the composer
+   * then shows no effort control and sends no `effort`.
+   */
+  efforts: z.array(aiEffortSchema).max(AI_EFFORTS.length).optional(),
   requestId: requestIdSchema,
 });
 
@@ -314,6 +357,13 @@ export const aiChatRequestSchema = z
     context: z.object({ leadId: z.uuid() }).strict().optional(),
     conversationId: z.uuid().optional(),
     attachmentIds: z.array(z.uuid()).max(AI_CHAT_LIMITS.maxAttachmentsPerMessage).optional(),
+    /**
+     * The effort level of this question; absent means `normal`. The admin sends
+     * it only as `high`, and only when capabilities list `high` (an older
+     * backend's strict request refuses the key). `high` on a site that does
+     * not offer it is `invalid_request` (`details.reason: 'effort_unavailable'`).
+     */
+    effort: aiEffortSchema.optional(),
   })
   .strict()
   .superRefine((request, context) => {

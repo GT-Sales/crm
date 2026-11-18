@@ -116,6 +116,23 @@ export function AssistantCard({ assistant }: { assistant: AiUsageAssistant }) {
             {attachmentKindsLabel(assistant.attachmentKinds)}
           </OnOff>
         </Fact>
+        {assistant.highEffort === undefined ? null : (
+          <Fact label="High effort">
+            <OnOff on={assistant.highEffort.enabled}>
+              <span>
+                {assistant.highEffort.enabled ? 'On' : 'Off'}
+                {assistant.highEffort.enabled && assistant.highEffort.model !== null ? (
+                  <>
+                    {', '}
+                    <code className="font-mono text-[13px] break-all">
+                      {assistant.highEffort.model}
+                    </code>
+                  </>
+                ) : null}
+              </span>
+            </OnOff>
+          </Fact>
+        )}
       </dl>
       {assistant.enabled ? null : (
         <p className="mt-4 text-xs text-muted-foreground">
@@ -143,6 +160,8 @@ export function ModelsTable({
   configuredModel: string | null | undefined;
   period: number;
 }) {
+  // A backend that counts High turns sends them on every row.
+  const high = models.some((model) => model.highEffortTurns !== undefined);
   return (
     <section aria-labelledby="ai-usage-models-title" className="flex flex-col gap-3">
       <h2 id="ai-usage-models-title" className="text-base font-medium">
@@ -161,6 +180,7 @@ export function ModelsTable({
                 </th>
                 {[
                   'Turns',
+                  ...(high ? ['High'] : []),
                   'Completed',
                   'Failed',
                   'Tokens in',
@@ -200,6 +220,11 @@ export function ModelsTable({
                       ) : null}
                     </th>
                     <td className={cn(CELL, NUMBER, 'font-medium')}>{count.format(model.turns)}</td>
+                    {high ? (
+                      <td className={cn(CELL, NUMBER)}>
+                        {count.format(model.highEffortTurns ?? 0)}
+                      </td>
+                    ) : null}
                     <td className={cn(CELL, NUMBER)}>{count.format(model.completedTurns)}</td>
                     <td className={cn(CELL, NUMBER)}>{count.format(model.failedTurns)}</td>
                     <td className={cn(CELL, NUMBER)}>{count.format(model.inputTokens)}</td>

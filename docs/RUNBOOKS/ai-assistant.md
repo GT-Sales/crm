@@ -78,7 +78,9 @@ Never paste a key into chat, a ticket, a commit or this file.
   overshoot a budget by a small amount.
 
 Per turn: 5 model steps, 6 tool calls, 3 lead summaries, 50 records, 6 KiB per
-tool result, 24 KiB per turn, 1,200 output tokens, 60 seconds.
+tool result, 24 KiB per turn, 1,200 output tokens, 60 seconds. A High effort
+turn (§13): 8 model steps, 10 tool calls, 5 lead summaries, 4,000 output tokens
+(12,000 with reasoning), 180 seconds; the records and bytes are the same.
 Per caller: 10 requests per minute per actor per site; 60 per minute per site;
 500 per site per UTC day (`AI_ASSISTANT_LIMITS.perSitePerDay`), the in-CRM stop
 for a runaway site beside the Gateway budget. All are enforced through
@@ -352,7 +354,7 @@ from when 0034 is applied. Top to bottom:
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The AI provider did not answer (`provider_unavailable`)               | The Gateway or the provider refused or failed the call. Every turn failing: check that the model id in `AI_GATEWAY_MODEL` exists in the Gateway catalogue, is on the free tier or the team has credit, and accepts streaming and tools (§3); then the Gateway status page. |
 | The AI provider was rate limiting (`rate_limited`)                    | The Gateway or provider throttled the key. Sustained: the Gateway spend budget or the provider's rate limit is reached (§4); raise the budget or move to a model or host with more headroom. Occasional ones need nothing.                                                 |
-| The answer took too long (`timeout`)                                  | The turn hit its 60 s limit (§4). Frequent: the model is slow (compare its average answer time under Models) or questions span too much; a faster model, or `AI_GATEWAY_PROVIDERS` with a faster host, helps.                                                              |
+| The answer took too long (`timeout`)                                  | The turn hit its 60 s limit (180 s at High; §4, §13). Frequent: the model is slow (compare its average answer time under Models) or questions span too much; a faster model, or `AI_GATEWAY_PROVIDERS` with a faster host, helps.                                          |
 | The answer hit its size limit (`budget_exceeded`)                     | The turn used its whole tool or output budget (§4) before it finished. Members are asking for more than one answer holds; nothing to change on the deployment.                                                                                                             |
 | A CRM lookup the answer needed was not available (`tool_unavailable`) | A read tool failed. Look in the error tracker for the backend's own errors at the same time.                                                                                                                                                                               |
 | The CRM had a problem while answering (`internal_error`)              | A fault in the backend during the turn; the error tracker has it.                                                                                                                                                                                                          |
@@ -379,7 +381,8 @@ stay stored and unreachable. A customer's data erasure does not touch them.
 
 ### Log events
 
-- `ai_turn`: one line per turn, as before, with `inputTokens`.
+- `ai_turn`: one line per turn, as before, with `inputTokens`, the `model`
+  that served it and its `effort` (`normal` or `high`).
 - `ai_attachment_object_delete_failed`: a stored object could not be deleted
   (a member's delete, a refused upload, or the sweep after three tries), with
   the site id and a count.
@@ -391,3 +394,91 @@ stay stored and unreachable. A customer's data erasure does not touch them.
   answer could not be stored; the member already has it), `ai_chat_route_failed`
   and `ai_attachment_delete_failed` (a delete answered 503). A store code may
   end with `:<SQLSTATE>`; no code carries text, a title or a file name.
+
+## 13. High effort
+
+Each question is asked at one of two effort levels, chosen by the member in
+the composer: **Normal**, the assistant as it always was, and **High**, for
+harder questions, which may take longer. High changes only the turn's budget,
+its model (when one is set) and, when configured, how hard the model reasons;
+the access checks, the tools, what they may read, the cards and their
+confirmation, the saved conversation and Stop are the same at both levels
+(docs/design/ai-assistant.md §8).
+
+### Switching it on and off
+
+1. Ask AI must already work for the site (§2, §6).
+2. On Railway → backend service, set `AI_HIGH_EFFORT_ENABLED=true` and,
+   optionally, `AI_GATEWAY_MODEL_HIGH` and `AI_HIGH_EFFORT_REASONING`
+   (docs/ENV.md). Restart or redeploy so the backend reads them.
+3. Check: `GET …/ai/capabilities` lists `efforts: ["normal","high"]`, the
+   composer shows Normal | High beside Send, and Settings → AI usage says
+   _High effort: On_ with the model that serves it.
+4. To switch it off, set `AI_HIGH_EFFORT_ENABLED` to anything but `true` (or
+   remove it) and restart. The control goes from each composer at its next
+   capabilities load; a member who sends High from a tab opened before is told
+   "High effort is no longer offered on this site. Press Retry to ask at
+   Normal effort." and nothing is asked again until they press Retry. Answers
+   already given at High keep their tag.
+
+Migration 0037 (docs/RUNBOOKS/database.md) records the level; High works
+without it, and the usage page counts no High turns until it is applied.
+
+### Choosing the High model
+
+- `AI_GATEWAY_MODEL_HIGH` unset: High uses `AI_GATEWAY_MODEL` with the larger
+  budgets (and the reasoning word, when set). Start here.
+- Set it to a model that is better at multi-step questions, checked in the live
+  Gateway catalogue like the normal one (§3): streaming and tool calls, the
+  hosts in `AI_GATEWAY_PROVIDERS` (which pin both models), its price, and its
+  data retention. A wrong id fails High turns with a provider error, never a
+  fallback.
+- `AI_HIGH_EFFORT_REASONING`: `medium` is a sensible first value; it is sent as
+  the SDK's portable `reasoning` option only on High turns. A model that cannot
+  reason ignores it (the SDK logs an `unsupported` warning naming the setting,
+  never any text). `xhigh`/`max` can use the whole output limit on providers
+  that size the thinking budget from it; such a turn ends `budget_exceeded`.
+  Unset, High sends no reasoning option at all.
+- Reasoning tokens are billed as output tokens and are counted in _Tokens out_.
+
+### What a member sees
+
+- The composer (full page and side panel) has a two-option control, Normal and
+  High, beside Send, Normal at first. Choosing High shows "High effort. Takes
+  longer. For harder questions." The choice lasts for the browser tab (not
+  across a reload, and it is never written to the browser's storage) and
+  applies to each message until they change it.
+- While a High answer is being worked out the progress line reads
+  _Thinking…_ (the model's reasoning itself is never shown, stored or logged);
+  Stop works throughout.
+- A High answer carries a quiet _High effort_ tag beside Copy and Retry, also
+  after a reload. Retry of a failed High question asks at High again.
+
+### Limits
+
+On top of the normal limits (§4): 20 High requests per member per site per
+hour (`ai_high_actor:` keys) and 100 per site per UTC day (`ai_high_site_day:`
+keys) in `app.rate_limit_buckets`, through the same limiter, failing closed the
+same way (a limiter that cannot be reached answers `503 ai_unavailable`). A
+High refusal is `429 ai_rate_limited` with `retry-after` and
+`details.reason: 'high_effort'`; the member reads "You have used High effort a
+lot in the last hour. Ask at Normal effort, or try again in N minutes." A
+Normal question is still answered.
+
+### Reading High usage
+
+Settings → AI usage, with a backend that sends them: the Assistant card's
+_High effort_ (On with its model id, or Off), the _High effort turns_ tile
+with its share of all turns, and a _High_ column in Models and People. Before
+0037 every turn counts as Normal. A High model shows as its own row under
+Models; its turns, tokens and average answer time are there.
+
+### When High turns time out or fail
+
+| Symptom                                           | Check                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No Normal / High control                          | Capabilities carry no `efforts`: `AI_HIGH_EFFORT_ENABLED` is not exactly `true`, `AI_GATEWAY_MODEL_HIGH` is malformed, Ask AI is off for the site, or the backend is older than the admin.                                                                                                                                                                                                                                                                                 |
+| High answers end "That took too long" (`timeout`) | The turn hit 180 s. Compare the High model's average answer time under Models; lower `AI_HIGH_EFFORT_REASONING` (for example `high` → `medium`), choose a faster High model or host, or leave `AI_GATEWAY_MODEL_HIGH` unset. Nothing above the route ends a turn sooner: Node keeps no response timeout, and Railway's edge allows 15 minutes while data flows (5 minutes silent); the admin waits 210 s. A turn cut at about 90 s means an admin older than this backend. |
+| High answers end `budget_exceeded`                | The reasoning used the whole output limit (`xhigh`/`max` on a budget-sized provider), or the question needed more than 8 steps or 10 tool calls. Lower `AI_HIGH_EFFORT_REASONING`.                                                                                                                                                                                                                                                                                         |
+| Every High turn fails `provider_unavailable`      | The High model id or its hosts are wrong, or the provider refused the reasoning option: check the id in the Gateway catalogue; unset `AI_HIGH_EFFORT_REASONING` to see whether it is the option.                                                                                                                                                                                                                                                                           |
+| 429 for High only                                 | The High limits above (`ai_high_actor:`, `ai_high_site_day:`); `retry-after` says when.                                                                                                                                                                                                                                                                                                                                                                                    |

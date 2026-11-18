@@ -1619,3 +1619,228 @@ describe('reportableAssistantError', () => {
     expect(reportableAssistantError(database, 'assistant_request_failed')).toBe(database);
   });
 });
+
+describe('effort levels (Normal and High)', () => {
+  const HIGH = { modelId: 'test/thinker', reasoning: 'medium' as const };
+  const capabilitiesUrl = () => `${baseUrl}/api/v1/staff/workspaces/${WORKSPACE}/ai/capabilities`;
+  const post = (payload: unknown) =>
+    fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  const getCapabilities = async () =>
+    (await fetch(capabilitiesUrl(), { headers: { authorization: 'Bearer token' } })).json();
+
+  it('offers no effort levels unless High is configured, and both when it is', async () => {
+    await start(appWith());
+    expect(await getCapabilities()).not.toHaveProperty('efforts');
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await start(appWith({ config: config({ highEffort: HIGH }) }));
+    expect((await getCapabilities()).efforts).toEqual(['normal', 'high']);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    // Not on a site outside the allowlist, where Ask AI itself is unavailable.
+    await start(appWith({ config: config({ highEffort: HIGH, workspaceIds: new Set() }) }));
+    expect(await getCapabilities()).not.toHaveProperty('efforts');
+  });
+
+  it('refuses High where it is not offered, before any limiter or model work', async () => {
+    const seen: RateLimitInput[] = [];
+    const engine = createFakeEngine([{ chunks: ['x'] }]);
+    await start(appWith({ engine, rateLimit: countingLimiter(seen) }));
+    const response = await post(body({ effort: 'high' }));
+    expect(response.status).toBe(400);
+    const error = apiErrorResponseSchema.parse(await response.json()).error;
+    expect(error.code).toBe('invalid_request');
+    expect(error.details).toEqual({ reason: 'effort_unavailable' });
+    expect(seen).toEqual([]);
+    expect(engine.inputs).toEqual([]);
+  });
+
+  it('answers an explicit Normal as a request without effort, wherever High stands', async () => {
+    const engine = createFakeEngine([{ chunks: ['Fine.'] }]);
+    await start(appWith({ engine }));
+    const response = await post(body({ effort: 'normal' }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"type":"done"');
+    expect(engine.inputs[0]).not.toHaveProperty('effort');
+  });
+
+  it('runs Normal exactly as before when High is on: same input, limits, model and stream', async () => {
+    const run = async (highEffort?: typeof HIGH) => {
+      const recorded: AiTurnLog[] = [];
+      const seen: RateLimitInput[] = [];
+      const engine = createFakeEngine([
+        { reasoningSteps: 2, chunks: ['You received ', '1 SIM order.'] },
+      ]);
+      await start(
+        appWith({
+          engine,
+          rateLimit: countingLimiter(seen),
+          config: config(highEffort ? { highEffort } : {}),
+          turnStore: { record: async (turn) => void recorded.push(turn) },
+        }),
+      );
+      const parts = await readParts(await post(body({ requestId: crypto.randomUUID() })));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      const { signal: _signal, executeTool: _execute, tools, ...rest } = engine.inputs[0] ?? {};
+      const { durationMs: _ms, requestId: _id, ...turn } = recorded[0] ?? {};
+      return {
+        parts,
+        input: {
+          ...Object.fromEntries(
+            Object.entries(rest).map(([key, value]) => [
+              key,
+              typeof value === 'function' ? 'function' : value,
+            ]),
+          ),
+          tools: Object.keys(tools ?? {}),
+        },
+        buckets: seen.map(({ bucketKey, ...limit }) => ({
+          bucket: bucketKey.split(':')[0],
+          ...limit,
+        })),
+        turn,
+      };
+    };
+    const before = await run();
+    const after = await run(HIGH);
+    expect(after).toEqual(before);
+    // A Normal turn never reports reasoning, even from a model that reasons.
+    expect(before.parts.filter((part) => part.type === 'progress')).toEqual([
+      { type: 'progress', label: 'Getting ready' },
+    ]);
+    expect(before.turn).toMatchObject({ modelId: 'test/model', effort: 'normal' });
+    expect(before.buckets.map((limit) => limit.bucket)).toEqual([
+      'ai_actor',
+      'ai_site',
+      'ai_site_day',
+      'ai_replay',
+    ]);
+    // The next test starts its own server; afterEach closes this one.
+    await start(appWith());
+  });
+
+  it('runs High on its model, with its own limits on top, showing Thinking and recording the level', async () => {
+    const recorded: AiTurnLog[] = [];
+    const seen: RateLimitInput[] = [];
+    const engine = createFakeEngine([{ reasoningSteps: 2, chunks: ['Because the plan changed.'] }]);
+    await start(
+      appWith({
+        engine,
+        rateLimit: countingLimiter(seen),
+        config: config({ highEffort: HIGH }),
+        turnStore: { record: async (turn) => void recorded.push(turn) },
+      }),
+    );
+    const parts = await readParts(await post(body({ effort: 'high' })));
+    expect(engine.inputs[0]?.effort).toBe('high');
+    expect(parts.filter((part) => part.type === 'progress')).toEqual([
+      { type: 'progress', label: 'Getting ready' },
+      { type: 'progress', label: 'Thinking' },
+      { type: 'progress', label: 'Thinking' },
+    ]);
+    expect(parts.at(-1)?.type).toBe('done');
+    expect(recorded[0]).toMatchObject({ modelId: 'test/thinker', effort: 'high' });
+    expect(
+      seen
+        .filter((limit) => limit.bucketKey.startsWith('ai_high'))
+        .map(({ bucketKey, windowSeconds, maxCount }) => [bucketKey, windowSeconds, maxCount]),
+    ).toEqual([
+      [`ai_high_actor:${ACTOR}:${WORKSPACE}`, 3_600, 20],
+      [`ai_high_site_day:${WORKSPACE}`, 86_400, 100],
+    ]);
+    // The Normal limits still apply to a High turn.
+    expect(seen.map((limit) => limit.bucketKey.split(':')[0])).toEqual([
+      'ai_actor',
+      'ai_site',
+      'ai_site_day',
+      'ai_high_actor',
+      'ai_high_site_day',
+      'ai_replay',
+    ]);
+  });
+
+  it('logs the High model and level, and never the question', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await start(
+      appWith({
+        config: config({ highEffort: HIGH }),
+        turns: [{ reasoningSteps: 1, chunks: ['Answer.'] }],
+      }),
+    );
+    await (await post(body({ effort: 'high' }))).text();
+    const line = info.mock.calls
+      .map((call) => String(call[0]))
+      .find((entry) => entry.includes('"event":"ai_turn"'));
+    info.mockRestore();
+    expect(JSON.parse(line ?? '{}')).toMatchObject({ model: 'test/thinker', effort: 'high' });
+    expect(line).not.toContain(body().message);
+  });
+
+  it('refuses a High request past its own limits with the High reason and a retry-after', async () => {
+    const limiter = countingLimiter();
+    await start(
+      appWith({
+        config: config({ highEffort: HIGH }),
+        rateLimit: async (input) =>
+          input.bucketKey.startsWith('ai_high_actor:')
+            ? { allowed: false, retryAfterSeconds: 1_500 }
+            : limiter(input),
+      }),
+    );
+    const response = await post(body({ effort: 'high' }));
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('1500');
+    const error = apiErrorResponseSchema.parse(await response.json()).error;
+    expect(error.code).toBe('ai_rate_limited');
+    expect(error.details).toEqual({ reason: 'high_effort', retryAfterSeconds: 1_500 });
+    // A Normal question is still answered.
+    const normal = await post(body({ requestId: crypto.randomUUID() }));
+    expect(normal.status).toBe(200);
+    await normal.text();
+  });
+
+  it('keeps the generic refusal when a Normal limit is the one reached', async () => {
+    await start(
+      appWith({
+        config: config({ highEffort: HIGH }),
+        rateLimit: async () => ({ allowed: false, retryAfterSeconds: 30 }),
+      }),
+    );
+    const response = await post(body({ effort: 'high' }));
+    expect(response.status).toBe(429);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.details).toBeUndefined();
+  });
+
+  it('fails closed when the High limiter cannot be reached', async () => {
+    const limiter = countingLimiter();
+    await start(
+      appWith({
+        config: config({ highEffort: HIGH }),
+        rateLimit: async (input) => {
+          if (input.bucketKey.startsWith('ai_high_site_day:')) throw new Error('limiter down');
+          return limiter(input);
+        },
+      }),
+    );
+    const response = await post(body({ effort: 'high' }));
+    expect(response.status).toBe(503);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe('ai_unavailable');
+  });
+
+  it('gives a High turn 180 s and a Normal one 60 s before it times out', async () => {
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      await start(appWith({ config: config({ highEffort: HIGH }) }));
+      await (await post(body())).text();
+      await (await post(body({ requestId: crypto.randomUUID(), effort: 'high' }))).text();
+      const turnTimers = spy.mock.calls
+        .map((call) => call[1])
+        .filter((ms) => ms === 60_000 || ms === 180_000);
+      expect(turnTimers).toEqual([60_000, 180_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

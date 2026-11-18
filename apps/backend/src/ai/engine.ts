@@ -1,4 +1,4 @@
-import { AI_ASSISTANT_LIMITS, type AiStreamErrorCode } from '@gt-sales/contracts';
+import { AI_ASSISTANT_LIMITS, type AiEffort, type AiStreamErrorCode } from '@gt-sales/contracts';
 import {
   APICallError,
   createGateway,
@@ -13,6 +13,8 @@ import {
 
 import { randomBytes } from 'node:crypto';
 
+import type { AiHighEffortConfig } from './config.js';
+import { turnLimits } from './limits.js';
 import { attachedFileBlock, omittedFileNote } from './prompt.js';
 import { assertAssistantToolPolicy } from './tool-policy.js';
 
@@ -30,6 +32,11 @@ export type EngineEvent =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'tool-start'; readonly toolName: string }
   | { readonly type: 'tool-end'; readonly toolName: string; readonly ok: boolean }
+  /**
+   * The model began reasoning in this step: sent once per step, at its first
+   * reasoning part, and never with any of the reasoning's text.
+   */
+  | { readonly type: 'reasoning' }
   | {
       readonly type: 'finish';
       /** Prompt tokens over every step of the turn (the SDK's `totalUsage`); a count only. */
@@ -77,6 +84,8 @@ export interface EngineInput {
   readonly messages: readonly EngineMessage[];
   readonly tools: ToolSet;
   readonly signal: AbortSignal;
+  /** The turn's effort level; absent is `normal`, the assistant as it always was. */
+  readonly effort?: AiEffort;
   /** Injected for the fake engine; the gateway engine lets the SDK execute tools. */
   readonly executeTool?: (name: string, input: unknown) => Promise<string>;
 }
@@ -145,8 +154,44 @@ export function toModelMessages(
  * No fallback model, no fabrication: a provider failure raises and the route
  * turns it into a typed, sanitized stream error.
  */
+/**
+ * The output token limit of one generation. Normal is exactly as it was: the
+ * answer limit, or authoring's larger one. High takes the larger of its own
+ * answer limit and authoring's, and when it asks the model to reason it adds
+ * `maxReasoningTokensHigh`: OpenAI-style reasoning models count reasoning
+ * tokens inside `maxOutputTokens`, and for budget-based providers the SDK
+ * derives the thinking budget as a share of the model's output limit (its
+ * reasoning guide, `docs/03-ai-sdk-core/26-reasoning.mdx`), so without the
+ * allowance the reasoning could leave the answer no room. A turn whose
+ * reasoning still fills the limit ends `length`: the typed `budget_exceeded`.
+ */
+export function outputTokenLimit(input: {
+  effort?: AiEffort;
+  automationAuthoring?: boolean;
+  reasoning?: boolean;
+}): number {
+  if (input.effort !== 'high') {
+    return input.automationAuthoring
+      ? AI_ASSISTANT_LIMITS.maxAuthoringOutputTokens
+      : AI_ASSISTANT_LIMITS.maxOutputTokens;
+  }
+  const answer = input.automationAuthoring
+    ? Math.max(
+        AI_ASSISTANT_LIMITS.maxAuthoringOutputTokens,
+        AI_ASSISTANT_LIMITS.maxOutputTokensHigh,
+      )
+    : AI_ASSISTANT_LIMITS.maxOutputTokensHigh;
+  return answer + (input.reasoning ? AI_ASSISTANT_LIMITS.maxReasoningTokensHigh : 0);
+}
+
 export function createGatewayEngine(
-  options: { apiKey: string; modelId: string; providers?: readonly string[] },
+  options: {
+    apiKey: string;
+    modelId: string;
+    providers?: readonly string[];
+    /** High effort's model and reasoning; absent, a High turn is served like a Normal one's model. */
+    highEffort?: AiHighEffortConfig;
+  },
   modelForTest?: LanguageModel,
 ): AssistantEngine {
   return {
@@ -154,16 +199,31 @@ export function createGatewayEngine(
     async *stream(input) {
       assertAssistantToolPolicy(input.tools);
       const gateway = createGateway({ apiKey: options.apiKey });
+      const high = input.effort === 'high';
+      const limits = turnLimits(input.effort);
+      // Sent on a High turn only, and only when configured: the SDK's portable
+      // `reasoning` call option (ai@7.0.159, `LanguageModelCallOptions`):
+      //   reasoning?: LanguageModelV4CallOptions['reasoning'];
+      //   // 'provider-default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+      // The Gateway provider forwards every call option in its request body
+      // (`@ai-sdk/gateway` 4.0.132 `GatewayLanguageModel.getArgs`), and the
+      // provider maps it; a model that cannot reason warns and ignores it.
+      const reasoning = high ? options.highEffort?.reasoning : undefined;
       const result = streamText({
-        model: modelForTest ?? gateway(options.modelId),
+        model:
+          modelForTest ??
+          gateway(high && options.highEffort ? options.highEffort.modelId : options.modelId),
         system: input.system,
         messages: toModelMessages(input.messages),
         tools: input.tools,
-        // Five generations at most, the answer step included.
-        stopWhen: stepCountIs(AI_ASSISTANT_LIMITS.maxModelSteps),
-        maxOutputTokens: input.automationAuthoring
-          ? AI_ASSISTANT_LIMITS.maxAuthoringOutputTokens
-          : AI_ASSISTANT_LIMITS.maxOutputTokens,
+        // Five generations at most (eight at High), the answer step included.
+        stopWhen: stepCountIs(limits.modelSteps),
+        maxOutputTokens: outputTokenLimit({
+          effort: input.effort,
+          automationAuthoring: input.automationAuthoring,
+          reasoning: reasoning !== undefined,
+        }),
+        ...(reasoning === undefined ? {} : { reasoning }),
         // One automatic retry is allowed before any text has been shown; the
         // route never retries a partially streamed answer.
         maxRetries: 1,
@@ -181,9 +241,24 @@ export function createGatewayEngine(
         onError: () => {},
       });
 
+      // Whether this step's reasoning was already announced: once per step.
+      let reasoningAnnounced = false;
       try {
         for await (const part of result.fullStream) {
           switch (part.type) {
+            case 'start-step':
+              reasoningAnnounced = false;
+              break;
+            case 'reasoning-start':
+            case 'reasoning-delta':
+            case 'reasoning-end':
+            case 'reasoning-file':
+              // Only that it happened; the reasoning's text is never forwarded.
+              if (!reasoningAnnounced) {
+                reasoningAnnounced = true;
+                yield { type: 'reasoning' };
+              }
+              break;
             case 'text-delta':
               if (part.text.length > 0) yield { type: 'text', text: part.text };
               break;
@@ -231,7 +306,7 @@ export function createGatewayEngine(
               break;
             }
             default:
-              // Reasoning, sources and raw provider parts are never forwarded.
+              // Sources and raw provider parts are never forwarded.
               break;
           }
         }
@@ -251,6 +326,13 @@ export interface FakeTurn {
   /** How long to wait before the first chunk, to exercise cancellation. */
   readonly hangMs?: number;
   readonly usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
+  /**
+   * Reasoning steps before the answer: each yields one `reasoning` event, as
+   * the gateway engine does at a step's first reasoning part (for the
+   * "Thinking" progress of a High turn), waiting `reasoningMs` each.
+   */
+  readonly reasoningSteps?: number;
+  readonly reasoningMs?: number;
 }
 
 /** The fake engine, with every input it was given, in order, for tests to assert on. */
@@ -291,6 +373,14 @@ export function createFakeEngine(turns: readonly FakeTurn[]): FakeAssistantEngin
       }
 
       if (turn.failWith !== undefined) throw new AssistantProviderError(turn.failWith);
+
+      for (let step = 0; step < (turn.reasoningSteps ?? 0); step += 1) {
+        if (input.signal.aborted) throw new AssistantProviderError('cancelled');
+        yield { type: 'reasoning' };
+        if (turn.reasoningMs !== undefined) {
+          await new Promise<void>((resolve) => setTimeout(resolve, turn.reasoningMs));
+        }
+      }
 
       for (const call of turn.toolCalls ?? []) {
         yield { type: 'tool-start', toolName: call.name };

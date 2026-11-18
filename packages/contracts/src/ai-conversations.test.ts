@@ -467,6 +467,143 @@ describe('usage', () => {
   });
 });
 
+describe('usage of High effort', () => {
+  const NOW_ = '2026-11-18T15:00:00.000Z';
+  const member = {
+    actorId: ID,
+    displayName: 'Sam',
+    turns: 3,
+    inputTokens: 1200,
+    outputTokens: 300,
+    lastUsedAt: NOW_,
+  };
+  const model = {
+    model: 'moonshotai/kimi-k2',
+    engine: 'gateway',
+    turns: 3,
+    completedTurns: 2,
+    failedTurns: 1,
+    inputTokens: 1200,
+    outputTokens: 300,
+    averageDurationMs: 1834,
+    lastUsedAt: NOW_,
+  };
+  const older = {
+    period: 30,
+    totals: { turns: 3, inputTokens: 1200, outputTokens: 300 },
+    members: [member],
+    assistant: {
+      enabled: true,
+      configuredModel: 'moonshotai/kimi-k2',
+      providers: [],
+      conversations: true,
+      attachmentKinds: [],
+    },
+    models: [model],
+    requestId: REQUEST_ID,
+  };
+  const current = {
+    ...older,
+    totals: { ...older.totals, highEffortTurns: 1 },
+    members: [{ ...member, highEffortTurns: 1 }],
+    models: [{ ...model, highEffortTurns: 1 }],
+    assistant: { ...older.assistant, highEffort: { enabled: true, model: 'openai/gpt-6' } },
+  };
+
+  it('carries High turns in the totals, per member and per model, and the High setting', () => {
+    expect(aiUsageResponseSchema.parse(current)).toEqual(current);
+    expect(
+      aiUsageResponseSchema.parse({
+        ...current,
+        assistant: { ...current.assistant, highEffort: { enabled: false, model: null } },
+      }).assistant?.highEffort,
+    ).toEqual({ enabled: false, model: null });
+    for (const bad of [
+      { ...current, totals: { ...current.totals, highEffortTurns: -1 } },
+      { ...current, members: [{ ...member, highEffortTurns: 0.5 }] },
+      { ...current, models: [{ ...model, highEffortTurns: -2 }] },
+      { ...current, assistant: { ...current.assistant, highEffort: { enabled: 'yes' } } },
+      { ...current, assistant: { ...current.assistant, highEffort: { enabled: true, model: '' } } },
+    ]) {
+      expect(aiUsageResponseSchema.safeParse(bad).success, JSON.stringify(bad).slice(0, 160)).toBe(
+        false,
+      );
+    }
+  });
+
+  it('this admin reads an older backend’s answer without any High field', () => {
+    const parsed = aiUsageResponseSchema.parse(older);
+    expect(parsed).toEqual(older);
+    expect(parsed.totals).not.toHaveProperty('highEffortTurns');
+    expect(parsed.members[0]).not.toHaveProperty('highEffortTurns');
+    expect(parsed.models?.[0]).not.toHaveProperty('highEffortTurns');
+    expect(parsed.assistant).not.toHaveProperty('highEffort');
+  });
+
+  it('an older admin’s schema reads this backend’s answer, the High fields stripped', () => {
+    const olderSchema = z.object({
+      period: z.literal([7, 30, 90]),
+      totals: z.object({ turns: z.int(), inputTokens: z.int(), outputTokens: z.int() }),
+      members: z.array(
+        z.object({
+          actorId: z.uuid(),
+          displayName: z.string().nullable(),
+          turns: z.int(),
+          inputTokens: z.int(),
+          outputTokens: z.int(),
+          lastUsedAt: z.string(),
+        }),
+      ),
+      assistant: z
+        .object({
+          enabled: z.boolean(),
+          configuredModel: z.string().nullable(),
+          providers: z.array(z.string()),
+          conversations: z.boolean(),
+          attachmentKinds: z.array(z.string()),
+        })
+        .optional(),
+      models: z
+        .array(
+          z.object({
+            model: z.string().nullable(),
+            engine: z.string(),
+            turns: z.int(),
+            completedTurns: z.int(),
+            failedTurns: z.int(),
+            inputTokens: z.int(),
+            outputTokens: z.int(),
+            averageDurationMs: z.int().nullable(),
+            lastUsedAt: z.string(),
+          }),
+        )
+        .optional(),
+      requestId: z.string(),
+    });
+    expect(olderSchema.parse(current)).toEqual(older);
+  });
+});
+
+describe('a stored message’s effort level', () => {
+  const stored = {
+    id: ID,
+    role: 'assistant',
+    text: 'Done.',
+    outcome: 'completed',
+    sources: [],
+    expiredDrafts: 0,
+    createdAt: '2026-11-18T15:00:00.000Z',
+    attachments: [],
+  };
+
+  it('is optional: a row written before effort levels has none', () => {
+    expect(aiStoredMessageSchema.parse(stored)).not.toHaveProperty('effort');
+    expect(aiStoredMessageSchema.parse({ ...stored, effort: 'high' }).effort).toBe('high');
+    expect(aiStoredMessageSchema.parse({ ...stored, effort: 'normal' }).effort).toBe('normal');
+    expect(aiStoredMessageSchema.safeParse({ ...stored, effort: 'max' }).success).toBe(false);
+  });
+});
+
 describe('registry and error codes', () => {
   it('registers every saved-chat endpoint under the staff AI path', () => {
     const base = '/api/v1/staff/workspaces/{workspaceId}/ai';

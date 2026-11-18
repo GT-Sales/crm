@@ -12,6 +12,7 @@ import {
   aiAttachmentKindSchema,
   aiAttachmentMediaTypeSchema,
   aiConversationSchema,
+  aiEffortSchema,
   aiFollowUpSchema,
   aiSourceSchema,
   aiStoredMessageSchema,
@@ -20,6 +21,7 @@ import {
   type AiAttachmentMediaType,
   type AiAttachmentSummary,
   type AiConversation,
+  type AiEffort,
   type AiFollowUp,
   type AiMessageOutcome,
   type AiSource,
@@ -71,6 +73,12 @@ export interface BeginAiTurnInput {
   readonly requestId: string;
   readonly text: string;
   readonly attachmentIds: readonly string[];
+  /**
+   * The turn's effort level, stored on the member's message. Passed only once
+   * 0037 holds the column (the route asks the schema probe); absent writes
+   * the row exactly as before.
+   */
+  readonly effort?: AiEffort;
 }
 
 export type BeginAiTurnOutcome =
@@ -101,6 +109,8 @@ export interface AppendAiAnswerInput {
   readonly sources: readonly AiSource[];
   readonly followUp?: AiFollowUp;
   readonly expiredDrafts: number;
+  /** As on `BeginAiTurnInput`: stored on the answer, only once 0037 holds the column. */
+  readonly effort?: AiEffort;
 }
 
 export interface ListAiConversationsInput {
@@ -377,7 +387,9 @@ export class DatabaseAiConversationStore implements AiConversationStore {
       const messages = await tx.execute<Record<string, unknown>>(sql`
         select m.id, m.role, m.text, m.outcome, m.error_code as "errorCode", m.sources,
           m.follow_up as "followUp", m.expired_drafts as "expiredDrafts",
-          ${iso(sql`m.created_at`)} as "createdAt"
+          ${iso(sql`m.created_at`)} as "createdAt",
+          -- 0037's column, read through the row so the query also runs before it exists.
+          to_jsonb(m)->>'effort' as effort
         from app.ai_messages m
         where m.workspace_id = ${scope.workspaceId} and m.actor_id = ${scope.actorId}
           and m.conversation_id = ${conversationId}
@@ -395,6 +407,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
         messages: messages.map((row) => {
           const followUp = storedFollowUp(row['followUp']);
           const errorCode = typeof row['errorCode'] === 'string' ? row['errorCode'] : undefined;
+          const effort = aiEffortSchema.safeParse(row['effort']);
           return aiStoredMessageSchema.parse({
             id: row['id'],
             role: row['role'],
@@ -406,6 +419,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
             expiredDrafts: Number(row['expiredDrafts']),
             createdAt: isoText(row['createdAt']),
             attachments: (files.get(String(row['id'])) ?? []).map(summaryOf),
+            ...(effort.success ? { effort: effort.data } : {}),
           });
         }),
       };
@@ -528,9 +542,13 @@ export class DatabaseAiConversationStore implements AiConversationStore {
 
         const [message] = await tx.execute<{ id: string }>(sql`
           insert into app.ai_messages
-            (workspace_id, conversation_id, actor_id, role, text, outcome, request_id)
+            (workspace_id, conversation_id, actor_id, role, text, outcome, request_id${
+              input.effort === undefined ? sql`` : sql`, effort`
+            })
           values (${scope.workspaceId}, ${input.conversationId}, ${scope.actorId}, 'user',
-            ${storedText(input.text)}, 'completed', ${input.requestId})
+            ${storedText(input.text)}, 'completed', ${input.requestId}${
+              input.effort === undefined ? sql`` : sql`, ${input.effort}`
+            })
           on conflict (workspace_id, conversation_id, request_id, role)
             where request_id is not null do nothing
           returning id
@@ -648,14 +666,18 @@ export class DatabaseAiConversationStore implements AiConversationStore {
       await tx.execute(sql`
         insert into app.ai_messages
           (id, workspace_id, conversation_id, actor_id, role, text, outcome, error_code,
-           sources, follow_up, expired_drafts, request_id)
+           sources, follow_up, expired_drafts, request_id${
+             input.effort === undefined ? sql`` : sql`, effort`
+           })
         values (${input.messageId}, ${scope.workspaceId}, ${input.conversationId},
           ${scope.actorId}, 'assistant',
           ${storedText(input.text)},
           ${input.outcome}, ${input.errorCode ?? null},
           ${storedJson(input.sources)}::jsonb,
           ${input.followUp === undefined ? null : storedJson(input.followUp)}::jsonb,
-          ${Math.min(100, Math.max(0, input.expiredDrafts))}, ${input.requestId})
+          ${Math.min(100, Math.max(0, input.expiredDrafts))}, ${input.requestId}${
+            input.effort === undefined ? sql`` : sql`, ${input.effort}`
+          })
         on conflict (workspace_id, conversation_id, request_id, role)
           where request_id is not null do nothing
       `);

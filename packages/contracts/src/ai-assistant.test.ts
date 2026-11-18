@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import {
   AI_ASSISTANT_LIMITS,
   AI_CHAT_LIMITS,
+  AI_EFFORTS,
+  aiEffortSchema,
   aiAttachmentKindOf,
   aiAttachmentMaxBytes,
   aiAttachmentMediaTypeSchema,
@@ -399,5 +402,79 @@ describe('AI_CHAT_LIMITS and the attachment kinds', () => {
     expect(aiAttachmentMaxBytes('pdf')).toBe(AI_CHAT_LIMITS.maxPdfBytes);
     expect(aiAttachmentMaxBytes('text')).toBe(AI_CHAT_LIMITS.maxTextFileBytes);
     expect(aiAttachmentMediaTypeSchema.safeParse('image/gif').success).toBe(false);
+  });
+});
+
+describe('effort levels: additive and optional', () => {
+  it('names two levels, normal and high', () => {
+    expect(AI_EFFORTS).toEqual(['normal', 'high']);
+    expect(aiEffortSchema.options).toEqual(['normal', 'high']);
+    expect(aiEffortSchema.safeParse('thinking').success).toBe(false);
+  });
+
+  it('takes effort on the request; absent is a request exactly as before', () => {
+    expect(aiChatRequestSchema.parse(chat({ effort: 'high' })).effort).toBe('high');
+    expect(aiChatRequestSchema.parse(chat({ effort: 'normal' })).effort).toBe('normal');
+    const plain = aiChatRequestSchema.parse(chat());
+    expect(plain).not.toHaveProperty('effort');
+    expect(Object.keys(plain).sort()).toEqual(['history', 'message', 'requestId']);
+    for (const effort of ['max', 'HIGH', '', 1, null]) {
+      expect(aiChatRequestSchema.safeParse(chat({ effort })).success, String(effort)).toBe(false);
+    }
+    // With a stored conversation too.
+    expect(
+      aiChatRequestSchema.parse(
+        chat({ conversationId: '60000000-0000-4000-8000-0000000000a1', effort: 'high' }),
+      ).effort,
+    ).toBe('high');
+  });
+
+  it('an older backend’s strict request refuses the key, so a new admin sends it only when offered', () => {
+    // The request as an older backend parses it: the same strict object, without `effort`.
+    const { effort: _effort, ...shape } = aiChatRequestSchema.shape;
+    const older = z.object(shape).strict();
+    expect(older.safeParse(chat()).success).toBe(true);
+    expect(older.safeParse(chat({ effort: 'high' })).success).toBe(false);
+  });
+
+  it('capabilities may list the offered levels; absent is an older backend', () => {
+    const base = {
+      available: true,
+      site: { id: LEAD_ID, slug: 'getcanadasim', name: 'Get Canada Sim' },
+      leadTypes: ['sim_order'],
+      limits: { maxMessageChars: 4000, maxHistoryMessages: 12, maxConversationChars: 16000 },
+      requestId: REQUEST_ID,
+    };
+    expect(aiCapabilitiesResponseSchema.parse(base)).not.toHaveProperty('efforts');
+    expect(
+      aiCapabilitiesResponseSchema.parse({ ...base, efforts: ['normal', 'high'] }).efforts,
+    ).toEqual(['normal', 'high']);
+    expect(
+      aiCapabilitiesResponseSchema.safeParse({ ...base, efforts: ['normal', 'high', 'high'] })
+        .success,
+    ).toBe(false);
+    expect(aiCapabilitiesResponseSchema.safeParse({ ...base, efforts: ['max'] }).success).toBe(
+      false,
+    );
+  });
+
+  it('holds the High budgets as their own limits beside the unchanged Normal ones', () => {
+    expect(AI_ASSISTANT_LIMITS).toMatchObject({
+      maxModelSteps: 5,
+      maxToolCalls: 6,
+      maxOutputTokens: 1_200,
+      requestTimeoutMs: 60_000,
+      maxLeadSummaries: 3,
+      maxModelStepsHigh: 8,
+      maxToolCallsHigh: 10,
+      maxOutputTokensHigh: 4_000,
+      requestTimeoutMsHigh: 180_000,
+      maxLeadSummariesHigh: 5,
+      highPerActorPerHour: 20,
+      highPerSitePerDay: 100,
+      maxRecordsPerTurn: 50,
+      maxToolResultBytes: 6 * 1024,
+      maxToolDataBytes: 24 * 1024,
+    });
   });
 });

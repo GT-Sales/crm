@@ -35,6 +35,7 @@ import {
   confirmAiActionResponseSchema,
   type ConfirmAiActionRequest,
   type ConfirmAiActionResponse,
+  AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
@@ -430,6 +431,12 @@ export interface BackendClientOptions {
    * Defaults to 90s: the backend's own 60s budget plus room for the transport.
    */
   readonly chatTimeoutMs?: number;
+  /**
+   * The same for a question asked at High effort (`effort: 'high'`). Defaults
+   * to the backend's High budget (`requestTimeoutMsHigh`, 180s) plus the same
+   * 30s of room.
+   */
+  readonly chatHighTimeoutMs?: number;
   /**
    * Timeout for a leads export, in milliseconds. Defaults to 60s: the backend
    * gives the export's own statements 30s, and the file still has to travel.
@@ -913,6 +920,8 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
   const doFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 10_000;
   const chatTimeoutMs = options.chatTimeoutMs ?? 90_000;
+  const chatHighTimeoutMs =
+    options.chatHighTimeoutMs ?? AI_ASSISTANT_LIMITS.requestTimeoutMsHigh + 30_000;
   const exportTimeoutMs = options.exportTimeoutMs ?? 60_000;
 
   async function call<TResponse>(config: CallConfig<TResponse>): Promise<TResponse> {
@@ -1013,7 +1022,9 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
     const url = new URL(path, origin);
     assertApiPath(url, origin);
     const requestId = globalThis.crypto.randomUUID();
-    const signals: AbortSignal[] = [timeoutSignal(chatTimeoutMs)];
+    const signals: AbortSignal[] = [
+      timeoutSignal(body.effort === 'high' ? chatHighTimeoutMs : chatTimeoutMs),
+    ];
     if (streamOptions?.signal) signals.push(streamOptions.signal);
 
     const response = await doFetch(url, {

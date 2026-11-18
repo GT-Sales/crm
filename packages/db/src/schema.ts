@@ -2526,6 +2526,9 @@ export const aiTurns = appSchema
       records: integer('records').default(0).notNull(),
       dataBytes: integer('data_bytes').default(0).notNull(),
       recoveredDraft: boolean('recovered_draft').default(false).notNull(),
+      // The effort level the turn was asked at (`AI_EFFORTS`): `normal`, or
+      // `high` for a harder question. Rows from before 0037 read `normal`.
+      effort: text('effort').default('normal').notNull(),
       createdAt: createdAt(),
     },
     (table) => [
@@ -2542,6 +2545,7 @@ export const aiTurns = appSchema
         'ai_turns_text_check',
         sql`length(${table.engine}) <= 20 and length(coalesce(${table.model}, '')) <= 200 and length(coalesce(${table.failureCode}, '')) <= 60`,
       ),
+      check('ai_turns_effort_check', sql`${table.effort} in ('normal', 'high')`),
       tenantPolicy('ai_turns_tenant_policy', table.workspaceId),
       backupReadPolicy('ai_turns'),
     ],
@@ -2633,6 +2637,9 @@ export const aiMessages = appSchema
       followUp: jsonb('follow_up'),
       expiredDrafts: integer('expired_drafts').default(0).notNull(),
       requestId: uuid('request_id'),
+      // The effort level of the turn, on both of its rows; null for rows
+      // written before 0037.
+      effort: text('effort'),
       // The clock, not the transaction's start: a turn's question and answer
       // are ordered by this time.
       createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
@@ -2670,6 +2677,10 @@ export const aiMessages = appSchema
         sql`${table.followUp} is null or (jsonb_typeof(${table.followUp}) = 'object' and octet_length(${table.followUp}::text) <= 16384)`,
       ),
       check('ai_messages_expired_drafts_check', sql`${table.expiredDrafts} between 0 and 100`),
+      check(
+        'ai_messages_effort_check',
+        sql`${table.effort} is null or ${table.effort} in ('normal', 'high')`,
+      ),
       // A retried turn (same request id) stores its question and its answer once each.
       uniqueIndex('ai_messages_request_unique')
         .on(table.workspaceId, table.conversationId, table.requestId, table.role)

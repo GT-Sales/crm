@@ -66,12 +66,12 @@ and grants; `0036_ai_attachment_sweep` adds the sweep function. Schema:
 `aiConversations`, `aiMessages`, `aiAttachments` and `aiTurns.inputTokens` in
 `packages/db/src/schema.ts`.
 
-| Table              | Holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Never holds                                                                         | `app_runtime`                                                                                                    |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `ai_conversations` | `id` (chosen by the browser), `workspace_id` (cascade from the site), `actor_id`, `title` (1–120 characters, one line, no control characters), `created_at`, `updated_at`, `last_message_at`. Unique `(workspace_id, actor_id, id)`; index `(workspace_id, actor_id, last_message_at desc, id desc)` for the list.                                                                                                                                                                                                                                                                              | Message text                                                                        | SELECT, INSERT, UPDATE, DELETE                                                                                   |
-| `ai_messages`      | `role` (`user`, `assistant`), `text` (at most 20,000 characters; may be empty for an answer), `outcome` (a question is always `completed`; an answer `completed`, `failed`, `cancelled` or `access_lost`), `error_code` (an answer's code, `^[a-z][a-z0-9_]{0,59}$`), `sources` (the answer's source cards as sent, a JSON array of at most 128 KiB), `follow_up` (at most 16 KiB), `expired_drafts` (0–100: how many cards and automation proposals the answer carried), `request_id`, `created_at` (`clock_timestamp()`). Partial unique `(workspace_id, conversation_id, request_id, role)`. | Action cards, automation proposals or their signed tokens; tool results; file bytes | SELECT, INSERT (no UPDATE, no DELETE: a message is written once and goes only with its conversation, by cascade) |
-| `ai_attachments`   | `kind` and `media_type` (checked together), `file_name` (sanitized, 1–200 characters, no control characters, `/` or `\`), `byte_size` (within its kind's limit), `sha256` (null while `pending`, required once `ready`), `bucket`, `object_key` (server-generated), `status`, `extracted_text` (a ready text file's decoded text, at most 20,000 characters), `conversation_id` and `message_id` (null together until the message that carries it is stored; only a ready file can be linked), `created_at`. Cascades from its conversation and from its message.                               | An image's or PDF's bytes; a lead id; a row in `app.files`                          | SELECT, INSERT, UPDATE, DELETE                                                                                   |
-| `ai_turns`         | One row of counts per turn, as before, plus `input_tokens integer not null default 0`, inside `ai_turns_counts_check`. Pruned after 90 days by `prune_operational_rows`.                                                                                                                                                                                                                                                                                                                                                                                                                        | Text of any kind                                                                    | SELECT, INSERT (unchanged)                                                                                       |
+| Table              | Holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Never holds                                                                         | `app_runtime`                                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `ai_conversations` | `id` (chosen by the browser), `workspace_id` (cascade from the site), `actor_id`, `title` (1–120 characters, one line, no control characters), `created_at`, `updated_at`, `last_message_at`. Unique `(workspace_id, actor_id, id)`; index `(workspace_id, actor_id, last_message_at desc, id desc)` for the list.                                                                                                                                                                                                                                                                                                                                                                                  | Message text                                                                        | SELECT, INSERT, UPDATE, DELETE                                                                                   |
+| `ai_messages`      | `role` (`user`, `assistant`), `text` (at most 20,000 characters; may be empty for an answer), `outcome` (a question is always `completed`; an answer `completed`, `failed`, `cancelled` or `access_lost`), `error_code` (an answer's code, `^[a-z][a-z0-9_]{0,59}$`), `sources` (the answer's source cards as sent, a JSON array of at most 128 KiB), `follow_up` (at most 16 KiB), `expired_drafts` (0–100: how many cards and automation proposals the answer carried), `request_id`, `created_at` (`clock_timestamp()`), and (0037) `effort` (`normal` or `high` on both rows of a turn; null for rows written before 0037). Partial unique `(workspace_id, conversation_id, request_id, role)`. | Action cards, automation proposals or their signed tokens; tool results; file bytes | SELECT, INSERT (no UPDATE, no DELETE: a message is written once and goes only with its conversation, by cascade) |
+| `ai_attachments`   | `kind` and `media_type` (checked together), `file_name` (sanitized, 1–200 characters, no control characters, `/` or `\`), `byte_size` (within its kind's limit), `sha256` (null while `pending`, required once `ready`), `bucket`, `object_key` (server-generated), `status`, `extracted_text` (a ready text file's decoded text, at most 20,000 characters), `conversation_id` and `message_id` (null together until the message that carries it is stored; only a ready file can be linked), `created_at`. Cascades from its conversation and from its message.                                                                                                                                   | An image's or PDF's bytes; a lead id; a row in `app.files`                          | SELECT, INSERT, UPDATE, DELETE                                                                                   |
+| `ai_turns`         | One row of counts per turn, as before, plus `input_tokens integer not null default 0`, inside `ai_turns_counts_check`, and (0037) `effort text not null default 'normal'`, `normal` or `high`, beside the `model` that served the turn. Pruned after 90 days by `prune_operational_rows`.                                                                                                                                                                                                                                                                                                                                                                                                           | Text of any kind                                                                    | SELECT, INSERT (unchanged)                                                                                       |
 
 All three tables have FORCE RLS, the owner policy for `app_runtime` and a
 `<table>_backup_reader_read` policy, so the nightly database backup includes
@@ -246,25 +246,44 @@ attachments/:attachmentId/finalize`, `DELETE attachments/:attachmentId`,
 - **Errors**: `conversation_not_found` (404), `conversation_full` (409),
   `attachment_rejected` (400, `details.reason`), `attachments_unavailable`
   (503), and `file_not_found` (404) for a file.
+- **Effort levels** (docs/design/ai-assistant.md §8): the request's optional
+  `effort` (`normal` or `high`; absent is `normal`), capabilities' optional
+  `efforts` (the levels the site offers at that moment), a stored message's optional
+  `effort`, and in the usage answer `totals.highEffortTurns`, each member's and
+  model's `highEffortTurns` and `assistant.highEffort` (`enabled`, `model`).
+  The request stays strict, so the admin sends `effort` only as `high` and only
+  when capabilities list it: a Normal request is byte for byte what it was, and
+  an older backend never receives the key. `high` where it is not offered is
+  `400 invalid_request` with `details.reason: 'effort_unavailable'`; High's own
+  rate limit is `429 ai_rate_limited` with `details.reason: 'high_effort'`.
 
 | Admin \ backend | Older backend                                                                                                   | This backend                                                                                                                                                             |
 | --------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Older admin     | —                                                                                                               | Sends no `conversationId`: the turn is the memory-only one, byte for byte, and nothing is stored. It ignores the two capability fields and never receives the new parts. |
 | This admin      | Capabilities carry no `conversations`: the memory-only panel, no full page, no menu entry, no `conversationId`. | The saved chat, once the database is ready.                                                                                                                              |
 
+Effort levels follow the same rule: an older admin never sends `effort` and
+strips `efforts`, the stored `effort` and the usage page's High fields, so its
+turns are Normal; this admin against an older backend gets no `efforts`, shows
+no effort control and sends no `effort`; against this backend it offers High
+when `efforts` lists it, and reads the High fields only when they are sent.
+
 **The database's readiness** (`ai/chat-schema.ts`). Migrations are applied by
 hand after the deploy, so the backend asks the catalogue, never the journal:
 `conversations` needs the three tables and every grant of 0035, each privilege
 asked on its own; `inputTokens` the 0034 column; `attachmentSweep` the 0036
-function and its grant. Until `conversations` holds, capabilities claim
+function and its grant; `effort` the two 0037 columns. Until `conversations` holds, capabilities claim
 neither `conversations` nor `attachments`, the conversation routes answer
 `503 ai_unavailable`, the attachment routes `503 attachments_unavailable`, and
 a chat naming a conversation `503 ai_unavailable`. Without `inputTokens` a
-turn's `ai_turns` row is written without the column. A state with all three is
+turn's `ai_turns` row is written without the column; without `effort` a turn's
+rows are written without their `effort` columns (High turns still run, and a
+stored message is read through `to_jsonb`, so its level is simply absent). A
+state with all four is
 cached for the life of the process; any other is asked again after 5 minutes,
 so the saved chat switches itself on within 5 minutes of 0034 and 0035 being
-applied, with no redeploy. The usage page needs none of this beyond the
-deploy: before 0034 every turn counts 0 input tokens.
+applied, with no redeploy, and the levels are recorded within 5 minutes of 0037. The usage page needs none of this beyond the deploy: before 0034 every
+turn counts 0 input tokens, and before 0037 none counts as High.
 
 **The usage answer** (`ai/usage-store.ts`, one tenant transaction). The
 period is the last 7, 30 or 90 calendar days in `America/Toronto`, today
@@ -276,14 +295,16 @@ name only while an active member); one `group by grouping sets ((), (engine,
 model))` for `totals` (turns, completed, failed, cancelled, tokens, tool
 calls, the mean duration of completed turns) and `models` (at most 50, most
 turns first; `model` null when the turn recorded none, engine `fake` on a
-test deployment); a `generate_series` over the Toronto days left-joined to
+test deployment; a High model is its own row), each with its High turns; a `generate_series` over the Toronto days left-joined to
 the day's counts for `daily` (every day present, empty days as zeros); and
 the failed turns grouped by `failure_code` for `failures` (at most 20, most
 frequent first, `unknown` for a turn that recorded none). `assistant` comes
 from the sources `ai/capabilities` reads: `config.enabled` and the site
 allowlist (`enabled`), `config.modelId` (`configuredModel`; null when unset,
 and while the switch is off the model is not read), `config.providers`, and
-`aiChatAvailability` (the schema probe; the attachment service's kinds). Every
+`aiChatAvailability` (the schema probe; the attachment service's kinds) and
+`highEffort` (`config.highEffort` and the site allowlist; the model that serves
+High). Every
 field beyond `period`, `totals`' three counts, `members` and `requestId` is
 optional in the contract, so an older admin strips them and this admin shows
 an older backend's answer as the page it was.
@@ -317,6 +338,22 @@ never a title, a message, a file name or a byte.
 | `assistant-provider.tsx`, `assistant-shared.ts`, `chat-nav.ts`, `chat-links.ts`          | One state owner for panel and page. The sidebar and Ctrl/Cmd K list "Ask AI" (after Mail) only when Ask AI is available and the backend stores conversations.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `app/w/[workspace]/settings/ai-usage/`, `components/ai-usage/ai-usage-screen.tsx`        | Settings → AI usage, listed for the owner only (`settings-navigation.tsx`), over 7, 30 or 90 Toronto days: the Assistant card (on or off for the site, the model id, allowed hosts, saved conversations, upload kinds; `assistant`), the totals tiles (`totals`; failure rate, average answer time), Turns per day and Tokens per day (`daily`, labelled from the day strings, never through the viewer's zone; `usage-daily.tsx`), Models (`models`, the configured one marked Current, `fake` as "Test engine"), Why turns failed (`failures`, each code in plain words in `failure-reasons.ts`, an unknown one as "Another reason" with the code beside it) and People (`members`, most tokens first). A section whose field the backend did not send is left out. It says conversations are private and only usage is shown. |
 | `apps/admin/src/lib/csp.ts`                                                              | `connect-src` includes the project's Storage origin (`<ref>.storage.supabase.co`, from `NEXT_PUBLIC_SUPABASE_URL`) for the upload PUT.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+The effort control (`effort-control.tsx`) sits beside Send in both composers
+when capabilities offer High: a two-option radio group, Normal and High, in
+the usage page's segmented style; choosing High shows "High effort. Takes
+longer. For harder questions." The choice is the provider's, for the tab, and
+never changes by itself; `buildAiChatRequest` adds `effort: 'high'` only when
+it is High and offered, and Retry asks a question again at its own level. A
+High answer's progress line reads _Thinking…_ from the server's progress part,
+and the answer carries a _High effort_ tag beside Copy and Retry, also from the
+stored `effort` after a reload. High's own rate limit reads "You have used
+High effort a lot in the last hour. Ask at Normal effort, or try again in N
+minutes."; a site that stopped offering High says so, its capabilities are
+fetched again (the control goes), and the question is asked again, at Normal,
+only on Retry. Settings → AI usage shows _High effort_ (On with its model, or
+Off) on the Assistant card, a _High effort turns_ tile and a _High_ column in
+Models and People when the backend sends them.
 
 Nothing is written to `localStorage`, `sessionStorage` or IndexedDB; the
 server is the store.

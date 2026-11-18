@@ -5,13 +5,15 @@ import { withTenantTx, type DatabaseClient, type TenantContext } from '@gt-sales
  * Whether the database already holds what Ask AI's saved chat needs.
  *
  * Migrations are applied by hand, after the deploy (docs/RUNBOOKS/database.md),
- * so this backend may run against a database without 0034–0036 for a while.
+ * so this backend may run against a database without 0034–0037 for a while.
  * Until then the assistant works exactly as before (memory-only, the browser
  * holds the conversation), capabilities never claim `conversations`, the
  * conversation and attachment routes answer 503, and a turn's usage row is
- * written without the `input_tokens` column. Like the erasure function's
- * check in `retention/abandoned-leads.ts`, this asks the catalogue, never the
- * migration journal (which the runtime role cannot read).
+ * written without the `input_tokens` column. Before 0037 the rows of a turn
+ * are written without their `effort` columns: High turns still run, and the
+ * usage page counts no High turns. Like the erasure function's check in
+ * `retention/abandoned-leads.ts`, this asks the catalogue, never the migration
+ * journal (which the runtime role cannot read).
  *
  * The answer is cached: a ready schema stays ready (migrations are never
  * rolled back), a missing one is asked again after `recheckMs`.
@@ -23,6 +25,8 @@ export interface AiChatSchemaState {
   readonly inputTokens: boolean;
   /** 0036: the unsent-attachment sweep function exists and the runtime role may run it. */
   readonly attachmentSweep: boolean;
+  /** 0037: `app.ai_turns.effort` exists (and with it `app.ai_messages.effort`). */
+  readonly effort: boolean;
 }
 
 export interface AiChatSchemaProbe {
@@ -45,7 +49,7 @@ const REQUIRED_GRANTS: readonly (readonly [string, string])[] = [
 ];
 
 function ready(state: AiChatSchemaState): boolean {
-  return state.conversations && state.inputTokens && state.attachmentSweep;
+  return state.conversations && state.inputTokens && state.attachmentSweep && state.effort;
 }
 
 export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
@@ -89,6 +93,7 @@ export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
         conversations: boolean;
         inputTokens: boolean;
         attachmentSweep: boolean;
+        effort: boolean;
       }>(sql`
         select
           (
@@ -109,12 +114,24 @@ export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
           case when to_regprocedure('app.sweep_unsent_ai_attachments(uuid,timestamptz,integer)') is not null
             then has_function_privilege(
               'app.sweep_unsent_ai_attachments(uuid,timestamptz,integer)', 'EXECUTE')
-            else false end as "attachmentSweep"
+            else false end as "attachmentSweep",
+          exists (
+            select 1 from pg_catalog.pg_attribute a
+            where a.attrelid = to_regclass('app.ai_turns')
+              and a.attname = 'effort' and not a.attisdropped
+          ) and (
+            to_regclass('app.ai_messages') is null or exists (
+              select 1 from pg_catalog.pg_attribute a
+              where a.attrelid = to_regclass('app.ai_messages')
+                and a.attname = 'effort' and not a.attisdropped
+            )
+          ) as effort
       `);
       return {
         conversations: row?.conversations === true,
         inputTokens: row?.inputTokens === true,
         attachmentSweep: row?.attachmentSweep === true,
+        effort: row?.effort === true,
       };
     });
   }
@@ -126,6 +143,7 @@ export function fixedAiChatSchema(state: Partial<AiChatSchemaState> = {}): AiCha
     conversations: true,
     inputTokens: true,
     attachmentSweep: true,
+    effort: true,
     ...state,
   };
   return { state: async () => answer };

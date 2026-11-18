@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   aiChatRequestSchema,
@@ -1171,6 +1171,22 @@ describe('createBackendClient Ask AI stream', () => {
 
     abort.abort();
     expect(call?.signal?.aborted).toBe(true);
+  });
+
+  it('gives a High question the High whole-turn timeout and a Normal one the usual 90 s', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const { client } = streamClient(() => sseStream([frame(done)]));
+      await collect(client.staff.askAi(UUID, request));
+      expect(timeout).toHaveBeenLastCalledWith(90_000);
+      await collect(client.staff.askAi(UUID, { ...request, effort: 'normal' }));
+      expect(timeout).toHaveBeenLastCalledWith(90_000);
+      await collect(client.staff.askAi(UUID, { ...request, effort: 'high' }));
+      // The backend's 180 s High turn plus the same 30 s of room for the transport.
+      expect(timeout).toHaveBeenLastCalledWith(210_000);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it('surfaces an aborted stream as a rejected iteration, never a clean done', async () => {

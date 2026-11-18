@@ -92,3 +92,60 @@ for (const width of [375, 1440]) {
     ).toBeVisible();
   });
 }
+
+for (const width of [375, 1440]) {
+  test(`a question asked at High effort shows Thinking, keeps its tag after a reload at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/w/canadawide/chat');
+    await expect(page.getByRole('heading', { name: 'What would you like to know?' })).toBeVisible();
+
+    // The harness offers High: the control sits beside Send, Normal chosen.
+    const effort = page.getByRole('radiogroup', { name: 'Effort' });
+    await expect(effort.getByRole('radio', { name: 'Normal' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await effort.getByRole('radio', { name: 'High' }).click();
+    await expect(effort.getByRole('radio', { name: 'High' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+
+    const question = `Think hard: which orders need me? (${width})`;
+    const composer = page.getByRole('textbox', { name: 'Ask a question' });
+    await composer.fill(question);
+    await composer.press('Enter');
+    const thread = page.getByRole('log', { name: 'Conversation' });
+    // The synthetic engine reasons for 1.5 s before it answers.
+    await expect(thread.getByText('Thinking…')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+    await expect(thread.getByText('High effort answer: 3 orders need you.')).toBeVisible();
+    await expect(thread.getByText('High effort', { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/w/canadawide/chat/${UUID}$`));
+
+    // After a reload the stored level still tags the answer, and the choice is Normal again
+    // (it lives in the tab's memory only).
+    await page.reload();
+    await expect(thread.getByText('High effort answer: 3 orders need you.')).toBeVisible();
+    await expect(thread.getByText('High effort', { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('radiogroup', { name: 'Effort' }).getByRole('radio', { name: 'Normal' }),
+    ).toHaveAttribute('aria-checked', 'true');
+
+    // Clean up what this run made.
+    const list = await openList(page, width);
+    await list.getByRole('button', { name: `Options for ${question}` }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await page
+      .getByRole('dialog', { name: 'Delete this conversation?' })
+      .getByRole('button', { name: 'Delete', exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/w\/canadawide\/chat$/);
+  });
+}

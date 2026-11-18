@@ -807,6 +807,9 @@ export {
   type AiAttachmentKind,
   type AiAttachmentMediaType,
   type AiChatLimits,
+  AI_EFFORTS,
+  aiEffortSchema,
+  type AiEffort,
 } from './ai-assistant';
 
 // Ask AI as a saved chat: stored conversations, attached files, owner usage

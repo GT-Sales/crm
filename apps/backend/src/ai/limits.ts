@@ -1,4 +1,36 @@
-import { AI_ASSISTANT_LIMITS } from '@gt-sales/contracts';
+import { AI_ASSISTANT_LIMITS, type AiEffort } from '@gt-sales/contracts';
+
+/**
+ * What one turn may spend at its effort level. A Normal turn reads exactly the
+ * limits it always had; a High turn the `…High` ones. The data limits (bytes
+ * per result and per turn, records per turn) are the same at both levels.
+ */
+export interface TurnLimits {
+  readonly modelSteps: number;
+  readonly toolCalls: number;
+  readonly leadSummaries: number;
+  /** The answer's output tokens of one generation (authoring raises it; reasoning adds to it). */
+  readonly outputTokens: number;
+  readonly timeoutMs: number;
+}
+
+export function turnLimits(effort: AiEffort = 'normal'): TurnLimits {
+  return effort === 'high'
+    ? {
+        modelSteps: AI_ASSISTANT_LIMITS.maxModelStepsHigh,
+        toolCalls: AI_ASSISTANT_LIMITS.maxToolCallsHigh,
+        leadSummaries: AI_ASSISTANT_LIMITS.maxLeadSummariesHigh,
+        outputTokens: AI_ASSISTANT_LIMITS.maxOutputTokensHigh,
+        timeoutMs: AI_ASSISTANT_LIMITS.requestTimeoutMsHigh,
+      }
+    : {
+        modelSteps: AI_ASSISTANT_LIMITS.maxModelSteps,
+        toolCalls: AI_ASSISTANT_LIMITS.maxToolCalls,
+        leadSummaries: AI_ASSISTANT_LIMITS.maxLeadSummaries,
+        outputTokens: AI_ASSISTANT_LIMITS.maxOutputTokens,
+        timeoutMs: AI_ASSISTANT_LIMITS.requestTimeoutMs,
+      };
+}
 
 /**
  * One turn's budget, shared by every tool call the model makes.
@@ -26,21 +58,27 @@ export interface AcceptedResult {
 }
 
 export class TurnBudget {
+  private readonly limits: TurnLimits;
   private toolCalls = 0;
   private records = 0;
   private dataBytes = 0;
   private leadSummaries = 0;
 
+  /** A High turn may make more tool calls and read more lead summaries; nothing else changes. */
+  constructor(effort: AiEffort = 'normal') {
+    this.limits = turnLimits(effort);
+  }
+
   /** Reserves one tool call; false once the turn's allowance is spent. */
   reserveToolCall(): boolean {
-    if (this.toolCalls >= AI_ASSISTANT_LIMITS.maxToolCalls) return false;
+    if (this.toolCalls >= this.limits.toolCalls) return false;
     this.toolCalls += 1;
     return true;
   }
 
   /** Reserves one lead summary; summaries are the most expensive read. */
   reserveLeadSummary(): boolean {
-    if (this.leadSummaries >= AI_ASSISTANT_LIMITS.maxLeadSummaries) return false;
+    if (this.leadSummaries >= this.limits.leadSummaries) return false;
     this.leadSummaries += 1;
     return true;
   }

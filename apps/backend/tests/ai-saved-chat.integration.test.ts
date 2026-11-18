@@ -13,6 +13,8 @@
 import type { Server } from 'node:http';
 
 import { sql } from 'drizzle-orm';
+import { simulateReadableStream } from 'ai';
+import { MockLanguageModelV4 } from 'ai/test';
 import postgres from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryR2DocumentStore, sha256Hex } from '@gt-sales/adapters';
@@ -52,6 +54,7 @@ import {
 import {
   AssistantProviderError,
   createFakeEngine,
+  createGatewayEngine,
   toModelMessages,
   type AssistantEngine,
   type EngineInput,
@@ -346,10 +349,12 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       config?: AiAssistantConfig;
       /** The probe the usage store reads; the database's own by default. */
       usageSchema?: AiChatSchemaProbe;
+      /** The probe the turn and its rows read; the database's own by default. */
+      schema?: AiChatSchemaProbe;
     } = {},
   ) {
     if (server) await new Promise<void>((resolve) => server?.close(() => resolve()));
-    const schema = new DatabaseAiChatSchemaProbe(database);
+    const schema = options.schema ?? new DatabaseAiChatSchemaProbe(database);
     const app = createApp({
       staff: {
         sessionVerifier: new TokenVerifier(),
@@ -2028,6 +2033,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
           turns: 5,
           inputTokens: 1262,
           outputTokens: 108,
+          highEffortTurns: 0,
         },
         {
           actorId: MEMBER_B,
@@ -2035,6 +2041,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
           turns: 3,
           inputTokens: 700,
           outputTokens: 70,
+          highEffortTurns: 0,
         },
       ]);
 
@@ -2066,6 +2073,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         toolCalls: 3,
         // (2000 + 1001 + 3000 + 20) / 4 completed turns, rounded.
         averageDurationMs: 1505,
+        highEffortTurns: 0,
       });
       expect(weekly.models?.map(({ lastUsedAt: _at, ...model }) => model)).toEqual([
         {
@@ -2077,6 +2085,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
           inputTokens: 1252,
           outputTokens: 107,
           averageDurationMs: 1010,
+          highEffortTurns: 0,
         },
         {
           model: BETA,
@@ -2087,6 +2096,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
           inputTokens: 700,
           outputTokens: 70,
           averageDurationMs: 2001,
+          highEffortTurns: 0,
         },
         {
           model: null,
@@ -2097,6 +2107,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
           inputTokens: 10,
           outputTokens: 1,
           averageDurationMs: null,
+          highEffortTurns: 0,
         },
       ]);
       expect(weekly.failures).toEqual([
@@ -2161,6 +2172,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         cancelledTurns: 0,
         toolCalls: 0,
         averageDurationMs: null,
+        highEffortTurns: 0,
       });
       expect(usage.members).toEqual([]);
       expect(usage.models).toEqual([]);
@@ -2187,6 +2199,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         providers: [],
         conversations: true,
         attachmentKinds: ['image', 'pdf', 'text'],
+        highEffort: { enabled: false, model: null },
       });
 
       await startApp({
@@ -2199,6 +2212,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         providers: ['baseten', 'vertexAnthropic'],
         conversations: true,
         attachmentKinds: [],
+        highEffort: { enabled: false, model: null },
       });
 
       // The site is not on the allowlist: the model is still configured.
@@ -2230,6 +2244,153 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       expect(document.conversations).toBe(true);
       expect(document.attachments?.kinds).toEqual(['image', 'pdf', 'text']);
       expect(document.attachments?.accept).toContain('.md');
+    });
+  });
+  describe('effort levels in a stored conversation', () => {
+    const high: AiAssistantConfig = {
+      ...config,
+      highEffort: { modelId: 'test/thinker', reasoning: 'high' },
+    };
+
+    async function rowEfforts(conversationId: string) {
+      return admin<{ role: string; effort: string | null }[]>`
+        select role, effort from app.ai_messages where conversation_id = ${conversationId}
+        order by created_at, id
+      `;
+    }
+
+    /** The site's `ai_turns` rows, oldest first (each test starts with none). */
+    async function turnRows() {
+      return admin<{ effort: string; model: string | null }[]>`
+        select effort, model from app.ai_turns where workspace_id = ${SITE} order by created_at
+      `;
+    }
+
+    it('keeps the level on both rows of each turn, reloads it and counts High turns', async () => {
+      await startApp({ config: high });
+      engine = createFakeEngine([{ reasoningSteps: 1, chunks: ['Because the plan changed.'] }]);
+      const conversationId = crypto.randomUUID();
+      const asked = [crypto.randomUUID(), crypto.randomUUID()];
+      const first = await chat(
+        'a',
+        SITE,
+        chatBody({ conversationId, requestId: asked[0], effort: 'high' }),
+      );
+      expect(first.status).toBe(200);
+      expect(first.parts).toContainEqual({ type: 'progress', label: 'Thinking' });
+      const second = await chat('a', SITE, chatBody({ conversationId, requestId: asked[1] }));
+      expect(second.status).toBe(200);
+      expect(second.parts).not.toContainEqual({ type: 'progress', label: 'Thinking' });
+
+      expect(await rowEfforts(conversationId)).toEqual([
+        { role: 'user', effort: 'high' },
+        { role: 'assistant', effort: 'high' },
+        { role: 'user', effort: 'normal' },
+        { role: 'assistant', effort: 'normal' },
+      ]);
+      const read = await call('a', 'GET', `/${SITE}/ai/conversations/${conversationId}`);
+      const detail = getAiConversationResponseSchema.parse(await read.json());
+      expect(detail.messages.map((message) => message.effort)).toEqual([
+        'high',
+        'high',
+        'normal',
+        'normal',
+      ]);
+      // The record names the model that served each turn.
+      expect(await turnRows()).toEqual([
+        { effort: 'high', model: 'test/thinker' },
+        { effort: 'normal', model: 'test/model' },
+      ]);
+
+      const usage = aiUsageResponseSchema.parse(
+        await (await call('owner', 'GET', `/${SITE}/ai/usage?period=7`)).json(),
+      );
+      expect(usage.totals.highEffortTurns).toBe(1);
+      expect(usage.members.find((member) => member.actorId === MEMBER_A)?.highEffortTurns).toBe(1);
+      expect(usage.models?.find((model) => model.model === 'test/thinker')?.highEffortTurns).toBe(
+        1,
+      );
+      expect(usage.models?.find((model) => model.model === 'test/model')?.highEffortTurns).toBe(0);
+      expect(usage.assistant?.highEffort).toEqual({ enabled: true, model: 'test/thinker' });
+    });
+
+    it('never sends, stores or logs the model’s reasoning text', async () => {
+      const SECRET = 'PRIVATE REASONING ABOUT ADA';
+      const finish = {
+        type: 'finish' as const,
+        finishReason: { unified: 'stop' as const, raw: undefined },
+        usage: {
+          inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 9, text: 3, reasoning: 6 },
+        },
+      };
+      const model = new MockLanguageModelV4({
+        doStream: async () => ({
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'reasoning-start', id: 'r' },
+              { type: 'reasoning-delta', id: 'r', delta: SECRET },
+              { type: 'reasoning-end', id: 'r' },
+              { type: 'text-start', id: 't' },
+              { type: 'text-delta', id: 't', delta: 'The answer.' },
+              { type: 'text-end', id: 't' },
+              finish,
+            ],
+          }),
+        }),
+      });
+      engine = createGatewayEngine(
+        { apiKey: 'test-key-not-real', modelId: 'test/model', highEffort: high.highEffort },
+        model,
+      );
+      await startApp({ config: high });
+      const info = vi.spyOn(console, 'info');
+      const conversationId = crypto.randomUUID();
+      const turn = await chat('a', SITE, chatBody({ conversationId, effort: 'high' }));
+      const logged = info.mock.calls.map((entry) => String(entry[0])).join('\n');
+      info.mockRestore();
+      expect(turn.status).toBe(200);
+      expect(model.doStreamCalls[0]?.reasoning).toBe('high');
+      expect(turn.parts).toContainEqual({ type: 'progress', label: 'Thinking' });
+      expect(turn.parts).toContainEqual({ type: 'text', text: 'The answer.' });
+      expect(JSON.stringify(turn.parts)).not.toContain(SECRET);
+      const rows = await storedRows(conversationId);
+      expect(rows.map((row) => row.text)).toEqual(['How many SIM orders?', 'The answer.']);
+      expect(JSON.stringify(rows)).not.toContain(SECRET);
+      const read = await call('a', 'GET', `/${SITE}/ai/conversations/${conversationId}`);
+      expect(await read.text()).not.toContain(SECRET);
+      expect(logged).toContain('"effort":"high"');
+      expect(logged).not.toContain(SECRET);
+      // Reasoning tokens are inside the output count.
+      const [record] = await admin<{ output_tokens: number }[]>`
+        select output_tokens from app.ai_turns where workspace_id = ${SITE}
+      `;
+      expect(record?.output_tokens).toBe(9);
+    });
+
+    it('runs High before 0037: the rows are written without the column and usage counts no High', async () => {
+      const before = fixedAiChatSchema({ effort: false });
+      await startApp({ config: high, schema: before, usageSchema: before });
+      const conversationId = crypto.randomUUID();
+      const requestId = crypto.randomUUID();
+      const turn = await chat('a', SITE, chatBody({ conversationId, requestId, effort: 'high' }));
+      expect(turn.status).toBe(200);
+      expect(turn.parts.at(-1)?.type).toBe('done');
+      // Written as before 0037 (the column takes its default or stays null).
+      expect(await rowEfforts(conversationId)).toEqual([
+        { role: 'user', effort: null },
+        { role: 'assistant', effort: null },
+      ]);
+      expect(await turnRows()).toEqual([{ effort: 'normal', model: 'test/thinker' }]);
+      const read = getAiConversationResponseSchema.parse(
+        await (await call('a', 'GET', `/${SITE}/ai/conversations/${conversationId}`)).json(),
+      );
+      expect(read.messages.every((message) => message.effort === undefined)).toBe(true);
+      const usage = aiUsageResponseSchema.parse(
+        await (await call('owner', 'GET', `/${SITE}/ai/usage?period=7`)).json(),
+      );
+      expect(usage.totals.turns).toBe(1);
+      expect(usage.totals.highEffortTurns).toBe(0);
     });
   });
 });

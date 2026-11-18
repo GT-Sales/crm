@@ -2,6 +2,7 @@ import {
   AI_ASSISTANT_LIMITS,
   type AiCapabilitiesResponse,
   type AiChatRequest,
+  type AiEffort,
   type AiStreamPart,
 } from '@gt-sales/contracts';
 
@@ -31,7 +32,11 @@ export type AiUiError =
   /** A stored conversation has as many messages as it may hold (`conversation_full`). */
   | 'conversation_full'
   /** The stored conversation is gone or was never this member's (`conversation_not_found`). */
-  | 'conversation_missing';
+  | 'conversation_missing'
+  /** High effort's own limits were reached (`ai_rate_limited`, `details.reason: 'high_effort'`). */
+  | 'high_effort_limited'
+  /** The site no longer offers High (`invalid_request`, `details.reason: 'effort_unavailable'`). */
+  | 'effort_unavailable';
 
 /** One earlier turn as text only: the model never receives stored tool data. */
 export interface AiHistoryEntry {
@@ -53,6 +58,15 @@ export interface BuildChatRequestInput {
   requestId: string;
   /** The lead whose record is open, when the question is about that lead. */
   leadId?: string;
+  /**
+   * The effort level the member chose, and the levels the site offers
+   * (capabilities' `efforts`). `effort: 'high'` is sent only when both say
+   * High; Normal is never sent, so a Normal request is exactly what it was
+   * (and an older backend, whose strict request does not know the key, never
+   * receives it).
+   */
+  effort?: AiEffort;
+  efforts?: readonly AiEffort[];
   /**
    * A stored conversation's id. With it the server replays its own history,
    * so `history` is ignored and sent empty (the schema refuses anything else).
@@ -159,6 +173,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
 
   const contextLeadId =
     input.leadId !== undefined && UUID_PATTERN.test(input.leadId) ? input.leadId : undefined;
+  const high = input.effort === 'high' && (input.efforts ?? []).includes('high');
 
   if (input.conversationId !== undefined) {
     // A stored conversation: the server replays what it kept, the browser sends none.
@@ -171,6 +186,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
         conversationId: input.conversationId,
         ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
+        ...(high ? { effort: 'high' as const } : {}),
       },
       trimmed: message.length !== input.message.length,
     };
@@ -187,6 +203,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         ...(entry.signature === undefined ? {} : { signature: entry.signature }),
       })),
       ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
+      ...(high ? { effort: 'high' as const } : {}),
     };
   }
 
@@ -257,6 +274,14 @@ export interface StreamAnswerInput {
   request: AiChatRequest;
   signal?: AbortSignal;
   onPart(part: AiStreamPart): void;
+  /** How long until High may be asked again, when its own limit refused the turn. */
+  onRetryAfter?(seconds: number): void;
+}
+
+/** A refusal's `details.reason`, when it is a string. */
+function refusalReason(error: BackendError): string | undefined {
+  const reason = error.details?.['reason'];
+  return typeof reason === 'string' ? reason : undefined;
 }
 
 function isAbort(error: unknown, signal: AbortSignal | undefined): boolean {
@@ -289,7 +314,17 @@ export async function streamAnswer(input: StreamAnswerInput): Promise<AiUiError 
     // The client's whole-turn limit: the answer took too long, the CRM was there.
     if (error instanceof Error && error.name === 'TimeoutError') return 'timeout';
     if (errorKind(error) === 'offline') return 'offline';
-    if (error instanceof BackendError) return uiErrorForBackendCode(error.code);
+    if (error instanceof BackendError) {
+      if (error.code === 'ai_rate_limited' && refusalReason(error) === 'high_effort') {
+        const seconds = error.details?.['retryAfterSeconds'];
+        if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0)
+          input.onRetryAfter?.(seconds);
+        return 'high_effort_limited';
+      }
+      if (error.code === 'invalid_request' && refusalReason(error) === 'effort_unavailable')
+        return 'effort_unavailable';
+      return uiErrorForBackendCode(error.code);
+    }
     return 'failed';
   }
 }

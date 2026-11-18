@@ -409,6 +409,14 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
       attachmentKinds: availability.attachments
         ? [...(dependencies.chat?.attachments?.kinds ?? [])]
         : [],
+      // Whether members of this site may choose High, and the model serving it.
+      highEffort: {
+        enabled:
+          config.enabled &&
+          config.workspaceIds.has(scope.workspaceId) &&
+          config.highEffort !== undefined,
+        model: config.highEffort?.modelId ?? null,
+      },
     };
   }
 

@@ -361,7 +361,12 @@ describe('the scheduler’s attachment sweep', () => {
 
 describe('the schema check', () => {
   it('asks once while ready, again after the recheck while not, and never caches a failure', async () => {
-    let answer = { conversations: false, inputTokens: false, attachmentSweep: false };
+    let answer = {
+      conversations: false,
+      inputTokens: false,
+      attachmentSweep: false,
+      effort: false,
+    };
     let asked = 0;
     let fail = false;
     let now = 0;
@@ -378,7 +383,7 @@ describe('the schema check', () => {
     const probe = new DatabaseAiChatSchemaProbe(database, { recheckMs: 1000, now: () => now });
     const scope = { workspaceId: WORKSPACE, actorId: ACTOR };
     expect(await probe.state(scope)).toEqual(answer);
-    answer = { conversations: true, inputTokens: true, attachmentSweep: true };
+    answer = { conversations: true, inputTokens: true, attachmentSweep: true, effort: true };
     expect((await probe.state(scope)).conversations).toBe(false);
     expect(asked).toBe(1);
     now = 1500;
@@ -617,6 +622,7 @@ describe('before migrations 0034–0036 are applied', () => {
       providers: [],
       conversations: false,
       attachmentKinds: [],
+      highEffort: { enabled: false, model: null },
     });
   });
 
@@ -652,5 +658,44 @@ describe('before migrations 0034–0036 are applied', () => {
     await new DatabaseAiTurnStore(database, fixedAiChatSchema()).record(turn);
     expect(statements[0]).not.toContain('input_tokens');
     expect(statements[1]).toContain('input_tokens');
+  });
+  it('writes the turn record without effort before 0037, and with the turn’s level after', async () => {
+    const statements: string[] = [];
+    const tx: TenantTransaction = Object.assign(Object.create(null), {
+      execute: async (query: { queryChunks?: unknown[] }) => {
+        statements.push(
+          JSON.stringify(query.queryChunks ?? [])
+            .replace(/\\n/g, ' ')
+            .replace(/\s+/g, ' '),
+        );
+        return [];
+      },
+    });
+    const database: Pick<DatabaseClient, 'withTenantTx'> = {
+      withTenantTx: async (_scope, work) => work(tx),
+    };
+    const turn = {
+      requestId: '50000000-0000-4000-8000-000000000f72',
+      workspaceId: WORKSPACE,
+      actorId: ACTOR,
+      engine: 'fake' as const,
+      modelId: 'test/thinker',
+      effort: 'high' as const,
+      promptVersion: 12,
+      outcome: 'completed' as const,
+      durationMs: 3,
+      toolCalls: 0,
+      records: 0,
+      dataBytes: 0,
+    };
+    await new DatabaseAiTurnStore(database, fixedAiChatSchema({ effort: false })).record(turn);
+    await new DatabaseAiTurnStore(database, fixedAiChatSchema()).record(turn);
+    const { effort: _effort, ...normal } = turn;
+    await new DatabaseAiTurnStore(database, fixedAiChatSchema()).record(normal);
+    expect(statements[0]).not.toContain('effort');
+    expect(statements[0]).not.toContain('"high"');
+    expect(statements[1]).toContain(', effort');
+    expect(statements[1]).toContain('"high"');
+    expect(statements[2]).toContain('"normal"');
   });
 });

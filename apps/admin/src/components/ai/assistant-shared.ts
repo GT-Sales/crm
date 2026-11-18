@@ -51,7 +51,7 @@ export function announcementFor(messages: readonly AiMessage[], streaming: boole
   if (last.status === 'streaming') return last.text.length > 0 ? 'Answering.' : 'Thinking.';
   if (last.status === 'complete') return 'Answer ready.';
   if (last.status === 'stopped') return 'Answer stopped.';
-  return aiErrorText(last.error ?? 'failed');
+  return aiErrorText(last.error ?? 'failed', last.retryAfterSeconds);
 }
 
 /**

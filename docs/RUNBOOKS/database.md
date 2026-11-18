@@ -1127,6 +1127,50 @@ select has_function_privilege('app_runtime',
   'app.sweep_unsent_ai_attachments(uuid,timestamptz,integer)', 'execute');                -- true
 ```
 
+## 0037_ai_effort (2026-11-18, prepared, not applied)
+
+Ask AI's effort levels (docs/design/ai-assistant.md §8). Not applied by the
+deploy; the owner applies it through the SQL editor after 0034–0036 (it holds
+`ALTER`), then inserts the Drizzle tracker row. The deploy and the migration
+may go in either order: an older backend never names the columns and its
+inserts take the defaults, and this backend runs before 0037 (below).
+
+**0037 (generated).** `app.ai_turns` gets `effort text not null default
+'normal'` with `ai_turns_effort_check` (`normal` or `high`), and
+`app.ai_messages` gets `effort text` (null for rows written before it) with
+`ai_messages_effort_check` (null, `normal` or `high`), set on both rows of a
+turn stored after it. Adding the columns is metadata-only (a constant default,
+no rewrite); each check scans its table once (`ai_turns` holds 90 days). No
+custom companion: the runtime role's table-level grants (0025 for `ai_turns`,
+0035 for `ai_messages`) cover every column of the table, and the owner and tenant policies
+are row policies, unchanged.
+
+- **To apply** (owner): run the file, then the tracker row (hash,
+  `created_at`): `0037_ai_effort`
+  `4621ff73aadcd0c0d05e26f6dffb1188d037bcbeafbb830bb2d48003d6096551`,
+  `1794983004391`.
+- **Before it is applied**: High effort works where it is switched on
+  (`AI_HIGH_EFFORT_ENABLED`); the backend leaves both columns out of its
+  inserts, a reloaded conversation shows no _High effort_ tag, and the usage
+  page counts every turn as Normal.
+- **After applying**: the backend checks the catalogue and starts writing the
+  level within 5 minutes, with no redeploy. Turns already recorded stay
+  `normal`; messages already stored stay null.
+- Rollback, after reverting the code: `ALTER TABLE app.ai_messages DROP COLUMN
+effort; ALTER TABLE app.ai_turns DROP COLUMN effort;` (the checks go with
+  their columns). Every recorded level is lost. A backend that has seen the
+  columns keeps naming them until it restarts.
+- Verify against the schema:
+
+```sql
+select table_name, column_default, is_nullable from information_schema.columns
+ where table_schema = 'app' and column_name = 'effort'
+   and table_name in ('ai_turns', 'ai_messages') order by table_name;
+                                  -- ai_messages, null, YES; ai_turns, 'normal'::text, NO
+select conname from pg_constraint
+ where conname in ('ai_turns_effort_check', 'ai_messages_effort_check');      -- 2 rows
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

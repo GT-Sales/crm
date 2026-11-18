@@ -2,7 +2,7 @@
 import type { AiActionDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
-import { CheckIcon, CopyIcon } from 'lucide-react';
+import { CheckIcon, CopyIcon, GaugeIcon } from 'lucide-react';
 import { Button } from '@gt-sales/ui';
 
 import type { AiUiError } from '../../lib/ai-transport';
@@ -17,9 +17,24 @@ import { AssistantAction } from './assistant-action';
 import { AssistantAutomation } from './assistant-automation';
 import { MessageAttachments } from './attachment-chip';
 
-/** Plain language for each way an answer can fail. Never a provider detail. */
-export function aiErrorText(error: AiUiError): string {
+/** "N minutes" (at least one) until High may be asked again. */
+function minutesUntil(seconds: number): string {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+}
+
+/**
+ * Plain language for each way an answer can fail. Never a provider detail.
+ * `retryAfterSeconds` is High's own wait, when its limit refused the turn.
+ */
+export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): string {
   switch (error) {
+    case 'high_effort_limited':
+      return retryAfterSeconds === undefined
+        ? 'You have used High effort a lot in the last hour. Ask at Normal effort, or try again later.'
+        : `You have used High effort a lot in the last hour. Ask at Normal effort, or try again in ${minutesUntil(retryAfterSeconds)}.`;
+    case 'effort_unavailable':
+      return 'High effort is no longer offered on this site. Press Retry to ask at Normal effort.';
     case 'unavailable':
       return 'Ask AI isn’t available for this site right now.';
     case 'session_expired':
@@ -188,7 +203,9 @@ function AssistantAnswer({
         </p>
       ) : null}
       {message.status === 'error' ? (
-        <p className="text-sm text-muted-foreground">{aiErrorText(message.error ?? 'failed')}</p>
+        <p className="text-sm text-muted-foreground">
+          {aiErrorText(message.error ?? 'failed', message.retryAfterSeconds)}
+        </p>
       ) : null}
       {message.expiredDrafts ? (
         <p className="text-xs text-muted-foreground">
@@ -247,6 +264,12 @@ function AssistantAnswer({
         (message.status === 'stopped' && onRetry)) ? (
         <div className="flex flex-wrap items-center gap-1">
           {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
+          {message.effort === 'high' ? (
+            <span className="inline-flex h-7 items-center gap-1 px-2 text-[11px] text-muted-foreground">
+              <GaugeIcon aria-hidden="true" className="size-3.5" />
+              High effort
+            </span>
+          ) : null}
           {full && onStartNewChat ? (
             <Button
               type="button"

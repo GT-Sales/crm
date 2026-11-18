@@ -80,6 +80,8 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
   `pipeUIMessageStreamToResponse`, protocol header `v1`, typed transient
   `data-assistant` parts carrying `progress`, `text`, `sources`, `error`, `done`,
   followed by the SDK `[DONE]` terminator. `aiWirePartSchema` describes the wire.
+- The request may carry the optional `effort` (`high` only, and only where
+  capabilities list it in `efforts`; §8); without it the turn is Normal.
 - The request may carry the optional `conversationId` and `attachmentIds` of a
   stored conversation; only then does the stream send a `conversation` part
   and `done.messageId`, and `history` must be empty because the server replays
@@ -100,7 +102,7 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
 - Cancellation: `res.on('close')` (response completion semantics, **not** the
   request body's `end`) aborts the controller, which aborts the SDK call and the
   fake engine; late chunks are dropped.
-- Whole-turn timeout 60 s; per-tool deadline 5 s, set inside each read's own
+- Whole-turn timeout 60 s (180 s at High effort, §8); per-tool deadline 5 s, set inside each read's own
   tenant transaction as `set local statement_timeout = 5000`, so a pathological
   query is cancelled by Postgres rather than holding a pooled connection and the
   chat stream open.
@@ -150,18 +152,81 @@ send it; nothing of the CRM's own is attached for them.
 
 ## 7. Limits (constants in `AI_ASSISTANT_LIMITS`)
 
-5 model steps · 6 tool calls · 3 lead summaries · 50 records · 6 KiB per result ·
-24 KiB per turn · 1200 output tokens · 60 s per turn · 10 requests/actor/minute ·
-60 requests/site/minute · 1 active request per browser chat. Tool results are
-trimmed by whole records with `truncated: true`; totals never change.
+| Limit              | Normal          | High     | Constant (Normal / High)                                  |
+| ------------------ | --------------- | -------- | --------------------------------------------------------- |
+| Model steps        | 5               | 8        | `maxModelSteps` / `maxModelStepsHigh`                     |
+| Tool calls         | 6               | 10       | `maxToolCalls` / `maxToolCallsHigh`                       |
+| Lead summaries     | 3               | 5        | `maxLeadSummaries` / `maxLeadSummariesHigh`               |
+| Output tokens      | 1,200           | 4,000    | `maxOutputTokens` / `maxOutputTokensHigh`                 |
+| Reasoning room     | —               | 8,000    | `maxReasoningTokensHigh`, only with reasoning             |
+| Whole turn         | 60 s            | 180 s    | `requestTimeoutMs` / `requestTimeoutMsHigh`               |
+| Records per turn   | 50              | 50       | `maxRecordsPerTurn`                                       |
+| One tool result    | 6 KiB           | 6 KiB    | `maxToolResultBytes`                                      |
+| All tool results   | 24 KiB          | 24 KiB   | `maxToolDataBytes`                                        |
+| Requests per actor | 10/min          | +20/h    | `perActorPerMinute` / `highPerActorPerHour`               |
+| Requests per site  | 60/min, 500/day | +100/day | `perSitePerMinute`, `perSitePerDay` / `highPerSitePerDay` |
+
+Automation authoring keeps its 4,800 output tokens at either level (High takes
+the larger of the two). The High rate limits apply on top of the Normal ones.
+One active request per browser chat. Tool results are trimmed by whole records
+with `truncated: true`; totals never change.
 
 ## 8. Model and provider
 
-One model, chosen by `AI_GATEWAY_MODEL` after checking it in the live Gateway
-catalogue; no fallback model, no automatic provider switching. One automatic
-retry is allowed before any text is shown (`maxRetries: 1`); a partial stream is
-never retried invisibly. Provider/Gateway retention is documented in the runbook
-and must be reviewed by the owner before real data is used.
+One model per effort level, each an exact Gateway id checked in the live
+Gateway catalogue: `AI_GATEWAY_MODEL` for Normal and `AI_GATEWAY_MODEL_HIGH` for
+High (unset, High uses `AI_GATEWAY_MODEL`); no fallback model, no automatic
+provider switching, and `AI_GATEWAY_PROVIDERS` pins the hosts of both. One
+automatic retry is allowed before any text is shown (`maxRetries: 1`); a
+partial stream is never retried invisibly. Provider/Gateway retention is
+documented in the runbook and must be reviewed by the owner before real data
+is used.
+
+**Two effort levels.** A member chooses Normal or High per message in the
+composer; High is offered only with `AI_HIGH_EFFORT_ENABLED=true`
+(capabilities `efforts: ['normal', 'high']`). A request for High where it is
+not offered is `400 invalid_request` (`details.reason: 'effort_unavailable'`)
+before any work, never quietly answered at Normal. A Normal turn is exactly the
+assistant as it was: the same request (the admin never sends `effort:
+'normal'`), limits, model, engine input and stream.
+
+What High changes, and nothing else:
+
+- **The model**: `AI_GATEWAY_MODEL_HIGH` when set. `ai_turns.model` and the
+  `ai_turn` line record the model that served the turn, beside its `effort`.
+- **Reasoning**, when `AI_HIGH_EFFORT_REASONING` names a word (`minimal`,
+  `low`, `medium`, `high`, `xhigh`, `max`): sent as the installed SDK's
+  portable `reasoning` call option (`ai@7.0.159`, `LanguageModelCallOptions`:
+  `reasoning?: 'provider-default' | 'none' | 'minimal' | 'low' | 'medium' |
+'high' | 'xhigh' | 'max'`), which the Gateway provider forwards in its
+  request body and each provider maps to its own setting (OpenAI's reasoning
+  effort, Anthropic's thinking, Google's thinking level), rounding down to a
+  level the model has. A model that cannot reason returns an `unsupported`
+  warning and ignores it; a provider that refuses the call outright fails the
+  turn with the typed `provider_unavailable`. Unset, no reasoning option is
+  sent. With reasoning the output limit gains `maxReasoningTokensHigh`, because
+  OpenAI-style models count reasoning inside the output limit and
+  budget-based providers size the thinking budget from it; a turn whose
+  reasoning still fills it ends `budget_exceeded`. Reasoning tokens arrive in
+  `totalUsage.outputTokens` (with `outputTokenDetails.reasoningTokens` beside
+  it), so they are counted as output tokens.
+- **Reasoning is never forwarded**, stored or logged: the engine drops every
+  reasoning part and yields only that a step began reasoning, once per step;
+  on a High turn the route turns that into the `progress` part "Thinking", so
+  a long quiet stretch reads as work. A Normal turn's stream never carries it,
+  whatever its model does.
+- **The budgets of §7**, the 180 s timer and the High rate limits
+  (`ai_high_actor:` and `ai_high_site_day:` keys; a refusal is `429
+ai_rate_limited` with `retry-after` and `details: { reason: 'high_effort',
+retryAfterSeconds }`).
+
+Never changed by High: the access checks before every tool and before the
+answer, the tool set and its policy, the projections and every data limit,
+cards and their confirmation, history replay, attachments, the saved
+conversation and cancellation. Nothing above the route ends a High turn before
+180 s: the Node server keeps its defaults (no response timeout), the browser
+calls the backend directly with a 210 s whole-turn limit for High (90 s for
+Normal), and Railway's edge allows 15 minutes while data flows.
 
 ## 9. Decisions and deviations (for review)
 

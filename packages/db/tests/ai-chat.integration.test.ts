@@ -543,4 +543,87 @@ databaseTest('Ask AI saved chat: ai_conversations, ai_messages, ai_attachments',
       }),
     ).rejects.toMatchObject({ code: CHECK_VIOLATION });
   });
+  it('ai_turns records the effort level: normal by default, normal or high only', async () => {
+    const [row] = await asRuntime(SITE_1, ACTOR_A, (tx) => {
+      return tx<{ effort: string }[]>`
+        insert into app.ai_turns
+          (workspace_id, actor_id, request_id, engine, prompt_version, outcome, duration_ms)
+        values (${SITE_1}, ${ACTOR_A}, ${crypto.randomUUID()}, 'fake', 1, 'completed', 5)
+        returning effort
+      `;
+    });
+    expect(row).toEqual({ effort: 'normal' });
+    const [high] = await asRuntime(SITE_1, ACTOR_A, (tx) => {
+      return tx<{ effort: string }[]>`
+        insert into app.ai_turns
+          (workspace_id, actor_id, request_id, engine, prompt_version, outcome, duration_ms, effort)
+        values (${SITE_1}, ${ACTOR_A}, ${crypto.randomUUID()}, 'fake', 1, 'completed', 5, 'high')
+        returning effort
+      `;
+    });
+    expect(high).toEqual({ effort: 'high' });
+    for (const effort of ['max', 'HIGH', '']) {
+      await expect(
+        asRuntime(SITE_1, ACTOR_A, (tx) => {
+          return tx`
+            insert into app.ai_turns
+              (workspace_id, actor_id, request_id, engine, prompt_version, outcome, duration_ms, effort)
+            values (${SITE_1}, ${ACTOR_A}, ${crypto.randomUUID()}, 'fake', 1, 'completed', 5, ${effort})
+          `;
+        }),
+        effort,
+      ).rejects.toMatchObject({ code: CHECK_VIOLATION });
+    }
+    await expect(
+      asRuntime(SITE_1, ACTOR_A, (tx) => {
+        return tx`
+          insert into app.ai_turns
+            (workspace_id, actor_id, request_id, engine, prompt_version, outcome, duration_ms, effort)
+          values (${SITE_1}, ${ACTOR_A}, ${crypto.randomUUID()}, 'fake', 1, 'completed', 5, null)
+        `;
+      }),
+    ).rejects.toMatchObject({ code: '23502' });
+  });
+
+  it('ai_messages keeps an optional effort level, normal or high, on both rows of a turn', async () => {
+    const requestId = crypto.randomUUID();
+    const rows = await asRuntime(SITE_1, ACTOR_A, async (tx) => {
+      const [conversation] = await insertConversation(tx, {
+        workspaceId: SITE_1,
+        actorId: ACTOR_A,
+      });
+      const id = conversation?.id ?? '';
+      // A row written as before (no effort) reads null.
+      await insertMessage(tx, { workspaceId: SITE_1, actorId: ACTOR_A, conversationId: id });
+      await tx`
+        insert into app.ai_messages
+          (workspace_id, actor_id, conversation_id, role, text, outcome, request_id, effort)
+        values (${SITE_1}, ${ACTOR_A}, ${id}, 'user', 'Why did orders drop?', 'completed',
+          ${requestId}, 'high'),
+          (${SITE_1}, ${ACTOR_A}, ${id}, 'assistant', 'Because…', 'completed', ${requestId}, 'high')
+      `;
+      return tx<{ role: string; effort: string | null }[]>`
+        select role, effort from app.ai_messages where conversation_id = ${id}
+        order by created_at, id
+      `;
+    });
+    expect(rows).toEqual([
+      { role: 'user', effort: null },
+      { role: 'user', effort: 'high' },
+      { role: 'assistant', effort: 'high' },
+    ]);
+    await expect(
+      asRuntime(SITE_1, ACTOR_A, async (tx) => {
+        const [conversation] = await insertConversation(tx, {
+          workspaceId: SITE_1,
+          actorId: ACTOR_A,
+        });
+        return tx`
+          insert into app.ai_messages
+            (workspace_id, actor_id, conversation_id, role, text, outcome, effort)
+          values (${SITE_1}, ${ACTOR_A}, ${conversation?.id ?? ''}, 'user', 'x', 'completed', 'max')
+        `;
+      }),
+    ).rejects.toMatchObject({ code: CHECK_VIOLATION });
+  });
 });

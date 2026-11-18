@@ -16,6 +16,7 @@ import { Button, Textarea, cn } from '@gt-sales/ui';
 import { useAssistant } from './assistant-provider';
 import { useComposerKeys } from './assistant-shared';
 import { PendingAttachmentChip } from './attachment-chip';
+import { EffortControl, HIGH_EFFORT_HINT } from './effort-control';
 
 export interface ChatComposerHandle {
   focus(): void;
@@ -35,8 +36,16 @@ const MAX_HEIGHT = 200;
  */
 export const ChatComposer = forwardRef<ChatComposerHandle, { disabled?: boolean }>(
   function ChatComposer({ disabled = false }, ref) {
-    const { capabilities, streaming, send, stop, maxMessageChars, attachments, conversations } =
-      useAssistant();
+    const {
+      capabilities,
+      streaming,
+      send,
+      stop,
+      maxMessageChars,
+      attachments,
+      conversations,
+      effort,
+    } = useAssistant();
     const composerId = useId();
     const hintId = useId();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -99,12 +108,15 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { disabled?: boolean 
       attachments.add(images);
     }
 
-    const keyHint = !uploading && !(readyFiles > 0 && text.length === 0);
+    const highChosen = effort.offered && effort.value === 'high';
+    const keyHint = !uploading && !(readyFiles > 0 && text.length === 0) && !highChosen;
     const hint = uploading
       ? 'Waiting for the files to finish uploading…'
       : readyFiles > 0 && text.length === 0
         ? 'Add a question to send with the files.'
-        : 'Enter to send · Shift+Enter for a new line';
+        : highChosen
+          ? `High effort. ${HIGH_EFFORT_HINT}`
+          : 'Enter to send · Shift+Enter for a new line';
 
     return (
       <div className="shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
@@ -208,6 +220,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { disabled?: boolean 
                   {count.toLocaleString()} / {maxMessageChars.toLocaleString()}
                 </span>
               ) : null}
+              <EffortControl disabled={!ready} />
               {streaming ? (
                 <Button
                   type="button"

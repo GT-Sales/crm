@@ -15,6 +15,7 @@ import { Button, Sheet, SheetContent, SheetTitle, Textarea, useIsMobile } from '
 
 import { AssistantMessage } from './assistant-message';
 import { useAssistant } from './assistant-provider';
+import { EffortControl, HIGH_EFFORT_HINT } from './effort-control';
 import {
   announcementFor,
   suggestionsFor,
@@ -46,6 +47,7 @@ export function AssistantPanel() {
     conversations,
     workspaceSlug,
     handOffToChatPage,
+    effort,
   } = useAssistant();
   const isMobile = useIsMobile();
   const composerId = useId();
@@ -289,8 +291,15 @@ export function AssistantPanel() {
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <p className="min-w-0 text-[11px] text-muted-foreground">
-          Enter to send · Shift+Enter for a new line
+          {effort.offered && effort.value === 'high'
+            ? `High effort. ${HIGH_EFFORT_HINT}`
+            : 'Enter to send · Shift+Enter for a new line'}
         </p>
+        {effort.offered ? (
+          <span className="ml-auto">
+            <EffortControl disabled={!ready} />
+          </span>
+        ) : null}
         {streaming ? (
           <Button type="button" size="sm" variant="outline" className="h-8" onClick={stopStreaming}>
             <SquareIcon aria-hidden="true" className="size-3.5" />

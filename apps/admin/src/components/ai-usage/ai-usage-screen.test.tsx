@@ -489,3 +489,80 @@ describe('AiUsageScreen, monitoring', () => {
     expect(screen.queryByText('acme/beta')).toBeNull();
   });
 });
+
+describe('AiUsageScreen, High effort', () => {
+  function withHigh(): AiUsageResponse {
+    const base = monitoring();
+    return {
+      ...base,
+      totals: { ...base.totals, highEffortTurns: 2 },
+      assistant: {
+        ...(base.assistant ?? monitoring().assistant!),
+        highEffort: { enabled: true, model: 'acme/thinker' },
+      },
+      members: base.members.map((entry, index) => ({ ...entry, highEffortTurns: index })),
+      models: (base.models ?? []).map((model, index) => ({
+        ...model,
+        highEffortTurns: index === 0 ? 2 : 0,
+      })),
+    };
+  }
+
+  function fact(label: string): string | null | undefined {
+    const assistant = screen.getByRole('region', { name: 'Assistant' });
+    return within(assistant).getByText(label).nextElementSibling?.textContent;
+  }
+
+  beforeEach(() => {
+    mocks.getAiUsage.mockReset();
+  });
+
+  it('shows whether High is on and its model, the High turns tile and a High column', async () => {
+    mocks.getAiUsage.mockResolvedValue(withHigh());
+    const { container } = render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    expect(fact('High effort')).toBe('On, acme/thinker');
+    expect(tile('High effort turns')).toEqual({ value: '2', note: '25% of turns' });
+    // Nine tiles: three rows of three, never one tile alone.
+    expect(container.querySelectorAll('.crm-kpi-strip')).toHaveLength(3);
+
+    const models = screen.getByRole('table', { name: /Models that served/ });
+    expect(
+      within(models)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toContain('High');
+    const alpha = Array.from(modelRow('acme/alpha').querySelectorAll('td'), (c) => c.textContent);
+    expect(alpha.slice(0, 2)).toEqual(['4', '2']);
+
+    const people = screen.getByRole('table', { name: /usage per member/ });
+    expect(
+      within(people)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual(['Member', 'Turns', 'High', 'Tokens in', 'Tokens out', 'Total tokens', 'Last used']);
+    const small = Array.from(row('Small User').querySelectorAll('td'), (c) => c.textContent);
+    expect(small.slice(0, 2)).toEqual(['2', '0']);
+  });
+
+  it('says Off, with no model, when High is not on', async () => {
+    const data = withHigh();
+    mocks.getAiUsage.mockResolvedValue({
+      ...data,
+      assistant: { ...data.assistant!, highEffort: { enabled: false, model: null } },
+    });
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    expect(fact('High effort')).toBe('Off');
+  });
+
+  it('shows none of it for a backend that does not send the High fields', async () => {
+    mocks.getAiUsage.mockResolvedValue(monitoring());
+    const { container } = render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    expect(screen.queryByText('High effort')).toBeNull();
+    expect(screen.queryByText('High effort turns')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'High' })).toBeNull();
+    expect(container.querySelectorAll('.crm-kpi-strip')).toHaveLength(2);
+  });
+});

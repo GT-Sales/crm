@@ -26,6 +26,7 @@ import {
   AI_CHAT_LIMITS,
   aiAssistantHistoryText,
   type AiCapabilitiesResponse,
+  type AiEffort,
   type AiSource,
   type AiStreamPart,
   type AiActionProposal,
@@ -112,6 +113,8 @@ export interface AiUserMessage {
   text: string;
   /** The files sent with the question (stored conversations only). */
   attachments?: readonly AiAttachmentSummary[];
+  /** Asked at High effort (the request carried it); a retry asks at the same level. */
+  effort?: 'high';
 }
 
 /**
@@ -149,6 +152,10 @@ export interface AiAssistantMessage {
   expiredDrafts?: number;
   /** The saved answer's id (`done.messageId`) in a stored conversation. */
   storedId?: string;
+  /** Answered at High effort: the quiet "High effort" tag, live and after a reload. */
+  effort?: 'high';
+  /** High's own limit refused this turn: seconds until it may be asked at High again. */
+  retryAfterSeconds?: number;
   /**
    * The server took this turn: a part of its stream arrived (the member's
    * message, and any files with it, are then stored), or it was loaded from
@@ -286,8 +293,18 @@ export interface AssistantAttachments {
   remove(localId: string): void;
 }
 
+/** The effort level of the next message: the member's choice, while the tab is open. */
+export interface AssistantEffort {
+  /** The site offers High right now (capabilities list it); otherwise there is no control. */
+  offered: boolean;
+  /** What the member chose; it never changes by itself, and is sent only while offered. */
+  value: AiEffort;
+  set(value: AiEffort): void;
+}
+
 export interface AssistantContextValue {
   workspaceSlug: string;
+  effort: AssistantEffort;
   automationApi: {
     save: (token: string) => ReturnType<typeof saveAiAutomation>;
     revise: (
@@ -462,12 +479,14 @@ function toHistory(messages: readonly AiMessage[]): AiHistoryEntry[] {
  * never the code); action cards and automation drafts are not restored.
  */
 export function storedToMessage(row: AiStoredMessage): AiMessage {
+  const high = row.effort === 'high' ? { effort: 'high' as const } : {};
   if (row.role === 'user') {
     return {
       id: row.id,
       role: 'user',
       text: row.text,
       ...(row.attachments.length > 0 ? { attachments: row.attachments } : {}),
+      ...high,
     };
   }
   const status: AiAssistantMessage['status'] =
@@ -489,6 +508,7 @@ export function storedToMessage(row: AiStoredMessage): AiMessage {
         }
       : {}),
     ...(row.expiredDrafts > 0 ? { expiredDrafts: row.expiredDrafts } : {}),
+    ...high,
   };
 }
 
@@ -544,6 +564,12 @@ export function AssistantProvider({
   const [historyTrimmed, setHistoryTrimmed] = useState(false);
   const contextLeadId = activeLeadId === removedLead ? undefined : activeLeadId;
   const [isOpen, setIsOpen] = useState(false);
+  // The effort level of the next message. Memory only (no browser storage),
+  // so it lasts for this tab and never changes by itself: not on New chat,
+  // another conversation or another site.
+  const [effortChoice, setEffortChoice] = useState<AiEffort>('normal');
+  // Bumped to ask for capabilities again (a site that stopped offering High).
+  const [capabilitiesReload, setCapabilitiesReload] = useState(0);
   const [session, setSession] = useState<SessionState>(() => emptySession(sessionKey));
   const sessionRef = useRef(session);
   const [capabilitiesState, setCapabilitiesState] = useState<CapabilitiesState>(() => ({
@@ -617,6 +643,14 @@ export function AssistantProvider({
   );
   const attachmentNotice = attachmentState.key === sessionKey ? attachmentState.notice : undefined;
 
+  const offeredEfforts = useMemo<readonly AiEffort[]>(
+    () =>
+      capabilities.status === 'ready' && capabilities.data.available
+        ? (capabilities.data.efforts ?? [])
+        : [],
+    [capabilities],
+  );
+  const highOffered = offeredEfforts.includes('high');
   const storesConversations =
     capabilities.status === 'ready' &&
     capabilities.data.available &&
@@ -747,7 +781,7 @@ export function AssistantProvider({
     return () => {
       current = false;
     };
-  }, [accessToken, sessionKey, workspace.id]);
+  }, [accessToken, sessionKey, workspace.id, capabilitiesReload]);
 
   useEffect(
     () => () => {
@@ -847,6 +881,9 @@ export function AssistantProvider({
         return { ...message, status: 'error', error: result, progress: undefined };
       });
       commitSession({ ...current, messages, streaming: false });
+      // The site no longer offers High: ask again, so the control goes. The
+      // question waits for the member's Retry, which then asks at Normal.
+      if (result === 'effort_unavailable') setCapabilitiesReload((count) => count + 1);
     },
     [commitSession],
   );
@@ -857,18 +894,22 @@ export function AssistantProvider({
       base: readonly AiMessage[],
       userMessage: AiUserMessage,
       limits: AiRequestLimits,
-      stored?: { conversationId: string; attachmentIds: readonly string[] },
+      stored: { conversationId: string; attachmentIds: readonly string[] } | undefined,
+      efforts: readonly AiEffort[],
     ) => {
       const run = generationRef.current + 1;
       generationRef.current = run;
       const controller = new AbortController();
       abortRef.current = controller;
+      // High only when the question is High and the site offers it now.
+      const high = userMessage.effort === 'high' && efforts.includes('high');
       const assistant: AiAssistantMessage = {
         id: nextMessageId(),
         role: 'assistant',
         text: '',
         status: 'streaming',
         sources: [],
+        ...(high ? { effort: 'high' as const } : {}),
       };
       commitSession({
         ...sessionRef.current,
@@ -885,6 +926,7 @@ export function AssistantProvider({
         ...(stored === undefined
           ? {}
           : { conversationId: stored.conversationId, attachmentIds: stored.attachmentIds }),
+        ...(userMessage.effort === undefined ? {} : { effort: userMessage.effort, efforts }),
       });
       setHistoryTrimmed(built.trimmed);
       let titled = false;
@@ -895,6 +937,18 @@ export function AssistantProvider({
           workspaceId: workspace.id,
           request: built.request,
           signal: controller.signal,
+          onRetryAfter(seconds) {
+            if (generationRef.current !== run) return;
+            const current = sessionRef.current;
+            commitSession({
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === assistant.id && message.role === 'assistant'
+                  ? { ...message, retryAfterSeconds: seconds }
+                  : message,
+              ),
+            });
+          },
           onPart(part) {
             if (generationRef.current !== run) return;
             if (!answered) {
@@ -1536,12 +1590,16 @@ export function AssistantProvider({
         .slice(0, capabilities.data.limits.maxMessageChars)
         .join('');
       if (text.length === 0) return false;
+      // The member's level, for this question only where the site offers it.
+      const level = effortChoice === 'high' && highOffered ? { effort: 'high' as const } : {};
       if (!storesConversations) {
         startTurn(
           text,
           current.messages,
-          { id: nextMessageId(), role: 'user', text },
+          { id: nextMessageId(), role: 'user', text, ...level },
           capabilities.data.limits,
+          undefined,
+          offeredEfforts,
         );
         return true;
       }
@@ -1587,9 +1645,11 @@ export function AssistantProvider({
           role: 'user',
           text,
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...level,
         },
         capabilities.data.limits,
         { conversationId, attachmentIds: attachments.map((summary) => summary.id) },
+        offeredEfforts,
       );
       return true;
     },
@@ -1597,7 +1657,10 @@ export function AssistantProvider({
       capabilities,
       commitAttachments,
       commitSession,
+      effortChoice,
+      highOffered,
       linkCache,
+      offeredEfforts,
       startTurn,
       storesConversations,
       workspace.id,
@@ -1630,9 +1693,16 @@ export function AssistantProvider({
         startTurn(
           user.text,
           current.messages,
-          { id: nextMessageId(), role: 'user', text: user.text },
+          {
+            id: nextMessageId(),
+            role: 'user',
+            text: user.text,
+            // Asked again at the level it was asked at (Normal if the site stopped offering High).
+            ...(user.effort === undefined ? {} : { effort: user.effort }),
+          },
           capabilities.data.limits,
           { conversationId: current.conversationId, attachmentIds: [] },
+          offeredEfforts,
         );
         return;
       }
@@ -1656,12 +1726,20 @@ export function AssistantProvider({
           conversationId,
           attachmentIds: (user.attachments ?? []).map((attachment) => attachment.id),
         },
+        offeredEfforts,
       );
       return;
     }
     if (failed.status !== 'error') return;
-    startTurn(user.text, current.messages.slice(0, userIndex), user, capabilities.data.limits);
-  }, [capabilities, commitSession, startTurn, storesConversations]);
+    startTurn(
+      user.text,
+      current.messages.slice(0, userIndex),
+      user,
+      capabilities.data.limits,
+      undefined,
+      offeredEfforts,
+    );
+  }, [capabilities, commitSession, offeredEfforts, startTurn, storesConversations]);
 
   const updateAction = useCallback(
     (messageId: string, actionId: string, change: Partial<AiActionView>) => {
@@ -1885,9 +1963,15 @@ export function AssistantProvider({
     [addAttachments, attachmentNotice, attachmentSettings, pendingAttachments, removeAttachment],
   );
 
+  const effort = useMemo<AssistantEffort>(
+    () => ({ offered: highOffered, value: effortChoice, set: setEffortChoice }),
+    [effortChoice, highOffered],
+  );
+
   const value = useMemo<AssistantContextValue>(
     () => ({
       workspaceSlug: workspace.slug,
+      effort,
       automationApi: {
         save: (token) => saveAiAutomation(accessToken, workspace.id, token),
         revise: (token, draft) => reviseAiAutomation(accessToken, workspace.id, token, draft),
@@ -1926,6 +2010,7 @@ export function AssistantProvider({
     }),
     [
       updateAutomationCard,
+      effort,
       activeLeadId,
       contextLeadId,
       historyTrimmed,

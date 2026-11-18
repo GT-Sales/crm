@@ -235,6 +235,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
               apiKey: aiConfig.apiKey,
               modelId: aiConfig.modelId,
               ...(aiConfig.providers ? { providers: aiConfig.providers } : {}),
+              ...(aiConfig.highEffort ? { highEffort: aiConfig.highEffort } : {}),
             }),
           }
         : {}),

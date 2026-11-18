@@ -5,6 +5,7 @@ import {
   aiAttachmentKindSchema,
   aiAttachmentMediaTypeSchema,
   aiConversationTitleSchema,
+  aiEffortSchema,
   aiFollowUpSchema,
   aiSourceSchema,
 } from './ai-assistant';
@@ -134,6 +135,11 @@ export const aiStoredMessageSchema = z.object({
   expiredDrafts: z.int().nonnegative().max(100),
   createdAt: isoDateTimeSchema,
   attachments: z.array(aiAttachmentSummarySchema).max(AI_CHAT_LIMITS.maxAttachmentsPerMessage),
+  /**
+   * The effort level the turn was asked at, on both of its rows. Absent for a
+   * row written before effort levels were stored (and from an older backend).
+   */
+  effort: aiEffortSchema.optional(),
 });
 export type AiStoredMessage = z.infer<typeof aiStoredMessageSchema>;
 
@@ -269,6 +275,8 @@ export const aiUsageTotalsSchema = aiUsageCountsSchema.extend({
   cancelledTurns: usageCount.optional(),
   toolCalls: usageCount.optional(),
   averageDurationMs: usageCount.nullable().optional(),
+  /** Turns asked at High effort (0 for turns recorded before effort levels). */
+  highEffortTurns: usageCount.optional(),
 });
 export type AiUsageTotals = z.infer<typeof aiUsageTotalsSchema>;
 
@@ -278,6 +286,8 @@ export const aiUsageMemberSchema = aiUsageCountsSchema.extend({
   /** Their own display name on this site; null when unset or no longer a member. */
   displayName: z.string().min(1).max(80).nullable(),
   lastUsedAt: isoDateTimeSchema,
+  /** Of their turns, those asked at High effort; absent from an older backend. */
+  highEffortTurns: usageCount.optional(),
 });
 export type AiUsageMember = z.infer<typeof aiUsageMemberSchema>;
 
@@ -297,6 +307,15 @@ export const aiUsageAssistantSchema = z.object({
   providers: z.array(z.string().min(1).max(40)).max(8),
   conversations: z.boolean(),
   attachmentKinds: z.array(aiAttachmentKindSchema).max(3),
+  /**
+   * High effort for this site: whether members may choose it
+   * (`AI_HIGH_EFFORT_ENABLED` and Ask AI on for the site) and the exact model
+   * id that serves it (`AI_GATEWAY_MODEL_HIGH`, else `AI_GATEWAY_MODEL`; null
+   * when neither is read). Absent from an older backend.
+   */
+  highEffort: z
+    .object({ enabled: z.boolean(), model: z.string().min(1).max(200).nullable() })
+    .optional(),
 });
 export type AiUsageAssistant = z.infer<typeof aiUsageAssistantSchema>;
 
@@ -317,6 +336,8 @@ export const aiUsageModelSchema = aiUsageCountsSchema.extend({
   failedTurns: usageCount,
   averageDurationMs: usageCount.nullable(),
   lastUsedAt: isoDateTimeSchema,
+  /** Of its turns, those asked at High effort; absent from an older backend. */
+  highEffortTurns: usageCount.optional(),
 });
 export type AiUsageModel = z.infer<typeof aiUsageModelSchema>;
 

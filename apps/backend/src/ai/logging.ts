@@ -13,7 +13,10 @@ export interface AiTurnLog {
   readonly workspaceId: string;
   readonly actorId: string;
   readonly engine: 'gateway' | 'fake';
+  /** The model that served the turn: the High model on a High turn. */
   readonly modelId?: string;
+  /** The turn's effort level; absent is `normal`. */
+  readonly effort?: import('@gt-sales/contracts').AiEffort;
   readonly promptVersion: number;
   readonly outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost';
   readonly durationMs: number;
@@ -35,6 +38,7 @@ export function logAiTurn(record: AiTurnLog): void {
       actorId: sanitizeLogIdentifier(record.actorId),
       engine: record.engine,
       model: record.modelId === undefined ? 'unset' : sanitizeLogIdentifier(record.modelId),
+      effort: record.effort ?? 'normal',
       promptVersion: record.promptVersion,
       outcome: record.outcome,
       durationMs: record.durationMs,

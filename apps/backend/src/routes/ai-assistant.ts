@@ -35,6 +35,7 @@ import {
   aiAssistantHistoryText,
   type AiFollowUp,
   AI_ASSISTANT_LIMITS,
+  AI_EFFORTS,
   aiCapabilitiesResponseSchema,
   confirmAiActionRequestSchema,
   confirmAiActionResponseSchema,
@@ -45,6 +46,7 @@ import {
   type AiSource,
   type AiCapabilitiesResponse,
   type AiChatRequest,
+  type AiEffort,
   type AiStreamPart,
   leadStageLabel,
   leadTypeLabel,
@@ -65,7 +67,7 @@ import type { VerifiedStaffSession } from '../auth/session.js';
 import type { AiAssistantConfig } from '../ai/config.js';
 import type { AssistantEngine } from '../ai/engine.js';
 import { logAiTurn, type AiTurnLog } from '../ai/logging.js';
-import { TurnBudget } from '../ai/limits.js';
+import { TurnBudget, turnLimits } from '../ai/limits.js';
 import { buildSystemPrompt, openLeadDataBlock, AI_PROMPT_VERSION } from '../ai/prompt.js';
 import { serializedBytes } from '../ai/projections.js';
 import type { AiReadService } from '../ai/read-service.js';
@@ -252,9 +254,13 @@ function capabilityDocument(
   canAct = false,
   automationAuthoring = false,
   chat?: { availability: AiChatAvailability; kinds: readonly AiAttachmentKind[] },
+  highEffort = false,
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
+    // Only where High is on: absent, the composer shows no effort control
+    // (and an older admin, which does not know the field, strips it).
+    ...(highEffort && unavailable === undefined ? { efforts: [...AI_EFFORTS] } : {}),
     ...(automationAuthoring ? { automationAuthoring: true } : {}),
     ...(chat?.availability.conversations ? { conversations: true } : {}),
     ...(chat?.availability.attachments && chat.kinds.length > 0
@@ -503,6 +509,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             decideAccess(access, 'integration.manage').allowed,
           ),
           { availability, kinds: dependencies.chat?.attachments?.kinds ?? [] },
+          dependencies.config.highEffort !== undefined,
         ),
       );
     } catch (error) {
@@ -790,6 +797,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       return;
     }
     const body = parsed.data;
+    // Absent is Normal: the turn exactly as it always was.
+    const effort: AiEffort = body.effort ?? 'normal';
+    const high = effort === 'high';
+    const limits = turnLimits(effort);
     const startedAt = Date.now();
     const controller = new AbortController();
     activeTurns.add(controller);
@@ -799,7 +810,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, AI_ASSISTANT_LIMITS.requestTimeoutMs);
+    }, limits.timeoutMs);
     const onClose = () => {
       if (!res.writableEnded) {
         clientGone = true;
@@ -822,6 +833,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
       if (!dependencies.config.workspaceIds.has(workspaceId.data)) {
         await refuseDisabled(res, req.id);
+        return;
+      }
+      // The member chose High: a site that does not offer it says so, before
+      // any work, rather than quietly answering at Normal.
+      const highEffort = dependencies.config.highEffort;
+      if (high && highEffort === undefined) {
+        sendDomainError(res, req.id, 'invalid_request', 400, { reason: 'effort_unavailable' });
         return;
       }
 
@@ -880,6 +898,45 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'ai_rate_limited', 429);
         return;
       }
+      // High costs more: its own hourly and daily limits on top of the ones
+      // above, through the same limiter, failing closed the same way. A Normal
+      // turn never touches these buckets.
+      if (high) {
+        let highActorLimit: RateLimitResult;
+        let highSiteDayLimit: RateLimitResult;
+        try {
+          highActorLimit = await wait(
+            dependencies.rateLimit({
+              bucketKey: `ai_high_actor:${actor.actorId}:${workspaceId.data}`,
+              windowSeconds: 3_600,
+              maxCount: AI_ASSISTANT_LIMITS.highPerActorPerHour,
+            }),
+          );
+          highSiteDayLimit = await wait(
+            dependencies.rateLimit({
+              bucketKey: `ai_high_site_day:${workspaceId.data}`,
+              windowSeconds: 86_400,
+              maxCount: AI_ASSISTANT_LIMITS.highPerSitePerDay,
+            }),
+          );
+        } catch (error) {
+          dependencies.reportFailure(req, error);
+          await refuseDisabled(res, req.id);
+          return;
+        }
+        if (!highActorLimit.allowed || !highSiteDayLimit.allowed) {
+          const retryAfter = Math.max(
+            highActorLimit.retryAfterSeconds,
+            highSiteDayLimit.retryAfterSeconds,
+          );
+          res.setHeader('retry-after', String(retryAfter));
+          sendDomainError(res, req.id, 'ai_rate_limited', 429, {
+            reason: 'high_effort',
+            retryAfterSeconds: retryAfter,
+          });
+          return;
+        }
+      }
 
       // A duplicate client request id is the same question twice (two tabs, a
       // retried fetch): refuse it instead of spending a second turn. The claim
@@ -906,7 +963,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
 
       const turnStarted = now();
       const scope: Scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const budget = new TurnBudget();
+      const budget = new TurnBudget(effort);
       const actionTools =
         dependencies.work &&
         dependencies.config.signingKey &&
@@ -976,6 +1033,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       // message stored, in one transaction, before the first frame, so every
       // refusal is still an ordinary JSON error.
       let stored: StoredTurn | undefined;
+      let effortColumn = false;
       const chat = dependencies.chat;
       if (body.conversationId !== undefined) {
         const availability = await wait(aiChatAvailability(chat, scope));
@@ -989,6 +1047,14 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           sendDomainError(res, req.id, 'attachments_unavailable', 503);
           return;
         }
+        // Both rows of the turn keep its level once 0037 holds the column.
+        effortColumn = await wait(chat?.schema.state(scope) ?? Promise.resolve(undefined)).then(
+          (state) => state?.effort === true,
+          (error: unknown) => {
+            if (error instanceof AssistantProviderError) throw error;
+            return false;
+          },
+        );
         let begun: Awaited<ReturnType<AiConversationStore['beginTurn']>>;
         try {
           // Not raced against the abort: the transaction commits either way
@@ -1000,6 +1066,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             requestId: body.requestId,
             text: body.message,
             attachmentIds,
+            ...(effortColumn ? { effort } : {}),
           });
         } catch (error) {
           dependencies.reportFailure(req, chatStoreFailure('ai_turn_store_failed', error));
@@ -1021,6 +1088,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               ...(timedOut ? { errorCode: 'timeout' } : {}),
               sources: [],
               expiredDrafts: 0,
+              ...(effortColumn ? { effort } : {}),
             })
             .catch((error: unknown) => {
               dependencies.reportFailure(req, chatStoreFailure('ai_answer_store_failed', error));
@@ -1316,6 +1384,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 getCrmGuide: createCrmGuideTool(budget),
               },
               signal: controller.signal,
+              // Only a High turn names its level, so a Normal turn's input is as it was.
+              ...(high ? { effort } : {}),
               executeTool: (name, input) =>
                 isToolName(name)
                   ? toolset.execute(name, input)
@@ -1346,6 +1416,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                       ? PROGRESS_LABELS[event.toolName]
                       : (CARD_PROGRESS_LABELS[event.toolName] ?? 'Checking the CRM'),
                   });
+                  break;
+                case 'reasoning':
+                  // The model is reasoning (a step's first reasoning part): the
+                  // member sees it is working, never what it thinks. A Normal
+                  // turn's stream is unchanged, whatever its model does.
+                  if (high) writePart({ type: 'progress', label: 'Thinking' });
                   break;
                 case 'finish':
                   finished = true;
@@ -1506,7 +1582,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               workspaceId: workspaceId.data,
               actorId: actor.actorId,
               engine: engine.kind,
-              modelId: dependencies.config.modelId,
+              // The model that served the turn: High's own when it has one.
+              modelId: high ? highEffort?.modelId : dependencies.config.modelId,
+              effort,
               promptVersion: AI_PROMPT_VERSION,
               outcome,
               durationMs: Date.now() - startedAt,
@@ -1544,6 +1622,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                   sources: lost ? [] : sentSources,
                   ...(lost || sentFollowUp === undefined ? {} : { followUp: sentFollowUp }),
                   expiredDrafts: lost ? 0 : releasedDrafts,
+                  ...(effortColumn ? { effort } : {}),
                 })
                 .catch((error: unknown) => {
                   dependencies.reportFailure(

@@ -68,7 +68,12 @@ export class DatabaseAiUsageStore implements AiUsageStore {
 
   async usage(scope: TenantContext, period: AiUsagePeriod): Promise<AiUsageResult> {
     // Before 0034 there is no input_tokens column: those turns count as 0.
-    const inputTokens = (await this.schema.state(scope)).inputTokens ? sql`t.input_tokens` : sql`0`;
+    const state = await this.schema.state(scope);
+    const inputTokens = state.inputTokens ? sql`t.input_tokens` : sql`0`;
+    // Before 0037 there is no effort column: no turn counts as High.
+    const highTurns = state.effort
+      ? sql`count(*) filter (where t.effort = 'high')`
+      : sql`0::bigint`;
     const today = todayInToronto(this.now());
     const zone = sql.raw(`'${USAGE_TIME_ZONE}'`);
     // The period's first day and the day after today, as instants: a Toronto
@@ -88,13 +93,15 @@ export class DatabaseAiUsageStore implements AiUsageStore {
         turns: string;
         inputTokens: string;
         outputTokens: string;
+        highEffortTurns: string;
         lastUsedAt: string;
       }>(sql`
         select u.actor_id as "actorId", m.display_name as "displayName",
           u.turns::text as turns, u.input_tokens::text as "inputTokens",
-          u.output_tokens::text as "outputTokens", to_json(u.last_used_at)#>>'{}' as "lastUsedAt"
+          u.output_tokens::text as "outputTokens", u.high_turns::text as "highEffortTurns",
+          to_json(u.last_used_at)#>>'{}' as "lastUsedAt"
         from (
-          select t.actor_id, count(*) as turns,
+          select t.actor_id, count(*) as turns, ${highTurns} as high_turns,
             coalesce(sum(${inputTokens}), 0) as input_tokens,
             coalesce(sum(t.output_tokens), 0) as output_tokens,
             max(t.created_at) as last_used_at
@@ -123,11 +130,13 @@ export class DatabaseAiUsageStore implements AiUsageStore {
         inputTokens: string;
         outputTokens: string;
         toolCalls: string;
+        highEffortTurns: string;
         averageDurationMs: string | null;
         lastUsedAt: string | null;
       }>(sql`
         select grouping(t.engine, t.model) <> 0 as total, t.engine, t.model,
           count(*)::text as turns,
+          (${highTurns})::text as "highEffortTurns",
           (count(*) filter (where t.outcome = 'completed'))::text as completed,
           (count(*) filter (where t.outcome = 'failed'))::text as failed,
           (count(*) filter (where t.outcome = 'cancelled'))::text as cancelled,
@@ -198,6 +207,7 @@ export class DatabaseAiUsageStore implements AiUsageStore {
           outputTokens: toInt(row.outputTokens),
           averageDurationMs: toAverage(row.averageDurationMs),
           lastUsedAt: new Date(row.lastUsedAt).toISOString(),
+          highEffortTurns: toInt(row.highEffortTurns),
         }))
         .slice(0, AI_USAGE_MAX_MODELS);
 
@@ -211,6 +221,7 @@ export class DatabaseAiUsageStore implements AiUsageStore {
           cancelledTurns: toInt(totalRow?.cancelled ?? null),
           toolCalls: toInt(totalRow?.toolCalls ?? null),
           averageDurationMs: toAverage(totalRow?.averageDurationMs ?? null),
+          highEffortTurns: toInt(totalRow?.highEffortTurns ?? null),
         },
         members: memberRows.map((row): AiUsageMember => ({
           actorId: row.actorId,
@@ -219,6 +230,7 @@ export class DatabaseAiUsageStore implements AiUsageStore {
           inputTokens: toInt(row.inputTokens),
           outputTokens: toInt(row.outputTokens),
           lastUsedAt: new Date(row.lastUsedAt).toISOString(),
+          highEffortTurns: toInt(row.highEffortTurns),
         })),
         models,
         daily: dayRows.map((row): AiUsageDay => ({
