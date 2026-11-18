@@ -9,6 +9,11 @@ import { AssistantProviderError, type EngineAttachment, type EngineMessage } fro
 import type { AiChatSchemaProbe } from '../ai/chat-schema.js';
 import { aiAttachmentAccept, type AiAttachmentService } from '../ai/attachments.js';
 import {
+  sharedAttachmentByteBudget,
+  type AttachmentBudgetLease,
+  type AttachmentByteBudget,
+} from '../ai/attachment-budget.js';
+import {
   conversationTitleFrom,
   type AiConversationStore,
   type AiReplayMessage,
@@ -178,6 +183,8 @@ export interface AiChatDependencies {
   usage?: AiUsageStore;
   /** Whether migrations 0034–0036 are applied; never claims conversations without it. */
   schema: AiChatSchemaProbe;
+  /** The bound on attachment bytes held for the model; the process-wide one by default. */
+  memoryBudget?: AttachmentByteBudget;
 }
 
 /** What the saved chat can do for this site right now. */
@@ -984,19 +991,41 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         }
         let begun: Awaited<ReturnType<AiConversationStore['beginTurn']>>;
         try {
-          begun = await wait(
-            conversations.beginTurn(scope, {
-              conversationId: body.conversationId,
-              title: conversationTitleFrom(body.message),
-              requestId: body.requestId,
-              text: body.message,
-              attachmentIds,
-            }),
-          );
+          // Not raced against the abort: the transaction commits either way
+          // (its statements carry their own timeout), so the turn waits for it
+          // and, if it was stopped meanwhile, stores the stopped answer below.
+          begun = await conversations.beginTurn(scope, {
+            conversationId: body.conversationId,
+            title: conversationTitleFrom(body.message),
+            requestId: body.requestId,
+            text: body.message,
+            attachmentIds,
+          });
         } catch (error) {
-          if (error instanceof AssistantProviderError) throw error;
           dependencies.reportFailure(req, chatStoreFailure('ai_turn_store_failed', error));
-          sendStaffAuthError(res, req.id, 'internal_error', 500);
+          if (!res.headersSent && !clientGone)
+            sendStaffAuthError(res, req.id, 'internal_error', 500);
+          return;
+        }
+        if (begun.status === 'started' && controller.signal.aborted) {
+          // The member's question is stored; so is the answer that never came,
+          // so a reload shows the turn as stopped (or timed out) and its files
+          // are not left looking unanswered.
+          await conversations
+            .appendAnswer(scope, {
+              conversationId: begun.conversation.id,
+              messageId: randomUUID(),
+              requestId: body.requestId,
+              text: '',
+              outcome: timedOut ? 'failed' : 'cancelled',
+              ...(timedOut ? { errorCode: 'timeout' } : {}),
+              sources: [],
+              expiredDrafts: 0,
+            })
+            .catch((error: unknown) => {
+              dependencies.reportFailure(req, chatStoreFailure('ai_answer_store_failed', error));
+            });
+          if (!res.headersSent && !clientGone) await refuseDisabled(res, req.id);
           return;
         }
         switch (begun.status) {
@@ -1025,6 +1054,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         }
       }
       const storedTurn = stored;
+      const memoryBudget = chat?.memoryBudget ?? sharedAttachmentByteBudget;
+      let attachmentLease: AttachmentBudgetLease | undefined;
 
       /**
        * The model's messages for a stored turn: the replayed history, then the
@@ -1066,6 +1097,17 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           included.add(file.id);
           bytes += file.byteSize;
         }
+        // The process-wide bound on bytes held for the model: this turn takes
+        // its share at once or sends its images and PDFs as not available,
+        // rather than queueing behind other turns. Released in the turn's
+        // `finally`, however it ends.
+        const binary = candidates.filter((file) => included.has(file.id) && file.kind !== 'text');
+        const share = binary.reduce((total, file) => total + file.byteSize, 0);
+        if (share > 0) {
+          const lease = memoryBudget.tryAcquire(share);
+          if (lease) attachmentLease = lease;
+          else for (const file of binary) included.delete(file.id);
+        }
         const toEngine = async (
           files: readonly AiTurnAttachment[],
         ): Promise<EngineAttachment[]> => {
@@ -1076,7 +1118,16 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             } else if (file.kind === 'text') {
               out.push({ kind: 'text', fileName: file.fileName, text: file.extractedText ?? '' });
             } else if (service) {
-              const data = await wait(service.readForModel(scope, file));
+              let data: Uint8Array;
+              try {
+                data = await wait(service.readForModel(scope, file));
+              } catch (error) {
+                if (error instanceof AssistantProviderError) throw error;
+                // Gone meanwhile (its conversation is being deleted) or unreadable:
+                // the turn goes on without it, and says so.
+                out.push({ kind: 'omitted', fileName: file.fileName });
+                continue;
+              }
               if (file.mediaType === 'application/pdf') {
                 out.push({ kind: 'pdf', mediaType: file.mediaType, fileName: file.fileName, data });
               } else if (
@@ -1325,41 +1376,46 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               return;
             }
 
-            if (!controller.signal.aborted) {
-              // A dropped engine stream is a failed turn, even if it already
-              // yielded some text. Only an explicit finish can release sources
-              // and the successful terminal frame.
-              if (!finished) throw new AssistantProviderError();
-              // Access is rechecked before any answer is released: a role removed
-              // while the model was writing must not receive the rest of the turn.
-              const finalAccess = await wait(
-                dependencies.loadAccess(actor.actorId, workspaceId.data),
-              );
-              if (!decideAiAccess(finalAccess).allowed) {
-                outcome = 'access_lost';
-                writePart({
-                  type: 'error',
-                  code: 'access_lost',
-                  message: 'Your access to this site changed. Close Ask AI and sign in again.',
-                });
-                return;
-              }
-              const cards = sources.list();
-              if (cards.length > 0) writePart({ type: 'sources', sources: cards });
-              if (
-                actionTools &&
-                actionTools.proposals.length > 0 &&
-                decideAccess(finalAccess, 'lead.manage').allowed
-              )
-                writePart({ type: 'actions', actions: actionTools.proposals });
-              if (
-                automationTools?.proposals.length &&
-                decideAccess(finalAccess, 'integration.manage').allowed
-              )
-                writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
-              if (followUp) writePart({ type: 'follow_up', followUp });
-              writeDone();
+            // Aborted without an exception (the engine yielded once more after
+            // the client left, or the process is shutting down): a stopped
+            // turn, never a completed one.
+            if (controller.signal.aborted) {
+              outcome = 'cancelled';
+              return;
             }
+            // A dropped engine stream is a failed turn, even if it already
+            // yielded some text. Only an explicit finish can release sources
+            // and the successful terminal frame.
+            if (!finished) throw new AssistantProviderError();
+            // Access is rechecked before any answer is released: a role removed
+            // while the model was writing must not receive the rest of the turn.
+            const finalAccess = await wait(
+              dependencies.loadAccess(actor.actorId, workspaceId.data),
+            );
+            if (!decideAiAccess(finalAccess).allowed) {
+              outcome = 'access_lost';
+              writePart({
+                type: 'error',
+                code: 'access_lost',
+                message: 'Your access to this site changed. Close Ask AI and sign in again.',
+              });
+              return;
+            }
+            const cards = sources.list();
+            if (cards.length > 0) writePart({ type: 'sources', sources: cards });
+            if (
+              actionTools &&
+              actionTools.proposals.length > 0 &&
+              decideAccess(finalAccess, 'lead.manage').allowed
+            )
+              writePart({ type: 'actions', actions: actionTools.proposals });
+            if (
+              automationTools?.proposals.length &&
+              decideAccess(finalAccess, 'integration.manage').allowed
+            )
+              writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
+            if (followUp) writePart({ type: 'follow_up', followUp });
+            writeDone();
           } catch (error) {
             if (revoked || error instanceof AssistantAccessRevokedError) {
               outcome = 'access_lost';
@@ -1444,6 +1500,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           } finally {
             activeTurns.delete(controller);
             clearTimeout(timer);
+            attachmentLease?.release();
             const turnRecord: AiTurnLog = {
               requestId: req.id,
               workspaceId: workspaceId.data,

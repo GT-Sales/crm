@@ -123,11 +123,25 @@ export interface AiConversationStore {
     conversationId: string,
     title: string,
   ): Promise<AiConversation | undefined>;
-  /** Deletes the conversation (its messages and files by cascade); the files' objects to remove. */
-  delete(
+  /**
+   * The stored objects of the conversation's files, for the member's delete
+   * to remove BEFORE the rows; undefined when it is not this member's.
+   */
+  listObjects(
     scope: TenantContext,
     conversationId: string,
   ): Promise<{ objects: { bucket: string; objectKey: string }[] } | undefined>;
+  /**
+   * Deletes the conversation (its messages and files by cascade), but only
+   * when its files are still exactly `removedObjects` (the objects already
+   * deleted): a file a concurrent turn added meanwhile answers `changed`, so
+   * the caller deletes that object too before trying again.
+   */
+  delete(
+    scope: TenantContext,
+    conversationId: string,
+    removedObjects: readonly { bucket: string; objectKey: string }[],
+  ): Promise<'deleted' | 'changed' | 'not_found'>;
   /**
    * One transaction: create the conversation on its first message or load it,
    * check the message limit, link this message's files and store the
@@ -143,7 +157,7 @@ export interface AiConversationStore {
   appendAnswer(scope: TenantContext, input: AppendAiAnswerInput): Promise<void>;
 }
 
-/** Rows read back to build the replayed history: enough for 12 whole turns among failed ones. */
+/** Completed turns read back to build the replayed history (the newest are kept within the limits). */
 export const AI_HISTORY_SCAN_MESSAGES = 48;
 
 /** The first title of a conversation: its opening message's first 60 characters, on one line. */
@@ -160,6 +174,23 @@ export function conversationTitleFrom(message: string): string {
 export function clipCharacters(text: string, max: number): string {
   const characters = Array.from(text);
   return characters.length <= max ? text : characters.slice(0, max).join('');
+}
+
+/** Postgres text cannot hold U+0000: it is dropped from what is stored (the model got it as typed). */
+export function withoutNul(text: string): string {
+  return text.includes('\u0000') ? text.split('\u0000').join('') : text;
+}
+
+/** A message's text as stored: without NUL, clipped to the stored limit. */
+function storedText(text: string): string {
+  return clipCharacters(withoutNul(text), AI_CHAT_LIMITS.maxStoredMessageChars);
+}
+
+/** JSON for a jsonb column, whose strings cannot hold U+0000 either. */
+function storedJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    typeof item === 'string' ? withoutNul(item) : item,
+  );
 }
 
 /** A timestamp as an ISO string the contract accepts (the driver hands raw text back). */
@@ -397,28 +428,45 @@ export class DatabaseAiConversationStore implements AiConversationStore {
     });
   }
 
-  delete(
+  listObjects(
     scope: TenantContext,
     conversationId: string,
   ): Promise<{ objects: { bucket: string; objectKey: string }[] } | undefined> {
     return this.database.withTenantTx(scope, async (tx) => {
-      // The files' keys first: the cascade removes their rows with the conversation.
-      const files = await tx.execute<{ bucket: string; objectKey: string }>(sql`
-        select a.bucket, a.object_key as "objectKey"
-        from app.ai_attachments a
-        where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
-          and a.conversation_id = ${conversationId}
+      const [conversation] = await tx.execute<{ id: string }>(sql`
+        select c.id from app.ai_conversations c
+        where c.workspace_id = ${scope.workspaceId} and c.actor_id = ${scope.actorId}
+          and c.id = ${conversationId}
       `);
-      const [deleted] = await tx.execute<{ id: string }>(sql`
+      if (!conversation) return undefined;
+      return { objects: await objectsOf(tx, scope, conversationId) };
+    });
+  }
+
+  delete(
+    scope: TenantContext,
+    conversationId: string,
+    removedObjects: readonly { bucket: string; objectKey: string }[],
+  ): Promise<'deleted' | 'changed' | 'not_found'> {
+    return this.database.withTenantTx(scope, async (tx) => {
+      // Locked, so no turn adds a file between this check and the delete.
+      const [conversation] = await tx.execute<{ id: string }>(sql`
+        select c.id from app.ai_conversations c
+        where c.workspace_id = ${scope.workspaceId} and c.actor_id = ${scope.actorId}
+          and c.id = ${conversationId}
+        for update
+      `);
+      if (!conversation) return 'not_found';
+      const removed = new Set(removedObjects.map((file) => `${file.bucket}:${file.objectKey}`));
+      const current = await objectsOf(tx, scope, conversationId);
+      if (current.some((file) => !removed.has(`${file.bucket}:${file.objectKey}`)))
+        return 'changed';
+      await tx.execute(sql`
         delete from app.ai_conversations c
         where c.workspace_id = ${scope.workspaceId} and c.actor_id = ${scope.actorId}
           and c.id = ${conversationId}
-        returning c.id
       `);
-      if (!deleted) return undefined;
-      return {
-        objects: files.map((file) => ({ bucket: file.bucket, objectKey: file.objectKey })),
-      };
+      return 'deleted';
     });
   }
 
@@ -430,7 +478,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
         // below finds nothing, which answers exactly like an unknown id.
         const inserted = await tx.execute<{ id: string }>(sql`
           insert into app.ai_conversations (id, workspace_id, actor_id, title, last_message_at)
-          values (${input.conversationId}, ${scope.workspaceId}, ${scope.actorId}, ${input.title}, now())
+          values (${input.conversationId}, ${scope.workspaceId}, ${scope.actorId}, ${withoutNul(input.title)}, now())
           on conflict (id) do nothing
           returning id
         `);
@@ -482,8 +530,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           insert into app.ai_messages
             (workspace_id, conversation_id, actor_id, role, text, outcome, request_id)
           values (${scope.workspaceId}, ${input.conversationId}, ${scope.actorId}, 'user',
-            ${clipCharacters(input.text, AI_CHAT_LIMITS.maxStoredMessageChars)}, 'completed',
-            ${input.requestId})
+            ${storedText(input.text)}, 'completed', ${input.requestId})
           on conflict (workspace_id, conversation_id, request_id, role)
             where request_id is not null do nothing
           returning id
@@ -529,32 +576,41 @@ export class DatabaseAiConversationStore implements AiConversationStore {
     input: { conversationId: string; beforeMessageId: string; reservedChars: number },
   ): Promise<AiReplayMessage[]> {
     return this.database.withTenantTx(scope, async (tx) => {
+      // Whole completed turns only, each question paired with ITS answer by
+      // the request id both rows carry (two tabs can interleave a
+      // conversation's rows in time). A stopped, failed or access-lost answer
+      // is dropped with its question, so the model sees question, answer,
+      // question, answer. The join uses the partial unique index on
+      // (workspace_id, conversation_id, request_id, role).
       const rows = await tx.execute<Record<string, unknown>>(sql`
-        select m.id, m.role, m.text, m.outcome, m.follow_up as "followUp"
-        from app.ai_messages m
-        where m.workspace_id = ${scope.workspaceId} and m.actor_id = ${scope.actorId}
-          and m.conversation_id = ${input.conversationId}
-          and m.id <> ${input.beforeMessageId}
-        order by m.created_at desc, m.id desc
+        select q.id, q.text as question, a.text as answer, a.follow_up as "followUp"
+        from app.ai_messages q
+        join app.ai_messages a
+          on a.workspace_id = q.workspace_id
+         and a.conversation_id = q.conversation_id
+         and a.request_id = q.request_id
+         and a.role = 'assistant'
+         and a.actor_id = ${scope.actorId}
+         and a.outcome = 'completed'
+        where q.workspace_id = ${scope.workspaceId} and q.actor_id = ${scope.actorId}
+          and q.conversation_id = ${input.conversationId}
+          and q.role = 'user' and q.request_id is not null
+          and q.id <> ${input.beforeMessageId}
+        order by q.created_at desc, q.id desc
         limit ${AI_HISTORY_SCAN_MESSAGES}
       `);
-      const chronological = [...rows].reverse();
-      // Whole completed turns only: a question followed by its answer that
-      // finished. A stopped, failed or access-lost answer is dropped with its
-      // question, so the model sees question, answer, question, answer.
       const turns: { question: Record<string, unknown>; answer: string }[] = [];
-      for (let index = 0; index + 1 < chronological.length; index += 1) {
-        const question = chronological[index];
-        const answer = chronological[index + 1];
-        if (question?.['role'] !== 'user' || answer?.['role'] !== 'assistant') continue;
-        index += 1;
-        if (answer['outcome'] !== 'completed') continue;
-        const followUp = storedFollowUp(answer['followUp']);
-        turns.push({
-          question,
-          // The text a browser would have replayed (and the server signed).
-          answer: aiAssistantHistoryText({ text: String(answer['text']), followUp }),
+      for (const row of [...rows].reverse()) {
+        // The text a browser would have replayed (and the server signed).
+        const answer = aiAssistantHistoryText({
+          text: String(row['answer']),
+          followUp: storedFollowUp(row['followUp']),
         });
+        const question = String(row['question']);
+        // As the browser's history does: a side without text (an answer that
+        // was only a card) is no turn to replay; a provider may refuse it.
+        if (answer.trim().length === 0 || question.trim().length === 0) continue;
+        turns.push({ question: { id: row['id'], text: question }, answer });
       }
       // Newest kept, within the same limits a browser's history obeys.
       const kept: typeof turns = [];
@@ -595,10 +651,10 @@ export class DatabaseAiConversationStore implements AiConversationStore {
            sources, follow_up, expired_drafts, request_id)
         values (${input.messageId}, ${scope.workspaceId}, ${input.conversationId},
           ${scope.actorId}, 'assistant',
-          ${clipCharacters(input.text, AI_CHAT_LIMITS.maxStoredMessageChars)},
+          ${storedText(input.text)},
           ${input.outcome}, ${input.errorCode ?? null},
-          ${JSON.stringify(input.sources)}::jsonb,
-          ${input.followUp === undefined ? null : JSON.stringify(input.followUp)}::jsonb,
+          ${storedJson(input.sources)}::jsonb,
+          ${input.followUp === undefined ? null : storedJson(input.followUp)}::jsonb,
           ${Math.min(100, Math.max(0, input.expiredDrafts))}, ${input.requestId})
         on conflict (workspace_id, conversation_id, request_id, role)
           where request_id is not null do nothing
@@ -610,6 +666,21 @@ export class DatabaseAiConversationStore implements AiConversationStore {
       `);
     });
   }
+}
+
+/** The stored objects of every file of a conversation. */
+async function objectsOf(
+  tx: Tx,
+  scope: TenantContext,
+  conversationId: string,
+): Promise<{ bucket: string; objectKey: string }[]> {
+  const files = await tx.execute<{ bucket: string; objectKey: string }>(sql`
+    select a.bucket, a.object_key as "objectKey"
+    from app.ai_attachments a
+    where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
+      and a.conversation_id = ${conversationId}
+  `);
+  return files.map((file) => ({ bucket: file.bucket, objectKey: file.objectKey }));
 }
 
 /** Each listed message's files, in the order they were added. */

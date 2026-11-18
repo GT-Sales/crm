@@ -193,20 +193,44 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
       }
       const guarded = await guard(req, res, 'conversations');
       if (!guarded) return;
-      const deleted = await guarded.conversations.delete(guarded.scope, conversationId.data);
-      if (!deleted) {
+      // The files' objects go FIRST and the rows only once every one of them
+      // is gone: a failed object delete leaves the conversation as it was and
+      // answers a retryable 503, so no object is ever left with no row that
+      // the member's retry (or the sweep) could find it by. A file a turn
+      // adds meanwhile is seen by the delete's own check and taken in the
+      // next round. Deleting an object already gone (a second, concurrent
+      // delete) counts as done; that delete then finds no row and is a 404.
+      let outcome: 'deleted' | 'changed' | 'not_found' | 'failed' = 'changed';
+      for (let round = 0; round < 3 && outcome === 'changed'; round += 1) {
+        const listed = await guarded.conversations.listObjects(guarded.scope, conversationId.data);
+        if (!listed) {
+          outcome = 'not_found';
+          break;
+        }
+        if (listed.objects.length > 0) {
+          const removed = guarded.attachments
+            ? await guarded.attachments.deleteObjects(guarded.scope, listed.objects)
+            : { deleted: 0, failed: listed.objects.length };
+          if (removed.failed > 0) {
+            outcome = 'failed';
+            break;
+          }
+        }
+        outcome = await guarded.conversations.delete(
+          guarded.scope,
+          conversationId.data,
+          listed.objects,
+        );
+      }
+      if (outcome === 'not_found') {
         sendDomainError(res, req.id, 'conversation_not_found', 404);
         return;
       }
-      // After the commit, best effort: an object left behind is never served
-      // (no row points at it). Reported by code only.
-      if (deleted.objects.length > 0) {
-        const removed = guarded.attachments
-          ? await guarded.attachments.deleteObjects(guarded.scope, deleted.objects)
-          : { deleted: 0, failed: deleted.objects.length };
-        if (removed.failed > 0) {
-          dependencies.reportFailure(req, new Error('ai_attachment_delete_failed'));
-        }
+      if (outcome !== 'deleted') {
+        dependencies.reportFailure(req, new Error('ai_attachment_delete_failed'));
+        res.setHeader('retry-after', '5');
+        sendStaffAuthError(res, req.id, 'internal_error', 503);
+        return;
       }
       res.json(
         deleteAiConversationResponseSchema.parse({
@@ -321,6 +345,13 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
       if (outcome === 'sent') {
         // A sent file goes only with its conversation.
         sendDomainError(res, req.id, 'conflict', 409, { reason: 'attachment_sent' });
+        return;
+      }
+      if (outcome === 'retry') {
+        // Its object could not be deleted: the row stays (unsendable) for a retry.
+        dependencies.reportFailure(req, new Error('ai_attachment_delete_failed'));
+        res.setHeader('retry-after', '5');
+        sendStaffAuthError(res, req.id, 'internal_error', 503);
         return;
       }
       res.json(

@@ -11,6 +11,8 @@ import {
   type LanguageModel,
 } from 'ai';
 
+import { randomBytes } from 'node:crypto';
+
 import { attachedFileBlock, omittedFileNote } from './prompt.js';
 import { assertAssistantToolPolicy } from './tool-policy.js';
 
@@ -103,7 +105,11 @@ export class AssistantProviderError extends Error {
  * delimited block naming the file. Never a URL: the provider gets bytes, not
  * a link to our storage.
  */
-export function toModelMessages(messages: readonly EngineMessage[]): ModelMessage[] {
+export function toModelMessages(
+  messages: readonly EngineMessage[],
+  /** The text blocks' marker code: random per call; fixed only by tests. */
+  nonce: string = randomBytes(8).toString('hex'),
+): ModelMessage[] {
   return messages.map((message): ModelMessage => {
     if (message.role === 'assistant') return { role: 'assistant', content: message.text };
     const attachments = message.attachments ?? [];
@@ -121,7 +127,7 @@ export function toModelMessages(messages: readonly EngineMessage[]): ModelMessag
           });
           break;
         case 'text':
-          blocks.push(attachedFileBlock(attachment.fileName, attachment.text));
+          blocks.push(attachedFileBlock(attachment.fileName, attachment.text, nonce));
           break;
         case 'omitted':
           blocks.push(omittedFileNote(attachment.fileName));

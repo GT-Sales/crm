@@ -33,6 +33,17 @@ export interface AiChatSchemaProbe {
 /** How long a not-yet-ready answer is kept before the catalogue is asked again. */
 export const AI_CHAT_SCHEMA_RECHECK_MS = 5 * 60_000;
 
+/** Every grant 0035 gives the runtime role on the saved chat's tables, one by one. */
+const REQUIRED_GRANTS: readonly (readonly [string, string])[] = [
+  ...['SELECT', 'INSERT', 'UPDATE', 'DELETE'].map(
+    (privilege) => ['ai_conversations', privilege] as const,
+  ),
+  ...['SELECT', 'INSERT'].map((privilege) => ['ai_messages', privilege] as const),
+  ...['SELECT', 'INSERT', 'UPDATE', 'DELETE'].map(
+    (privilege) => ['ai_attachments', privilege] as const,
+  ),
+];
+
 function ready(state: AiChatSchemaState): boolean {
   return state.conversations && state.inputTokens && state.attachmentSweep;
 }
@@ -71,7 +82,9 @@ export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
   private ask(scope: TenantContext): Promise<AiChatSchemaState> {
     return this.database.withTenantTx(scope, async (tx) => {
       // `has_table_privilege` raises for a missing table, so each is asked only
-      // once its table is known to exist.
+      // once its table is known to exist; and it is true for a list when ANY
+      // listed privilege is held, so every privilege is asked on its own (a
+      // half-applied 0035 must read as not ready).
       const [row] = await tx.execute<{
         conversations: boolean;
         inputTokens: boolean;
@@ -79,15 +92,14 @@ export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
       }>(sql`
         select
           (
-            case when to_regclass('app.ai_conversations') is not null
-              then has_table_privilege('app.ai_conversations', 'SELECT, INSERT, UPDATE, DELETE')
-              else false end
-            and case when to_regclass('app.ai_messages') is not null
-              then has_table_privilege('app.ai_messages', 'SELECT, INSERT')
-              else false end
-            and case when to_regclass('app.ai_attachments') is not null
-              then has_table_privilege('app.ai_attachments', 'SELECT, INSERT, UPDATE, DELETE')
-              else false end
+            ${sql.join(
+              REQUIRED_GRANTS.map(([table, privilege]) =>
+                sql.raw(
+                  `case when to_regclass('app.${table}') is not null then has_table_privilege('app.${table}', '${privilege}') else false end`,
+                ),
+              ),
+              sql` and `,
+            )}
           ) as conversations,
           exists (
             select 1 from pg_catalog.pg_attribute a

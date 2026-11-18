@@ -20,6 +20,7 @@ import {
   type StoredObject,
 } from './attachment-store.js';
 import type { AiTurnAttachment } from './conversation-store.js';
+import { sanitizeLogIdentifier } from '../http/logger.js';
 
 /**
  * Ask AI attachments, end to end, on the documents feature's storage pattern:
@@ -44,16 +45,43 @@ export const AI_ATTACHMENT_LINK_TTL_SECONDS = 2 * 60;
 
 const OBJECT_PREFIX = 'ai-attachments';
 
-/** A file's served object and the staging object its upload goes to, side by side. */
+/**
+ * A file's keys, all under one random folder `ai-attachments/<token>/`: the
+ * row's object (`file` while pending, a placeholder nothing writes; then
+ * `f-<16 hex>`, the verified copy of the finalize that won) and the staging
+ * object the browser uploads to (`upload`).
+ */
+const KEY_PATTERN = /^(ai-attachments\/[0-9a-f-]{36}-[0-9a-f]{16})\/(file|f-[0-9a-f]{16})$/;
+
 export function aiAttachmentObjectKeys(objectKey: string): { file: string; staging: string } {
-  if (!objectKey.startsWith(`${OBJECT_PREFIX}/`) || !objectKey.endsWith('/file')) {
-    throw new Error('ai_attachment_key_invalid');
-  }
-  return { file: objectKey, staging: `${objectKey.slice(0, -'/file'.length)}/upload` };
+  const match = KEY_PATTERN.exec(objectKey);
+  if (!match) throw new Error('ai_attachment_key_invalid');
+  return { file: objectKey, staging: `${match[1]}/upload` };
+}
+
+/** A fresh copy key for one finalize attempt, in the file's own folder. */
+function attemptKey(objectKey: string): string {
+  const match = KEY_PATTERN.exec(objectKey);
+  if (!match) throw new Error('ai_attachment_key_invalid');
+  return `${match[1]}/f-${randomBytes(8).toString('hex')}`;
 }
 
 function newObjectKey(): string {
   return `${OBJECT_PREFIX}/${randomUUID()}-${randomBytes(8).toString('hex')}/file`;
+}
+
+/** Tries to delete one object before a cleanup gives up on it. */
+export const AI_ATTACHMENT_DELETE_ATTEMPTS = 3;
+
+/** A cleanup failure, by code, site and count only: never a key, a name or a byte. */
+function logCleanupFailure(code: string, workspaceId: string, count: number): void {
+  console.warn(
+    JSON.stringify({
+      event: code,
+      workspaceId: sanitizeLogIdentifier(workspaceId) ?? 'unknown',
+      count,
+    }),
+  );
 }
 
 /**
@@ -213,7 +241,15 @@ export class AiAttachmentService {
 
   /**
    * Verifies the upload by its bytes and makes it ready. Any mismatch removes
-   * the row and both objects and says why, as a safe reason.
+   * the row and its objects and says why, as a safe reason.
+   *
+   * Concurrent finalizes of one file are safe without holding a transaction
+   * across the storage calls (the codebase never does): each attempt copies
+   * the upload to a key of its own, verifies that copy, and records it with a
+   * compare-and-set on `status = 'pending'`. One attempt wins; a loser deletes
+   * its copy and answers the winner's file. A finalize that finds the file
+   * ready (or sent) returns it without touching storage, so a later upload to
+   * the still-valid PUT URL can never replace the served bytes.
    */
   async finalize(
     scope: Scope,
@@ -223,17 +259,26 @@ export class AiAttachmentService {
     const row = await this.store.get(scope, attachmentId);
     if (!row) return { status: 'not_found' };
     if (row.status === 'ready') return { status: 'ready', attachment: attachmentSummary(row) };
+    // A sent file is always ready; a pending one with a message cannot exist.
+    if (row.messageId !== null) return { status: 'not_found' };
+    const keys = aiAttachmentObjectKeys(row.objectKey);
+    const candidate = attemptKey(row.objectKey);
     const reject = async (reason: AiAttachmentRejectReason): Promise<FinalizeAttachmentOutcome> => {
-      await this.discard(scope, row.id);
+      await this.discardAttempt(scope, row, candidate);
+      // A concurrent attempt that won (and removed the upload this one then
+      // missed) leaves the file ready: that is the answer, not this refusal.
+      const current = await this.store.get(scope, row.id);
+      if (current?.status === 'ready') {
+        return { status: 'ready', attachment: attachmentSummary(current) };
+      }
       return { status: 'rejected', reason };
     };
     if (!this.kinds.includes(row.kind)) return reject('type');
 
-    const keys = aiAttachmentObjectKeys(row.objectKey);
     const verified = await this.objects.verifyAttachmentUpload({
       workspaceId: scope.workspaceId,
       stagingKey: keys.staging,
-      candidateKey: keys.file,
+      candidateKey: candidate,
       expectedChecksumSha256: checksumSha256,
       maxBytes: aiAttachmentMaxBytes(row.kind),
     });
@@ -252,7 +297,7 @@ export class AiAttachmentService {
       if (detected !== undefined) return reject('type');
       const read = await this.objects.readObject({
         workspaceId: scope.workspaceId,
-        objectKey: keys.file,
+        objectKey: candidate,
         maxBytes: AI_CHAT_LIMITS.maxTextFileBytes,
       });
       if (read.status !== 'read')
@@ -268,27 +313,47 @@ export class AiAttachmentService {
     }
 
     const ready = await this.store.markReady(scope, row.id, {
+      objectKey: candidate,
       mediaType,
       byteSize: verified.sizeBytes,
       sha256: verified.checksumSha256,
       extractedText,
     });
-    // The browser can no longer change the upload; its staging object goes.
-    await this.deleteQuietly(scope, keys.staging, row.bucket);
-    if (ready) return { status: 'ready', attachment: attachmentSummary(ready) };
-    // A concurrent finalize got there first (or the file was removed meanwhile).
+    if (ready) {
+      // The browser can no longer change the file; its staging object goes.
+      await this.deleteQuietly(scope, keys.staging, row.bucket);
+      return { status: 'ready', attachment: attachmentSummary(ready) };
+    }
+    // Another finalize won (or the file was removed meanwhile): this copy goes.
+    await this.deleteQuietly(scope, candidate, row.bucket);
     const current = await this.store.get(scope, row.id);
     return current?.status === 'ready'
       ? { status: 'ready', attachment: attachmentSummary(current) }
       : { status: 'not_found' };
   }
 
-  /** Removes an unsent file, row and objects. */
-  async remove(scope: Scope, attachmentId: string): Promise<'removed' | 'sent' | 'not_found'> {
-    const row = await this.store.get(scope, attachmentId);
-    if (!row) return 'not_found';
-    if (row.messageId !== null) return 'sent';
-    return (await this.discard(scope, row.id)) ? 'removed' : 'not_found';
+  /**
+   * The member's delete of an unsent file. The file is first made unsendable
+   * (back to pending), then its objects are deleted, and the row only once
+   * they all are: a failed object delete leaves the row, reported, for the
+   * member's retry (or the sweep) to finish, so no object is ever left
+   * without a row pointing at it. `retry` asks the caller for a 503.
+   */
+  async remove(
+    scope: Scope,
+    attachmentId: string,
+  ): Promise<'removed' | 'sent' | 'not_found' | 'retry'> {
+    const begun = await this.store.beginRemoval(scope, attachmentId);
+    if (begun === undefined) return 'not_found';
+    if (begun === 'sent') return 'sent';
+    const deleted = await this.deleteObjects(scope, [begun]);
+    if (deleted.failed > 0) {
+      logCleanupFailure('ai_attachment_object_delete_failed', scope.workspaceId, deleted.failed);
+      return 'retry';
+    }
+    // A concurrent finalize may have removed it already; either way it is gone.
+    await this.store.removeUnsent(scope, attachmentId);
+    return 'removed';
   }
 
   /**
@@ -329,13 +394,14 @@ export class AiAttachmentService {
   }
 
   /**
-   * Deletes stored objects after their rows are gone (a deleted conversation,
-   * the sweep). Best effort: a failure is counted, never retried blindly; an
-   * object no row points at is never served.
+   * Deletes stored objects (both keys of each file), each key tried up to
+   * `attempts` times. Deleting an object that is already gone counts as done.
+   * A file whose objects could not all be deleted is counted as failed.
    */
   async deleteObjects(
     scope: Scope,
     objects: readonly StoredObject[],
+    attempts = 1,
   ): Promise<{ deleted: number; failed: number }> {
     let deleted = 0;
     let failed = 0;
@@ -347,26 +413,21 @@ export class AiAttachmentService {
         failed += 1;
         continue;
       }
-      try {
-        for (const key of [keys.file, keys.staging]) {
-          await this.objects.deleteObject({
-            workspaceId: scope.workspaceId,
-            bucket: object.bucket,
-            objectKey: key,
-          });
-        }
-        deleted += 1;
-      } catch {
-        failed += 1;
+      let ok = true;
+      for (const key of [keys.file, keys.staging]) {
+        if (!(await this.deleteKey(scope, object.bucket, key, attempts))) ok = false;
       }
+      if (ok) deleted += 1;
+      else failed += 1;
     }
     return { deleted, failed };
   }
 
   /**
    * The scheduled sweep for one site, as its machine actor: unsent files more
-   * than a day old, in batches, rows first (through the 0036 function) and
-   * then their objects.
+   * than a day old, in batches, rows first (through the 0036 function, the
+   * only way a machine actor reaches members' rows) and then their objects,
+   * each retried a few times; a remaining failure is logged by site and count.
    */
   async sweepUnsent(
     scope: Scope,
@@ -380,19 +441,59 @@ export class AiAttachmentService {
         limit: AI_ATTACHMENT_SWEEP_BATCH,
       });
       totals.removed += objects.length;
-      const deleted = await this.deleteObjects(scope, objects);
+      const deleted = await this.deleteObjects(scope, objects, AI_ATTACHMENT_DELETE_ATTEMPTS);
       totals.deletedObjects += deleted.deleted;
       totals.failedDeletes += deleted.failed;
       if (objects.length < AI_ATTACHMENT_SWEEP_BATCH) break;
     }
+    if (totals.failedDeletes > 0) {
+      logCleanupFailure(
+        'ai_attachment_object_delete_failed',
+        scope.workspaceId,
+        totals.failedDeletes,
+      );
+    }
     return totals;
   }
 
-  private async discard(scope: Scope, attachmentId: string): Promise<boolean> {
-    const removed = await this.store.removeUnsent(scope, attachmentId);
-    if (!removed) return false;
-    await this.deleteObjects(scope, [removed]);
-    return true;
+  /**
+   * A rejected finalize: this attempt's copy, the upload and the pending row,
+   * objects first. The row goes only while still pending (a concurrent
+   * attempt may have made it ready), and stays, reported, if an object could
+   * not be deleted, so the sweep finds it again.
+   */
+  private async discardAttempt(
+    scope: Scope,
+    row: AiAttachmentRecord,
+    candidate: string,
+  ): Promise<void> {
+    const keys = aiAttachmentObjectKeys(row.objectKey);
+    let ok = true;
+    for (const key of [candidate, keys.staging, keys.file]) {
+      if (!(await this.deleteKey(scope, row.bucket, key, 1))) ok = false;
+    }
+    if (!ok) {
+      logCleanupFailure('ai_attachment_object_delete_failed', scope.workspaceId, 1);
+      return;
+    }
+    await this.store.removeUnsent(scope, row.id, { pendingOnly: true });
+  }
+
+  private async deleteKey(
+    scope: Scope,
+    bucket: string,
+    objectKey: string,
+    attempts: number,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
+      try {
+        await this.objects.deleteObject({ workspaceId: scope.workspaceId, bucket, objectKey });
+        return true;
+      } catch {
+        // Tried again, then counted by the caller.
+      }
+    }
+    return false;
   }
 
   private async deleteQuietly(scope: Scope, objectKey: string, bucket: string): Promise<void> {

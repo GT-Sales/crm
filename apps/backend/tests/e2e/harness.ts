@@ -40,6 +40,7 @@
  */
 import postgres from 'postgres';
 import { z } from 'zod';
+import { createAiChatDependenciesFromEnv } from '../../src/ai/chat-factory.js';
 import { DatabaseAiReadService } from '../../src/ai/read-service.js';
 import { DatabaseAiSiteContextStore } from '../../src/ai/site-context.js';
 import { createFakeEngine, type AssistantEngine } from '../../src/ai/engine.js';
@@ -626,6 +627,8 @@ const app = createApp({
       siteContext: new DatabaseAiSiteContextStore(),
       engine: assistantEngine,
       rateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
+      // The saved chat over the e2e database; no object store here, so uploads are off.
+      chat: createAiChatDependenciesFromEnv(process.env),
     },
     sessionVerifier: new StubStaffVerifier(),
     // Reviews are database rows; no document is opened, so the objects can be in memory.

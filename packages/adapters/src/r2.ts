@@ -320,6 +320,11 @@ export class InMemoryR2DocumentStore implements R2DocumentStore {
     return this.objects.has(key);
   }
 
+  /** Test seam: every key held, so a test can assert nothing was left behind. */
+  keys(): string[] {
+    return [...this.objects.keys()];
+  }
+
   async createUpload(input: CreateUploadInput): Promise<PresignedUpload> {
     return {
       stagingKey: input.stagingKey,

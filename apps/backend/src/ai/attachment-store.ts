@@ -42,6 +42,8 @@ export interface CreatePendingAttachmentInput {
 }
 
 export interface MarkAttachmentReadyInput {
+  /** This finalize's own verified copy, recorded only if the row is still pending. */
+  readonly objectKey: string;
   readonly mediaType: AiAttachmentMediaType;
   readonly byteSize: number;
   readonly sha256: string;
@@ -56,14 +58,32 @@ export interface StoredObject {
 export interface AiAttachmentStore {
   createPending(scope: TenantContext, input: CreatePendingAttachmentInput): Promise<void>;
   get(scope: TenantContext, attachmentId: string): Promise<AiAttachmentRecord | undefined>;
-  /** Pending → ready, once verified; undefined when it is no longer this member's pending row. */
+  /**
+   * Pending → ready with this attempt's verified object, a compare-and-set on
+   * `status = 'pending'`: undefined when another finalize won (or the row is
+   * gone), and the caller then deletes its own copy.
+   */
   markReady(
     scope: TenantContext,
     attachmentId: string,
     input: MarkAttachmentReadyInput,
   ): Promise<AiAttachmentRecord | undefined>;
-  /** Removes an unsent row (pending or ready); its object, for the caller to delete. */
-  removeUnsent(scope: TenantContext, attachmentId: string): Promise<StoredObject | undefined>;
+  /**
+   * The first step of the member's delete of an unsent file: back to
+   * `pending` (no longer sendable, as a turn links only `ready` files), and
+   * its object, for the caller to delete BEFORE the row. `sent` once a
+   * message carries it; undefined when it is not this member's.
+   */
+  beginRemoval(
+    scope: TenantContext,
+    attachmentId: string,
+  ): Promise<StoredObject | 'sent' | undefined>;
+  /** Removes an unsent row; with `pendingOnly`, only one no finalize has made ready. */
+  removeUnsent(
+    scope: TenantContext,
+    attachmentId: string,
+    options?: { pendingOnly?: boolean },
+  ): Promise<StoredObject | undefined>;
   /** The machine sweep: unsent rows of the whole site created before `before`, at most `limit`. */
   sweepUnsent(
     scope: TenantContext,
@@ -134,8 +154,9 @@ export class DatabaseAiAttachmentStore implements AiAttachmentStore {
     return this.database.withTenantTx(scope, async (tx) => {
       const [row] = await tx.execute<Record<string, unknown>>(sql`
         update app.ai_attachments a
-        set status = 'ready', media_type = ${input.mediaType}, byte_size = ${input.byteSize},
-          sha256 = ${input.sha256}, extracted_text = ${input.extractedText}
+        set status = 'ready', object_key = ${input.objectKey}, media_type = ${input.mediaType},
+          byte_size = ${input.byteSize}, sha256 = ${input.sha256},
+          extracted_text = ${input.extractedText}
         where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
           and a.id = ${attachmentId} and a.status = 'pending' and a.message_id is null
         returning ${COLUMNS}
@@ -144,12 +165,41 @@ export class DatabaseAiAttachmentStore implements AiAttachmentStore {
     });
   }
 
-  removeUnsent(scope: TenantContext, attachmentId: string): Promise<StoredObject | undefined> {
+  beginRemoval(
+    scope: TenantContext,
+    attachmentId: string,
+  ): Promise<StoredObject | 'sent' | undefined> {
+    return this.database.withTenantTx(scope, async (tx) => {
+      // Locked like a turn's link, so the two are decided one after the other.
+      const [row] = await tx.execute<{ messageId: string | null }>(sql`
+        select a.message_id as "messageId" from app.ai_attachments a
+        where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
+          and a.id = ${attachmentId}
+        for update
+      `);
+      if (!row) return undefined;
+      if (row.messageId !== null) return 'sent';
+      const [demoted] = await tx.execute<{ bucket: string; objectKey: string }>(sql`
+        update app.ai_attachments a set status = 'pending', extracted_text = null
+        where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
+          and a.id = ${attachmentId} and a.message_id is null
+        returning a.bucket, a.object_key as "objectKey"
+      `);
+      return demoted ? { bucket: demoted.bucket, objectKey: demoted.objectKey } : undefined;
+    });
+  }
+
+  removeUnsent(
+    scope: TenantContext,
+    attachmentId: string,
+    options: { pendingOnly?: boolean } = {},
+  ): Promise<StoredObject | undefined> {
     return this.database.withTenantTx(scope, async (tx) => {
       const [row] = await tx.execute<{ bucket: string; objectKey: string }>(sql`
         delete from app.ai_attachments a
         where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
           and a.id = ${attachmentId} and a.message_id is null
+          ${options.pendingOnly ? sql`and a.status = 'pending'` : sql``}
         returning a.bucket, a.object_key as "objectKey"
       `);
       return row ? { bucket: row.bucket, objectKey: row.objectKey } : undefined;
