@@ -140,6 +140,24 @@ export class AttachmentUploadError extends Error {
  * CRM. An abort rejects with an `AbortError`; a dropped connection with a
  * `TypeError`, which the error words read as "couldn't reach".
  */
+/**
+ * Whether an upload target from the intent may receive the bytes: HTTPS only,
+ * or plain HTTP to this machine (local development and the browser-test
+ * harness). The contract accepts any URL, so the browser checks.
+ */
+export function isUploadTarget(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === 'https:') return true;
+  return (
+    parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+  );
+}
+
 export function putAttachmentBytes(input: {
   url: string;
   headers: Readonly<Record<string, string>>;
@@ -150,6 +168,11 @@ export function putAttachmentBytes(input: {
   return new Promise((resolve, reject) => {
     if (input.signal.aborted) {
       reject(new DOMException('Upload cancelled', 'AbortError'));
+      return;
+    }
+    if (!isUploadTarget(input.url)) {
+      // Not a place a file may go: a failed upload, in the general words.
+      reject(new Error('upload target refused'));
       return;
     }
     const request = new XMLHttpRequest();

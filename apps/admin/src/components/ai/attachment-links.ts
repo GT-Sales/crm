@@ -1,23 +1,38 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
 /**
- * Short-lived signed links to the member's own attached files, fetched only
- * when a message that shows them is on screen, a few at a time, and kept in
- * memory until they are about to expire. A file sent from this tab starts
- * with the local `blob:` preview of the picked file, which this cache then
- * owns and revokes. Nothing is written to any browser storage; a new cache is
- * made for each site and member, and the old one is disposed.
+ * Short-lived signed links to the member's own attached files. A link is
+ * fetched once, when a message that shows the file first comes on screen, a
+ * few at a time, and kept in memory: a thumbnail keeps showing the picture it
+ * already loaded however old its link is. Only opening a file needs a link
+ * that still works, so hovering, focusing or clicking a file whose link is
+ * old asks for a fresh one, and a click on an old link waits for it.
+ *
+ * How old a link is comes from this browser's own clock (when it was fetched),
+ * never from comparing the server's `expiresAt` with `Date.now()`: a device
+ * clock that runs ahead of the server would otherwise see every link as
+ * expired and ask again forever. No link is asked for twice within 30
+ * seconds, and a failed one is tried again only after 30 seconds, when the
+ * member points at the file. A file sent from this tab starts with the local
+ * `blob:` preview of the picked file, which this cache owns and revokes.
+ * Nothing is written to any browser storage.
  */
 
 export type AttachmentLinkEntry =
   | { status: 'loading' }
-  | { status: 'ready'; url: string; expiresAt: number; local: boolean }
-  | { status: 'failed' };
+  | { status: 'ready'; url: string; fetchedAt: number; local: boolean }
+  | { status: 'failed'; failedAt: number };
 
 export interface AttachmentLinkCache {
   get(id: string): AttachmentLinkEntry | undefined;
-  /** Fetches a link unless a fresh one is held or on its way. */
+  /** The file came on screen: fetches a link unless one is held or on its way. */
   request(id: string): void;
+  /** The member points at the file (hover, focus): an old or failed link is asked for again. */
+  refresh(id: string): void;
+  /** A link to open now: the held one while it is fresh, else a new one (undefined if none can be had). */
+  fresh(id: string): Promise<string | undefined>;
+  /** Whether the held link may be opened as it is. */
+  isFresh(id: string): boolean;
   /** The local preview of a file just sent; the cache revokes it when disposed. */
   seedLocal(id: string, url: string): void;
   subscribe(listener: () => void): () => void;
@@ -29,11 +44,14 @@ export interface AttachmentLinkCache {
   dispose(): void;
 }
 
+/** A link is used to open a file for this long after it was fetched (the server's live 120 s). */
+export const LINK_FRESH_MS = 60_000;
+/** No link is asked for again sooner than this, and a failed one waits this long. */
+export const LINK_MIN_REFETCH_MS = 30_000;
+
 export interface AttachmentLinkCacheOptions {
   /** Links fetched at the same time. */
   concurrency?: number;
-  /** A link this close to its expiry is fetched again. */
-  refreshMarginMs?: number;
   now?: () => number;
   revoke?: (url: string) => void;
 }
@@ -43,7 +61,6 @@ export function createAttachmentLinkCache(
   options: AttachmentLinkCacheOptions = {},
 ): AttachmentLinkCache {
   const concurrency = options.concurrency ?? 3;
-  const margin = options.refreshMarginMs ?? 60_000;
   const now = options.now ?? (() => Date.now());
   const revoke =
     options.revoke ??
@@ -53,8 +70,8 @@ export function createAttachmentLinkCache(
   const entries = new Map<string, AttachmentLinkEntry>();
   const listeners = new Set<() => void>();
   const queue: string[] = [];
-  /** Queued or being fetched, so a repeated request never asks twice. */
-  const wanted = new Set<string>();
+  /** Queued or being fetched, with what waits for the answer. */
+  const wanted = new Map<string, ((url: string | undefined) => void)[]>();
   let running = 0;
   /** Bumped by `dispose`: an answer to an older epoch is dropped. */
   let epoch = 0;
@@ -62,6 +79,12 @@ export function createAttachmentLinkCache(
   function set(id: string, entry: AttachmentLinkEntry): void {
     entries.set(id, entry);
     for (const listener of listeners) listener();
+  }
+
+  function settle(id: string, url: string | undefined): void {
+    const waiting = wanted.get(id) ?? [];
+    wanted.delete(id);
+    for (const resolve of waiting) resolve(url);
   }
 
   function pump(): void {
@@ -73,29 +96,49 @@ export function createAttachmentLinkCache(
       fetchLink(id).then(
         (link) => {
           running -= 1;
-          if (asked !== epoch) return pump();
-          wanted.delete(id);
-          const expiresAt = Date.parse(link.expiresAt);
-          set(id, {
-            status: 'ready',
-            url: link.url,
-            expiresAt: Number.isFinite(expiresAt) ? expiresAt : now() + margin * 2,
-            local: false,
-          });
+          if (asked === epoch) {
+            set(id, { status: 'ready', url: link.url, fetchedAt: now(), local: false });
+            settle(id, link.url);
+          }
           pump();
         },
         () => {
           running -= 1;
-          if (asked !== epoch) return pump();
-          wanted.delete(id);
-          // A link that worked before keeps working until it expires.
-          const previous = entries.get(id);
-          if (previous?.status === 'ready' && previous.expiresAt > now()) return pump();
-          set(id, { status: 'failed' });
+          if (asked === epoch) {
+            // A link that was had before keeps its picture; the next attempt waits.
+            const previous = entries.get(id);
+            if (previous?.status !== 'ready') set(id, { status: 'failed', failedAt: now() });
+            settle(id, previous?.status === 'ready' ? previous.url : undefined);
+          }
           pump();
         },
       );
     }
+  }
+
+  function ask(id: string): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      const waiting = wanted.get(id);
+      if (waiting !== undefined) {
+        waiting.push(resolve);
+        return;
+      }
+      wanted.set(id, [resolve]);
+      if (entries.get(id) === undefined || entries.get(id)?.status === 'failed') {
+        set(id, { status: 'loading' });
+      }
+      queue.push(id);
+      pump();
+    });
+  }
+
+  /** Whether a new fetch is allowed now: never twice within 30 s. */
+  function mayAsk(entry: AttachmentLinkEntry | undefined, staleAfter: number): boolean {
+    if (entry === undefined) return true;
+    if (entry.status === 'loading') return false;
+    if (entry.status === 'failed') return now() - entry.failedAt >= LINK_MIN_REFETCH_MS;
+    if (entry.local) return false;
+    return now() - entry.fetchedAt >= Math.max(staleAfter, LINK_MIN_REFETCH_MS);
   }
 
   return {
@@ -103,18 +146,28 @@ export function createAttachmentLinkCache(
     request(id) {
       if (wanted.has(id)) return;
       const entry = entries.get(id);
-      if (entry?.status === 'failed') return;
-      if (entry?.status === 'ready' && (entry.local || entry.expiresAt - now() > margin)) return;
-      // A link that is about to expire stays usable while the next one comes.
-      if (entry === undefined) set(id, { status: 'loading' });
-      wanted.add(id);
-      queue.push(id);
-      pump();
+      // On screen again does not refresh a held link: the picture is already there.
+      if (entry?.status === 'ready') return;
+      if (mayAsk(entry, LINK_FRESH_MS)) void ask(id);
+    },
+    refresh(id) {
+      if (wanted.has(id)) return;
+      if (mayAsk(entries.get(id), LINK_FRESH_MS)) void ask(id);
+    },
+    isFresh(id) {
+      const entry = entries.get(id);
+      return entry?.status === 'ready' && (entry.local || now() - entry.fetchedAt < LINK_FRESH_MS);
+    },
+    async fresh(id) {
+      const entry = entries.get(id);
+      if (entry?.status === 'ready' && this.isFresh(id)) return entry.url;
+      // A click asks at once, even for a link that failed a moment ago.
+      return ask(id);
     },
     seedLocal(id, url) {
       const previous = entries.get(id);
       if (previous?.status === 'ready' && previous.local) revoke(previous.url);
-      set(id, { status: 'ready', url, expiresAt: Number.POSITIVE_INFINITY, local: true });
+      set(id, { status: 'ready', url, fetchedAt: now(), local: true });
     },
     subscribe(listener) {
       listeners.add(listener);
@@ -123,7 +176,7 @@ export function createAttachmentLinkCache(
     dispose() {
       epoch += 1;
       queue.length = 0;
-      wanted.clear();
+      for (const id of [...wanted.keys()]) settle(id, undefined);
       for (const entry of entries.values()) {
         if (entry.status === 'ready' && entry.local) revoke(entry.url);
       }
@@ -133,10 +186,7 @@ export function createAttachmentLinkCache(
   };
 }
 
-/**
- * One file's link from the cache, asked for once `visible` is true (and again
- * when it is about to expire, so a click opens a working link).
- */
+/** One file's link from the cache, asked for once, when `visible` first turns true. */
 export function useAttachmentLink(
   cache: AttachmentLinkCache | undefined,
   id: string,
@@ -150,13 +200,5 @@ export function useAttachmentLink(
   useEffect(() => {
     if (visible) cache?.request(id);
   }, [cache, id, visible]);
-  useEffect(() => {
-    if (!visible || entry?.status !== 'ready' || entry.local) return;
-    const wait = Math.max(0, entry.expiresAt - Date.now() - 60_000);
-    // Beyond a day a timer is pointless (and overflows); links live minutes.
-    if (wait > 86_400_000) return;
-    const timer = window.setTimeout(() => cache?.request(id), wait);
-    return () => window.clearTimeout(timer);
-  }, [cache, entry, id, visible]);
   return entry;
 }

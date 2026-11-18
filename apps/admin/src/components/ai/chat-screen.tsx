@@ -157,21 +157,37 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
     const target = chatIdFromPath(url) ?? undefined;
     if (writeAddress(url, mode)) ownMove.current = { target, until: Date.now() + MOVE_SETTLE_MS };
   }, []);
-  useEffect(() => {
-    // Back and forward are the member's own moves: follow them at once.
-    const clear = () => {
-      ownMove.current = null;
-    };
-    window.addEventListener('popstate', clear);
-    return () => window.removeEventListener('popstate', clear);
-  }, []);
-
   // Address → conversation, for moves from outside the page: the first load,
   // back and forward, a link from elsewhere. The page's own moves change the
   // conversation first and then the address. Reads the newest provider state
   // without running again when it changes.
-  const latest = useRef({ activeId, open: conversations.open, newChat });
-  latest.current = { activeId, open: conversations.open, newChat };
+  const latest = useRef({ activeId, enabled, open: conversations.open, newChat });
+  latest.current = { activeId, enabled, open: conversations.open, newChat };
+  const follow = useCallback(
+    (target: string | undefined) => {
+      const current = latest.current;
+      if (target === undefined) {
+        if (current.activeId !== undefined) current.newChat();
+      } else if (target !== current.activeId) {
+        current.open(target);
+      }
+      resetToBottom();
+    },
+    [resetToBottom],
+  );
+  useEffect(() => {
+    // Back and forward are the member's own moves: follow the address bar at
+    // once (the router may not have shown the move it is undoing yet), and
+    // stop waiting for a move of the page's own.
+    const onPopState = () => {
+      ownMove.current = null;
+      if (!latest.current.enabled) return;
+      const target = chatIdFromPath(window.location.pathname);
+      if (target !== null) follow(target);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [follow]);
   useEffect(() => {
     if (!enabled || urlId === null) return;
     const pending = ownMove.current;
@@ -183,14 +199,8 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
       if (Date.now() < pending.until) return;
       ownMove.current = null;
     }
-    const current = latest.current;
-    if (urlId === undefined) {
-      if (current.activeId !== undefined) current.newChat();
-    } else if (urlId !== current.activeId) {
-      current.open(urlId);
-    }
-    resetToBottom();
-  }, [enabled, urlId, resetToBottom]);
+    follow(urlId);
+  }, [enabled, follow, urlId]);
 
   // Conversation → address: a new chat that was just given its id moves the
   // address there in place. Only the step from no conversation to one counts.
@@ -288,7 +298,8 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
         aria-label="Your conversations"
         className="hidden min-h-0 flex-col border-r bg-sidebar/60 md:flex"
       >
-        {list()}
+        {/* Exactly one list at a time: while the phone's drawer shows it, this one is gone. */}
+        {drawerOpen ? null : list()}
       </aside>
 
       <section

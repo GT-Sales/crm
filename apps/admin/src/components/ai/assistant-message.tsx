@@ -6,7 +6,11 @@ import { CheckIcon, CopyIcon } from 'lucide-react';
 import { Button } from '@gt-sales/ui';
 
 import type { AiUiError } from '../../lib/ai-transport';
-import type { AiAssistantMessage, AiMessage } from './assistant-provider';
+import {
+  useOptionalAssistant,
+  type AiAssistantMessage,
+  type AiMessage,
+} from './assistant-provider';
 import { AssistantSources } from './assistant-sources';
 import { AssistantMarkdown } from './assistant-markdown';
 import { AssistantAction } from './assistant-action';
@@ -138,6 +142,8 @@ function ThinkingLine({ label }: { label?: string }) {
 function AssistantAnswer({
   message,
   onRetry,
+  retryNote,
+  onStartNewChat,
   onConfirmAction,
   onCancelAction,
   onReviseAction,
@@ -145,11 +151,17 @@ function AssistantAnswer({
 }: {
   message: AiAssistantMessage;
   onRetry?: () => void;
+  retryNote?: string;
+  onStartNewChat?: () => void;
   onConfirmAction?: (id: string) => void;
   onCancelAction?: (id: string) => void;
   onReviseAction?: (id: string, draft: AiActionDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
+  // A stored conversation says "Stopped." under a partial answer too, so a
+  // reloaded one reads as stopped; the memory-only panel looks as it always did.
+  const stored = useOptionalAssistant()?.conversations.enabled === true;
+  const full = message.status === 'error' && message.error === 'conversation_full';
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {message.text.length > 0 ? <AssistantMarkdown text={message.text} /> : null}
@@ -164,8 +176,7 @@ function AssistantAnswer({
           No answer came back. Try asking in another way.
         </p>
       ) : null}
-      {message.status === 'stopped' ? (
-        // Said after any partial text too, so a reloaded stopped answer reads as one.
+      {message.status === 'stopped' && (message.text.length === 0 || stored) ? (
         <p
           className={
             message.text.length === 0
@@ -227,12 +238,26 @@ function AssistantAnswer({
             />
           ))
         : null}
+      {retryNote !== undefined && (message.status === 'error' || message.status === 'stopped') ? (
+        <p className="text-xs text-muted-foreground">{retryNote}</p>
+      ) : null}
       {message.status !== 'streaming' &&
       (message.text.length > 0 ||
         message.status === 'error' ||
         (message.status === 'stopped' && onRetry)) ? (
         <div className="flex flex-wrap items-center gap-1">
           {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
+          {full && onStartNewChat ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={onStartNewChat}
+            >
+              Start a new chat
+            </Button>
+          ) : null}
           {(message.status === 'error' || message.status === 'stopped') && onRetry ? (
             <Button
               type="button"
@@ -254,6 +279,8 @@ function AssistantAnswer({
 export function AssistantMessage({
   message,
   onRetry,
+  retryNote,
+  onStartNewChat,
   onConfirmAction,
   onCancelAction,
   onReviseAction,
@@ -261,6 +288,10 @@ export function AssistantMessage({
 }: {
   message: AiMessage;
   onRetry?: () => void;
+  /** Why the answer is not offered again (its files cannot be resent). */
+  retryNote?: string;
+  /** Offered when the conversation is full. */
+  onStartNewChat?: () => void;
   onConfirmAction?: (id: string) => void;
   onCancelAction?: (id: string) => void;
   onReviseAction?: (id: string, draft: AiActionDraft) => void;
@@ -289,6 +320,8 @@ export function AssistantMessage({
     <AssistantAnswer
       message={message}
       onRetry={onRetry}
+      retryNote={retryNote}
+      onStartNewChat={onStartNewChat}
       onConfirmAction={onConfirmAction}
       onCancelAction={onCancelAction}
       onReviseAction={onReviseAction}

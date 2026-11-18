@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AttachmentUploadError,
+  isUploadTarget,
   attachmentMediaTypeOf,
   checkAttachmentFile,
   fileSizeLabel,
@@ -127,6 +128,18 @@ class FakeRequest {
   }
 }
 
+describe('isUploadTarget', () => {
+  it('takes HTTPS, and plain HTTP only to this machine', () => {
+    expect(isUploadTarget('https://ref.storage.supabase.co/storage/v1/s3/x?sig=1')).toBe(true);
+    expect(isUploadTarget('http://127.0.0.1:4100/upload')).toBe(true);
+    expect(isUploadTarget('http://localhost:9000/upload')).toBe(true);
+    expect(isUploadTarget('http://storage.example.test/upload')).toBe(false);
+    expect(isUploadTarget('javascript:alert(1)')).toBe(false);
+    expect(isUploadTarget('data:text/plain,x')).toBe(false);
+    expect(isUploadTarget('not a url')).toBe(false);
+  });
+});
+
 describe('putAttachmentBytes', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -159,6 +172,20 @@ describe('putAttachmentBytes', () => {
     request.onload?.();
     await done;
     expect(progress).toEqual([0.5]);
+  });
+
+  it('sends nothing to a target that is not HTTPS', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeRequest);
+    await expect(
+      putAttachmentBytes({
+        url: 'http://storage.example.test/u',
+        headers: {},
+        body: new Blob(['x']),
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+      }),
+    ).rejects.toThrow('upload target refused');
+    expect(FakeRequest.last).toBeUndefined();
   });
 
   it('rejects a refusal by storage, a dropped connection and an abort differently', async () => {

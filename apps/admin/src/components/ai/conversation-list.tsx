@@ -33,8 +33,7 @@ import { useAssistant } from './assistant-provider';
 import { groupConversations } from './conversation-groups';
 import { isPlainClick } from './chat-links';
 
-/** Typing in the search box asks the server this long after the last key. */
-export const CONVERSATION_SEARCH_DELAY_MS = 300;
+export { CONVERSATION_SEARCH_DELAY_MS } from './assistant-provider';
 
 function ListSkeleton({ rows = 8 }: { rows?: number }) {
   return (
@@ -94,23 +93,27 @@ function ConversationRow({
     setEditing(true);
   }
 
-  function finish(commit: boolean): void {
+  /**
+   * Ends the edit. Enter and Escape leave focus on the row; a click elsewhere
+   * (the box's blur) leaves it wherever the member clicked.
+   */
+  function finish(commit: boolean, refocus: boolean): void {
     if (doneRef.current) return;
     doneRef.current = true;
     setEditing(false);
     if (commit) onRename(value);
-    requestAnimationFrame(() => linkRef.current?.focus());
+    if (refocus) requestAnimationFrame(() => linkRef.current?.focus());
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.nativeEvent.isComposing) return;
     if (event.key === 'Enter') {
       event.preventDefault();
-      finish(true);
+      finish(true, true);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      finish(false);
+      finish(false, true);
     }
   }
 
@@ -124,7 +127,7 @@ function ConversationRow({
           maxLength={AI_CHAT_LIMITS.maxTitleChars}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleKeyDown}
-          onBlur={() => finish(true)}
+          onBlur={() => finish(true, false)}
           className="h-9 rounded-lg bg-background px-2.5 text-[13px] md:text-[13px]"
         />
       ) : (
@@ -299,18 +302,13 @@ export function ConversationList({
   const { conversations } = useAssistant();
   const { list, activeId, loadList, loadMore, rename, dismissNotice } = conversations;
   const searchId = useId();
-  const [query, setQuery] = useState(list.query);
+  const query = list.search;
+  const setQuery = conversations.setSearch;
   const [deleting, setDeleting] = useState<AiConversation>();
   const focusAfterDelete = useRef<HTMLElement | null>(null);
   const newChatRef = useRef<HTMLAnchorElement>(null);
   const groups = useMemo(() => groupConversations(list.items, now), [list.items, now]);
   const term = query.trim();
-
-  useEffect(() => {
-    if (term === list.query) return;
-    const timer = window.setTimeout(() => loadList(term), CONVERSATION_SEARCH_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [list.query, loadList, term]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

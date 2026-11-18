@@ -42,6 +42,7 @@ export function AssistantPanel() {
     confirmAction,
     cancelAction,
     canRetry,
+    retryNote,
     conversations,
     workspaceSlug,
     handOffToChatPage,
@@ -246,6 +247,7 @@ export function AssistantPanel() {
             onConfirmAction={(id) => confirmAction(message.id, id)}
             onCancelAction={(id) => cancelAction(message.id, id)}
             {...(message.id === retryId ? { onRetry: retry } : {})}
+            {...(message.id === last?.id ? { retryNote, onStartNewChat: startNewChat } : {})}
           />
         ))
       )}

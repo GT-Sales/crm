@@ -67,7 +67,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, { disabled?: boolean 
 
     function submit(): void {
       if (!canSend) return;
-      send(text, { withAttachments: true });
+      // The draft stays when nothing was sent, so no words are lost.
+      if (!send(text, { withAttachments: true })) return;
       setDraft('');
       textareaRef.current?.focus();
     }

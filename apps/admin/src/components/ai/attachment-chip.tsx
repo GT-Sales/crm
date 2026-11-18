@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react';
 import { CircleAlertIcon, FileTextIcon, FileTypeIcon, ImageIcon, XIcon } from 'lucide-react';
 import type { AiAttachmentKind, AiAttachmentSummary } from '@gt-sales/contracts';
 import { cn } from '@gt-sales/ui';
@@ -8,6 +8,8 @@ import { cn } from '@gt-sales/ui';
 import { fileSizeLabel } from './attachment-files';
 import { useAttachmentLink } from './attachment-links';
 import { useOptionalAssistant, type PendingAttachment } from './assistant-provider';
+import type { AttachmentLinkCache } from './attachment-links';
+import { isPlainClick } from './chat-links';
 
 /**
  * Files on screen: a chip in the composer for each file chosen for the next
@@ -136,6 +138,28 @@ function useOnScreen<T extends Element>(): [RefObject<T | null>, boolean] {
   return [ref, visible];
 }
 
+/**
+ * Opens the file in a new tab with a link that works: a held link that is
+ * still fresh opens as the plain link it is; an old or missing one is fetched
+ * first. The tab is opened at once (a browser lets only the click itself open
+ * one) and sent to the file when the link arrives, or closed if none can be had.
+ */
+function openWithFreshLink(
+  event: MouseEvent<HTMLElement>,
+  cache: AttachmentLinkCache | undefined,
+  id: string,
+): void {
+  if (cache === undefined || !isPlainClick(event) || cache.isFresh(id)) return;
+  event.preventDefault();
+  const tab = window.open('', '_blank');
+  if (tab) tab.opener = null;
+  void cache.fresh(id).then((url) => {
+    if (url === undefined) tab?.close();
+    else if (tab) tab.location.href = url;
+    else window.open(url, '_blank', 'noopener,noreferrer');
+  });
+}
+
 function SentAttachment({
   attachment,
   visible,
@@ -152,7 +176,8 @@ function SentAttachment({
   useEffect(() => {
     if (url !== undefined && thumb === undefined) setThumb(url);
   }, [thumb, url]);
-  const refresh = () => cache?.request(attachment.id);
+  const refresh = () => cache?.refresh(attachment.id);
+  const open = (event: MouseEvent<HTMLElement>) => openWithFreshLink(event, cache, attachment.id);
   const description = `${KIND_LABEL[attachment.kind]}, ${fileSizeLabel(attachment.byteSize)}`;
 
   if (attachment.kind === 'image' && thumb !== undefined && !broken) {
@@ -174,6 +199,7 @@ function SentAttachment({
         aria-label={`Open ${attachment.fileName} in a new tab`}
         onPointerEnter={refresh}
         onFocus={refresh}
+        onClick={open}
         className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {image}
@@ -202,6 +228,24 @@ function SentAttachment({
   );
   const chip =
     'flex w-56 max-w-full min-w-0 items-center gap-2 rounded-xl border bg-card p-1.5 pr-2.5 text-left text-foreground';
+  if (entry?.status === 'failed') {
+    // No link could be had: pointing at the file tries again, a click fetches and opens.
+    return (
+      <button
+        type="button"
+        aria-label={`Open ${attachment.fileName} (${description}) in a new tab`}
+        onPointerEnter={refresh}
+        onFocus={refresh}
+        onClick={open}
+        className={cn(
+          chip,
+          'outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
+        )}
+      >
+        {body}
+      </button>
+    );
+  }
   return url === undefined ? (
     <span className={chip}>{body}</span>
   ) : (
@@ -212,6 +256,7 @@ function SentAttachment({
       aria-label={`Open ${attachment.fileName} (${description}) in a new tab`}
       onPointerEnter={refresh}
       onFocus={refresh}
+      onClick={open}
       className={cn(
         chip,
         'outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',

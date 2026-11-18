@@ -149,6 +149,12 @@ export interface AiAssistantMessage {
   expiredDrafts?: number;
   /** The saved answer's id (`done.messageId`) in a stored conversation. */
   storedId?: string;
+  /**
+   * The server took this turn: a part of its stream arrived (the member's
+   * message, and any files with it, are then stored), or it was loaded from
+   * the store. A turn refused before its stream stored nothing.
+   */
+  accepted?: boolean;
 }
 
 export type AiMessage = AiUserMessage | AiAssistantMessage;
@@ -182,6 +188,13 @@ interface SessionState {
   /** The open stored conversation; undefined for a new chat (and always with an older backend). */
   conversationId?: string;
   title?: string;
+  /**
+   * The id is the browser's own for a new chat whose first turn the server has
+   * not taken yet: nothing is stored under it, so it is not the active
+   * conversation (the address and the list do not show it) until a part of
+   * the answer arrives, and it is dropped if the request is refused.
+   */
+  provisional?: boolean;
   load: ConversationLoad;
 }
 
@@ -193,6 +206,9 @@ interface CapabilitiesState {
 /** The member's conversations, a page at a time, for one title search. */
 export interface ConversationListState {
   status: 'idle' | 'loading' | 'ready' | 'error';
+  /** What the member has typed in the search box (one value for every view of the list). */
+  search: string;
+  /** The search the shown rows answer. */
   query: string;
   items: readonly AiConversation[];
   nextCursor?: string;
@@ -249,6 +265,11 @@ export interface AssistantConversations {
   reload(): void;
   /** The first page for a title search ('' for all); keeps rows already shown for the same search. */
   loadList(query?: string): void;
+  /**
+   * The member typed in the search box: the text is kept here, once for every
+   * view of the list, and the search runs a moment after typing stops.
+   */
+  setSearch(text: string): void;
   loadMore(): void;
   rename(id: string, title: string): Promise<void>;
   remove(id: string): Promise<{ ok: true } | { ok: false; message: string }>;
@@ -298,12 +319,18 @@ export interface AssistantContextValue {
   open(returnFocusTo?: HTMLElement): void;
   close(): void;
   newChat(): void;
-  /** Sends a question; `withAttachments` adds the ready files (the full page's composer only). */
-  send(text: string, options?: { withAttachments?: boolean }): void;
+  /**
+   * Sends a question; `withAttachments` adds the ready files (the full page's
+   * composer only). False when nothing was sent (an answer is still coming,
+   * the conversation is loading or not available, Ask AI is off).
+   */
+  send(text: string, options?: { withAttachments?: boolean }): boolean;
   stop(): void;
   retry(): void;
   /** The last answer may be asked again (failed, or stopped in a stored conversation). */
   canRetry: boolean;
+  /** Why the last failed answer is not offered again, in plain words, when that needs saying. */
+  retryNote?: string;
   conversations: AssistantConversations;
   attachments: AssistantAttachments;
   /** Signed links to the member's files, for the files on messages. */
@@ -317,6 +344,57 @@ export interface AssistantContextValue {
 }
 
 const AssistantContext = createContext<AssistantContextValue | undefined>(undefined);
+
+/** Typing in the conversation search asks the server this long after the last key. */
+export const CONVERSATION_SEARCH_DELAY_MS = 300;
+
+/** How long after an interrupted first turn the list is asked again (the server may still be saving it). */
+const INTERRUPTED_REFRESH_MS = 1_500;
+
+/**
+ * Whether the server stored this turn (and linked its files): a part of its
+ * answer arrived, it came from the store, or it was stopped (the server keeps a
+ * stopped turn as cancelled, even one stopped before its first part). Only a
+ * request that ended in an error before any part was refused unstored.
+ */
+function turnTaken(answer: AiAssistantMessage): boolean {
+  return answer.accepted === true || answer.storedId !== undefined || answer.status === 'stopped';
+}
+
+/** Errors after which asking the same question again can only fail again. */
+const NOT_RETRYABLE: readonly (AiUiError | undefined)[] = [
+  'conversation_full',
+  'conversation_missing',
+];
+
+/**
+ * Whether the last answer may be asked again, and if not, whether the member
+ * should be told why. In a stored conversation a stopped answer counts too;
+ * a turn the server took has its files linked to it for good, so a question
+ * that carried files cannot be asked again with them.
+ */
+function retryState(
+  messages: readonly AiMessage[],
+  streaming: boolean,
+  stored: boolean,
+): { canRetry: boolean; note?: string } {
+  const last = messages[messages.length - 1];
+  const question = messages[messages.length - 2];
+  if (streaming || last?.role !== 'assistant' || question?.role !== 'user') {
+    return { canRetry: false };
+  }
+  if (last.status !== 'error' && !(stored && last.status === 'stopped')) return { canRetry: false };
+  if (!stored) return { canRetry: last.status === 'error' };
+  if (last.status === 'error' && NOT_RETRYABLE.includes(last.error)) return { canRetry: false };
+  const taken = turnTaken(last);
+  if (taken && (question.attachments?.length ?? 0) > 0) {
+    return {
+      canRetry: false,
+      note: 'The files sent with this question can’t be sent again. Attach them again and ask once more.',
+    };
+  }
+  return { canRetry: true };
+}
 
 let messageSequence = 0;
 
@@ -337,7 +415,7 @@ function emptySession(key: string): SessionState {
 }
 
 function emptyList(): ConversationListState {
-  return { status: 'idle', query: '', items: [], loadingMore: false };
+  return { status: 'idle', search: '', query: '', items: [], loadingMore: false };
 }
 
 /** The codes after which this member may no longer see the site's assistant. */
@@ -401,6 +479,7 @@ export function storedToMessage(row: AiStoredMessage): AiMessage {
     status,
     sources: row.sources,
     storedId: row.id,
+    accepted: true,
     ...(row.followUp === undefined ? {} : { followUp: row.followUp }),
     ...(status === 'error'
       ? {
@@ -492,6 +571,11 @@ export function AssistantProvider({
   /** Bumped whenever the pending files are cleared: a late upload step is dropped. */
   const attachmentGenerationRef = useRef(0);
   const uploadsRef = useRef(new Map<string, AbortController>());
+  // The list's first page, for a turn that ended before naming its
+  // conversation (`loadList` is defined further down).
+  const loadListRef = useRef<() => void>(() => undefined);
+  /** Timers that ask for the list later; cleared when the provider goes. */
+  const timersRef = useRef(new Set<number>());
   const returnFocusRef = useRef<HTMLElement | null>(null);
   // Long chains (an upload's four steps, a page of the list) read the newest
   // token when each step starts, so a refreshed sign-in is used at once.
@@ -675,6 +759,8 @@ export function AssistantProvider({
       for (const upload of uploadsRef.current.values()) upload.abort();
       uploadsRef.current.clear();
       for (const item of attachmentsRef.current.items) revokePreview(item);
+      for (const timer of timersRef.current) window.clearTimeout(timer);
+      timersRef.current.clear();
     },
     [],
   );
@@ -811,7 +897,25 @@ export function AssistantProvider({
           signal: controller.signal,
           onPart(part) {
             if (generationRef.current !== run) return;
-            answered = true;
+            if (!answered) {
+              answered = true;
+              // The server took the turn: the question (and its files) are
+              // stored, and a new chat's id is now a real conversation.
+              const current = sessionRef.current;
+              commitSession({
+                ...current,
+                ...(stored !== undefined &&
+                current.provisional === true &&
+                current.conversationId === stored.conversationId
+                  ? { provisional: false }
+                  : {}),
+                messages: current.messages.map((message) =>
+                  message.id === assistant.id && message.role === 'assistant'
+                    ? { ...message, accepted: true }
+                    : message,
+                ),
+              });
+            }
             if (part.type === 'error' && part.code === 'access_lost') {
               controller.abort();
               clearPrivateRef.current();
@@ -823,16 +927,21 @@ export function AssistantProvider({
               const current = sessionRef.current;
               if (stored === undefined || part.conversationId !== stored.conversationId) return;
               titled = true;
-              if (current.conversationId === part.conversationId) {
-                commitSession({ ...current, title: part.title });
-              }
-              const now = new Date().toISOString();
+              // The part carries the title as it was when the turn began: only
+              // a conversation this turn created takes it. An existing one keeps
+              // the title already known here (a rename made meanwhile wins).
               const known = listRef.current.value.items.find(
                 (item) => item.id === part.conversationId,
               );
+              const open = current.conversationId === part.conversationId;
+              const title = part.created
+                ? part.title
+                : (known?.title ?? (open ? current.title : undefined) ?? part.title);
+              if (open && part.created) commitSession({ ...current, title: part.title });
+              const now = new Date().toISOString();
               upsertConversation({
                 id: part.conversationId,
-                title: part.title,
+                title,
                 createdAt: known?.createdAt ?? now,
                 updatedAt: now,
                 lastMessageAt: now,
@@ -842,7 +951,22 @@ export function AssistantProvider({
             applyPart(assistant.id, part);
           },
         });
-        if (generationRef.current !== run) return;
+        if (generationRef.current !== run) {
+          // Interrupted (New chat, another conversation) before the server
+          // named this turn's conversation: it may well be stored, so the list
+          // is asked again once, a moment later.
+          if (stored !== undefined && !titled) {
+            const key = sessionKey;
+            const timer = window.setTimeout(() => {
+              timersRef.current.delete(timer);
+              if (sessionRef.current.key !== key) return;
+              if (listRef.current.value.status === 'idle') return;
+              loadListRef.current();
+            }, INTERRUPTED_REFRESH_MS);
+            timersRef.current.add(timer);
+          }
+          return;
+        }
         if (abortRef.current === controller) abortRef.current = null;
         if (result === 'denied' || result === 'session_expired') {
           controller.abort();
@@ -851,6 +975,15 @@ export function AssistantProvider({
           return;
         }
         finalize(assistant.id, result);
+        if (stored !== undefined && !answered) {
+          // Refused before its stream: nothing was stored. A new chat's
+          // provisional id goes (the question stays on screen with Retry).
+          const current = sessionRef.current;
+          if (current.provisional === true && current.conversationId === stored.conversationId) {
+            const { conversationId: _dropped, title: _title, ...rest } = current;
+            commitSession({ ...rest, provisional: false });
+          }
+        }
         if (stored !== undefined && answered && !titled) {
           // An answer without the `conversation` part still belongs at the top
           // (a request refused before its stream began stored nothing).
@@ -1088,6 +1221,25 @@ export function AssistantProvider({
       );
     },
     [commitList, sessionKey, storesConversations, workspace.id],
+  );
+
+  loadListRef.current = () => loadList();
+
+  // One search box text and one debounce, whichever view of the list typed it.
+  const searchTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(searchTimerRef.current), []);
+  const setSearch = useCallback(
+    (text: string) => {
+      commitList((current) => ({ ...current, search: text }));
+      window.clearTimeout(searchTimerRef.current);
+      const key = sessionKey;
+      searchTimerRef.current = window.setTimeout(() => {
+        if (sessionRef.current.key !== key) return;
+        const term = listRef.current.value.search.trim();
+        if (term !== listRef.current.value.query) loadList(term);
+      }, CONVERSATION_SEARCH_DELAY_MS);
+    },
+    [commitList, loadList, sessionKey],
   );
 
   const loadMore = useCallback(() => {
@@ -1377,13 +1529,13 @@ export function AssistantProvider({
   const send = useCallback(
     (raw: string, options?: { withAttachments?: boolean }) => {
       const current = sessionRef.current;
-      if (current.streaming || capabilities.status !== 'ready') return;
-      if (!capabilities.data.available) return;
-      if (current.load.status !== 'idle') return;
+      if (current.streaming || capabilities.status !== 'ready') return false;
+      if (!capabilities.data.available) return false;
+      if (current.load.status !== 'idle') return false;
       const text = Array.from(raw.trim())
         .slice(0, capabilities.data.limits.maxMessageChars)
         .join('');
-      if (text.length === 0) return;
+      if (text.length === 0) return false;
       if (!storesConversations) {
         startTurn(
           text,
@@ -1391,10 +1543,10 @@ export function AssistantProvider({
           { id: nextMessageId(), role: 'user', text },
           capabilities.data.limits,
         );
-        return;
+        return true;
       }
       const pending = options?.withAttachments === true ? attachmentsRef.current.items : [];
-      if (pending.some((item) => item.status === 'uploading')) return;
+      if (pending.some((item) => item.status === 'uploading')) return false;
       const ready = pending.flatMap((item) =>
         item.status === 'ready' && item.summary !== undefined
           ? [{ item, summary: item.summary }]
@@ -1419,7 +1571,12 @@ export function AssistantProvider({
       }
       const conversationId = current.conversationId ?? randomUuid();
       if (current.conversationId === undefined) {
-        commitSession({ ...current, conversationId, title: provisionalTitle(text) });
+        commitSession({
+          ...current,
+          conversationId,
+          title: provisionalTitle(text),
+          provisional: true,
+        });
       }
       const attachments = ready.map(({ summary }) => summary);
       startTurn(
@@ -1434,6 +1591,7 @@ export function AssistantProvider({
         capabilities.data.limits,
         { conversationId, attachmentIds: attachments.map((summary) => summary.id) },
       );
+      return true;
     },
     [
       capabilities,
@@ -1446,12 +1604,11 @@ export function AssistantProvider({
     ],
   );
 
-  const lastMessage = activeSession.messages[activeSession.messages.length - 1];
-  const canRetry =
-    !activeSession.streaming &&
-    lastMessage?.role === 'assistant' &&
-    (lastMessage.status === 'error' || (storesConversations && lastMessage.status === 'stopped')) &&
-    activeSession.messages[activeSession.messages.length - 2]?.role === 'user';
+  const { canRetry, note: retryNote } = retryState(
+    activeSession.messages,
+    activeSession.streaming,
+    storesConversations,
+  );
 
   const retry = useCallback(() => {
     const current = sessionRef.current;
@@ -1463,23 +1620,48 @@ export function AssistantProvider({
     const userIndex = assistantIndex - 1;
     const user = current.messages[userIndex];
     if (user === undefined || user.role !== 'user') return;
-    if (storesConversations && current.conversationId !== undefined) {
-      if (failed.status !== 'error' && failed.status !== 'stopped') return;
+    if (storesConversations) {
+      if (!retryState(current.messages, current.streaming, true).canRetry) return;
       if (current.load.status !== 'idle') return;
-      // The server keeps the answer that failed, so the thread keeps it too and
-      // the question is asked again below it, as a reload will show it.
+      if (turnTaken(failed)) {
+        // The server keeps the answer that failed, so the thread keeps it too
+        // and the question is asked again below it, as a reload will show it.
+        if (current.conversationId === undefined) return;
+        startTurn(
+          user.text,
+          current.messages,
+          { id: nextMessageId(), role: 'user', text: user.text },
+          capabilities.data.limits,
+          { conversationId: current.conversationId, attachmentIds: [] },
+        );
+        return;
+      }
+      // Refused before its stream: nothing was stored and the files are still
+      // unsent, so the same question goes again in its place, with them.
+      const conversationId = current.conversationId ?? randomUuid();
+      if (current.conversationId === undefined) {
+        commitSession({
+          ...current,
+          conversationId,
+          title: provisionalTitle(user.text),
+          provisional: true,
+        });
+      }
       startTurn(
         user.text,
-        current.messages,
-        { id: nextMessageId(), role: 'user', text: user.text },
+        sessionRef.current.messages.slice(0, userIndex),
+        user,
         capabilities.data.limits,
-        { conversationId: current.conversationId, attachmentIds: [] },
+        {
+          conversationId,
+          attachmentIds: (user.attachments ?? []).map((attachment) => attachment.id),
+        },
       );
       return;
     }
     if (failed.status !== 'error') return;
     startTurn(user.text, current.messages.slice(0, userIndex), user, capabilities.data.limits);
-  }, [capabilities, startTurn, storesConversations]);
+  }, [capabilities, commitSession, startTurn, storesConversations]);
 
   const updateAction = useCallback(
     (messageId: string, actionId: string, change: Partial<AiActionView>) => {
@@ -1657,7 +1839,8 @@ export function AssistantProvider({
   const conversations = useMemo<AssistantConversations>(
     () => ({
       enabled: storesConversations,
-      ...(activeSession.conversationId === undefined
+      // A new chat's own id is not a conversation until the server takes its first turn.
+      ...(activeSession.conversationId === undefined || activeSession.provisional === true
         ? {}
         : { activeId: activeSession.conversationId }),
       ...(activeSession.title === undefined ? {} : { title: activeSession.title }),
@@ -1666,6 +1849,7 @@ export function AssistantProvider({
       open: openConversation,
       reload: reloadConversation,
       loadList,
+      setSearch,
       loadMore,
       rename: renameConversation,
       remove: removeConversation,
@@ -1673,12 +1857,14 @@ export function AssistantProvider({
     }),
     [
       activeSession.conversationId,
+      activeSession.provisional,
       activeSession.load,
       activeSession.title,
       dismissNotice,
       list,
       loadList,
       loadMore,
+      setSearch,
       openConversation,
       reloadConversation,
       removeConversation,
@@ -1726,6 +1912,7 @@ export function AssistantProvider({
       stop,
       retry,
       canRetry,
+      ...(retryNote === undefined ? {} : { retryNote }),
       updateAutomationCard,
       reviseAction,
       confirmAction,
@@ -1745,6 +1932,7 @@ export function AssistantProvider({
       activeSession,
       attachments,
       canRetry,
+      retryNote,
       capabilities,
       chatPages,
       close,

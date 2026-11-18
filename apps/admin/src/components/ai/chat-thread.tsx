@@ -63,6 +63,7 @@ export function ChatThread({
     send,
     retry,
     canRetry,
+    retryNote,
     reviseAction,
     confirmAction,
     cancelAction,
@@ -162,6 +163,7 @@ export function ChatThread({
             onConfirmAction={(id) => confirmAction(message.id, id)}
             onCancelAction={(id) => cancelAction(message.id, id)}
             {...(message.id === retryId ? { onRetry: retry } : {})}
+            {...(message.id === last?.id ? { retryNote, onStartNewChat: onNewChat } : {})}
           />
         ))}
       </div>

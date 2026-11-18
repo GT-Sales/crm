@@ -33,8 +33,13 @@ const id = (n: number) => `c0000000-0000-4000-8000-${String(n).padStart(12, '0')
 /**
  * `usePathname` follows the address the way the App Router does: the history
  * API moves it (Next.js patches pushState/replaceState to notify the router).
+ * With `lag` on, the router shows each move only when the test says so, as a
+ * busy App Router does (it may even show an older address first).
  */
-const navigation = vi.hoisted(() => ({ listeners: new Set<() => void>() }));
+const navigation = vi.hoisted(() => {
+  const queue: string[] = [];
+  return { listeners: new Set<() => void>(), shown: '/', lag: false, queue };
+});
 vi.mock('next/navigation', () => ({
   usePathname: () =>
     useSyncExternalStore(
@@ -42,7 +47,7 @@ vi.mock('next/navigation', () => ({
         navigation.listeners.add(listener);
         return () => navigation.listeners.delete(listener);
       },
-      () => window.location.pathname,
+      () => navigation.shown,
     ),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
@@ -213,6 +218,19 @@ function composer(): HTMLElement {
   return screen.getByRole('textbox', { name: 'Ask a question' });
 }
 
+/** The router shows `path` (a move it caught up with, or one it rewrites). */
+function show(path: string): void {
+  act(() => {
+    navigation.shown = path;
+    for (const listener of navigation.listeners) listener();
+  });
+}
+
+/** The router catches up with every move it was holding, in order. */
+function catchUp(): void {
+  for (const path of navigation.queue.splice(0)) show(path);
+}
+
 const originalPush = window.history.pushState.bind(window.history);
 const originalReplace = window.history.replaceState.bind(window.history);
 
@@ -221,23 +239,34 @@ beforeEach(() => {
   files.steps.length = 0;
   files.put.mockReset();
   files.hash.mockReset();
+  navigation.lag = false;
+  navigation.queue.length = 0;
+  const follow = () => {
+    const path = window.location.pathname;
+    if (navigation.lag) navigation.queue.push(path);
+    else {
+      navigation.shown = path;
+      for (const listener of navigation.listeners) listener();
+    }
+  };
   window.history.pushState = (...args: Parameters<History['pushState']>) => {
     originalPush(...args);
-    for (const listener of navigation.listeners) listener();
+    follow();
   };
   window.history.replaceState = (...args: Parameters<History['replaceState']>) => {
     originalReplace(...args);
-    for (const listener of navigation.listeners) listener();
+    follow();
   };
   go(BASE);
   mocks.getAiCapabilities.mockResolvedValue(capabilities());
   mocks.listAiConversations.mockResolvedValue(page([]));
   mocks.deleteAiAttachment.mockResolvedValue({ attachmentId: id(0), requestId: 'req' });
-  mocks.getAiAttachmentLink.mockResolvedValue({
+  // A link lives two minutes by the server's clock, as the real one does.
+  mocks.getAiAttachmentLink.mockImplementation(async () => ({
     url: 'https://storage.example.test/file',
-    expiresAt: '2099-01-01T00:00:00.000Z',
+    expiresAt: new Date(Date.now() + 120_000).toISOString(),
     requestId: 'req',
-  });
+  }));
 });
 
 afterEach(() => {
@@ -273,40 +302,67 @@ describe('Ask AI full page: availability', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('with an older backend (no conversations) the page is calm and the panel is exactly as before', async () => {
+  it.each([undefined, false])(
+    'with conversations %s (an older backend) the page is calm and the panel is exactly as before',
+    async (stored) => {
+      mocks.getAiCapabilities.mockResolvedValue(capabilities({ conversations: stored }));
+      mocks.askAiAssistant.mockImplementation(() =>
+        streamOf([
+          { type: 'text', text: 'Memory answer' },
+          { type: 'done', signature: 'a'.repeat(43) },
+        ]),
+      );
+      render(<Screen />);
+      expect(
+        await screen.findByRole('heading', { name: 'Ask AI is not available for this site' }),
+      ).toBeTruthy();
+      expect(mocks.listAiConversations).not.toHaveBeenCalled();
+      // The header trigger stays (the page did not take over), and its panel has no full page link.
+      fireEvent.click(await screen.findByRole('button', { name: 'Ask AI' }));
+      const panel = screen.getByRole('dialog', { name: 'Ask AI' });
+      expect(within(panel).queryByRole('link', { name: 'Open full page' })).toBeNull();
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Ask a question' }), {
+        target: { value: 'First' },
+      });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
+      await within(panel).findByText('Memory answer');
+      await waitFor(() =>
+        expect(within(panel).getByRole('textbox').hasAttribute('disabled')).toBe(false),
+      );
+      fireEvent.change(within(panel).getByRole('textbox'), { target: { value: 'Second' } });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
+      await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalledTimes(2));
+      const second = mocks.askAiAssistant.mock.calls[1]?.[2];
+      expect(second?.conversationId).toBeUndefined();
+      expect(second?.history).toEqual([
+        { role: 'user', text: 'First' },
+        { role: 'assistant', text: 'Memory answer', signature: 'a'.repeat(43) },
+      ]);
+    },
+  );
+
+  it('the memory-only panel says "Stopped." only under an empty answer, as it always did', async () => {
     mocks.getAiCapabilities.mockResolvedValue(capabilities({ conversations: undefined }));
-    mocks.askAiAssistant.mockImplementation(() =>
-      streamOf([
-        { type: 'text', text: 'Memory answer' },
-        { type: 'done', signature: 'a'.repeat(43) },
-      ]),
+    mocks.askAiAssistant.mockImplementation((_t, _w, _b, options) =>
+      (async function* () {
+        yield { type: 'text' as const, text: 'Half an answer' };
+        await new Promise<void>((resolve) =>
+          options?.signal?.addEventListener('abort', () => resolve(), { once: true }),
+        );
+      })(),
     );
     render(<Screen />);
-    expect(
-      await screen.findByRole('heading', { name: 'Ask AI is not available for this site' }),
-    ).toBeTruthy();
-    expect(mocks.listAiConversations).not.toHaveBeenCalled();
-    // The header trigger stays (the page did not take over), and its panel has no full page link.
     fireEvent.click(await screen.findByRole('button', { name: 'Ask AI' }));
     const panel = screen.getByRole('dialog', { name: 'Ask AI' });
-    expect(within(panel).queryByRole('link', { name: 'Open full page' })).toBeNull();
     fireEvent.change(within(panel).getByRole('textbox', { name: 'Ask a question' }), {
-      target: { value: 'First' },
+      target: { value: 'Long one' },
     });
     fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
-    await within(panel).findByText('Memory answer');
-    await waitFor(() =>
-      expect(within(panel).getByRole('textbox').hasAttribute('disabled')).toBe(false),
-    );
-    fireEvent.change(within(panel).getByRole('textbox'), { target: { value: 'Second' } });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalledTimes(2));
-    const second = mocks.askAiAssistant.mock.calls[1]?.[2];
-    expect(second?.conversationId).toBeUndefined();
-    expect(second?.history).toEqual([
-      { role: 'user', text: 'First' },
-      { role: 'assistant', text: 'Memory answer', signature: 'a'.repeat(43) },
-    ]);
+    await within(panel).findByText('Half an answer');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(within(panel).queryByRole('button', { name: 'Stop' })).toBeNull());
+    expect(within(panel).queryByText('Stopped.')).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 
   it('offers the sidebar and Ctrl/Cmd K entry only when conversations are stored', async () => {
@@ -1146,5 +1202,457 @@ describe('Ask AI side panel with stored conversations', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull());
     expect(signal?.aborted).toBe(false);
     await act(async () => release.resolve());
+  });
+});
+
+describe('Ask AI full page: review findings', () => {
+  function attachReady(n: number, name: string): void {
+    mocks.createAiAttachmentIntent.mockResolvedValueOnce({
+      uploadId: id(700 + n),
+      url: `https://storage.example.test/upload/${n}`,
+      method: 'PUT',
+      headers: { 'content-type': 'image/png' },
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      requestId: 'req',
+    });
+    mocks.finalizeAiAttachment.mockResolvedValueOnce({
+      attachment: {
+        id: id(700 + n),
+        kind: 'image',
+        mediaType: 'image/png',
+        fileName: name,
+        byteSize: 10,
+      },
+      requestId: 'req',
+    });
+    files.put.mockResolvedValue(undefined);
+    files.hash.mockResolvedValue('a'.repeat(64));
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('no file input');
+    fireEvent.change(input, {
+      target: { files: [new File(['x'.repeat(10)], name, { type: 'image/png' })] },
+    });
+  }
+
+  async function askWithFile(question: string): Promise<void> {
+    await screen.findByRole('button', { name: 'Attach files' });
+    attachReady(1, 'letter.png');
+    await screen.findByText('Image · 10 bytes');
+    fireEvent.change(composer(), { target: { value: question } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  }
+
+  it('a search typed in the phone drawer asks once, and only one list is ever mounted', async () => {
+    mocks.listAiConversations.mockResolvedValue(
+      page([conversation(1, 'Alpha'), conversation(2, 'Beta')]),
+    );
+    render(<Screen />);
+    await screen.findByRole('link', { name: 'Alpha' });
+    expect(screen.getAllByRole('navigation', { name: 'Conversations' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Show conversations' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Your conversations' });
+    // The drawer's list replaces the inline one: never two lists, never two searches.
+    expect(screen.getAllByRole('navigation', { name: 'Conversations' })).toHaveLength(1);
+    vi.useFakeTimers();
+    const before = mocks.listAiConversations.mock.calls.length;
+    fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Search conversations' }), {
+      target: { value: 'alp' },
+    });
+    for (let step = 0; step < 10; step += 1) {
+      await act(async () => {
+        vi.advanceTimersByTime(CONVERSATION_SEARCH_DELAY_MS + 1);
+        await Promise.resolve();
+      });
+    }
+    vi.useRealTimers();
+    expect(mocks.listAiConversations.mock.calls.slice(before).map((call) => call[2])).toEqual([
+      { q: 'alp' },
+    ]);
+    // Closing the drawer brings back the inline list with the same search.
+    fireEvent.keyDown(drawer, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(
+      screen.getByRole('searchbox', { name: 'Search conversations' }).getAttribute('value'),
+    ).toBe('alp');
+    expect(screen.getAllByRole('navigation', { name: 'Conversations' })).toHaveLength(1);
+  });
+
+  it('a question with files refused before its stream is asked again with the same files', async () => {
+    mocks.getAiCapabilities.mockResolvedValue(capabilities({ attachments: ATTACHMENTS }));
+    mocks.askAiAssistant
+      .mockImplementationOnce(() => {
+        throw new BackendError('ai_rate_limited', 429, 'req');
+      })
+      .mockImplementationOnce(() =>
+        streamOf([{ type: 'text', text: 'It asks for a signature.' }, { type: 'done' }]),
+      );
+    render(<Screen />);
+    await askWithFile('What does this letter ask?');
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    await screen.findByText('It asks for a signature.');
+    const [first, again] = mocks.askAiAssistant.mock.calls.map((call) => call[2]);
+    expect(first?.attachmentIds).toEqual([id(701)]);
+    expect(again?.attachmentIds).toEqual([id(701)]);
+    // Nothing was stored the first time: the question is asked in its place, file and all.
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    expect(within(log).getAllByText('What does this letter ask?')).toHaveLength(1);
+    expect(within(log).getByRole('list', { name: 'Attached files' })).toBeTruthy();
+  });
+
+  it('a stored question with files that failed is not silently asked again without them', async () => {
+    mocks.getAiCapabilities.mockResolvedValue(capabilities({ attachments: ATTACHMENTS }));
+    mocks.askAiAssistant.mockImplementation((_t, _w, body) =>
+      streamOf([
+        {
+          type: 'conversation',
+          conversationId: body.conversationId ?? '',
+          userMessageId: id(300),
+          title: 'Letter',
+          created: true,
+        },
+        { type: 'error', code: 'provider_unavailable', message: 'Failed' },
+      ]),
+    );
+    render(<Screen />);
+    await askWithFile('What does this letter ask?');
+    expect(
+      await screen.findByText(
+        'The files sent with this question can’t be sent again. Attach them again and ask once more.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(mocks.askAiAssistant).toHaveBeenCalledTimes(1);
+  });
+
+  it('a question with files stopped before its first part is kept by the server, so no silent retry', async () => {
+    mocks.getAiCapabilities.mockResolvedValue(capabilities({ attachments: ATTACHMENTS }));
+    mocks.askAiAssistant.mockImplementation((_t, _w, _b, options) =>
+      (async function* () {
+        await new Promise<void>((resolve) =>
+          options?.signal?.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        // Never reached: the stop ends the turn before its first part.
+        if (!options?.signal?.aborted) yield { type: 'done' as const };
+      })(),
+    );
+    render(<Screen />);
+    await askWithFile('What does this letter ask?');
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    expect(
+      await screen.findByText(
+        'The files sent with this question can’t be sent again. Attach them again and ask once more.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('a rename made as a turn starts is kept: the conversation part only moves the row', async () => {
+    const conv = conversation(1, 'Old title');
+    mocks.listAiConversations.mockResolvedValue(page([conv]));
+    mocks.getAiConversation.mockResolvedValue(
+      detail(conv, [stored(1, 'user', 'Hi'), stored(2, 'assistant', 'Hello')]),
+    );
+    go(`${BASE}/${conv.id}`);
+    const gate = deferred<void>();
+    mocks.askAiAssistant.mockImplementation((_t, _w, body) =>
+      (async function* () {
+        await gate.promise;
+        yield {
+          type: 'conversation' as const,
+          conversationId: body.conversationId ?? '',
+          userMessageId: id(300),
+          title: 'Old title',
+          created: false,
+        };
+        yield { type: 'text' as const, text: 'Done.' };
+        yield { type: 'done' as const, messageId: id(301) };
+      })(),
+    );
+    const renamed = deferred<{ conversation: AiConversation; requestId: string }>();
+    mocks.renameAiConversation.mockReturnValue(renamed.promise);
+    render(<Screen />);
+    await screen.findByText('Hello');
+    fireEvent.change(composer(), { target: { value: 'Next question' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    const nav = screen.getByRole('navigation', { name: 'Conversations' });
+    fireEvent.pointerDown(within(nav).getByRole('button', { name: 'Options for Old title' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    const box = await screen.findByRole('textbox', { name: 'Conversation title' });
+    fireEvent.change(box, { target: { value: 'New title' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await act(async () => gate.resolve());
+    await screen.findByText('Done.');
+    await act(async () =>
+      renamed.resolve({ conversation: { ...conv, title: 'New title' }, requestId: 'r' }),
+    );
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((row) => row.textContent),
+    ).toEqual(['New title']);
+    expect(screen.getByRole('heading', { name: 'New title' })).toBeTruthy();
+  });
+
+  it('a click elsewhere saves a rename without pulling focus back to the row', async () => {
+    mocks.listAiConversations.mockResolvedValue(page([conversation(1, 'Row title')]));
+    mocks.renameAiConversation.mockResolvedValue({
+      conversation: conversation(1, 'Renamed'),
+      requestId: 'req',
+    });
+    render(<Screen />);
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'Options for Row title' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    const box = await screen.findByRole('textbox', { name: 'Conversation title' });
+    fireEvent.change(box, { target: { value: 'Renamed' } });
+    composer().focus();
+    fireEvent.blur(box);
+    await screen.findByRole('link', { name: 'Renamed' });
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('a first message refused before its stream leaves the address at /chat and the question with Retry', async () => {
+    mocks.askAiAssistant
+      .mockImplementationOnce(() => {
+        throw new TypeError('Failed to fetch');
+      })
+      .mockImplementationOnce((_t, _w, body) =>
+        streamOf([
+          {
+            type: 'conversation',
+            conversationId: body.conversationId ?? '',
+            userMessageId: id(300),
+            title: 'Count the leads',
+            created: true,
+          },
+          { type: 'text', text: 'Six.' },
+          { type: 'done' },
+        ]),
+      );
+    render(<Screen />);
+    await screen.findByText('No conversations yet');
+    const thread = screen.getByRole('log', { name: 'Conversation' });
+    fireEvent.change(composer(), { target: { value: 'Count the leads' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    expect(
+      await within(thread).findByText(
+        'Couldn’t reach the CRM to answer. Check your internet connection and try again.',
+      ),
+    ).toBeTruthy();
+    expect(window.location.pathname).toBe(BASE);
+    expect(within(thread).getByText('Count the leads')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Count the leads' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await within(thread).findByText('Six.');
+    const retried = mocks.askAiAssistant.mock.calls[1]?.[2];
+    expect(window.location.pathname).toBe(`${BASE}/${retried?.conversationId}`);
+    expect(within(thread).getAllByText('Count the leads')).toHaveLength(1);
+    // The same thread throughout: no remount, no flash.
+    expect(screen.getByRole('log', { name: 'Conversation' })).toBe(thread);
+  });
+
+  it('a full conversation offers a new chat, not Retry', async () => {
+    go(`${BASE}/${id(1)}`);
+    mocks.getAiConversation.mockResolvedValue(detail(conversation(1, 'Long one'), []));
+    mocks.askAiAssistant.mockImplementation(() => {
+      throw new BackendError('conversation_full', 409, 'req');
+    });
+    render(<Screen />);
+    await screen.findByRole('heading', { name: 'Long one' });
+    fireEvent.change(composer(), { target: { value: 'One more' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await screen.findByRole('button', { name: 'Start a new chat' });
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new chat' }));
+    expect(
+      await screen.findByRole('heading', { name: 'What would you like to know?' }),
+    ).toBeTruthy();
+    expect(window.location.pathname).toBe(BASE);
+  });
+
+  it('New chat while a first answer streams stops it and lists the conversation the server kept', async () => {
+    let signal: AbortSignal | undefined;
+    mocks.askAiAssistant.mockImplementation((_t, _w, _b, options) => {
+      signal = options?.signal;
+      return (async function* () {
+        await new Promise<void>((resolve) =>
+          options?.signal?.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        yield { type: 'text' as const, text: 'Too late' };
+      })();
+    });
+    render(<Screen />);
+    await screen.findByText('No conversations yet');
+    fireEvent.change(composer(), { target: { value: 'Abandoned question' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(mocks.askAiAssistant).toHaveBeenCalled());
+    const listed = mocks.listAiConversations.mock.calls.length;
+    mocks.listAiConversations.mockResolvedValue(page([conversation(4, 'Abandoned question')]));
+    fireEvent.click(screen.getByRole('link', { name: 'New chat' }));
+    expect(signal?.aborted).toBe(true);
+    expect(screen.queryByText('Abandoned question')).toBeNull();
+    expect(
+      await screen.findByRole('link', { name: 'Abandoned question' }, { timeout: 4_000 }),
+    ).toBeTruthy();
+    expect(mocks.listAiConversations.mock.calls.length).toBe(listed + 1);
+    expect(screen.queryByText('Too late')).toBeNull();
+  });
+
+  it('Stop then an immediate question: the new answer comes, the stopped one’s late parts do not', async () => {
+    const release = deferred<void>();
+    mocks.askAiAssistant
+      .mockImplementationOnce(() =>
+        (async function* () {
+          yield { type: 'text' as const, text: 'First words' };
+          await release.promise;
+          yield { type: 'text' as const, text: ' and late ones' };
+          yield { type: 'done' as const };
+        })(),
+      )
+      .mockImplementationOnce(() =>
+        streamOf([{ type: 'text', text: 'Second answer' }, { type: 'done' }]),
+      );
+    render(<Screen />);
+    await screen.findByText('No conversations yet');
+    fireEvent.change(composer(), { target: { value: 'First' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await screen.findByText('First words');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    fireEvent.change(composer(), { target: { value: 'Second' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await screen.findByText('Second answer');
+    await act(async () => release.resolve());
+    expect(screen.queryByText(/and late ones/)).toBeNull();
+    const [first, second] = mocks.askAiAssistant.mock.calls.map((call) => call[2]);
+    expect(second?.conversationId).toBe(first?.conversationId);
+  });
+
+  it('switching A, B, C quickly shows C only, whatever order the answers come in', async () => {
+    mocks.listAiConversations.mockResolvedValue(
+      page([conversation(1, 'A'), conversation(2, 'B'), conversation(3, 'C')]),
+    );
+    const answers = new Map<string, ReturnType<typeof deferred<ReturnType<typeof detail>>>>();
+    mocks.getAiConversation.mockImplementation((_t: string, _w: string, which: string) => {
+      const next = deferred<ReturnType<typeof detail>>();
+      answers.set(which, next);
+      return next.promise;
+    });
+    render(<Screen />);
+    for (const name of ['A', 'B', 'C']) fireEvent.click(await screen.findByRole('link', { name }));
+    await act(async () => {
+      answers
+        .get(id(3))
+        ?.resolve(detail(conversation(3, 'C'), [stored(3, 'assistant', 'C answer')]));
+      answers
+        .get(id(1))
+        ?.resolve(detail(conversation(1, 'A'), [stored(1, 'assistant', 'A answer')]));
+      answers
+        .get(id(2))
+        ?.resolve(detail(conversation(2, 'B'), [stored(2, 'assistant', 'B answer')]));
+    });
+    expect(screen.getByText('C answer')).toBeTruthy();
+    expect(screen.queryByText('A answer')).toBeNull();
+    expect(screen.queryByText('B answer')).toBeNull();
+    expect(window.location.pathname).toBe(`${BASE}/${id(3)}`);
+    expect(screen.getByRole('link', { name: 'C' }).getAttribute('aria-current')).toBe('page');
+  });
+});
+
+describe('Ask AI full page: the address and the open conversation agree', () => {
+  beforeEach(() => {
+    mocks.listAiConversations.mockResolvedValue(
+      page([conversation(1, 'First chat'), conversation(2, 'Second chat')]),
+    );
+    mocks.getAiConversation.mockImplementation(async (_t: string, _w: string, which: string) =>
+      which === id(1)
+        ? detail(conversation(1, 'First chat'), [stored(1, 'assistant', 'First answer')])
+        : detail(conversation(2, 'Second chat'), [stored(2, 'assistant', 'Second answer')]),
+    );
+  });
+
+  it('a router that lags, even showing an older address first, never undoes the page’s own moves', async () => {
+    go(`${BASE}/${id(1)}`);
+    mocks.askAiAssistant.mockImplementation((_t, _w, body) =>
+      streamOf([
+        {
+          type: 'conversation',
+          conversationId: body.conversationId ?? '',
+          userMessageId: id(300),
+          title: 'Fresh chat',
+          created: true,
+        },
+        { type: 'text', text: 'Fresh answer' },
+        { type: 'done' },
+      ]),
+    );
+    render(<Screen />);
+    await screen.findByText('First answer');
+    navigation.lag = true;
+    fireEvent.click(screen.getByRole('link', { name: 'New chat' }));
+    fireEvent.change(composer(), { target: { value: 'Quick question' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await screen.findByText('Fresh answer');
+    const created = mocks.askAiAssistant.mock.calls[0]?.[2]?.conversationId;
+    expect(window.location.pathname).toBe(`${BASE}/${created}`);
+    // The router rewrites the address it last committed, then catches up.
+    show(`${BASE}/${id(1)}`);
+    catchUp();
+    navigation.lag = false;
+    expect(screen.getByText('Fresh answer')).toBeTruthy();
+    expect(screen.queryByText('First answer')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Fresh chat' })).toBeTruthy();
+    expect(window.location.pathname).toBe(`${BASE}/${created}`);
+    expect(mocks.getAiConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('a link from elsewhere to /chat (the sidebar) while a conversation is open starts a new chat', async () => {
+    go(`${BASE}/${id(1)}`);
+    render(<Screen />);
+    await screen.findByText('First answer');
+    // The App Router's own navigation, not the page's.
+    originalPush(null, '', BASE);
+    show(BASE);
+    expect(
+      await screen.findByRole('heading', { name: 'What would you like to know?' }),
+    ).toBeTruthy();
+    expect(window.location.pathname).toBe(BASE);
+    expect(
+      screen.getByRole('link', { name: 'First chat' }).getAttribute('aria-current'),
+    ).toBeNull();
+  });
+
+  it('back and forward open the conversation the address names, even while a move settles', async () => {
+    go(`${BASE}/${id(1)}`);
+    render(<Screen />);
+    await screen.findByText('First answer');
+    navigation.lag = true;
+    fireEvent.click(screen.getByRole('link', { name: 'Second chat' }));
+    await screen.findByText('Second answer');
+    // Back, before the router showed the move to the second chat.
+    originalReplace(null, '', `${BASE}/${id(1)}`);
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    navigation.queue.length = 0;
+    navigation.lag = false;
+    show(`${BASE}/${id(1)}`);
+    expect(await screen.findByText('First answer')).toBeTruthy();
+    expect(screen.queryByText('Second answer')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'First chat' })).toBeTruthy();
+    // Forward again.
+    originalReplace(null, '', `${BASE}/${id(2)}`);
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    show(`${BASE}/${id(2)}`);
+    expect(await screen.findByText('Second answer')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Second chat' })).toBeTruthy();
   });
 });
