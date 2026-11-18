@@ -38,7 +38,11 @@ import type { StaffRoleName } from '@gt-sales/types';
 import { createApp } from '../src/app.js';
 import { DatabaseAiAttachmentStore } from '../src/ai/attachment-store.js';
 import { AiAttachmentService } from '../src/ai/attachments.js';
-import { DatabaseAiChatSchemaProbe } from '../src/ai/chat-schema.js';
+import {
+  DatabaseAiChatSchemaProbe,
+  fixedAiChatSchema,
+  type AiChatSchemaProbe,
+} from '../src/ai/chat-schema.js';
 import type { AiAssistantConfig } from '../src/ai/config.js';
 import { AttachmentByteBudget } from '../src/ai/attachment-budget.js';
 import {
@@ -338,6 +342,10 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       kinds?: AiAttachmentService['kinds'];
       conversations?: AiConversationStore;
       memoryBudget?: AttachmentByteBudget;
+      /** The deployment's AI configuration; this file's `config` by default. */
+      config?: AiAssistantConfig;
+      /** The probe the usage store reads; the database's own by default. */
+      usageSchema?: AiChatSchemaProbe;
     } = {},
   ) {
     if (server) await new Promise<void>((resolve) => server?.close(() => resolve()));
@@ -350,7 +358,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         leadStore: unusedLeadStore,
         reportStore: reports,
         ai: {
-          config,
+          config: options.config ?? config,
           siteContext,
           reads,
           engine: { kind: 'fake', stream: (input: EngineInput) => engine.stream(input) },
@@ -360,7 +368,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
             schema,
             conversations: options.conversations ?? conversations,
             ...(options.memoryBudget ? { memoryBudget: options.memoryBudget } : {}),
-            usage: new DatabaseAiUsageStore(database, schema),
+            usage: new DatabaseAiUsageStore(database, options.usageSchema ?? schema),
             attachments: new AiAttachmentService(attachmentStore, objects, {
               bucket: 'documents',
               kinds: options.kinds ?? ['image', 'pdf', 'text'],
@@ -1811,61 +1819,407 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
   });
 
   describe('the owner’s usage view', () => {
-    it('shows the owner each member’s turns and tokens, counts only, by period; refuses everyone else', async () => {
-      const turn = async (
-        actorId: string,
-        inputTokens: number,
-        outputTokens: number,
-        daysAgo: number,
-      ) =>
-        admin`
-          insert into app.ai_turns
-            (workspace_id, actor_id, request_id, engine, prompt_version, outcome, duration_ms,
-             input_tokens, output_tokens, created_at)
-          values (${SITE}, ${actorId}, ${crypto.randomUUID()}, 'fake', 12, 'completed', 5,
-            ${inputTokens}, ${outputTokens}, now() - ${daysAgo}::integer * interval '1 day')
-        `;
-      await turn(MEMBER_A, 1000, 100, 1);
-      await turn(MEMBER_A, 500, 50, 2);
-      await turn(MEMBER_B, 300, 30, 1);
-      await turn(MEMBER_B, 9000, 900, 20);
-      await turn(MEMBER_A, 7, 7, 200); // pruned territory, outside every period
+    const TORONTO_DAY = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Toronto',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
 
-      const week = await call('owner', 'GET', `/${SITE}/ai/usage?period=7`);
-      expect(week.status).toBe(200);
-      expect(week.headers.get('cache-control')).toBe('no-store');
-      const weekly = aiUsageResponseSchema.parse(await week.json());
+    /** The Toronto calendar day `back` days before today, `YYYY-MM-DD`. */
+    function torontoDay(back: number): string {
+      const today = TORONTO_DAY.format(new Date());
+      const [year, month, day] = today.split('-').map(Number);
+      return new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 1) - back))
+        .toISOString()
+        .slice(0, 10);
+    }
+
+    /** One `ai_turns` row; `at` is a Toronto wall-clock time, or now. */
+    async function seed(row: {
+      actor: string;
+      engine?: string;
+      model: string | null;
+      outcome: 'completed' | 'failed' | 'cancelled' | 'access_lost';
+      code?: string | null;
+      input: number;
+      output: number;
+      duration: number;
+      tools?: number;
+      at: { back: number; time: string } | 'now';
+    }): Promise<void> {
+      const local = row.at === 'now' ? null : `${torontoDay(row.at.back)} ${row.at.time}`;
+      await admin`
+        insert into app.ai_turns
+          (workspace_id, actor_id, request_id, engine, model, prompt_version, outcome, failure_code,
+           duration_ms, input_tokens, output_tokens, tool_calls, created_at)
+        values (${SITE}, ${row.actor}, ${crypto.randomUUID()}, ${row.engine ?? 'gateway'},
+          ${row.model}, 12, ${row.outcome}, ${row.code ?? null}, ${row.duration}, ${row.input},
+          ${row.output}, ${row.tools ?? 0},
+          coalesce(${local}::timestamp at time zone 'America/Toronto', now()))
+      `;
+    }
+
+    const ALPHA = 'acme/alpha';
+    const BETA = 'acme/beta';
+    /** Toronto, the evening before today: already today's date in UTC. */
+    const NEAR_MIDNIGHT = { back: 1, time: '23:30' };
+
+    async function seedPeriods(): Promise<void> {
+      // Inside every period (the last 7 Toronto days, today included).
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'completed',
+        input: 1000,
+        output: 100,
+        duration: 2000,
+        tools: 2,
+        at: { back: 1, time: '12:00' },
+      });
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'failed',
+        code: 'rate_limited',
+        input: 200,
+        output: 0,
+        duration: 500,
+        at: { back: 1, time: '13:00' },
+      });
+      await seed({
+        actor: MEMBER_B,
+        model: BETA,
+        outcome: 'completed',
+        input: 300,
+        output: 30,
+        duration: 1001,
+        tools: 1,
+        at: { back: 2, time: '10:00' },
+      });
+      await seed({
+        actor: MEMBER_B,
+        model: BETA,
+        outcome: 'failed',
+        code: 'timeout',
+        input: 0,
+        output: 0,
+        duration: 60000,
+        at: { back: 3, time: '09:00' },
+      });
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'failed',
+        code: 'rate_limited',
+        input: 50,
+        output: 5,
+        duration: 100,
+        at: 'now',
+      });
+      await seed({
+        actor: MEMBER_A,
+        engine: 'fake',
+        model: null,
+        outcome: 'cancelled',
+        input: 10,
+        output: 1,
+        duration: 50,
+        at: 'now',
+      });
+      await seed({
+        actor: MEMBER_B,
+        model: BETA,
+        outcome: 'completed',
+        input: 400,
+        output: 40,
+        duration: 3000,
+        at: NEAR_MIDNIGHT,
+      });
+      // Five minutes into the first day of the 7-day period: in.
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'completed',
+        input: 2,
+        output: 2,
+        duration: 20,
+        at: { back: 6, time: '00:05' },
+      });
+      // Five minutes before it (inside a rolling 7 × 24 h on most clocks): out of 7, in 30.
+      await seed({
+        actor: MEMBER_B,
+        model: BETA,
+        outcome: 'completed',
+        input: 1,
+        output: 1,
+        duration: 10,
+        at: { back: 7, time: '23:55' },
+      });
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'completed',
+        input: 5000,
+        output: 500,
+        duration: 4000,
+        at: { back: 10, time: '12:00' },
+      });
+      // Only in 90.
+      await seed({
+        actor: MEMBER_B,
+        model: BETA,
+        outcome: 'failed',
+        code: 'provider_unavailable',
+        input: 0,
+        output: 0,
+        duration: 800,
+        at: { back: 40, time: '12:00' },
+      });
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'failed',
+        code: null,
+        input: 0,
+        output: 0,
+        duration: 700,
+        at: { back: 50, time: '12:00' },
+      });
+      // Pruned territory, outside every period.
+      await seed({
+        actor: MEMBER_A,
+        model: ALPHA,
+        outcome: 'completed',
+        input: 7,
+        output: 7,
+        duration: 5,
+        at: { back: 120, time: '12:00' },
+      });
+    }
+
+    async function read(token: string, period?: number) {
+      const response = await call(
+        token,
+        'GET',
+        `/${SITE}/ai/usage${period === undefined ? '' : `?period=${String(period)}`}`,
+      );
+      return { response, body: response.status === 200 ? await response.json() : undefined };
+    }
+
+    async function usageOf(period?: number) {
+      const { response, body } = await read('owner', period);
+      expect(response.status).toBe(200);
+      return aiUsageResponseSchema.parse(body);
+    }
+
+    it('shows the owner each member’s turns and tokens, counts only, by period; refuses everyone else', async () => {
+      await seedPeriods();
+      const { response, body } = await read('owner', 7);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const weekly = aiUsageResponseSchema.parse(body);
       expect(weekly.period).toBe(7);
-      expect(weekly.totals).toEqual({ turns: 3, inputTokens: 1800, outputTokens: 180 });
+      expect(weekly.totals).toMatchObject({ turns: 8, inputTokens: 1962, outputTokens: 178 });
       expect(weekly.members.map(({ lastUsedAt: _at, ...member }) => member)).toEqual([
         {
           actorId: MEMBER_A,
           displayName: 'Ada Member',
-          turns: 2,
-          inputTokens: 1500,
-          outputTokens: 150,
+          turns: 5,
+          inputTokens: 1262,
+          outputTokens: 108,
         },
         {
           actorId: MEMBER_B,
           displayName: 'Bea Member',
-          turns: 1,
-          inputTokens: 300,
-          outputTokens: 30,
+          turns: 3,
+          inputTokens: 700,
+          outputTokens: 70,
         },
       ]);
 
-      const month = aiUsageResponseSchema.parse(
-        await (await call('owner', 'GET', `/${SITE}/ai/usage`)).json(),
-      );
+      const month = await usageOf();
       expect(month.period).toBe(30);
-      expect(month.members[0]).toMatchObject({ actorId: MEMBER_B, turns: 2, inputTokens: 9300 });
-      expect(JSON.stringify(month)).not.toMatch(/question|text|title/i);
+      expect(month.totals).toMatchObject({ turns: 10, inputTokens: 6963, outputTokens: 679 });
+      expect(month.members[0]).toMatchObject({ actorId: MEMBER_A, turns: 6, inputTokens: 6262 });
+      // The usage is numbers and codes (the assistant block names attachment kinds, `text` among them).
+      const { assistant: _assistant, ...counts } = month;
+      expect(JSON.stringify(counts)).not.toMatch(/question|text|title/i);
+      expect(JSON.stringify(month)).not.toContain('test-key-not-real');
 
       for (const token of ['a', 'b', 'viewer']) {
-        const refused = await call(token, 'GET', `/${SITE}/ai/usage`);
-        expect(refused.status).toBe(403);
+        expect((await read(token)).response.status).toBe(403);
       }
       expect((await call('owner', 'GET', `/${SITE}/ai/usage?period=14`)).status).toBe(400);
+    });
+
+    it('counts how turns ended, per model, per Toronto day and by failure reason', async () => {
+      await seedPeriods();
+      const weekly = await usageOf(7);
+      expect(weekly.totals).toEqual({
+        turns: 8,
+        inputTokens: 1962,
+        outputTokens: 178,
+        completedTurns: 4,
+        failedTurns: 3,
+        cancelledTurns: 1,
+        toolCalls: 3,
+        // (2000 + 1001 + 3000 + 20) / 4 completed turns, rounded.
+        averageDurationMs: 1505,
+      });
+      expect(weekly.models?.map(({ lastUsedAt: _at, ...model }) => model)).toEqual([
+        {
+          model: ALPHA,
+          engine: 'gateway',
+          turns: 4,
+          completedTurns: 2,
+          failedTurns: 2,
+          inputTokens: 1252,
+          outputTokens: 107,
+          averageDurationMs: 1010,
+        },
+        {
+          model: BETA,
+          engine: 'gateway',
+          turns: 3,
+          completedTurns: 2,
+          failedTurns: 1,
+          inputTokens: 700,
+          outputTokens: 70,
+          averageDurationMs: 2001,
+        },
+        {
+          model: null,
+          engine: 'fake',
+          turns: 1,
+          completedTurns: 0,
+          failedTurns: 0,
+          inputTokens: 10,
+          outputTokens: 1,
+          averageDurationMs: null,
+        },
+      ]);
+      expect(weekly.failures).toEqual([
+        { code: 'rate_limited', turns: 2 },
+        { code: 'timeout', turns: 1 },
+      ]);
+
+      // Every day of the period, oldest first, ending today; empty days are zeros.
+      expect(weekly.daily).toEqual([
+        { day: torontoDay(6), turns: 1, failedTurns: 0, inputTokens: 2, outputTokens: 2 },
+        { day: torontoDay(5), turns: 0, failedTurns: 0, inputTokens: 0, outputTokens: 0 },
+        { day: torontoDay(4), turns: 0, failedTurns: 0, inputTokens: 0, outputTokens: 0 },
+        { day: torontoDay(3), turns: 1, failedTurns: 1, inputTokens: 0, outputTokens: 0 },
+        { day: torontoDay(2), turns: 1, failedTurns: 0, inputTokens: 300, outputTokens: 30 },
+        // Includes the 23:30 turn, which is already today in UTC.
+        { day: torontoDay(1), turns: 3, failedTurns: 1, inputTokens: 1600, outputTokens: 140 },
+        { day: torontoDay(0), turns: 2, failedTurns: 1, inputTokens: 60, outputTokens: 6 },
+      ]);
+      const [nearMidnight] = await admin<{ utc: string; toronto: string }[]>`
+        select (created_at at time zone 'UTC')::date::text as utc,
+          (created_at at time zone 'America/Toronto')::date::text as toronto
+        from app.ai_turns where workspace_id = ${SITE} and input_tokens = 400
+      `;
+      expect(nearMidnight).toEqual({ utc: torontoDay(0), toronto: torontoDay(1) });
+      // The series and the totals describe the same days.
+      const sum = (days: typeof weekly.daily, key: 'turns' | 'inputTokens' | 'failedTurns') =>
+        (days ?? []).reduce((total, day) => total + day[key], 0);
+      expect(sum(weekly.daily, 'turns')).toBe(weekly.totals.turns);
+      expect(sum(weekly.daily, 'inputTokens')).toBe(weekly.totals.inputTokens);
+      expect(sum(weekly.daily, 'failedTurns')).toBe(weekly.totals.failedTurns);
+
+      for (const period of [30, 90] as const) {
+        const usage = await usageOf(period);
+        expect(usage.daily).toHaveLength(period);
+        expect(usage.daily?.[0]?.day).toBe(torontoDay(period - 1));
+        expect(usage.daily?.at(-1)?.day).toBe(torontoDay(0));
+        expect(sum(usage.daily, 'turns')).toBe(usage.totals.turns);
+      }
+      const month = await usageOf(30);
+      expect(month.daily?.find((day) => day.day === torontoDay(7))?.turns).toBe(1);
+      expect(month.daily?.find((day) => day.day === torontoDay(10))?.inputTokens).toBe(5000);
+
+      const quarter = await usageOf(90);
+      expect(quarter.totals.turns).toBe(12);
+      expect(quarter.failures).toEqual([
+        { code: 'rate_limited', turns: 2 },
+        { code: 'provider_unavailable', turns: 1 },
+        { code: 'timeout', turns: 1 },
+        // A failed turn that recorded no code.
+        { code: 'unknown', turns: 1 },
+      ]);
+    });
+
+    it('answers zeros, a full series and no average for a period with no turns', async () => {
+      const usage = await usageOf(7);
+      expect(usage.totals).toEqual({
+        turns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        completedTurns: 0,
+        failedTurns: 0,
+        cancelledTurns: 0,
+        toolCalls: 0,
+        averageDurationMs: null,
+      });
+      expect(usage.members).toEqual([]);
+      expect(usage.models).toEqual([]);
+      expect(usage.failures).toEqual([]);
+      expect(usage.daily).toHaveLength(7);
+      expect(usage.daily?.every((day) => day.turns === 0)).toBe(true);
+    });
+
+    it('counts input tokens as 0 before migration 0034, without failing', async () => {
+      await seedPeriods();
+      await startApp({ usageSchema: fixedAiChatSchema({ inputTokens: false }) });
+      const weekly = await usageOf(7);
+      expect(weekly.totals).toMatchObject({ turns: 8, inputTokens: 0, outputTokens: 178 });
+      expect(weekly.members.every((member) => member.inputTokens === 0)).toBe(true);
+      expect(weekly.models?.every((model) => model.inputTokens === 0)).toBe(true);
+      expect(weekly.daily?.every((day) => day.inputTokens === 0)).toBe(true);
+      expect(weekly.daily?.at(-2)?.outputTokens).toBe(140);
+    });
+
+    it('says what is configured now: switch, site allowlist, model, hosts, conversations, uploads', async () => {
+      expect((await usageOf()).assistant).toEqual({
+        enabled: true,
+        configuredModel: 'test/model',
+        providers: [],
+        conversations: true,
+        attachmentKinds: ['image', 'pdf', 'text'],
+      });
+
+      await startApp({
+        config: { ...config, providers: ['baseten', 'vertexAnthropic'] },
+        kinds: [],
+      });
+      expect((await usageOf()).assistant).toEqual({
+        enabled: true,
+        configuredModel: 'test/model',
+        providers: ['baseten', 'vertexAnthropic'],
+        conversations: true,
+        attachmentKinds: [],
+      });
+
+      // The site is not on the allowlist: the model is still configured.
+      await startApp({ config: { ...config, workspaceIds: new Set([SITE_2]) }, kinds: ['image'] });
+      expect((await usageOf()).assistant).toMatchObject({
+        enabled: false,
+        configuredModel: 'test/model',
+        attachmentKinds: ['image'],
+      });
+
+      // Switched off: the usage is still readable, and the model id is not read.
+      await seedPeriods();
+      await startApp({
+        config: { enabled: false, reason: 'disabled', workspaceIds: new Set([SITE]) },
+      });
+      const off = await usageOf(7);
+      expect(off.totals.turns).toBe(8);
+      expect(off.assistant).toMatchObject({ enabled: false, configuredModel: null, providers: [] });
+      for (const token of ['a', 'b', 'viewer']) {
+        expect((await read(token)).response.status).toBe(403);
+      }
     });
   });
 

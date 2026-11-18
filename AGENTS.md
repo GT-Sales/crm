@@ -476,9 +476,10 @@ member deletes it. An **attachment** is a file a member adds to a message
 `AI_ATTACHMENT_KINDS` enables (none when unset), its type decided by its
 bytes. It is never a lead's document and never in `app.files`; it goes with
 its conversation, and an unsent one is swept a day later by the scheduler's
-`document_cleanup` task. **AI usage** is turns and tokens per member from
-`app.ai_turns` (Settings → AI usage, owner only by `staff.remove`), never
-content.
+`document_cleanup` task. **AI usage** is turns, tokens, models, outcomes and
+failure codes per member, model and Toronto day from `app.ai_turns`, beside
+the assistant's current configuration (Settings → AI usage, owner only by
+`staff.remove`), never content.
 
 The **intake check** proves every 15 minutes that a website could still save a
 lead: the scheduler's task `intake_check` first refuses a site with any

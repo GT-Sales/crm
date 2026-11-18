@@ -13,6 +13,7 @@ import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
 import type { DatabaseClient, TenantTransaction } from '@gt-sales/db';
 import {
   aiCapabilitiesResponseSchema,
+  aiUsageResponseSchema,
   apiErrorResponseSchema,
   aiWirePartSchema,
   type StaffWorkspace,
@@ -607,7 +608,16 @@ describe('before migrations 0034–0036 are applied', () => {
       expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(code);
     }
     // Usage is history: it is read whatever the assistant's state.
-    expect((await send(`${base}/usage`, 'GET')).status).toBe(200);
+    const usage = await send(`${base}/usage`, 'GET');
+    expect(usage.status).toBe(200);
+    // Before 0034–0035 the configuration says conversations and uploads are off.
+    expect(aiUsageResponseSchema.parse(await usage.json()).assistant).toEqual({
+      enabled: true,
+      configuredModel: 'test/model',
+      providers: [],
+      conversations: false,
+      attachmentKinds: [],
+    });
   });
 
   it('writes the turn record without input_tokens while the column is missing', async () => {

@@ -112226,7 +112226,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/ai/usage": {
       "get": {
         "operationId": "getAiUsage",
-        "summary": "The site's Ask AI usage over 7, 30 (default) or 90 days: turns and tokens per member, never content (owner only, the Team page's action).",
+        "summary": "The site's Ask AI usage over the last 7, 30 (default) or 90 Toronto calendar days: turns and tokens per member, how turns ended, the models that served them, a daily series, failure reasons and the assistant's current configuration; counts and configuration names only, never content (owner only, the Team page's action).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -112255,6 +112255,32 @@
                           "type": "integer",
                           "minimum": 0,
                           "maximum": 9007199254740991
+                        },
+                        "completedTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "failedTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "cancelledTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "toolCalls": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "averageDurationMs": {
+                          "anyOf": [
+                            { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            { "type": "null" }
+                          ]
                         }
                       },
                       "required": ["turns", "inputTokens", "outputTokens"],
@@ -112302,6 +112328,138 @@
                           "displayName",
                           "lastUsedAt"
                         ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistant": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": { "type": "boolean" },
+                        "configuredModel": {
+                          "anyOf": [
+                            { "type": "string", "minLength": 1, "maxLength": 200 },
+                            { "type": "null" }
+                          ]
+                        },
+                        "providers": {
+                          "maxItems": 8,
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+                        },
+                        "conversations": { "type": "boolean" },
+                        "attachmentKinds": {
+                          "maxItems": 3,
+                          "type": "array",
+                          "items": { "type": "string", "enum": ["image", "pdf", "text"] }
+                        }
+                      },
+                      "required": [
+                        "enabled",
+                        "configuredModel",
+                        "providers",
+                        "conversations",
+                        "attachmentKinds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "models": {
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "inputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "outputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "model": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 200 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "engine": { "type": "string", "minLength": 1, "maxLength": 20 },
+                          "completedTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "failedTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "averageDurationMs": {
+                            "anyOf": [
+                              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "lastUsedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "turns",
+                          "inputTokens",
+                          "outputTokens",
+                          "model",
+                          "engine",
+                          "completedTurns",
+                          "failedTurns",
+                          "averageDurationMs",
+                          "lastUsedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "daily": {
+                      "maxItems": 90,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "day": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "failedTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "inputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "outputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["day", "turns", "failedTurns", "inputTokens", "outputTokens"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "failures": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,59}$" },
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["code", "turns"],
                         "additionalProperties": false
                       }
                     },

@@ -1418,4 +1418,32 @@ describe('Ask AI saved chat client methods', () => {
     const drifted = harness(200, { ...usage, totals: { ...usage.totals, turns: -1 } });
     await expect(drifted.client.staff.getAiUsage(UUID)).rejects.toThrow();
   });
+
+  it('passes the monitoring fields through and refuses a drifted one', async () => {
+    const usage = {
+      period: 7,
+      totals: {
+        turns: 1,
+        inputTokens: 10,
+        outputTokens: 5,
+        failedTurns: 1,
+        averageDurationMs: null,
+      },
+      members: [],
+      assistant: {
+        enabled: false,
+        configuredModel: null,
+        providers: [],
+        conversations: true,
+        attachmentKinds: [],
+      },
+      models: [],
+      daily: [{ day: '2026-11-18', turns: 1, failedTurns: 1, inputTokens: 10, outputTokens: 5 }],
+      failures: [{ code: 'timeout', turns: 1 }],
+      requestId: UUID,
+    };
+    expect(await harness(200, usage).client.staff.getAiUsage(UUID, { period: 7 })).toEqual(usage);
+    const drifted = harness(200, { ...usage, failures: [{ code: 'Timeout!', turns: 1 }] });
+    await expect(drifted.client.staff.getAiUsage(UUID)).rejects.toThrow();
+  });
 });

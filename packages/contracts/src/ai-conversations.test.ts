@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { AI_CHAT_LIMITS } from './ai-assistant';
 import {
@@ -346,6 +347,123 @@ describe('usage', () => {
       members: [{ ...usage.members[0], lastQuestion: 'leaked?' }],
     });
     expect(parsed.members[0]).not.toHaveProperty('lastQuestion');
+  });
+
+  const monitoring = {
+    ...usage,
+    totals: {
+      ...usage.totals,
+      completedTurns: 2,
+      failedTurns: 1,
+      cancelledTurns: 0,
+      toolCalls: 4,
+      averageDurationMs: 1834,
+    },
+    assistant: {
+      enabled: true,
+      configuredModel: 'moonshotai/kimi-k2',
+      providers: ['baseten', 'vertexAnthropic'],
+      conversations: true,
+      attachmentKinds: ['image', 'text'],
+    },
+    models: [
+      {
+        model: 'moonshotai/kimi-k2',
+        engine: 'gateway',
+        turns: 3,
+        completedTurns: 2,
+        failedTurns: 1,
+        inputTokens: 1200,
+        outputTokens: 300,
+        averageDurationMs: 1834,
+        lastUsedAt: NOW,
+      },
+      {
+        model: null,
+        engine: 'fake',
+        turns: 0,
+        completedTurns: 0,
+        failedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        averageDurationMs: null,
+        lastUsedAt: NOW,
+      },
+    ],
+    daily: [
+      { day: '2026-11-17', turns: 0, failedTurns: 0, inputTokens: 0, outputTokens: 0 },
+      { day: '2026-11-18', turns: 3, failedTurns: 1, inputTokens: 1200, outputTokens: 300 },
+    ],
+    failures: [{ code: 'rate_limited', turns: 1 }],
+  };
+
+  it('takes the monitoring fields: assistant, models, daily series and failures', () => {
+    expect(aiUsageResponseSchema.parse(monitoring)).toEqual(monitoring);
+    const day = monitoring.daily[0];
+    const model = monitoring.models[0];
+    for (const bad of [
+      { ...monitoring, totals: { ...monitoring.totals, failedTurns: -1 } },
+      { ...monitoring, totals: { ...monitoring.totals, averageDurationMs: 1.5 } },
+      { ...monitoring, assistant: { ...monitoring.assistant, attachmentKinds: ['video'] } },
+      { ...monitoring, assistant: { ...monitoring.assistant, configuredModel: '' } },
+      { ...monitoring, assistant: { ...monitoring.assistant, providers: Array(9).fill('a') } },
+      { ...monitoring, models: Array(51).fill(model) },
+      { ...monitoring, models: [{ ...model, engine: '' }] },
+      { ...monitoring, models: [{ ...model, inputTokens: -5 }] },
+      { ...monitoring, daily: [{ ...day, day: '18/11/2026' }] },
+      { ...monitoring, daily: Array(91).fill(day) },
+      { ...monitoring, failures: [{ code: 'Rate Limited', turns: 1 }] },
+      { ...monitoring, failures: [{ code: 'x'.repeat(61), turns: 1 }] },
+      { ...monitoring, failures: Array(21).fill({ code: 'timeout', turns: 1 }) },
+    ]) {
+      expect(aiUsageResponseSchema.safeParse(bad).success, JSON.stringify(bad).slice(0, 200)).toBe(
+        false,
+      );
+    }
+    // A failure code added after this admin was built is still read.
+    expect(
+      aiUsageResponseSchema.parse({ ...monitoring, failures: [{ code: 'quota_gone', turns: 2 }] })
+        .failures,
+    ).toEqual([{ code: 'quota_gone', turns: 2 }]);
+    // The configuration carries names only: anything else is stripped.
+    const stripped = aiUsageResponseSchema.parse({
+      ...monitoring,
+      assistant: { ...monitoring.assistant, apiKey: 'secret', gatewayUrl: 'https://x' },
+    });
+    expect(stripped.assistant).toEqual(monitoring.assistant);
+  });
+
+  it('reads an older backend’s answer (no monitoring fields) unchanged', () => {
+    const parsed = aiUsageResponseSchema.parse(usage);
+    expect(parsed).toEqual(usage);
+    for (const key of ['assistant', 'models', 'daily', 'failures'] as const) {
+      expect(parsed).not.toHaveProperty(key);
+    }
+    expect(parsed.totals).toEqual({ turns: 3, inputTokens: 1200, outputTokens: 300 });
+  });
+
+  it('keeps the old fields unchanged in a new answer, and an older schema still reads it', () => {
+    const parsed = aiUsageResponseSchema.parse(monitoring);
+    expect(parsed.period).toBe(usage.period);
+    expect(parsed.members).toEqual(usage.members);
+    expect(parsed.requestId).toBe(usage.requestId);
+    // The schema an older admin was built with: the same three objects, not strict.
+    const older = z.object({
+      period: z.literal([7, 30, 90]),
+      totals: z.object({ turns: z.int(), inputTokens: z.int(), outputTokens: z.int() }),
+      members: z.array(
+        z.object({
+          actorId: z.uuid(),
+          displayName: z.string().nullable(),
+          turns: z.int(),
+          inputTokens: z.int(),
+          outputTokens: z.int(),
+          lastUsedAt: z.string(),
+        }),
+      ),
+      requestId: z.string(),
+    });
+    expect(older.parse(monitoring)).toEqual(usage);
   });
 });
 

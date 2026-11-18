@@ -15,6 +15,7 @@ import {
   listAiConversationsResponseSchema,
   parseAiConversationCursor,
   renameAiConversationRequestSchema,
+  type AiUsageAssistant,
 } from '@gt-sales/contracts';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -392,10 +393,30 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
   });
 
   /**
+   * What the deployment has configured for the site now, from the sources
+   * `ai/capabilities` reads: the config's switch, model and hosts, the site
+   * allowlist, and the saved chat's availability (the schema probe and the
+   * attachment service's kinds). Names only: never the key or the secret.
+   */
+  async function assistantState(scope: Scope): Promise<AiUsageAssistant> {
+    const { config } = dependencies;
+    const availability = await aiChatAvailability(dependencies.chat, scope);
+    return {
+      enabled: config.enabled && config.workspaceIds.has(scope.workspaceId),
+      configuredModel: config.modelId ?? null,
+      providers: [...(config.providers ?? [])],
+      conversations: availability.conversations,
+      attachmentKinds: availability.attachments
+        ? [...(dependencies.chat?.attachments?.kinds ?? [])]
+        : [],
+    };
+  }
+
+  /**
    * The owner's usage view: counts per member, never content. Guarded by the
    * Team page's member-management action, not by the assistant's own access,
    * and readable while Ask AI is switched off: it is the history of what was
-   * used.
+   * used, beside what is configured now.
    */
   router.get('/workspaces/:workspaceId/ai/usage', async (req, res) => {
     try {
@@ -418,11 +439,16 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
         return;
       }
       const period = query.data.period ?? 30;
-      const result = await usage.usage(
-        { workspaceId: workspaceId.data, actorId: actor.actorId },
-        period,
+      const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
+      const result = await usage.usage(scope, period);
+      res.json(
+        aiUsageResponseSchema.parse({
+          period,
+          ...result,
+          assistant: await assistantState(scope),
+          requestId: req.id,
+        }),
       );
-      res.json(aiUsageResponseSchema.parse({ period, ...result, requestId: req.id }));
     } catch (error) {
       failed(req, res, error);
     }

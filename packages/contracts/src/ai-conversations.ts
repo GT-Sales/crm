@@ -250,16 +250,30 @@ export type AiUsageQueryInput = z.input<typeof aiUsageQuerySchema>;
 
 const usageCount = z.int().nonnegative();
 
-/** Turns and tokens, summed from `ai_turns`. */
-export const aiUsageTotalsSchema = z.object({
+/** The counts every usage row carries: turns and tokens, summed from `ai_turns`. */
+const aiUsageCountsSchema = z.object({
   turns: usageCount,
   inputTokens: usageCount,
   outputTokens: usageCount,
 });
+
+/**
+ * Turns and tokens over the period, and how the turns ended. The outcome
+ * counts, `toolCalls` and `averageDurationMs` are optional: an older backend
+ * sends only the three counts. `averageDurationMs` is the mean over completed
+ * turns, a whole number of milliseconds, null when none completed.
+ */
+export const aiUsageTotalsSchema = aiUsageCountsSchema.extend({
+  completedTurns: usageCount.optional(),
+  failedTurns: usageCount.optional(),
+  cancelledTurns: usageCount.optional(),
+  toolCalls: usageCount.optional(),
+  averageDurationMs: usageCount.nullable().optional(),
+});
 export type AiUsageTotals = z.infer<typeof aiUsageTotalsSchema>;
 
 /** One member's usage in the period: counts only, never a question or an answer. */
-export const aiUsageMemberSchema = aiUsageTotalsSchema.extend({
+export const aiUsageMemberSchema = aiUsageCountsSchema.extend({
   actorId: z.uuid(),
   /** Their own display name on this site; null when unset or no longer a member. */
   displayName: z.string().min(1).max(80).nullable(),
@@ -267,11 +281,90 @@ export const aiUsageMemberSchema = aiUsageTotalsSchema.extend({
 });
 export type AiUsageMember = z.infer<typeof aiUsageMemberSchema>;
 
-/** The site's Ask AI usage over the period: totals and one row per member who used it. */
+/**
+ * What this deployment has configured for the site right now, whatever the
+ * period: whether the site can use Ask AI (the feature switch and the site
+ * allowlist together), the exact Gateway model id (`AI_GATEWAY_MODEL`, null
+ * when unset or not read because the switch is off), the Gateway hosts it may
+ * be served from (`AI_GATEWAY_PROVIDERS`, empty when unset), whether stored
+ * conversations are on (the tables exist) and the attachment kinds members
+ * may upload (empty when uploads are off). Configuration names only: never a
+ * key, a signing secret or a URL.
+ */
+export const aiUsageAssistantSchema = z.object({
+  enabled: z.boolean(),
+  configuredModel: z.string().min(1).max(200).nullable(),
+  providers: z.array(z.string().min(1).max(40)).max(8),
+  conversations: z.boolean(),
+  attachmentKinds: z.array(aiAttachmentKindSchema).max(3),
+});
+export type AiUsageAssistant = z.infer<typeof aiUsageAssistantSchema>;
+
+/** The most rows of `models` and of `failures` an answer holds. */
+export const AI_USAGE_MAX_MODELS = 50;
+export const AI_USAGE_MAX_FAILURE_CODES = 20;
+
+/**
+ * One (engine, model) pair that served turns in the period, most turns first.
+ * `model` is the id the turn recorded, null when it recorded none; `engine`
+ * is `gateway`, or `fake` on a test deployment. `averageDurationMs` is over
+ * its completed turns, null when none completed.
+ */
+export const aiUsageModelSchema = aiUsageCountsSchema.extend({
+  model: z.string().min(1).max(200).nullable(),
+  engine: z.string().min(1).max(20),
+  completedTurns: usageCount,
+  failedTurns: usageCount,
+  averageDurationMs: usageCount.nullable(),
+  lastUsedAt: isoDateTimeSchema,
+});
+export type AiUsageModel = z.infer<typeof aiUsageModelSchema>;
+
+/**
+ * One calendar day in `America/Toronto` (`YYYY-MM-DD`). The series holds
+ * every day of the period, oldest first and ending today, days without a
+ * turn as zeros; the totals count exactly the same days.
+ */
+export const aiUsageDaySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'calendar day'),
+  turns: usageCount,
+  failedTurns: usageCount,
+  inputTokens: usageCount,
+  outputTokens: usageCount,
+});
+export type AiUsageDay = z.infer<typeof aiUsageDaySchema>;
+
+/**
+ * Why failed turns ended, most frequent first: `code` is the turn's
+ * `failure_code` (one of the stream's error codes when written, `unknown`
+ * when it recorded none). Read as a plain code, like a stored message's
+ * `errorCode`, so a code added later never fails an older admin.
+ */
+export const aiUsageFailureSchema = z.object({
+  code: z.string().regex(/^[a-z][a-z0-9_]{0,59}$/),
+  turns: usageCount,
+});
+export type AiUsageFailure = z.infer<typeof aiUsageFailureSchema>;
+
+/**
+ * The site's Ask AI usage over the period: totals and one row per member who
+ * used it, and (from a backend that sends them) the assistant's current
+ * configuration, the models that served turns, the day-by-day series and the
+ * failure reasons. The period is the last `period` calendar days in
+ * `America/Toronto`, today included. Not strict, so an older admin strips
+ * the fields it does not know.
+ */
 export const aiUsageResponseSchema = z.object({
   period: aiUsagePeriodSchema,
   totals: aiUsageTotalsSchema,
   members: z.array(aiUsageMemberSchema).max(1000),
+  assistant: aiUsageAssistantSchema.optional(),
+  models: z.array(aiUsageModelSchema).max(AI_USAGE_MAX_MODELS).optional(),
+  daily: z
+    .array(aiUsageDaySchema)
+    .max(Math.max(...AI_USAGE_PERIODS))
+    .optional(),
+  failures: z.array(aiUsageFailureSchema).max(AI_USAGE_MAX_FAILURE_CODES).optional(),
   requestId: requestIdSchema,
 });
 export type AiUsageResponse = z.infer<typeof aiUsageResponseSchema>;

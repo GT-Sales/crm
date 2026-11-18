@@ -105,7 +105,7 @@ replays the server's own copy and needs no signature.
 Usage per site lives in `app.ai_turns` (migration 0024): one row per turn with
 the outcome, model, prompt version, duration, input tokens (from migration
 0034 on), output tokens, tool calls, records and bytes, never any text. The
-owner reads it per member under Settings → AI usage (§12). Rows are kept 90 days. For example, a site's last
+owner reads it under Settings → AI usage (§12, Reading the AI usage page). Rows are kept 90 days. For example, a site's last
 seven days:
 
 ```sql
@@ -308,10 +308,8 @@ files are kept, and unsent ones are still swept.
   full page (not in the panel). Deleting a conversation removes it and its
   files for good. A conversation with 200 messages asks for a new chat.
 - **The owner**: their own conversations like any member, never anyone
-  else's, and Settings → AI usage: turns, input and output tokens and the last
-  use per member over 7, 30 or 90 days (90 is the most `ai_turns` keeps).
-  Input tokens count from when 0034 is applied. The page works with Ask AI
-  switched off.
+  else's, and Settings → AI usage, the monitoring page (below). The page
+  works with Ask AI switched off.
 
 The same in SQL, counts only:
 
@@ -321,6 +319,44 @@ from app.ai_turns
 where workspace_id = '<site uuid>' and created_at > now() - interval '30 days'
 group by actor_id order by 3 desc;
 ```
+
+### Reading the AI usage page
+
+Settings → AI usage, owner only, over the last 7, 30 or 90 calendar days in
+Toronto, today included (90 is the most `ai_turns` keeps). Input tokens count
+from when 0034 is applied. Top to bottom:
+
+- **Assistant**: what is configured now, whatever the period. _Ask AI on this
+  site_ is the switch (`AI_ASSISTANT_ENABLED`, key and model) and the site in
+  `AI_ASSISTANT_WORKSPACE_IDS` together. _Model_ is the exact
+  `AI_GATEWAY_MODEL` id ("Not set" when unset; with the switch off it is not
+  read). _Allowed hosts_ is `AI_GATEWAY_PROVIDERS`. _Saved conversations_ is
+  on once 0034 and 0035 are applied; _File uploads_ lists the kinds of
+  `AI_ATTACHMENT_KINDS` that are usable.
+- **Totals**: turns, completed, failed (and its share of turns), the average
+  answer time of completed turns, tokens in and out, tool calls. A turn that
+  is neither completed nor failed was stopped by the member or ended because
+  they lost access.
+- **Turns per day** and **Tokens per day**: one bar per Toronto day, failed
+  turns in red. A day with no bar had no turn.
+- **Models**: every model that served a turn in the period, with its own
+  counts and average answer time. _Current_ marks the configured model, so a
+  change of `AI_GATEWAY_MODEL` shows as two rows. _Unknown_ is a turn that
+  recorded no model; _Test engine_ is the synthetic engine of a test
+  deployment and never appears in production.
+- **Why turns failed**: failed turns by reason, with the recorded code beside
+  each.
+- **People**: turns, tokens and the last use per member.
+
+| Reason (code)                                                         | What it means and what to do                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The AI provider did not answer (`provider_unavailable`)               | The Gateway or the provider refused or failed the call. Every turn failing: check that the model id in `AI_GATEWAY_MODEL` exists in the Gateway catalogue, is on the free tier or the team has credit, and accepts streaming and tools (§3); then the Gateway status page. |
+| The AI provider was rate limiting (`rate_limited`)                    | The Gateway or provider throttled the key. Sustained: the Gateway spend budget or the provider's rate limit is reached (§4); raise the budget or move to a model or host with more headroom. Occasional ones need nothing.                                                 |
+| The answer took too long (`timeout`)                                  | The turn hit its 60 s limit (§4). Frequent: the model is slow (compare its average answer time under Models) or questions span too much; a faster model, or `AI_GATEWAY_PROVIDERS` with a faster host, helps.                                                              |
+| The answer hit its size limit (`budget_exceeded`)                     | The turn used its whole tool or output budget (§4) before it finished. Members are asking for more than one answer holds; nothing to change on the deployment.                                                                                                             |
+| A CRM lookup the answer needed was not available (`tool_unavailable`) | A read tool failed. Look in the error tracker for the backend's own errors at the same time.                                                                                                                                                                               |
+| The CRM had a problem while answering (`internal_error`)              | A fault in the backend during the turn; the error tracker has it.                                                                                                                                                                                                          |
+| No reason was recorded (`unknown`); Another reason (any other code)   | The turn recorded no code, or a newer backend wrote one this admin has no words for; the code is shown beside it.                                                                                                                                                          |
 
 ### When uploads fail
 

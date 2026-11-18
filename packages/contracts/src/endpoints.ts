@@ -1131,7 +1131,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/ai/usage',
     summary:
-      "The site's Ask AI usage over 7, 30 (default) or 90 days: turns and tokens per member, never content (owner only, the Team page's action).",
+      "The site's Ask AI usage over the last 7, 30 (default) or 90 Toronto calendar days: turns and tokens per member, how turns ended, the models that served them, a daily series, failure reasons and the assistant's current configuration; counts and configuration names only, never content (owner only, the Team page's action).",
     auth: 'staff',
     successStatus: 200,
     query: aiUsageQuerySchema,
