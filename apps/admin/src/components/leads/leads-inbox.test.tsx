@@ -1487,6 +1487,49 @@ describe('LeadsInbox side panel', () => {
     expect(mocks.getStaffLeads).toHaveBeenCalledTimes(2);
   });
 
+  it('opening and closing a panel keeps the table with a property filter and column', async () => {
+    const where = encodeURIComponent(
+      JSON.stringify([{ key: 'permitType', op: 'eq', value: 'student' }]),
+    );
+    const base = `type=sim_order&cols=permitType&where=${where}`;
+    navigation.search = base;
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(mocks.getStaffLeads).toHaveBeenCalledTimes(1));
+
+    navigation.search = `${base}&lead=${LEAD_ID}`;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Close panel' }));
+    finishPanelMotion();
+    navigation.search = base;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
+    expect(mocks.getStaffLeads).toHaveBeenCalledTimes(1);
+  });
+
+  it('opening and closing a panel keeps the board with a property filter', async () => {
+    mocks.getLeadBoard.mockResolvedValue({
+      leadType: 'sim_order',
+      columns: [],
+      access: { contacts: true, manage: true },
+    });
+    const where = encodeURIComponent(
+      JSON.stringify([{ key: 'permitType', op: 'eq', value: 'student' }]),
+    );
+    const base = `type=sim_order&layout=board&cols=permitType&where=${where}`;
+    navigation.search = base;
+    const view = render(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(mocks.getLeadBoard).toHaveBeenCalledTimes(1));
+
+    navigation.search = `${base}&lead=${LEAD_ID}`;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Close panel' }));
+    finishPanelMotion();
+    navigation.search = base;
+    view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Lead' })).toBeNull());
+    expect(mocks.getLeadBoard).toHaveBeenCalledTimes(1);
+  });
+
   it('asks for the counts again on close after a change in the panel, not after a close without one', async () => {
     mocks.updateStaffLead.mockResolvedValue({
       lead: { ...row, stage: 'contacted', form: null, customValues: {} },

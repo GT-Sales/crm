@@ -68,6 +68,7 @@ import { loadPlanForFreeze } from '../plans/store.js';
 import { findMissingDocuments } from './documents-check.js';
 import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
+import { isClosingStage } from './types.js';
 import {
   iso,
   selectLeadBoard,
@@ -688,25 +689,8 @@ async function editOrder(
   };
 }
 
-/**
- * The stages that close a lead as lost: the catalogue's `lost` outcome
- * stages (a SIM order's `cancelled`) and, for the types whose catalogue
- * names no outcomes, their lost, declined and closed stages. A staff move of a lead
- * the customer never submitted into one of them is no rescue (controller
- * ruling, fix round 1): the lead stays unsubmitted and no flow fires.
- */
-const CLOSING_STAGES: Readonly<Record<string, readonly string[]>> = {
-  sim_order: ['cancelled'],
-  internet: ['lost', 'non_serviceable_address'],
-  mobility: ['lost'],
-  partner_application: ['declined'],
-  contact_message: ['closed'],
-};
-
-export function isClosingStage(leadType: string, stage: string): boolean {
-  const lost = leadTypeEntry(leadType)?.outcomes?.lost.stages ?? [];
-  return lost.includes(stage) || (CLOSING_STAGES[leadType] ?? []).includes(stage);
-}
+// `isClosingStage` lives with the lead-type registry, which the lead store reads too.
+export { isClosingStage };
 
 /**
  * A rescued checkout's order, frozen as the website's submission would have

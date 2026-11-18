@@ -1,7 +1,7 @@
 # @gt-sales/observability
 
 Browser-safe PII scrubbing, structured log records and the error-tracker contract that
-every app shares (REQ 40, PLATFORM_CONTEXT.md invariant 12).
+every app shares (AGENTS.md rule 7: no PII in logs).
 
 ## Single responsibility
 

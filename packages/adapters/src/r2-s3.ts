@@ -30,7 +30,7 @@ import {
  * Store objects are written with `Content-Type: application/octet-stream` and
  * `Content-Disposition: attachment`, and downloads additionally override the
  * response disposition with a sanitized filename, so an original is never
- * inline-rendered on its own (invariant 8 / IMPLEMENTATION_PLAN.md §8). The one
+ * inline-rendered on its own. The one
  * inline link is staff viewing a verified PDF/JPEG/PNG in a tab of its own,
  * served as that verified type from the storage origin. See the README for
  * the `X-Content-Type-Options: nosniff` limitation of presigned GETs.

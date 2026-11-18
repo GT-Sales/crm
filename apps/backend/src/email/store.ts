@@ -10,7 +10,7 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import { JobHandlerError, type EmailEligibilityChecker } from '@gt-sales/jobs';
-import type { ProviderDeliveryResult } from '@gt-sales/adapters';
+import type { EmailDeliveryResult } from '@gt-sales/adapters';
 import { customerSubjectActive } from '../leads/restriction.js';
 
 export type EmailMessageStatus =
@@ -163,7 +163,7 @@ export class DatabaseEmailStore implements EmailStore {
     workspaceId: string;
     actorId: string;
     messageId: string;
-    result: ProviderDeliveryResult;
+    result: EmailDeliveryResult;
   }): Promise<void> {
     await this.database.withTenantTx(
       { workspaceId: input.workspaceId, actorId: input.actorId },
@@ -215,12 +215,15 @@ export class DatabaseEmailStore implements EmailStore {
           .set({
             providerId:
               input.result.status === 'delivered' ? input.result.providerId : row.providerId,
-            status: row.lastEventAt
-              ? row.status
-              : input.result.status === 'delivered'
-                ? 'sent'
-                : 'uncertain',
-            lastErrorCode: input.result.status === 'uncertain' ? input.result.errorCode : null,
+            // A refused send took nothing: the row keeps its status, so the
+            // job's retry sends it, and only notes why it waits.
+            status:
+              row.lastEventAt || input.result.status === 'refused'
+                ? row.status
+                : input.result.status === 'delivered'
+                  ? 'sent'
+                  : 'uncertain',
+            lastErrorCode: input.result.status === 'delivered' ? null : input.result.errorCode,
             updatedAt: new Date(),
           })
           .where(

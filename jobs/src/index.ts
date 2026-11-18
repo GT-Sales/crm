@@ -1,4 +1,9 @@
-import type { AnalyticsSink, EmailAdapter, EmailTemplate } from '@gt-sales/adapters';
+import type {
+  AnalyticsSink,
+  EmailAdapter,
+  EmailDeliveryResult,
+  EmailTemplate,
+} from '@gt-sales/adapters';
 import {
   CUSTOMER_EMAIL_JOB_TYPE,
   TRACKING_CODE_JOB_TYPE,
@@ -26,7 +31,6 @@ export const outboxJobTypes = [
   // Composed in the backend, which holds the document store.
   'legacy_document_import',
 ] as const;
-export type OutboxJobType = (typeof outboxJobTypes)[number];
 
 const emailJobTypeToTemplate: Record<string, EmailTemplate> = {
   order_acknowledgement_email: 'order_acknowledgement',
@@ -38,8 +42,7 @@ const emailJobTypeToTemplate: Record<string, EmailTemplate> = {
 };
 
 /**
- * Re-checked immediately before every send (REQ 27, IMPLEMENTATION_PLAN.md
- * §9 "Email"): transactional sends only ever consult deliverability
+ * Re-checked immediately before every send: transactional sends only ever consult deliverability
  * suppression; marketing sends additionally require recorded opt-in and
  * re-verify the lead/order hasn't completed, cancelled, or been unsubscribed
  * since the follow-up was scheduled.
@@ -78,7 +81,7 @@ export interface EmailDeliveryRecorder {
     workspaceId: string;
     actorId: string;
     messageId: string;
-    result: import('@gt-sales/adapters').ProviderDeliveryResult;
+    result: EmailDeliveryResult;
   }): Promise<void>;
 }
 
@@ -164,23 +167,6 @@ class HandlerTimeoutError extends Error {
   }
 }
 
-/**
- * A registry whose every registered handler fails permanently with one code.
- * Used when no provider adapter is configured (for example a production
- * deployment without real email/analytics credentials): the job is recorded as
- * failed so it is visible in admin instead of silently invoking a fake.
- */
-export function createFailingJobHandlerRegistry(errorCode: string): JobHandlerRegistry {
-  const safe = safeErrorCode(errorCode, 'provider_not_configured');
-  const handlers: [string, JobHandler][] = outboxJobTypes.map((jobType) => [
-    jobType,
-    async () => {
-      throw new JobHandlerError(safe, false);
-    },
-  ]);
-  return new Map(handlers);
-}
-
 const acknowledgementPayloadSchema = z
   .object({
     orderId: z.uuid(),
@@ -222,6 +208,21 @@ function isStringRecord(value: unknown): value is Record<string, string> {
     !Array.isArray(value) &&
     Object.values(value).every((entry) => typeof entry === 'string')
   );
+}
+
+/**
+ * A send's result for the runner: delivered completes the job; uncertain (it
+ * may have been sent) parks it for staff; refused (the provider took nothing,
+ * as on a 429) throws a retryable error, so the runner's backoff and attempt
+ * limit apply and the next attempt sends with the same idempotency key.
+ */
+function emailJobResult(result: EmailDeliveryResult): JobHandlerResult {
+  if (result.status === 'refused') {
+    throw new JobHandlerError(safeErrorCode(result.errorCode, 'provider_refused'), true);
+  }
+  return result.status === 'delivered'
+    ? { status: 'completed', providerId: result.providerId }
+    : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
 }
 
 function transactionalEmailHandler(
@@ -279,9 +280,7 @@ function transactionalEmailHandler(
       messageId: job.messageId,
       result,
     });
-    return result.status === 'delivered'
-      ? { status: 'completed', providerId: result.providerId }
-      : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+    return emailJobResult(result);
   };
 }
 
@@ -344,9 +343,7 @@ export async function sendRenderedCustomerEmail(
     messageId: job.messageId,
     result,
   });
-  return result.status === 'delivered'
-    ? { status: 'completed', providerId: result.providerId }
-    : { status: 'uncertain', errorCode: safeErrorCode(result.errorCode, 'provider_uncertain') };
+  return emailJobResult(result);
 }
 
 /**
@@ -463,12 +460,7 @@ export function createJobHandlerRegistry(dependencies: {
           messageId: job.messageId,
           result,
         });
-        return result.status === 'delivered'
-          ? { status: 'completed', providerId: result.providerId }
-          : {
-              status: 'uncertain',
-              errorCode: safeErrorCode(result.errorCode, 'provider_uncertain'),
-            };
+        return emailJobResult(result);
       },
     ],
     [

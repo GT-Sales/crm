@@ -122,20 +122,6 @@ export function formFields(leadType: string, payload: Record<string, unknown>): 
   return fields;
 }
 
-/** The fields staff keep on the lead (a SIM number), each shown even while empty. */
-export function staffFields(
-  leadType: string,
-  payload: Record<string, unknown>,
-): Array<FormField & { key: string }> {
-  return leadFields(leadType)
-    .filter((definition) => definition.staffOnly)
-    .map((definition) => ({
-      key: definition.key,
-      label: definition.label,
-      value: fieldValue(definition, payload) ?? '—',
-    }));
-}
-
 /**
  * How an edit names a field on the timeline ("plan, arrival in canada"): the
  * type's own label, else the site catalogue's (a custom property, or one the
@@ -267,14 +253,4 @@ export function propertyFilterParts(
     label,
     condition: `${opLabel} ${filterValueText(definition, filter.key, filter.value)}`,
   };
-}
-
-/** Human-readable text for an active filter (e.g. `Visa / permit type is Study permit`). */
-export function propertyFilterSummary(
-  leadType: string | undefined,
-  filter: LeadPropertyFilter,
-  catalog: PropertyCatalog = codePropertyCatalog,
-): string {
-  const { label, condition } = propertyFilterParts(leadType, filter, catalog);
-  return `${label} ${condition}`;
 }

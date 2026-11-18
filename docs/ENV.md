@@ -71,7 +71,7 @@ is a deployment problem, not something Settings → Email can fix.
 relies on it stops sending customer mail **the moment this backend is
 deployed**, not when the variable is removed, so check that every sending
 site has saved Settings → Email **before** that deploy (docs/HANDOFF.md §5.1,
-step B step 3 and check 1). On 2026-10-30 production had no saved settings
+the Senders check). On 2026-10-30 production had no saved settings
 for either site and had sent no customer mail in 30 days. Delete the
 variable from Railway after the deploy; nothing reads it any more.
 

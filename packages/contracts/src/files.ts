@@ -9,8 +9,8 @@ import {
 
 /**
  * Stored document metadata, staff review, and short-lived download links
- * (T17; REQ 22-25; IMPLEMENTATION_PLAN.md §8). Files are private and served
- * only via signed URLs after a permission check (invariant 8). The object key
+ * (T17). Files are private and served
+ * only via signed URLs after a permission check. The object key
  * never leaves the backend.
  */
 
@@ -133,7 +133,7 @@ export type CreateDownloadLinkRequest = z.infer<typeof createDownloadLinkRequest
 
 /**
  * A short-lived signed GET URL, treated as a bearer capability with a short
- * expiry (invariant 8). Served with attachment disposition and nosniff, unless
+ * expiry. Served with attachment disposition and nosniff, unless
  * staff asked to view it inline.
  */
 export const createDownloadLinkResponseSchema = z.object({

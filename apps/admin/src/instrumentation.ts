@@ -1,5 +1,5 @@
 /**
- * Next.js server-side error hook (REQ 40). Runs for an error thrown in a
+ * Next.js server-side error hook. Runs for an error thrown in a
  * server component, route handler, or server action — the cases a client
  * error boundary (`src/app/global-error.tsx`) cannot see. Never logs the
  * request URL/headers/body; only a fresh request id and the route. It must live

@@ -4,10 +4,9 @@ import { scrubValue } from '@gt-sales/observability';
 import { z } from 'zod';
 
 /**
- * Owner alert channel (REQ 40, IMPLEMENTATION_PLAN §10: "Alerts route to the
- * owner by email (and optionally a chat channel) for: failed-job queue
- * growth, backup age, synthetic check failure, and error-rate spikes"). This
- * is deliberately separate from the customer `EmailAdapter`
+ * Owner alert channel: alerts route to the owner by email (and optionally a
+ * chat channel) for failed-job queue growth, backup age, synthetic check
+ * failure, and error-rate spikes. This is deliberately separate from the customer `EmailAdapter`
  * (`packages/adapters/src/messaging.ts`): the owner is not a suppressible
  * contact, alerts must never be gated by consent/unsubscribe state, and the
  * message is a fixed operational template, not a customer-facing one.
@@ -139,7 +138,7 @@ export interface WebhookOwnerAlertChannelConfig {
   fetchImpl?: typeof fetch;
 }
 
-/** Optional chat-channel alert (IMPLEMENTATION_PLAN §10: "and optionally a chat channel"). */
+/** Optional chat-channel alert. */
 export class WebhookOwnerAlertChannel implements OwnerAlertChannel {
   private readonly fetchImpl: typeof fetch;
 

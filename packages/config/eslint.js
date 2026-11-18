@@ -8,8 +8,7 @@ import reactHooksPlugin from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-// Strict types, no `any`, no unchecked `as` casts — docs/PLAN.md §3, rule 10
-// invariant 14. Also see CLAUDE.md Step 3.
+// Strict types, no `any`, no unchecked `as` casts (docs/PLAN.md §3, rule 10).
 export const baseConfig = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,

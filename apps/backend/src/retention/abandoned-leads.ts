@@ -4,7 +4,7 @@ import type { R2DocumentStore } from '@gt-sales/adapters';
 import { auditEvents, draftGrants, files, leadTasks, leads, withTenantTx } from '@gt-sales/db';
 
 /**
- * SEC-12, owner decision (22 Oct 2026, docs/OPEN_INPUTS.md): an order form
+ * SEC-12, owner decision (22 Oct 2026): an order form
  * that is still `incomplete` 90 days after its last change has the visitor's
  * name, email, phone, country, answers and custom property values erased and
  * its resume links revoked.

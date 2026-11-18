@@ -20,8 +20,7 @@ import { CommandFailedError, type RunCommand, nodeRunCommand, stderrExcerpt } fr
  *   a pinned, supported `age` release as docs/RUNBOOKS/backup.md records,
  *   never reimplementing cryptography. The backup runner holds only the public
  *   recipient; the recovery private key stays with the owner and never enters
- *   GitHub (docs/superpowers/specs/2026-10-28-merge-canadian-plans-design.md
- *   §10).
+ *   GitHub (docs/RUNBOOKS/backup.md).
  * - `TestEnvelopeEncryptor`/`TestEnvelopeDecryptor`: a disposable,
  *   dependency-free X25519 + HKDF-SHA-256 + AES-256-GCM envelope. It exists
  *   only so tests and local rehearsals can exercise the surrounding

@@ -1,7 +1,6 @@
 /**
  * Privacy-preserving structured error logging for the backend
- * (PLATFORM_CONTEXT.md invariant 12 — "No PII in logs, errors, analytics, or
- * URLs"). A record carries only a request id, workspace id, route identifier,
+ * (AGENTS.md rule 7: no PII in logs). A record carries only a request id, workspace id, route identifier,
  * a regex-safe error code and a flag from a fixed allowlist. There is
  * deliberately no message field, so a raw error message, SQL statement, token
  * or customer detail cannot reach the log even by mistake.

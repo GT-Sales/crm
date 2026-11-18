@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Shared scalar schemas and the canonical error envelope for every `/api/v1`
  * family. Defined once here so leads, quotes, orders, uploads, partners,
  * webhooks, exports and tracking never re-declare a `uuid`, an ISO timestamp,
- * a currency amount or an error shape (REQ 50 / PLATFORM_CONTEXT.md §4a).
+ * a currency amount or an error shape.
  *
  * This module imports nothing from the family files, so it can be the base of
  * the dependency graph without a cycle.
@@ -30,8 +30,8 @@ export const emailSchema = z.email().max(254);
 export type Email = z.infer<typeof emailSchema>;
 
 /**
- * A money amount in integer minor units plus its currency (PLATFORM_CONTEXT.md
- * §4 — "integer minor-unit amounts"). Never a float. Signed so a charge
+ * A money amount in integer minor units plus its currency
+ * (integer minor-unit amounts). Never a float. Signed so a charge
  * component can be a discount.
  */
 export const moneySchema = z.object({
@@ -40,7 +40,7 @@ export const moneySchema = z.object({
 });
 export type Money = z.infer<typeof moneySchema>;
 
-/** Free-form structured context attached to an error. Never carries PII (invariant 12). */
+/** Free-form structured context attached to an error. Never carries PII (AGENTS.md rule 7). */
 export const errorDetailsSchema = z.record(z.string(), z.unknown());
 export type ErrorDetails = z.infer<typeof errorDetailsSchema>;
 
@@ -159,8 +159,8 @@ export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 
 /**
  * A form or order payload that carries its own schema version so websites can
- * migrate at their own pace (PLATFORM_CONTEXT.md §7 — "add before removing;
- * keep old behaviour until all websites migrate"). The `payload` shape is a
+ * migrate at their own pace (add before removing; keep old
+ * behaviour until all websites migrate). The `payload` shape is a
  * per-plan Zod schema; this wrapper only fixes the versioning envelope.
  */
 export const schemaVersionSchema = z.int().positive();

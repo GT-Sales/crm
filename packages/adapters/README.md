@@ -1,9 +1,9 @@
 # @gt-sales/adapters
 
-Server-only Sanity/R2/email/delivery/payment/analytics provider adapters,
-each behind an interface (per PLATFORM_CONTEXT.md §6 Phase B seams), plus
-in-memory fakes for tests. Real providers are wired in later tasks
-(T9–T20).
+Server-only provider adapters: the object store (S3 protocol, used with
+Supabase Storage), Resend email, owner alerts, error tracking, logging and the
+Umami analytics sink, each behind an interface, plus in-memory fakes for
+tests.
 
 ## Single responsibility
 
@@ -17,9 +17,7 @@ so the backend depends on an interface, not a vendor.
 - `@gt-sales/ui` — this package is never bundled for the browser.
 - Any app (`apps/*`).
 
-Only `apps/backend` and `jobs/` may depend on this package. Browser-safe
-Sanity schema types live in `@gt-sales/contracts` under the `cms`
-export, not here.
+Only `apps/backend` and `jobs/` may depend on this package.
 
 Document PUT signatures bind the validated declared file length. Browser callers
 must send the original `File` as the request body so the browser supplies its

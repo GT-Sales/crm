@@ -77,10 +77,8 @@ import {
   type LeadBoardResponse,
   type LeadsSummaryQuery,
   type LeadsSummaryResponse,
-  type LeadStatsQuery,
   type SourceReportQuery,
   type SourceReportResponse,
-  type LeadStatsResponse,
   type LeadTaskResponse,
   type LeadTrashResponse,
   type MarkLeadOpenedResponse,
@@ -234,15 +232,6 @@ export async function getLeadsSummary(
   query?: LeadsSummaryQuery,
 ): Promise<LeadsSummaryResponse> {
   return client(accessToken).staff.leadsSummary(workspaceId, query);
-}
-
-/** The dashboard's counts for one lead type over a window. */
-export async function getLeadStats(
-  accessToken: string,
-  workspaceId: string,
-  query: LeadStatsQuery,
-): Promise<LeadStatsResponse> {
-  return client(accessToken).staff.leadStats(workspaceId, query);
 }
 
 /** The analytics dashboard: one range against a comparison, with filters (money for the owner only). */

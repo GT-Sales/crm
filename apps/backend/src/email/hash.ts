@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
  * Keyed digest used everywhere an email address needs to be matched
  * (suppression, consent, follow-up eligibility) without storing the address
  * itself in the `email_messages`/`email_suppressions`/`marketing_consents`
- * tables (§4 invariant 12). HMAC (not plain SHA-256) so the digest cannot be
+ * tables (AGENTS.md rule 7). HMAC (not plain SHA-256) so the digest cannot be
  * reversed by a dictionary/rainbow-table attack against the small space of
  * real email addresses.
  */

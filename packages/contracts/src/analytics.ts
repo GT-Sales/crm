@@ -108,7 +108,6 @@ export const analyticsQuerySchema = z
       ctx.addIssue({ code: 'custom', message: 'the range is at most two years', path: ['to'] });
     }
   });
-export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;
 export type AnalyticsQueryInput = z.input<typeof analyticsQuerySchema>;
 
 const count = z.int().nonnegative();

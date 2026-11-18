@@ -6,14 +6,13 @@ import {
 } from '@gt-sales/observability';
 
 /**
- * Server-only Sentry-class error tracker (REQ 40, IMPLEMENTATION_PLAN §10:
- * "An error-tracking service ... receives exceptions from backend, admin, and
- * jobs with release tags"). Talks to Sentry's classic store endpoint directly
- * over `fetch` — matching the repo's existing hand-rolled-HTTP adapter
- * convention (`ResendEmailAdapter`, `SesEmailAdapter`) rather than adding the
+ * Server-only Sentry-class error tracker: receives exceptions from backend,
+ * admin, and jobs with release tags. Talks to Sentry's classic store endpoint
+ * directly over `fetch` — matching the repo's existing hand-rolled-HTTP
+ * adapter convention (`ResendEmailAdapter`) rather than adding the
  * `@sentry/*` SDK family as a dependency. Every event is built by
  * {@link buildErrorEvent}, which scrubs the error message before it ever
- * leaves the process (invariant 12) — this class never sees or forwards a
+ * leaves the process (AGENTS.md rule 7) — this class never sees or forwards a
  * raw payload.
  */
 

@@ -1,9 +1,8 @@
 import { buildErrorEvent, type ErrorTrackerContext } from '@gt-sales/observability';
 
 /**
- * Admin's error tracker (REQ 40, IMPLEMENTATION_PLAN §10: "An error-tracking
- * service ... receives exceptions from backend, admin, and jobs with release
- * tags"). Admin only ever talks to the backend API (PLATFORM_CONTEXT §2), so
+ * Admin's error tracker: receives exceptions from backend, admin, and jobs
+ * with release tags. Admin only ever talks to the backend API, so
  * this cannot import `@gt-sales/adapters` (backend-only — enforced by
  * lint, see `packages/config/boundaries.js`); it posts the scrubbed event to
  * Sentry's ingest endpoint directly with `fetch`, which every runtime here

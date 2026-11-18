@@ -127,7 +127,7 @@ Part of the live check, only with the owner's agreement:
 3. Paste file section D (the same id back).
 4. The next run passes and the all-clear `failed_runs:<n>` arrives.
 
-Record what was seen in [HANDOFF §5.1](../HANDOFF.md#51-owner-before-anything-else).
+Record what was seen in [HANDOFF §5.1](../HANDOFF.md#51-owner-actions).
 
 ## What stays behind
 

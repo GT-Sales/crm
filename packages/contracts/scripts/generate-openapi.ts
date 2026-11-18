@@ -8,7 +8,7 @@ import { buildOpenApiDocument } from '../src/openapi';
  * Writes the generated OpenAPI 3.1 document to `docs/api/openapi.json`. Run at
  * build (`pnpm --filter @gt-sales/contracts build`). The document is
  * derived entirely from the Zod schemas in this package — never edited by hand
- * — so the published API surface and the typed client cannot drift (REQ 50).
+ * — so the published API surface and the typed client cannot drift.
  */
 const outputUrl = new URL('../../../docs/api/openapi.json', import.meta.url);
 const outputPath = fileURLToPath(outputUrl);

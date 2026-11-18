@@ -7,9 +7,8 @@
 -- is one transaction: either all of it lands, all four tracker rows
 -- included, or none of it.
 --
--- Why: merge phase 8 step A (automation flows, spec
--- docs/superpowers/specs/2026-10-31-phase-8-automation-flows-design.md §4,
--- §6, §7). Every automation becomes a flow with versions, runs record each
+-- Why: merge phase 8 step A (automation flows; rulings in docs/PLAN.md
+-- §11). Every automation becomes a flow with versions, runs record each
 -- step, waits and time triggers are stored, the six built-in rules become
 -- seeded flows (same keys, still off), site-made email templates and a
 -- member's notification address get their columns.
@@ -305,7 +304,7 @@ CREATE POLICY "automation_waits_backup_reader_read" ON "app"."automation_waits" 
 -- the circular FK from a flow to its live version, the guard that keeps an
 -- activated version fixed, the six built-in default definitions and names, the
 -- notification address function, the current site's identity, the conversion
--- of the phase 4 rows into flows (merge phase 8, spec §6) and, last, the
+-- of the phase 4 rows into flows (merge phase 8) and, last, the
 -- retention of runs and timers.
 -- backup_reader needs no grant here: 0007's default privileges make every new
 -- app table readable, and each table's read policy comes from schema.ts in
@@ -445,7 +444,7 @@ REVOKE ALL ON FUNCTION app.builtin_flow_name(text) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION app.builtin_flow_name(text) TO app_runtime;
 
--- Where a flow's staff notification goes (spec ruling R9): the verified
+-- Where a flow's staff notification goes (phase 8 ruling R9, docs/PLAN.md §11): the verified
 -- sign-in address, written on every active staff membership of the signed-in
 -- actor (app.actor_id) whose address is missing or different. Sign-in runs in
 -- an actor-only transaction, where the tenant policy on memberships sees no
@@ -506,7 +505,7 @@ REVOKE ALL ON FUNCTION app.current_workspace_identity() FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION app.current_workspace_identity() TO app_runtime;
 
--- The conversion (spec §6): each existing rule row becomes a built-in flow
+-- The conversion: each existing rule row becomes a built-in flow
 -- with its label as its name and version 1 active, and each phase 4 run is
 -- tied to it. Each statement touches only rows it has not converted yet.
 UPDATE app.automations

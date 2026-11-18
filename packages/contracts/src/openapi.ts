@@ -6,8 +6,8 @@ import { endpoints, type EndpointAuth, type EndpointDef } from './endpoints';
 
 /**
  * Builds an OpenAPI 3.1 document from the endpoint registry and its Zod
- * schemas. There is no hand-written OpenAPI: the schemas are the single source
- * (REQ 50). `scripts/generate-openapi.ts` writes the result to
+ * schemas. There is no hand-written OpenAPI: the schemas are the single source.
+ * `scripts/generate-openapi.ts` writes the result to
  * `docs/api/openapi.json` at build time.
  */
 

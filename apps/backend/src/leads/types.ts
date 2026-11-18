@@ -1,6 +1,7 @@
 import {
   internetLeadPayloadSchema,
   leadTypeCatalog,
+  leadTypeEntry,
   mobilityLeadPayloadSchema,
   simOrderLeadPayloadSchema,
   type LeadContact,
@@ -88,8 +89,6 @@ export const leadTypes = {
   contact_message: { oneShot: false, requiredContact: [] },
 } as const satisfies Record<keyof typeof leadTypeCatalog, LeadTypeDefinition>;
 
-export type RegisteredLeadType = keyof typeof leadTypes;
-
 const registry: ReadonlyMap<string, LeadTypeDefinition> = new Map(Object.entries(leadTypes));
 
 export function leadTypeDefinition(leadType: string): LeadTypeDefinition | undefined {
@@ -110,6 +109,27 @@ const refused = (problem: LeadIntakeProblem): LeadIntakeCheck => ({ ok: false, p
 function formFits(definition: LeadTypeDefinition, form: LeadForm): boolean {
   if (!definition.payload) return true;
   return form.schemaVersion === 1 && definition.payload.safeParse(form.payload).success;
+}
+
+/**
+ * The stages that close a lead as lost: the catalogue's `lost` outcome
+ * stages (a SIM order's `cancelled`) and, for the types whose catalogue
+ * names no outcomes, their lost, declined and closed stages. A staff move of a lead
+ * the customer never submitted into one of them is no rescue (controller
+ * ruling, fix round 1): the lead stays unsubmitted and no flow fires. If the
+ * customer then submits it, it is a fresh submission (`updateLead`).
+ */
+const CLOSING_STAGES: Readonly<Record<string, readonly string[]>> = {
+  sim_order: ['cancelled'],
+  internet: ['lost', 'non_serviceable_address'],
+  mobility: ['lost'],
+  partner_application: ['declined'],
+  contact_message: ['closed'],
+};
+
+export function isClosingStage(leadType: string, stage: string): boolean {
+  const lost = leadTypeEntry(leadType)?.outcomes?.lost.stages ?? [];
+  return lost.includes(stage) || (CLOSING_STAGES[leadType] ?? []).includes(stage);
 }
 
 /**

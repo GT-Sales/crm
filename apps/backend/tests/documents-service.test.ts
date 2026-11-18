@@ -326,7 +326,7 @@ describe('DocumentService — download and permission scoping', () => {
       requestId: REQUEST,
     });
     if (link.status !== 'issued') throw new Error('expected issued');
-    // Every issued link is audited without customer data (invariant 11).
+    // Every issued link is audited without customer data.
     expect(ctx.store.audits).toEqual([
       { action: 'file.download_issued', fileId, audience: 'staff', disposition: 'attachment' },
     ]);

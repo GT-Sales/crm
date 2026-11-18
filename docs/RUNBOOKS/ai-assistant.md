@@ -210,9 +210,8 @@ but all chat/card state clears on Site/member changes or browser reload.
 - Vercel-to-Railway streaming, real cancellation timing and auth-refresh
   behaviour were not measured on the deployed pair.
 - The Gateway spend budget has not been set or observed.
-- Local SQL and real-backend browser checks now pass; see
-  `docs/review/ai-assistant.md`. Physical mobile keyboard and screen-reader
-  checks remain manual.
+- Local SQL and real-backend browser checks pass in CI. Physical mobile
+  keyboard and screen-reader checks remain manual.
 
 ## 11. Opt-in synthetic provider smoke
 

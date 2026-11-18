@@ -50,7 +50,7 @@ import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { nextSiteNumber } from './site-counter.js';
 import { selectLeadPage } from './staff-queries.js';
 import { generateDraftGrantToken, hashDraftGrantToken } from './token.js';
-import { checkLeadForm, checkLeadSubmit, type LeadIntakeProblem } from './types.js';
+import { checkLeadForm, checkLeadSubmit, isClosingStage, type LeadIntakeProblem } from './types.js';
 
 /** Long enough for a customer to leave and resume the form later. */
 const DEFAULT_DRAFT_GRANT_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -347,9 +347,10 @@ async function intakeOrder(
 }
 
 /**
- * The timeline's word that the website's submission moved the order from
- * Incomplete to Pending, by the website's credential. Its id is the
- * occurrence of the stage the submission entered (R4).
+ * The timeline's word that the website's submission moved the lead to its
+ * submitted stage (a SIM order from Incomplete to Pending, or a draft out of
+ * the closing stage staff put it in), by the website's credential. Its id is
+ * the occurrence of the stage the submission entered (R4).
  */
 async function recordSubmittedMove(
   tx: TenantTransaction,
@@ -675,7 +676,7 @@ export class DatabaseLeadStore implements LeadStore {
         }
 
         // Websites keep their own conversion events until phase 3 (docs/PLAN.md
-        // §5.8, §5.10: the server-side analytics sink was dropped), so intake
+        // §5.10: the server-side analytics sink was dropped), so intake
         // queues no analytics job; one with no provider would only fail.
         if (input.submit) return { lead: toSummary(leadRow), grant: null, replayed: false };
 
@@ -824,12 +825,17 @@ export class DatabaseLeadStore implements LeadStore {
             : { planId, quantity };
           changedFields.push('order');
         }
-        // A SIM order still at Incomplete moves to Pending as it is submitted;
-        // one staff already moved keeps its stage.
+        // A submission stands at the type's submitted stage: a SIM order moves
+        // from Incomplete to Pending. A draft staff moved into a closing stage
+        // (no rescue, so the customer could still finish it) is a fresh
+        // submission too, and leaves that stage for the submitted one (the
+        // first stage, for every type but a SIM order). Any other staff move
+        // submits the lead, so a draft stands nowhere else.
         const movedOnSubmit =
           input.submit === true &&
-          grant.leadStage === initialLeadStage(grant.leadType) &&
-          submittedLeadStage(grant.leadType) !== grant.leadStage;
+          submittedLeadStage(grant.leadType) !== grant.leadStage &&
+          (grant.leadStage === initialLeadStage(grant.leadType) ||
+            isClosingStage(grant.leadType, grant.leadStage));
         if (input.submit) {
           updates.status = 'submitted';
           changedFields.push('status');

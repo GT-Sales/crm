@@ -78,7 +78,6 @@ export type AutomationStepOutcome = z.infer<typeof automationStepOutcomeSchema>;
 
 export const AUTOMATION_VERSION_STATUSES = ['draft', 'active', 'retired', 'discarded'] as const;
 export const automationVersionStatusSchema = z.enum(AUTOMATION_VERSION_STATUSES);
-export type AutomationVersionStatus = z.infer<typeof automationVersionStatusSchema>;
 
 export const AUTOMATION_WAIT_STATUSES = ['pending', 'resumed', 'cancelled'] as const;
 export const automationWaitStatusSchema = z.enum(AUTOMATION_WAIT_STATUSES);
@@ -798,7 +797,6 @@ export const FLOW_TASK_VARIABLES = [
   'tracking number',
   'order number',
 ] as const;
-export type FlowTaskVariable = (typeof FLOW_TASK_VARIABLES)[number];
 
 /** The allowed list entry that lets any `{prop:<key>}` through. */
 export const ANY_PROPERTY_VARIABLE = 'prop:*';

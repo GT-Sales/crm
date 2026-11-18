@@ -26,7 +26,7 @@ const siteContentEmailTemplates = [
 const renderedStaffEmailTemplates = ['staff_notification'] as const;
 
 /**
- * Email templates T18 requires (REQ 26-27, IMPLEMENTATION_PLAN.md §9 "Email"),
+ * Email templates the CRM sends,
  * plus the site-content templates a site's staff edit. `abandoned_form_marketing` is the one marketing template; every
  * other template is transactional and is never gated on marketing opt-out.
  */
@@ -57,7 +57,7 @@ export function messageClassForTemplate(template: EmailTemplate): EmailMessageCl
  * necessarily carries the raw address (the provider needs it); the
  * `email_messages` audit/status table never stores it, keying instead on a
  * `contactHash` for suppression/consent matching, so admin views and delivery
- * history never surface a bare address (§4 invariant 12).
+ * history never surface a bare address (AGENTS.md rule 7).
  */
 export interface EmailMessage {
   workspaceId: string;
@@ -97,8 +97,16 @@ export interface RenderedEmail {
 export type ProviderDeliveryResult =
   { status: 'delivered'; providerId: string } | { status: 'uncertain'; errorCode: string };
 
+/**
+ * A send's outcome. `refused` is the provider's definite answer that it took
+ * nothing and asks to be called again later (Resend's HTTP 429), so the job is
+ * retried with the same idempotency key; `uncertain` (a timeout, a 5xx) may
+ * have been sent and is never retried automatically.
+ */
+export type EmailDeliveryResult = ProviderDeliveryResult | { status: 'refused'; errorCode: string };
+
 export interface EmailAdapter {
-  send(message: EmailMessage): Promise<ProviderDeliveryResult>;
+  send(message: EmailMessage): Promise<EmailDeliveryResult>;
 }
 
 /**
@@ -140,7 +148,7 @@ export class FakeEmailAdapter implements EmailAdapter {
   readonly deliveries: EmailMessage[] = [];
   private readonly providerIds = new Map<string, string>();
 
-  async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
+  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
     const existing = this.providerIds.get(message.messageId);
     if (existing) return { status: 'delivered', providerId: existing };
     const providerId = `fake-email:${message.messageId}`;
@@ -151,90 +159,19 @@ export class FakeEmailAdapter implements EmailAdapter {
 }
 
 /**
- * The server-emitted conversion events (IMPLEMENTATION_PLAN §9). Both are
+ * The server-emitted conversion events. Both are
  * emitted once from the transactional outbox, never from the browser, so a
- * submission is counted exactly once (REQ 35).
+ * submission is counted exactly once.
  */
 export const analyticsEventNames = ['lead_saved', 'order_submitted'] as const;
 export type AnalyticsEventName = (typeof analyticsEventNames)[number];
 
 /**
- * Amazon SES v2 implementation, structurally selected pending
- * OPEN_INPUTS #23 (production access, region, verified sender domain, quota).
- * All configuration comes from environment variables — never hardcoded — and
- * the adapter throws at construction if any are missing, so a deployment
- * cannot silently send unauthenticated mail. Never wired for anything but the
- * explicit `EMAIL_PROVIDER=ses` opt-in (see apps/backend/src/jobs/providers.ts);
+ * Resend implementation, the production email provider. Talks to Resend's
+ * HTTP API directly (no SDK dependency); configuration is env-only and the
+ * adapter throws at construction, so it fails closed. Only wired for the
+ * explicit `EMAIL_PROVIDER=resend` opt-in (see apps/backend/src/jobs/providers.ts);
  * `EMAIL_PROVIDER=fake` in CI/previews never reaches this class.
- */
-export class SesEmailAdapter implements EmailAdapter {
-  private client: import('@aws-sdk/client-sesv2').SESv2Client | undefined;
-
-  constructor(
-    private readonly config: {
-      region: string;
-      sender: SenderIdentity;
-      configurationSetName?: string;
-    },
-  ) {
-    if (!config.region) throw new Error('SES adapter requires a region.');
-    if (!config.sender.fromAddress) throw new Error('SES adapter requires a from address.');
-  }
-
-  /** Lazily constructed so importing this module never requires AWS credentials at load time. */
-  private async getClient(): Promise<import('@aws-sdk/client-sesv2').SESv2Client> {
-    if (!this.client) {
-      const { SESv2Client } = await import('@aws-sdk/client-sesv2');
-      this.client = new SESv2Client({ region: this.config.region });
-    }
-    return this.client;
-  }
-
-  async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
-    const { SendEmailCommand } = await import('@aws-sdk/client-sesv2');
-    const client = await this.getClient();
-    const sender = message.sender ?? this.config.sender;
-    const content = contentFor(message, sender.fromName);
-    if (!content) return { status: 'uncertain', errorCode: 'rendered_message_missing' };
-    const { subject, text, html } = content;
-    try {
-      const result = await client.send(
-        new SendEmailCommand({
-          FromEmailAddress: formatFrom(sender),
-          ReplyToAddresses: sender.replyToAddress ? [sender.replyToAddress] : undefined,
-          ConfigurationSetName: this.config.configurationSetName,
-          Destination: { ToAddresses: [message.toAddress] },
-          Content: {
-            Simple: {
-              Subject: { Data: subject },
-              Body: { Text: { Data: text }, Html: html ? { Data: html } : undefined },
-            },
-          },
-          // SES's own dedup is at-most-once per API call; the logical message
-          // id still gates whether this call happens at all (outbox dedupe).
-        }),
-      );
-      const providerId = result.MessageId;
-      if (!providerId) return { status: 'uncertain', errorCode: 'ses_missing_message_id' };
-      return { status: 'delivered', providerId };
-    } catch (error) {
-      // A thrown SDK error after the request left the process is ambiguous —
-      // the message may already be queued by SES — so this is uncertain, not
-      // failed, and the outbox/job layer decides whether to retry or reconcile.
-      const errorCode = error instanceof Error ? error.name : 'ses_send_error';
-      return { status: 'uncertain', errorCode };
-    }
-  }
-}
-
-/**
- * Resend implementation, the current production email provider (OPEN_INPUTS
- * #23: Resend selected for launch, AWS SES deferred — see
- * docs/OPEN_INPUTS.md). Talks to Resend's HTTP API directly (no SDK
- * dependency, matching the SES adapter's env-only, throw-at-construction
- * fail-closed shape). Only wired for the explicit `EMAIL_PROVIDER=resend`
- * opt-in (see apps/backend/src/jobs/providers.ts); `EMAIL_PROVIDER=fake` in
- * CI/previews never reaches this class.
  */
 const resendResponseSchema = z.object({ id: z.string().optional() });
 
@@ -245,7 +182,10 @@ export class ResendEmailAdapter implements EmailAdapter {
       /** The deployment's own sender, for a message queued without its site's. */
       sender: SenderIdentity;
       apiUrl?: string;
-      /** Upper bound per send; a timeout is an "uncertain" outcome, retried with the same idempotency key. */
+      /**
+       * Upper bound per send. A timeout is an "uncertain" outcome, which is not
+       * retried automatically; only a 429 ("refused") is, with the same idempotency key.
+       */
       timeoutMs?: number;
     },
   ) {
@@ -253,7 +193,7 @@ export class ResendEmailAdapter implements EmailAdapter {
     if (!config.sender.fromAddress) throw new Error('Resend adapter requires a from address.');
   }
 
-  async send(message: EmailMessage): Promise<ProviderDeliveryResult> {
+  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
     const sender = message.sender ?? this.config.sender;
     const content = contentFor(message, sender.fromName);
     if (!content) return { status: 'uncertain', errorCode: 'rendered_message_missing' };
@@ -278,6 +218,8 @@ export class ResendEmailAdapter implements EmailAdapter {
           tags: [{ name: 'cp_message_id', value: message.messageId }],
         }),
       });
+      // A 429 is a refusal before anything was accepted: safe to send again.
+      if (response.status === 429) return { status: 'refused', errorCode: 'resend_http_429' };
       if (!response.ok) {
         return { status: 'uncertain', errorCode: `resend_http_${response.status}` };
       }
@@ -401,7 +343,7 @@ export interface AnalyticsEvent {
 }
 
 /**
- * The analytics seam (PLATFORM_CONTEXT §6). Only an Umami and a fake/log sink
+ * The analytics seam. Only an Umami and a fake/log sink
  * exist in Phase A; Google Ads/Meta are Phase B sinks over the same events.
  */
 export interface AnalyticsSink {
@@ -424,8 +366,7 @@ export class FakeAnalyticsSink implements AnalyticsSink {
 }
 
 /**
- * Durable suppression-change ledger publisher (IMPLEMENTATION_PLAN.md §13
- * "External deletion/suppression ledger"). The real ledger (a dedicated B2
+ * Durable suppression-change ledger publisher. The real ledger (a dedicated B2
  * bucket with append-only credentials, built in T4R) does not exist yet, so
  * this is the interface the email module publishes through today and a fake
  * for tests; wiring the real publisher is tracked as a blocker below.

@@ -1,6 +1,5 @@
 /**
- * Pure "failed job queue growth" detector (REQ 40, IMPLEMENTATION_PLAN §10:
- * "Alerts route to the owner ... for: failed-job queue growth"). Kept
+ * Pure "failed job queue growth" detector, which feeds the owner alert. Kept
  * side-effect-free and timer-free so it is trivially unit-testable; the
  * scheduler wiring owns the actual mutable state and the alert send.
  */

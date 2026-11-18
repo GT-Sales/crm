@@ -6,8 +6,8 @@ const REFERRER_HOST_MAX = 253;
 const LANDING_PATH_MAX = 512;
 
 /**
- * Referrer origins whose traffic is attributed by hostname (REQ 35 "approved
- * referrer origins"). Anything else — including the raw URL, its query
+ * Referrer origins whose traffic is attributed by hostname (the approved
+ * referrer origins). Anything else — including the raw URL, its query
  * string or any embedded token — is reduced to its hostname. Extend this list
  * as new paid/organic channels are added; it is intentionally small at launch.
  */
@@ -40,7 +40,7 @@ const APPROVED_REFERRER_HOSTS = new Set([
 ]);
 
 /**
- * Known landing-route templates (REQ 35 "known landing-route templates").
+ * Known landing-route templates.
  * A submitted path is reduced to its bare path (query string, fragment and
  * any token stripped first) and must fully match one of these before it is
  * stored; anything else — an arbitrary raw path — is dropped. Extend this
@@ -98,7 +98,7 @@ function sanitizeLandingPath(value: unknown): string | undefined {
 
 /**
  * Reduces arbitrary submitted attribution to the bounded, allowlisted shape
- * that is ever persisted (REQ 35). Never throws: an unrecognized field,
+ * that is ever persisted. Never throws: an unrecognized field,
  * overlong value, unapproved referrer, or unrecognized landing path is
  * silently dropped rather than failing the request. `partnerCode` itself is
  * always kept verbatim when present and bounded — whether it resolves to an

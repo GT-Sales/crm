@@ -13,7 +13,7 @@ export interface DueFollowUp {
 
 export type FollowUpOutcome = 'sent' | 'skipped_ineligible' | 'skipped_state' | 'cancelled';
 
-/** Minimal read of the state a follow-up must be re-checked against (REQ 27). */
+/** Minimal read of the state a follow-up must be re-checked against. */
 export interface LeadOrderStateReader {
   /** Returns undefined only if the lead genuinely no longer exists. */
   leadState(workspaceId: string, leadId: string): Promise<{ status: string } | undefined>;
@@ -45,8 +45,8 @@ export interface EnqueueMarketingEmail {
  * Runs due follow-ups. Every send re-checks eligibility (suppression +
  * marketing consent) and re-reads the referenced lead/order's current state
  * immediately before sending — never trusting the state at scheduling time
- * (REQ 27). A completed/cancelled/unsubscribed lead or order stops the
- * sequence instead of sending.
+ * A completed/cancelled/unsubscribed lead or order stops the sequence
+ * instead of sending.
  */
 export class FollowUpRunner {
   constructor(
