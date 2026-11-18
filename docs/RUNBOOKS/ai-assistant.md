@@ -97,12 +97,15 @@ History is replayed only as whole turns whose answer the server signed: each
 finished answer's `done` part carries an HMAC (with the signing secret, bound to
 the member and site) of the answer as history will send it, and an unsigned,
 altered or foreign answer is dropped with its question before the model sees
-it. No chat text is stored. Rotating `AI_ACTION_SIGNING_SECRET` empties the
-history of conversations open at the time (the next answer is signed again).
+it. This is the memory-only chat, which stores no chat text; rotating
+`AI_ACTION_SIGNING_SECRET` empties the history of such conversations open at
+the time (the next answer is signed again). A stored conversation (§12)
+replays the server's own copy and needs no signature.
 
 Usage per site lives in `app.ai_turns` (migration 0024): one row per turn with
-the outcome, model, prompt version, duration, output tokens, tool calls, records
-and bytes, never any text. Rows are kept 90 days. For example, a site's last
+the outcome, model, prompt version, duration, input tokens (from migration
+0034 on), output tokens, tool calls, records and bytes, never any text. The
+owner reads it per member under Settings → AI usage (§12). Rows are kept 90 days. For example, a site's last
 seven days:
 
 ```sql
@@ -115,14 +118,20 @@ group by outcome;
 ## 5. Data handling
 
 - **Sent to the provider:** the system prompt, the person's question, prior chat
-  text from that browser session, and the tool results (only the projected
+  text (from the browser session, or from the stored conversation, §12), the
+  files the person attached to the conversation's messages within the per-turn
+  limits (images and PDFs as bytes, text files as text), and the tool results (only the projected
   fields listed in the design doc). No email, phone, address, SIN, passport,
   or document value is in that set. Safe order fields are included; price in
   CAD cents, payment and commission status require effective `financial.read`.
   A user can type personal information in their own question, and requested
   note excerpts can contain it; those texts are sent to the provider.
-- **Kept by us:** no chat history (it lives in the browser tab's memory only),
-  no prompts, no tool payloads, no names in normal logs. One allowlisted line per
+- **Kept by us:** in the memory-only chat no chat history (it lives in the
+  browser tab's memory only); in a stored conversation the member's messages,
+  the answers as streamed, their source cards and follow-ups
+  (`app.ai_messages`) and the attached files (the `documents` bucket), until
+  the member deletes the conversation. No prompts, no tool payloads, no names
+  in normal logs. One allowlisted line per
   turn: request id, opaque site/actor ids, engine, model id, prompt version,
   outcome, duration, output tokens, tool/record/byte counts.
 - **Provider retention** is governed by the Gateway and model terms, not by this
@@ -180,7 +189,9 @@ confirmation. Read-only staff receive no action tools or creation capability.
 
 A confirmed save may finish after closing the panel or New chat; these controls
 cannot undo a submitted write. The receipt persists across panel close/open,
-but all chat/card state clears on Site/member changes or browser reload.
+but all card state clears on Site/member changes or browser reload; so does
+the memory-only chat. A stored conversation comes back after a reload with its
+text, and its answers say their drafts are no longer available.
 
 ## 8. Diagnosing
 
@@ -201,8 +212,10 @@ but all chat/card state clears on Site/member changes or browser reload.
    keeps working.
 2. If a key may be exposed or over-used, revoke it in the Gateway dashboard and
    set a new one later.
-3. To roll back the code, revert the deploy of this branch; there is no migration
-   and no stored chat data to undo.
+3. To roll back the code, revert the deploy. The assistant itself has no
+   migration to undo; the saved chat's tables (0034–0036) and the stored
+   conversations stay, and an older backend works beside them
+   (docs/RUNBOOKS/database.md, 0034–0036, for removing them).
 
 ## 10. Not verified yet (state plainly)
 
@@ -229,3 +242,116 @@ prints model/date/pass status, and suppresses provider error bodies. Without
 the opt-in and both credentials it exits 2 without a provider call. This narrow
 smoke does not establish full answer quality; use the evaluation fixture and
 §7 on an approved synthetic staging Site before real customer data is enabled.
+
+## 12. The saved chat
+
+Stored conversations, attached files and the owner's usage page. Design:
+`docs/design/ai-chat.md`.
+
+### Switching it on
+
+1. Ask AI is on for the site (§2), and the backend that stores conversations
+   is deployed.
+2. Apply migrations 0034, 0035 and 0036 in order
+   (docs/RUNBOOKS/database.md, 0034–0036). Nothing else: within 5 minutes the
+   backend sees the tables and the saved chat switches itself on, with no
+   redeploy or restart.
+3. Check, as a member of the site: the sidebar and Ctrl/Cmd K list **Ask AI**,
+   the side panel has **Open full page**, and a question asked on the page is
+   still there after a reload. In the SQL editor (counts only):
+
+   ```sql
+   select count(*) as conversations from app.ai_conversations
+   where workspace_id = '<site uuid>';
+   ```
+
+Until 0034 and 0035 are applied Ask AI works as before, in memory only, and
+the saved chat's routes answer 503. Until 0036 is applied unsent files are not
+swept (the `document_cleanup` task skips that step).
+
+### Switching uploads on and off
+
+On, after the saved chat is on:
+
+1. In the Gateway catalogue, check that the model in `AI_GATEWAY_MODEL`
+   accepts image and PDF input. No real-provider test of it exists in this
+   repository. A model that takes only text gets `text` alone.
+2. Check that the storage endpoint accepts a cross-origin `PUT` from the
+   admin's origin: the browser uploads the file straight to a signed storage
+   URL. With a signed URL from an intent:
+
+   ```
+   curl -i -X OPTIONS '<signed url>' -H 'Origin: https://gt-sales-crm-admin.vercel.app' \
+     -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: content-type'
+   ```
+
+   Expect 2xx with `access-control-allow-origin` covering the admin's origin
+   and `PUT` allowed.
+
+3. Review with the owner that uploaded files are sent to the AI provider with
+   the turn (§5).
+4. Set `AI_ATTACHMENT_KINDS` on Railway (docs/ENV.md), for example
+   `image,pdf,text`, or `text`, and redeploy. The documents storage (`R2_*`)
+   must be configured; without it uploads stay off.
+
+Off: unset `AI_ATTACHMENT_KINDS` (or drop a kind) and redeploy. The composer
+stops offering files. A stored file of a kind that is off is named to the
+model as not available; with every kind off the file routes answer
+`attachments_unavailable`, so stored thumbnails show as plain chips. Stored
+files are kept, and unsent ones are still swept.
+
+### What people see
+
+- **A member**: Ask AI in the menu, the full page with their own
+  conversations (search, rename, delete), the side panel showing the current
+  conversation, and, where uploads are on, a paperclip, drop and paste on the
+  full page (not in the panel). Deleting a conversation removes it and its
+  files for good. A conversation with 200 messages asks for a new chat.
+- **The owner**: their own conversations like any member, never anyone
+  else's, and Settings → AI usage: turns, input and output tokens and the last
+  use per member over 7, 30 or 90 days (90 is the most `ai_turns` keeps).
+  Input tokens count from when 0034 is applied. The page works with Ask AI
+  switched off.
+
+The same in SQL, counts only:
+
+```sql
+select actor_id, count(*) as turns, sum(input_tokens) as input, sum(output_tokens) as output
+from app.ai_turns
+where workspace_id = '<site uuid>' and created_at > now() - interval '30 days'
+group by actor_id order by 3 desc;
+```
+
+### When uploads fail
+
+| Symptom                                                       | Check                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No paperclip                                                  | Capabilities carry no `attachments`: `AI_ATTACHMENT_KINDS` unset or with no known kind, no object storage (`R2_*`), or 0034 and 0035 not applied.                                                                                                                                                                                                                                                                                                                                  |
+| `503 attachments_unavailable`                                 | The same causes, or the shared rate limiter could not be reached for the upload budget (the upload is refused rather than let through). `503 ai_unavailable` instead means Ask AI is off or the site not allowed.                                                                                                                                                                                                                                                                  |
+| A file's chip fails while uploading; the CRM's own calls work | The browser's PUT to storage was refused. **CORS**: the preflight above does not allow the admin's origin or `PUT`. **CSP**: the browser console says the admin's policy refused to connect; `connect-src` allows the project's `<ref>.supabase.co` and `<ref>.storage.supabase.co` (derived from `NEXT_PUBLIC_SUPABASE_URL`, `apps/admin/src/lib/csp.ts`), so an `R2_ENDPOINT` on another host is blocked. An expired link (5 minutes) fails the same way: choose the file again. |
+| 429 at upload                                                 | 40 uploads per member per site per hour (`ai_upload:` keys in `app.rate_limit_buckets`); `retry-after` says when.                                                                                                                                                                                                                                                                                                                                                                  |
+| `attachment_rejected`                                         | `details.reason`: `type` (the bytes are not an accepted type of an enabled kind), `size` (over the kind's limit, or not the size announced), `empty`, `unreadable` (not strict UTF-8, a NUL, a checksum that does not match the bytes, or no upload found). The admin says it in plain words.                                                                                                                                                                                      |
+| A turn with an image or PDF fails                             | The model may not accept that input: `ai_turn` outcome `failed`. Drop the kind from `AI_ATTACHMENT_KINDS`.                                                                                                                                                                                                                                                                                                                                                                         |
+| The answer says a file was not available                      | More than 6 files or 15 MiB in the turn, a kind switched off, an object that could not be read, or the backend's memory budget for files was full at that moment. Expected, not a fault.                                                                                                                                                                                                                                                                                           |
+
+### Removing a conversation
+
+Only the member can delete a conversation, from the full page; no admin
+screen or route deletes another member's, the owner's included, and these
+runbooks document no database route for it. A removed member's conversations
+stay stored and unreachable. A customer's data erasure does not touch them.
+
+### Log events
+
+- `ai_turn`: one line per turn, as before, with `inputTokens`.
+- `ai_attachment_object_delete_failed`: a stored object could not be deleted
+  (a member's delete, a refused upload, or the sweep after three tries), with
+  the site id and a count.
+- `ai_attachment_sweep_failed`: one site's sweep failed inside
+  `document_cleanup`; the other sites and the documents' own cleanup go on.
+- To the error tracker, beside the request's `internal_error` or
+  `persistence_unavailable` line: `ai_turn_store_failed` (the member's message
+  could not be stored; the request answers 500), `ai_answer_store_failed` (the
+  answer could not be stored; the member already has it), `ai_chat_route_failed`
+  and `ai_attachment_delete_failed` (a delete answered 503). A store code may
+  end with `:<SQLSTATE>`; no code carries text, a title or a file name.

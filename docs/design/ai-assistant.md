@@ -4,7 +4,8 @@ The read-only core of Ask AI (version 1): its trust boundaries, the fields the
 model may see, its limits and the decisions behind them. Ask AI is on for both
 sites (docs/HANDOFF.md §3.1); confirmed actions are in
 [ai-actions.md](ai-actions.md), [interactive-ai.md](interactive-ai.md) and
-[ai-lead-updates.md](ai-lead-updates.md), and operation in
+[ai-lead-updates.md](ai-lead-updates.md), stored conversations, attached files
+and the owner's usage page in [ai-chat.md](ai-chat.md), and operation in
 `docs/RUNBOOKS/ai-assistant.md`.
 
 ## 1. Discovery: versions and evidence
@@ -41,6 +42,7 @@ Admin browser (Vercel)
 | Tool arguments                        | Untrusted proposals                                                  | Zod schemas in `ai/tools.ts`; every value validated            |
 | Lead id / context                     | A hint, re-authorized on read                                        | `getLeadSummary` reads by id inside the tenant transaction     |
 | Browser chat history                  | Untrusted text                                                       | Re-validated; never produces a source card or an authorization |
+| Stored conversation, attached files   | The member's own, under an owner policy; file content is data        | `ai/conversation-store.ts`, `ai/attachments.ts`; ai-chat.md §3 |
 | Records, names, notes                 | Untrusted data                                                       | System prompt treats them as data; rendering is escaped text   |
 | Tool output                           | Authorized evidence                                                  | Explicit projections in `ai/projections.ts`                    |
 | Model text                            | Presentation only                                                    | Rendered as text; links only come from server source cards     |
@@ -67,8 +69,9 @@ on `access_lost`.
 | `getSourcePerformance` | The existing `DatabaseReportStore.sourceReport` (`reports/store.ts`), unchanged                                                                             | none                                                                             |
 
 No getter that marks a lead opened, seeds automations, writes a timeline entry or
-queues a job is called. The only writes a turn makes are the existing
-`app.rate_limit_hit` counters.
+queues a job is called. The only writes a turn makes are the
+`app.rate_limit_hit` counters, its `app.ai_turns` row of counts and, in a
+stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5).
 
 ## 4. Transport
 
@@ -77,9 +80,17 @@ queues a job is called. The only writes a turn makes are the existing
   `pipeUIMessageStreamToResponse`, protocol header `v1`, typed transient
   `data-assistant` parts carrying `progress`, `text`, `sources`, `error`, `done`,
   followed by the SDK `[DONE]` terminator. `aiWirePartSchema` describes the wire.
+- The request may carry the optional `conversationId` and `attachmentIds` of a
+  stored conversation; only then does the stream send a `conversation` part
+  and `done.messageId`, and `history` must be empty because the server replays
+  its own store. Without them the request and the stream are the memory-only
+  ones. The conversation and attachment routes and the owner's usage route sit
+  beside the chat; all of it is in [ai-chat.md](ai-chat.md) §8.
 - Errors before the first frame are the normal JSON error envelope
   (`ai_unavailable` 503, `ai_rate_limited` 429, `permission_denied` 403,
-  `invalid_request` 400). After the first frame, only typed `error` parts.
+  `invalid_request` 400; for a stored conversation also
+  `conversation_not_found` 404, `conversation_full` 409, `conflict` 409 and
+  `attachments_unavailable` 503). After the first frame, only typed `error` parts.
 - The registry (`packages/contracts/src/endpoints.ts`) describes the stream with
   a new `stream` field; `openapi.ts` publishes the frame schema under
   `text/event-stream` (generated, never hand-written).
@@ -124,12 +135,18 @@ title, assignee display name, due instant and due day. Activity: kind and time;
 a note excerpt (≤500 characters, at most 5) **only** when the caller asked for
 notes.
 
-Never sent: email, phone, address, country, SIN, passport or visa content,
-document ids or signed URLs, custom values, activation numbers/accounts, documents overrides, the access snapshot, property catalogue, headers and
+Never sent from the CRM: email, phone, address, country, SIN, passport or visa
+content, the lead's documents, document ids or signed URLs, custom values, activation numbers/accounts, documents overrides, the access snapshot, property catalogue, headers and
 environment. Order summaries now include the frozen plan name, quantity, dispatch and
 activation dates. Price in integer CAD cents, payment and commission state
 require effective `financial.read`. The live property catalogue excludes hidden
 or sensitive order fields; no raw order JSON reaches the model.
+
+A file the member attaches to a message of a stored conversation is sent with
+that turn, whatever it contains: an image's or PDF's bytes, a text file's
+decoded text in a labelled block, and the files of earlier messages within the
+per-turn limits ([ai-chat.md](ai-chat.md) §7 and §9). The member chooses to
+send it; nothing of the CRM's own is attached for them.
 
 ## 7. Limits (constants in `AI_ASSISTANT_LIMITS`)
 
@@ -157,8 +174,10 @@ and must be reviewed by the owner before real data is used.
    This is a documented departure from the requested hook package,
    not a claim that it was installed. No SDK UI arrays or client tool results
    are forwarded to the model.
-2. **No new tables or migrations.** History lives in React memory only; a
-   durable conversation is explicitly a later phase.
+2. **History.** Without a stored conversation, history lives in React memory
+   only and the browser sends it back signed (CHAT-2). With one, the server
+   keeps it in `app.ai_conversations` and `app.ai_messages` (migrations
+   0034–0036) and replays its own store ([ai-chat.md](ai-chat.md)).
 3. **Search** matches name, reference, email and phone within the selected
    Site; results and source labels never echo contact search values.
 4. **Per-statement timeout**: each read opens its own tenant transaction and sets
@@ -181,7 +200,10 @@ The admin side:
 
 Every stream part is checked against the turn's generation before it can touch
 state, so Stop, New chat, unmount and a credential change all make late chunks
-no-ops. Nothing is persisted: no `localStorage`, `sessionStorage` or IndexedDB.
+no-ops. Nothing is written to `localStorage`, `sessionStorage` or IndexedDB.
+Against a backend that stores conversations, the panel shows the member's
+current stored conversation and links to the full page; the page, its
+components and the stored state are in [ai-chat.md](ai-chat.md) §10.
 
 ## 11. Evidence and known limits
 

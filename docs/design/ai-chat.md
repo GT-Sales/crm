@@ -1,420 +1,354 @@
-# Ask AI as a saved chat — the specification every agent works from
+# Ask AI as a saved chat — design and decisions
 
-Repository: /home/user/crm. Read /home/user/crm/AGENTS.md first, then
-docs/design/ai-assistant.md (the trust boundaries of Ask AI as it is today) and
-docs/RUNBOOKS/ai-assistant.md. This file is the agreed design. If something
-here turns out to be impossible or wrong against the code, do not improvise a
-different design: implement what you safely can, and report the conflict.
+Ask AI's stored conversations, the files a member attaches to a message and the
+owner's usage page: what they are, who can read what and where that is
+enforced, what is stored, and what leaves the system. The assistant's own
+trust boundaries, tools, projections and turn limits are unchanged and are in
+[ai-assistant.md](ai-assistant.md); confirmed cards are in
+[ai-actions.md](ai-actions.md) and [interactive-ai.md](interactive-ai.md).
+Operation is in `docs/RUNBOOKS/ai-assistant.md` §12; the migrations in
+`docs/RUNBOOKS/database.md` (0034–0036).
 
-## 1. What the owner asked for (decisions already taken, do not reopen)
+## 1. What it is
 
-1. Ask AI becomes a saved chat that feels like Claude or ChatGPT: a full page
-   with a conversation list on the left and the chat on the right.
-2. The existing side panel (the header's Ask AI overlay, 440 px sheet) STAYS for
-   quick questions on any screen. It gets an "Open full page" control. Panel and
-   page show the SAME saved conversations.
-3. Conversations are stored on the server, PRIVATE to the staff member who had
-   them, per site. Nobody else can read them: not other members, not the owner.
-   They are kept until the member deletes them.
-4. The owner can see USAGE per member (turns and tokens), never content.
-5. A member can attach images and documents to a message and ask about them in
-   that chat. Files belong to the conversation and go when it is deleted. They
-   are never attached to a lead.
-6. Scope stays CRM ONLY: the same tools, the same system prompt rules, the same
-   refusal of unrelated subjects. An uploaded file is material to answer a CRM
-   question about (for example "what does this customer's letter ask for?").
-   Do not widen the assistant into a general chatbot.
+Ask AI is a chat with a history. The full page (`/w/<site>/chat`) lists the
+member's conversations on the left and shows one on the right; the header's
+side panel shows the same current conversation for a quick question on any
+screen and opens it as a full page. A conversation is created by its first
+message, kept on the server, and reopened from any browser the member signs
+in on. A member may attach images, PDFs and text files to a message and ask
+about them in that chat. The owner sees, under Settings → AI usage, how many
+turns and tokens each member used, never what was asked.
 
-## 2. What must not change
+All of it is additive: a backend that does not store conversations, or a
+database without migrations 0034 and 0035, leaves Ask AI exactly as it is in
+memory only (§8).
 
-- Every existing trust boundary in docs/design/ai-assistant.md §2: the actor is
-  the verified session, the site is the route id plus a live membership read,
-  access is `decideAiAccess`, tools re-authorize before every call and once
-  before the answer is released, tool results go through the projections, the
-  model never sees email, phone, address, SIN, document content from the CRM
-  or signed URLs.
-- The tool set and tool policy (`ai/tools.ts`, `ai/tool-policy.ts`), the action
-  cards and their signed confirm/revise flow, automation authoring, the rate
-  limits, the replay claim, the turn timeout, cancellation, `ai_turns` logging.
-- Deploy order is not controlled: the admin (Vercel) and the backend (Railway)
-  deploy separately. An OLD admin must keep working against the NEW backend and
-  the NEW admin must degrade cleanly against an OLD backend. So every change to
-  the wire is ADDITIVE and OPTIONAL. The existing request shape (`history` sent
-  by the browser, signed answers) keeps working exactly as today.
-- Repo rules: only the backend talks to Postgres (rule 1); every tenant table
-  has `workspace_id`, RLS enabled and FORCED, grants in a hand-written custom
-  migration (rules 2 and 3); no PII in logs or audit (rule 7); integration tests
-  re-runnable (rule 9); no new dependency without a strong reason.
+## 2. Owner decisions
 
-## 3. Data model (new tables in schema `app`)
+1. **Private to the member.** A conversation and its files belong to the staff
+   member who had them, on one site. Nobody else can read them: not another
+   member, not the owner.
+2. **Kept until deleted.** Conversations, their messages and their files are
+   kept until the member deletes the conversation. Nothing prunes them.
+3. **The owner sees usage only**: turns and tokens per member, from
+   `app.ai_turns`, never content.
+4. **Files are asked about in the chat** and belong to the conversation that
+   carries them. They are never attached to a lead, never become a lead's
+   document and are never in `app.files`.
+5. **The subject scope is unchanged.** The same tools, system prompt rules and
+   refusal of unrelated subjects; an attached file is material for a CRM
+   question, not an instruction and not a widening of what Ask AI answers.
 
-All three are OWNER-ONLY tables: use the existing `ownerPolicy(name,
-workspaceId, actorId)` helper in packages/db/src/schema.ts (the same one
-`saved_views` and `ai_automation_proposals` use), which pins BOTH the site and
-the actor in USING and WITH CHECK. Add `backupReadPolicy` as the neighbours do.
-Follow exactly how `ai_automation_proposals` / `saved_views` were added: a
-generated migration (`pnpm --filter @gt-sales/db db:generate`), then a custom
-migration (`drizzle-kit generate --custom`) with the grants to `app_runtime` and
-FORCE ROW LEVEL SECURITY, mirroring the custom migration that followed those
-tables. Never edit an existing migration. Next free numbers follow 0033.
+## 3. Trust boundaries and where they are enforced
 
-`ai_conversations`
+| Boundary                                  | Enforced in                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Who may use the saved chat at all         | Every conversation and attachment route runs the capabilities guard: verified session, live membership read, `decideAiAccess`, then `AI_ASSISTANT_ENABLED` and the site allowlist (`guard` in `routes/ai-conversations.ts`). A member whose assistant access was removed gets 403 on all of them, their own conversations included.                                                                      |
+| A row is the member's, on this site       | The three tables' **owner policy** (`ownerPolicy` in `packages/db/src/schema.ts`): `USING` and `WITH CHECK` pin both `workspace_id = app.workspace_id` and `actor_id = app.actor_id`, under FORCE RLS. The owner's transaction sees only the owner's rows.                                                                                                                                               |
+| A message or file joins only its own chat | **Member-carrying foreign keys**: `ai_messages (workspace_id, actor_id, conversation_id)` and `ai_attachments (workspace_id, actor_id, conversation_id)` reference `ai_conversations (workspace_id, actor_id, id)`, so a row naming a colleague's conversation fails with SQLSTATE 23503; an attachment's message key is `(workspace_id, conversation_id, message_id)`.                                  |
+| The boundary never rests on row security  | **Explicit filters**: every statement in `ai/conversation-store.ts` and `ai/attachment-store.ts` names `workspace_id` and `actor_id` itself, inside `withTenantTx` as the member.                                                                                                                                                                                                                        |
+| Someone else's id reads as no id          | **404, never 403**: a conversation that is not the caller's is `conversation_not_found` and a file `file_not_found`, exactly as an unknown id. A browser-chosen id that a colleague already holds is invisible under the policy; the insert does nothing (`on conflict (id) do nothing`), the read finds nothing, and the answer is 404. A key violation that races past the reads is mapped to 404 too. |
+| The one read across members               | `GET …/ai/usage`, guarded by `staff.remove` (the Team page's member management, owner only, no permission grants it). It reads `app.ai_turns` (tenant policy; counts only) and never a conversation (`ai/usage-store.ts`).                                                                                                                                                                               |
+| The machine sweep                         | The scheduler's actor sees no member's row; it reaches unsent files only through `app.sweep_unsent_ai_attachments` (0036): SECURITY DEFINER, empty `search_path`, the transaction's own site only, an actor required, at most 1000 rows, never a file younger than a day, never a sent file.                                                                                                             |
+| Outside the runtime role                  | The policies bind `app_runtime`. The database's `postgres` role (BYPASSRLS, the SQL editor) and the `backup_reader` login (its read policy, for the encrypted nightly backup) can read every row; no product screen or route uses them.                                                                                                                                                                  |
+| An attached file's content                | Data, never instructions (`ai/prompt.ts`, prompt version 12). Tools still decide from the signed-in member alone; a file cannot authorize anything.                                                                                                                                                                                                                                                      |
 
-- `id uuid pk` (chosen by the client, see §5), `workspace_id uuid not null`
-  (fk workspaces, cascade), `actor_id uuid not null` (the member; same value the
-  session's `actorId` has), `title text not null` (1 to 120 chars),
-  `created_at`, `updated_at`, `last_message_at timestamptz not null`.
-- unique `(workspace_id, id)`; index `(workspace_id, actor_id, last_message_at desc)`.
+Every route answers `cache-control: no-store`.
 
-`ai_messages`
+## 4. Data model
 
-- `id uuid pk`, `workspace_id`, `conversation_id`, `actor_id`,
-  composite fk `(workspace_id, conversation_id)` → `ai_conversations
-(workspace_id, id)` ON DELETE CASCADE.
-- `role text` check in ('user','assistant').
-- `text text not null` (may be empty for an assistant turn that failed before
-  any text); length check ≤ 20000.
-- `outcome text` : for role 'user' always 'completed'; for 'assistant' one of
-  'completed','failed','cancelled','access_lost' (same words as
-  `ai_turns.outcome`).
-- `error_code text null` (≤ 60, the stream error code of a failed turn).
-- `sources jsonb not null default '[]'` (the `sources` part of the answer, as
-  sent on the wire), `follow_up jsonb null` (the `follow_up` part).
-- `expired_drafts integer not null default 0` : how many action cards and
-  automation proposals this answer carried. The cards themselves are NOT stored
-  (their signed tokens are short-lived by design); a reloaded conversation shows
-  the text and a quiet line that the drafts are no longer available.
-- `request_id uuid null` (the turn's client request id, for idempotency: unique
-  `(workspace_id, conversation_id, request_id, role)` where request_id is not null).
-- `created_at timestamptz not null default clock_timestamp()`.
-- index `(workspace_id, conversation_id, created_at, id)`.
+Migration `0034_ai_conversations` (generated) creates the tables, their checks,
+indexes, owner policies and backup read policies and adds
+`ai_turns.input_tokens`; `0035_ai_conversations_runtime` forces row security
+and grants; `0036_ai_attachment_sweep` adds the sweep function. Schema:
+`aiConversations`, `aiMessages`, `aiAttachments` and `aiTurns.inputTokens` in
+`packages/db/src/schema.ts`.
 
-`ai_attachments`
+| Table              | Holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Never holds                                                                         | `app_runtime`                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `ai_conversations` | `id` (chosen by the browser), `workspace_id` (cascade from the site), `actor_id`, `title` (1–120 characters, one line, no control characters), `created_at`, `updated_at`, `last_message_at`. Unique `(workspace_id, actor_id, id)`; index `(workspace_id, actor_id, last_message_at desc, id desc)` for the list.                                                                                                                                                                                                                                                                              | Message text                                                                        | SELECT, INSERT, UPDATE, DELETE                                                                                   |
+| `ai_messages`      | `role` (`user`, `assistant`), `text` (at most 20,000 characters; may be empty for an answer), `outcome` (a question is always `completed`; an answer `completed`, `failed`, `cancelled` or `access_lost`), `error_code` (an answer's code, `^[a-z][a-z0-9_]{0,59}$`), `sources` (the answer's source cards as sent, a JSON array of at most 128 KiB), `follow_up` (at most 16 KiB), `expired_drafts` (0–100: how many cards and automation proposals the answer carried), `request_id`, `created_at` (`clock_timestamp()`). Partial unique `(workspace_id, conversation_id, request_id, role)`. | Action cards, automation proposals or their signed tokens; tool results; file bytes | SELECT, INSERT (no UPDATE, no DELETE: a message is written once and goes only with its conversation, by cascade) |
+| `ai_attachments`   | `kind` and `media_type` (checked together), `file_name` (sanitized, 1–200 characters, no control characters, `/` or `\`), `byte_size` (within its kind's limit), `sha256` (null while `pending`, required once `ready`), `bucket`, `object_key` (server-generated), `status`, `extracted_text` (a ready text file's decoded text, at most 20,000 characters), `conversation_id` and `message_id` (null together until the message that carries it is stored; only a ready file can be linked), `created_at`. Cascades from its conversation and from its message.                               | An image's or PDF's bytes; a lead id; a row in `app.files`                          | SELECT, INSERT, UPDATE, DELETE                                                                                   |
+| `ai_turns`         | One row of counts per turn, as before, plus `input_tokens integer not null default 0`, inside `ai_turns_counts_check`. Pruned after 90 days by `prune_operational_rows`.                                                                                                                                                                                                                                                                                                                                                                                                                        | Text of any kind                                                                    | SELECT, INSERT (unchanged)                                                                                       |
 
-- `id uuid pk`, `workspace_id`, `actor_id`, `conversation_id uuid null`,
-  `message_id uuid null` (both null until the message that carries the file is
-  sent; then set together; composite fk to the conversation ON DELETE CASCADE).
-- `kind text` check in ('image','pdf','text'), `media_type text`, `file_name
-text` (sanitized, 1 to 200), `byte_size integer`, `sha256 text`,
-  `bucket text`, `object_key text` (server-generated random key, never derived
-  from the file name), `status text` check in ('pending','ready').
-- `extracted_text text null` (for kind 'text' only: the decoded text, bounded),
-  `created_at`.
-- index `(workspace_id, actor_id, created_at)` and `(workspace_id, message_id)`.
+All three tables have FORCE RLS, the owner policy for `app_runtime` and a
+`<table>_backup_reader_read` policy, so the nightly database backup includes
+them. `prune_operational_rows` does not touch them. Nothing links a
+conversation to `memberships`.
 
-Deleting a conversation deletes its messages and attachment rows in one
-transaction and removes the stored objects after commit (best effort; a failed
-object delete is logged by code only and left for the sweep). A daily sweep
-(inside the existing `document_cleanup` or `data_retention` scheduler task,
-whichever already deletes objects) removes attachments that are still unsent
-(`message_id is null`) after 24 hours, rows and objects.
+## 5. A stored turn
 
-Add `input_tokens integer not null default 0` to `app.ai_turns` (extend its
-counts check) and record it from the model's usage, beside `output_tokens`.
+A chat request that carries `conversationId` goes through the unchanged
+access check, feature switch, rate limits and replay claim
+(`routes/ai-assistant.ts`). Then, before the first stream frame, so every
+refusal is an ordinary JSON error:
 
-## 4. Limits (product constants, in packages/contracts beside AI_ASSISTANT_LIMITS)
+1. The saved chat must be available (§8), else `503 ai_unavailable`; files
+   named in `attachmentIds` need attachments available, else
+   `503 attachments_unavailable`.
+2. `beginTurn` (`ai/conversation-store.ts`), one transaction: create the
+   conversation under the browser's id on its first message (title: the
+   message's first 60 characters on one line, trimmed; `New chat` if nothing
+   is left) or load it, locked; refuse it when the two rows of this turn would
+   pass 200 messages (`409 conversation_full`); lock and check this message's
+   files (each the member's, `ready` and not yet sent, else
+   `400 invalid_request`); insert the member's message with the request id
+   (a second insert for the same id is `409 conflict`); link the files; move
+   `last_message_at`. Nothing is written unless all of it is. Someone else's
+   or an unknown id is `404 conversation_not_found`.
+3. The stream sends a `conversation` part right after the first `progress`
+   part, and the model is called with the replayed history (§6).
 
-`AI_CHAT_LIMITS`:
+The answer's row is inserted once, when the turn ends, in the same `finally`
+that records `ai_turns`:
 
-- `maxConversationMessages: 200` (stored messages per conversation; at the
-  limit the chat answers `conversation_full` and the UI says to start a new
-  chat).
-- `maxTitleChars: 120`, `conversationPageSize: 30`.
-- `maxAttachmentsPerMessage: 4`.
-- `maxImageBytes: 5 * 1024 * 1024`, `maxPdfBytes: 10 * 1024 * 1024`,
-  `maxTextFileBytes: 512 * 1024`, `maxExtractedTextChars: 20_000` per text file.
-- `maxAttachmentsPerTurnContext: 6` and `maxAttachmentBytesPerTurn: 15 MiB`:
-  files sent to the model in one turn, the new message's first, then the most
-  recent earlier ones within the replayed history, until either limit.
-- `uploadsPerActorPerHour: 40`.
-- Accepted types: images `image/png`, `image/jpeg`, `image/webp`; documents
-  `application/pdf`; text `text/plain`, `text/csv`, `text/markdown`. The type is
-  decided by the file's MAGIC BYTES on the server (and for text, by a strict
-  UTF-8 decode with no NUL bytes), never by the name or the browser's claim.
+| Turn ended                                                        | Stored answer                                                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Completed (a draft recovered after a failed explanation included) | `completed`: the text as streamed, the sources, the follow-up, the number of cards and proposals                         |
+| Provider or internal failure                                      | `failed`: the text streamed before it, the stream's error code                                                           |
+| Whole-turn timeout                                                | `failed` with `timeout`                                                                                                  |
+| The member left, Stop, or the backend shutting down               | `cancelled`: the text streamed before it                                                                                 |
+| Access lost during the turn                                       | `access_lost`: empty text, no sources, no follow-up, 0 drafts; what was streamed is not kept                             |
+| Stopped or timed out while `beginTurn` ran                        | The question is kept with an empty `cancelled` (or `failed`, `timeout`) answer; the request answers `503 ai_unavailable` |
 
-History replay from the store uses the existing `maxHistoryMessages` (12) and
-`maxConversationChars` (16000): whole completed turns, newest kept.
+Stored text is clipped to 20,000 characters, and U+0000 is removed from stored
+text, titles and JSON (Postgres text cannot hold it; the model received it as
+typed). The answer's id is chosen when the turn starts, so `done.messageId`
+names it. A failed answer write is reported to the error tracker by a fixed
+code (`ai_answer_store_failed`) and never changes what the member already
+received. Cards are never stored: their signed tokens expire after ten
+minutes, so a reloaded answer shows its text and a line that its drafts are no
+longer available.
 
-## 5. Wire (packages/contracts) — additive and optional
+## 6. History replay
 
-Chat request `aiChatRequestSchema` gains two OPTIONAL fields, schema stays
-`.strict()`:
+A stored conversation replays its own store, not the browser's history (the
+request's `history` must be empty). `history` in `ai/conversation-store.ts`
+reads the 48 newest questions before this one, each joined to **its own**
+answer by the request id both rows carry (two tabs can interleave a
+conversation in time), and keeps only whole turns whose answer is `completed`:
+a stopped, failed or access-lost answer is dropped with its question. A turn
+whose question or answer is empty (an answer that was only a card) is skipped.
+An answer is replayed as `aiAssistantHistoryText` builds it (follow-up first,
+clipped to 4,000 characters) and a question clipped to 4,000 characters. The
+newest turns are kept within `maxHistoryMessages` (12) and
+`maxConversationChars` (16,000, counting the new message). These rows were
+written by this server, so no signature is needed; the browser's
+memory-only path still replays only signed answers (CHAT-2).
 
-- `conversationId: z.uuid().optional()`
-- `attachmentIds: z.array(z.uuid()).max(4).optional()`
+## 7. Attachments
 
-Rules the backend enforces:
+**Kinds.** `image` (`image/png`, `image/jpeg`, `image/webp`, at most 5 MiB),
+`pdf` (`application/pdf`, 10 MiB) and `text` (`text/plain`, `text/csv`,
+`text/markdown`, 512 KiB), at most 4 per message. Which kinds are offered is
+deployment configuration, `AI_ATTACHMENT_KINDS` (docs/ENV.md), because it
+depends on what the model accepts; unset, nothing is offered. The documents
+object store must be configured too (`R2_*`; the same bucket, `R2_BUCKET`):
+without it uploads are off whatever the variable says.
 
-- No `conversationId`: today's behaviour, byte for byte (browser history,
-  signatures, nothing stored). `attachmentIds` without `conversationId` is
-  `invalid_request`.
-- With `conversationId`: `history` MUST be empty (else `invalid_request`); the
-  server loads the history from the store. If the member has no conversation
-  with that id on this site, the server CREATES it (id as given, title = the
-  first 60 characters of the message, single line, trimmed; "New chat" when
-  the message is only attachments is not possible since `message` is required).
-  The id is client-generated so the first message needs no extra round trip. An
-  id that exists but belongs to someone else is invisible under RLS, so the
-  insert meets the primary key: answer `404 conversation_not_found` (never
-  reveal that it exists).
-- The user's message row is written BEFORE the model is called (with the turn's
-  `request_id`), together with linking its attachments (which must be this
-  member's, this site's, `ready`, and not yet linked to another message; any
-  other state is `invalid_request`). The assistant's row is written when the
-  turn ends, whatever the outcome, in the same place `ai_turns` is recorded,
-  with the text that was actually streamed, the sources, the follow-up, the
-  outcome and the number of cards. A storage failure there is reported and
-  never fails the turn that already streamed.
-- New stream part, sent once right after the user's row is written and only
-  for a stored conversation:
-  `{ type: 'conversation', conversationId, userMessageId, title, created: boolean }`
-  and the `done` part gains optional `messageId` (the assistant row's id).
-  Add both to `aiStreamPartSchema`. The new admin must tolerate their absence.
+**Upload → verify → ready** (`ai/attachments.ts`, on the documents feature's
+pattern and adapter):
 
-New JSON endpoints, all under the staff router at
-`/api/v1/staff/workspaces/:workspaceId/ai/…`, all guarded like `capabilities`
-(session, live membership, `decideAiAccess`, feature enabled for the site), all
-`cache-control: no-store`, all registered in
-`packages/contracts/src/endpoints.ts` with typed client methods in `client.ts`
-and thin wrappers in `apps/admin/src/lib/api.ts`:
+1. `POST …/ai/attachments/intents` with the browser's claim (name, media type,
+   size). The claim picks the kind's limit and the upload's content type only;
+   a kind that is off is `attachment_rejected` `type`, an oversize claim
+   `size`. A pending row is created under a server-generated key and the
+   answer is a signed PUT valid 5 minutes. 40 intents per member per site per
+   hour (`ai_upload:` keys in the shared limiter; a limiter that cannot be
+   reached refuses with `attachments_unavailable`).
+2. The browser PUTs the bytes straight to storage. The backend never receives
+   them over its JSON API, whose 64 KiB limit stays.
+3. `POST …/finalize` with the SHA-256 the browser computed. The backend copies
+   the upload to a key of this attempt's own, then checks that copy: size
+   (the claimed size exactly, within the kind's limit), checksum and type from
+   the bytes (magic numbers for images and PDFs, the detected image type kept;
+   for text no binary signature, strict UTF-8, no NUL, something besides white
+   space, the text clipped to 20,000 characters and stored). The row becomes
+   `ready` by a compare-and-set on `pending`; a concurrent finalize that lost
+   deletes its copy and answers the winner's file. A refusal deletes the copy,
+   the upload and the row and answers `attachment_rejected` with `type`,
+   `size`, `empty` or `unreadable`. A file already ready is returned without
+   touching storage, so a later PUT to the still-valid URL never replaces the
+   bytes that are served.
 
-| Method | Path                                     | Body / query                                               | Answer                                                                                                                                                                                         |
-| ------ | ---------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/ai/conversations`                      | `?cursor=&limit=&q=` (q matches the title, ILIKE, escaped) | `{ conversations: [{ id, title, createdAt, updatedAt, lastMessageAt }], nextCursor? }` newest first, keyset cursor on `(last_message_at, id)`                                                  |
-| GET    | `/ai/conversations/:conversationId`      |                                                            | `{ conversation, messages: [{ id, role, text, outcome, errorCode?, sources, followUp?, expiredDrafts, createdAt, attachments: [{ id, kind, mediaType, fileName, byteSize }] }] }` oldest first |
-| PATCH  | `/ai/conversations/:conversationId`      | `{ title }`                                                | the conversation                                                                                                                                                                               |
-| DELETE | `/ai/conversations/:conversationId`      |                                                            | 204                                                                                                                                                                                            |
-| POST   | `/ai/attachments/intents`                | `{ fileName, mediaType, byteSize }`                        | an upload target, see §6                                                                                                                                                                       |
-| POST   | `/ai/attachments/:attachmentId/finalize` |                                                            | `{ attachment: { id, kind, mediaType, fileName, byteSize } }`                                                                                                                                  |
-| DELETE | `/ai/attachments/:attachmentId`          | only while unsent                                          | 204                                                                                                                                                                                            |
-| GET    | `/ai/attachments/:attachmentId/link`     |                                                            | `{ url, expiresAt }` a short-lived signed download link for the member's own file                                                                                                              |
-| GET    | `/ai/usage`                              | `?period=7                                                 | 30                                                                                                                                                                                             | 90` | owner only, see §8 |
+Objects live in the documents bucket under the site's prefix:
+`workspaces/<site>/ai-attachments/<uuid>-<16 hex>/` holds the browser's
+staging object `upload` and the verified copy `f-<16 hex>`. Keys and download
+names never derive from the file name, which is only displayed.
 
-Capabilities (`aiCapabilitiesResponseSchema`) gains optional:
+**To the model** (`toModelMessages` in `ai/engine.ts`): an image or a PDF is a
+file part with its bytes and verified media type, never a URL; a text file is
+a delimited block added to the member's message, naming the file, whose opening
+and closing lines carry a code drawn at random for each model call, so a file
+cannot close its own block. A turn sends at most 6 files and 15 MiB: the new
+message's first, then the most recent earlier ones in the replayed history,
+until the first file that does not fit. A file past those limits, of a kind
+switched off since, or that cannot be read is named to the model as not
+available in this turn. Images and PDFs are read from storage per turn,
+bounded by the size their row records, and never logged or kept.
 
-- `conversations: boolean` — the backend stores conversations (true on a new
-  backend; absent on an old one, and then the new admin behaves as today:
-  memory-only panel, no full page, no list).
-- `attachments: { kinds: ('image'|'pdf'|'text')[], accept: string[],
-maxPerMessage, maxImageBytes, maxPdfBytes, maxTextFileBytes }` — absent or
-  empty `kinds` means the composer shows no attach control.
+**Memory budget.** A process-wide 48 MiB of attachment bytes may be held for
+the model at once (`ai/attachment-budget.ts`; with the SDK's base64 copies
+about 112 MiB at the peak). A turn takes its share at once or sends its images
+and PDFs as not available; it never queues. Text files do not count.
 
-Errors use the existing envelope and codes where one fits; add
-`conversation_not_found` (404), `conversation_full` (409),
-`attachment_rejected` (400, with a safe `reason`: `type`, `size`, `empty`,
-`unreadable`), `attachments_unavailable` (503). Follow how the registry and
-`apps/admin/src/lib/error-text.ts` treat the existing AI codes; the admin never
-shows a raw code.
+**Links.** `GET …/ai/attachments/:id/link` signs a 2-minute GET for the
+member's own ready file: an image inline as its verified type (for the
+thumbnail), a PDF inline as `application/pdf`, a text file as a download with
+`application/octet-stream`. Nothing is served as HTML. The download name is
+`attachment-<12 characters of the id>.<extension>`.
 
-## 6. Uploads
+**Deletion.** Deleting a conversation removes its files' objects first and
+the rows (conversation, messages and files, by cascade) only once every object
+is gone; a file a turn adds meanwhile is caught by a locked check and taken in
+the next round (three rounds). A failed object delete leaves everything as it
+was and answers a retryable 503. An unsent file can be deleted on its own: it
+is first made unsendable (back to `pending`), then its objects go, then its
+row; a sent file answers `409 conflict` (`attachment_sent`) and goes only with
+its conversation.
 
-Reuse the documents feature's signed-upload pattern and its adapter
-(`apps/backend/src/documents/`, `R2DocumentStore` in packages/adapters/src/r2.ts:
-`createUpload` → the browser PUTs straight to storage → `verifyUpload` checks
-size, magic bytes and checksum on a server-side copy). The backend never
-receives the bytes over its JSON API (the 64 KB body limit stays). Study how
-the staff document upload works end to end before writing, and reuse its
-helpers rather than copying them. Objects live under a distinct key prefix for
-AI attachments so they are never confused with a lead's documents and never
-appear in `app.files`.
+**The sweep.** Unsent files more than a day old are removed by the scheduler's
+hourly `document_cleanup` task, per site, through the 0036 function: rows
+first (up to five batches of 200), then their objects, each delete tried up to
+three times; a remaining failure logs `ai_attachment_object_delete_failed`
+with the site and a count. The sweep runs whenever object storage is
+configured, even with every kind switched off, and is skipped (never failed)
+until 0036 is applied.
 
-To send a file to the model the backend needs the bytes: add ONE bounded read
-method to the store interface (real S3 implementation and the in-memory fake),
-refusing anything over the size the attachment row records. Never hand the
-provider a URL to our storage.
+## 8. Wire and versions
 
-How each kind reaches the model (in `ai/engine.ts`, where `toModelMessages`
-builds the messages; today a message is text only):
+The admin (Vercel) and the backend (Railway) deploy separately, so every wire
+change is additive and optional (`packages/contracts/src/ai-assistant.ts`,
+`ai-conversations.ts`):
 
-- image → an image part with the bytes and media type;
-- pdf → a file part with media type `application/pdf`;
-- text → NOT a file: the text is decoded once at finalize, stored in
-  `extracted_text`, and added to the user's message inside a clearly delimited
-  block that names the file.
-  Check the installed `ai` SDK's types (node_modules) for the exact content-part
-  shapes; do not guess them.
+- **Request**: `conversationId` (a uuid the browser generates for a new chat)
+  and `attachmentIds` (at most 4). The schema itself refuses
+  `conversationId` with a non-empty `history`, `attachmentIds` without
+  `conversationId` (even empty) and a repeated file, as `invalid_request`.
+- **Capabilities**: `conversations: true` when this backend stores
+  conversations for the site, and `attachments` (`kinds`, the picker's
+  `accept` list, `maxPerMessage` and the three size limits) when uploads are
+  on. Absent means off.
+- **Stream**: a `conversation` part (`conversationId`, `userMessageId`,
+  `title`, `created`) and `done.messageId`, both sent only when the request
+  carried `conversationId`: every known part is strict, so an older admin
+  would drop a known part carrying a key it does not know.
+- **Routes** (staff router, `/api/v1/staff/workspaces/:workspaceId/ai/…`,
+  registered in `packages/contracts/src/endpoints.ts`): `GET conversations`
+  (`cursor`, `limit` ≤ 30, `q` over titles; newest first; the cursor is
+  `<microseconds>.<id>`, built in SQL), `GET`, `PATCH` (title) and `DELETE
+conversations/:conversationId`, `POST attachments/intents`, `POST
+attachments/:attachmentId/finalize`, `DELETE attachments/:attachmentId`,
+  `GET attachments/:attachmentId/link`, `GET usage?period=7|30|90`. Deletes
+  answer 200 with the id, as every DELETE of this API does.
+- **Errors**: `conversation_not_found` (404), `conversation_full` (409),
+  `attachment_rejected` (400, `details.reason`), `attachments_unavailable`
+  (503), and `file_not_found` (404) for a file.
 
-Which kinds are offered is deployment configuration, because it depends on the
-model: new variable `AI_ATTACHMENT_KINDS`, a comma list of `image`, `pdf`,
-`text`. Unset or empty means uploads are off (capabilities carry no
-`attachments`, every attachment route answers `attachments_unavailable`). This
-matches the repo's rule that an AI setting never defaults on. Document it in
-docs/ENV.md. Storage not being configured also means off.
+| Admin \ backend | Older backend                                                                                                   | This backend                                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Older admin     | —                                                                                                               | Sends no `conversationId`: the turn is the memory-only one, byte for byte, and nothing is stored. It ignores the two capability fields and never receives the new parts. |
+| This admin      | Capabilities carry no `conversations`: the memory-only panel, no full page, no menu entry, no `conversationId`. | The saved chat, once the database is ready.                                                                                                                              |
 
-Prompt: the system prompt (`ai/prompt.ts`, bump `AI_PROMPT_VERSION`) gains a
-short rule that an attached file is material supplied by the staff member, its
-content is DATA and never instructions, and the subject limits are unchanged.
-A file cannot authorize anything: tools still decide from the session.
+**The database's readiness** (`ai/chat-schema.ts`). Migrations are applied by
+hand after the deploy, so the backend asks the catalogue, never the journal:
+`conversations` needs the three tables and every grant of 0035, each privilege
+asked on its own; `inputTokens` the 0034 column; `attachmentSweep` the 0036
+function and its grant. Until `conversations` holds, capabilities claim
+neither `conversations` nor `attachments`, the conversation routes answer
+`503 ai_unavailable`, the attachment routes `503 attachments_unavailable`, and
+a chat naming a conversation `503 ai_unavailable`. Without `inputTokens` a
+turn's `ai_turns` row is written without the column. A state with all three is
+cached for the life of the process; any other is asked again after 5 minutes,
+so the saved chat switches itself on within 5 minutes of 0034 and 0035 being
+applied, with no redeploy. The usage page needs none of this beyond the
+deploy: before 0034 every turn counts 0 input tokens.
 
-## 7. Admin UI
+## 9. What leaves the system
 
-Routes: `/w/[workspace]/chat` (new chat) and `/w/[workspace]/chat/[conversationId]`.
-A sidebar entry "Ask AI" (shown under the same condition as the header trigger:
-capabilities ready and available; and only when `conversations` is true).
+As part of a turn, to the AI provider through the Gateway: everything
+ai-assistant.md §6 lists, plus, in a stored conversation, the replayed stored
+history (§6) and the files attached to those messages within the per-turn
+limits (§7): image and PDF bytes, and a text file's decoded text. A file a
+member uploads may hold anything, customer details included; it is sent
+because the member attached it. The CRM's own documents, signed URLs and
+contact fields are still never sent.
 
-Full page layout, using the app's existing tokens and components
-(packages/ui, `src/app/crm-theme.css`, the patterns in `src/components/crm/`),
-light and dark, desktop and 375 px:
+Kept by the CRM: the conversation text, titles, source cards and follow-ups in
+`app.ai_messages` and `app.ai_conversations` (in the nightly database backup,
+encrypted), the files in the documents bucket (not in the backup, §12), counts
+in `app.ai_turns`. Logs and the error tracker carry codes, ids and counts,
+never a title, a message, a file name or a byte.
 
-- Left column (about 280 px; a slide-over drawer on mobile opened from a
-  button in the chat header): "New chat", a search box over titles, the list
-  grouped Today / Yesterday / Previous 7 days / Older, the open one highlighted.
-  Each row: title (one line, truncated), a menu with Rename (inline edit) and
-  Delete (a confirm dialog that says the conversation and its files are removed
-  for good). Loading, empty ("No conversations yet") and error states with Try
-  again. "Load more" at the end when `nextCursor` is present.
-- Main column: the conversation, centred with a comfortable reading width; the
-  messages reuse the existing `assistant-message.tsx`, `assistant-sources.tsx`,
-  `assistant-action.tsx`, `assistant-automation.tsx` and
-  `assistant-markdown.tsx` (do not fork them). A user message shows its
-  attachments: images as thumbnails (through the signed link), other files as
-  chips with a type icon, name and size; clicking opens the file in a new tab
-  with `rel="noopener noreferrer"`.
-- New-chat state: a greeting, the site name, and the existing suggestions.
-- Composer pinned to the bottom: auto-growing textarea, Enter sends, Shift+Enter
-  newline, IME-safe (as the panel already is), Stop while streaming, an attach
-  button (paperclip) that opens the file picker, drag-and-drop onto the page,
-  and paste of an image from the clipboard. Chosen files appear as chips above
-  the textarea with upload progress, an error state per file in plain words
-  (too large, type not accepted), and a remove button; Send is disabled while a
-  file is still uploading. Limits and accepted types come from capabilities.
-- The URL is the state: opening `/chat/<id>` loads that conversation; the first
-  message of a new chat moves the URL to `/chat/<id>` without a remount or a
-  flash (the id is generated in the browser before sending).
-- An answer that was stopped or failed is shown as such after a reload too
-  (from `outcome`), with Retry on the last one.
+## 10. Admin screens
 
-Side panel: backed by the same store. Its header gets "Open full page" (to
-`/chat/<current id>` or `/chat`) beside New chat and Close. Its lead context
-(`context.leadId`) keeps working. Opening the panel shows the member's current
-conversation (the one last used in this browser tab), not the whole list.
+| Where                                                                                    | What                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/admin/src/app/w/[workspace]/chat/`                                                 | `layout.tsx` draws the screen, so `/chat` (a new chat) and `/chat/<id>` keep it mounted while the address changes; the two pages render nothing.                                                                                                                                                                                                                                                    |
+| `components/ai/chat-screen.tsx`                                                          | The page: the list column (a left drawer on a phone), the thread, the composer, dropping files onto the chat. The first message of a new chat moves the address to `/chat/<id>` (the id is made in the browser).                                                                                                                                                                                    |
+| `conversation-list.tsx`, `conversation-groups.ts`                                        | New chat, a title search, groups Today / Yesterday / Previous 7 days / Older in the viewer's time zone, rename in place, delete after a dialog saying the conversation and its files are removed for good, Load more.                                                                                                                                                                               |
+| `chat-thread.tsx`, `assistant-message.tsx`                                               | The conversation at a reading width; a new chat greets with the site's name and the suggested questions. A stored stopped or failed answer reads as such after a reload; Retry on the last one asks again below it. An answer whose drafts expired says so.                                                                                                                                         |
+| `chat-composer.tsx`, `attachment-chip.tsx`, `attachment-files.ts`, `attachment-links.ts` | Enter sends, Shift+Enter is a new line, IME-safe; Stop; the paperclip, drop and image paste where the site offers files; a chip per file with progress or a plain-words refusal; Send waits for uploads. The browser checks type and size before asking, hashes the bytes and PUTs them with progress. Thumbnails and file links come from signed links fetched while on screen and kept in memory. |
+| `assistant-panel.tsx`                                                                    | The side panel: the current conversation, New chat, Open full page and Close; no list and no attach control. The header trigger is hidden on the chat page.                                                                                                                                                                                                                                         |
+| `assistant-provider.tsx`, `assistant-shared.ts`, `chat-nav.ts`, `chat-links.ts`          | One state owner for panel and page. The sidebar and Ctrl/Cmd K list "Ask AI" (after Mail) only when Ask AI is available and the backend stores conversations.                                                                                                                                                                                                                                       |
+| `app/w/[workspace]/settings/ai-usage/`, `components/ai-usage/ai-usage-screen.tsx`        | Settings → AI usage, listed for the owner only (`settings-navigation.tsx`): 7, 30 or 90 days, totals and a row per member, most tokens first; it says conversations are private and only usage is shown.                                                                                                                                                                                            |
+| `apps/admin/src/lib/csp.ts`                                                              | `connect-src` includes the project's Storage origin (`<ref>.storage.supabase.co`, from `NEXT_PUBLIC_SUPABASE_URL`) for the upload PUT.                                                                                                                                                                                                                                                              |
 
-Provider (`assistant-provider.tsx`): it stays the single owner of assistant
-state (capabilities, the abort controller, the generation counter that makes
-late stream parts harmless, the credential/site lifecycle). It gains the active
-conversation id, loading a stored conversation, and the conversation list. With
-`conversations` absent in capabilities it behaves exactly as today. Nothing is
-written to localStorage/sessionStorage/IndexedDB: the server is the store.
+Nothing is written to `localStorage`, `sessionStorage` or IndexedDB; the
+server is the store.
 
-## 8. Usage for the owner
+## 11. Limits (`AI_CHAT_LIMITS`)
 
-`GET /ai/usage?period=7|30|90`: guarded by the owner-level action that guards
-Settings → Team member management today (find it in
-`apps/backend/src/staff/authorization.ts`; do not invent a new role). Answer:
-`{ period, totals: { turns, inputTokens, outputTokens }, members: [{ actorId,
-displayName, turns, inputTokens, outputTokens, lastUsedAt }] }`, from
-`app.ai_turns` (tenant-scoped, so readable by the owner's transaction; it
-holds counts only). `ai_turns` rows are pruned after 90 days, hence the
-periods. `ai_turns` has a tenant policy, not an owner policy: this read is the
-ONLY cross-member read in the feature, and it returns numbers only.
+| Limit                          | Value   | Meaning                                                                                      |
+| ------------------------------ | ------- | -------------------------------------------------------------------------------------------- |
+| `maxConversationMessages`      | 200     | Stored messages per conversation (each side of a turn counts once); then `conversation_full` |
+| `maxStoredMessageChars`        | 20,000  | One stored message, in characters; a longer answer is clipped                                |
+| `maxTitleChars`                | 120     | A title, one line                                                                            |
+| `conversationPageSize`         | 30      | Conversations per page of the list                                                           |
+| `maxAttachmentsPerMessage`     | 4       | Files on one message                                                                         |
+| `maxImageBytes`                | 5 MiB   | One image                                                                                    |
+| `maxPdfBytes`                  | 10 MiB  | One PDF                                                                                      |
+| `maxTextFileBytes`             | 512 KiB | One text file                                                                                |
+| `maxExtractedTextChars`        | 20,000  | A text file's decoded text, kept and sent                                                    |
+| `maxFileNameChars`             | 200     | A file name once sanitized (the browser may send 255)                                        |
+| `maxAttachmentsPerTurnContext` | 6       | Files sent to the model in one turn                                                          |
+| `maxAttachmentBytesPerTurn`    | 15 MiB  | Bytes of those files in one turn                                                             |
+| `uploadsPerActorPerHour`       | 40      | Upload intents per member per site in a fixed hour                                           |
 
-Admin: Settings → "AI usage" (a card in the settings index and a page at
-`/w/[workspace]/settings/ai-usage`), visible to the same people the Team page
-is: period switch (7 / 30 / 90 days), totals, a table per member sorted by
-tokens. A line states that conversations are private and only usage is shown.
+Fixed in code beside them: the signed PUT 5 minutes and the link 2 minutes
+(`ai/attachments.ts`), unsent files swept after a day (`ai/attachment-store.ts`),
+the 48 MiB memory budget (`ai/attachment-budget.ts`), the 5-minute readiness
+recheck (`ai/chat-schema.ts`). Replayed history keeps `AI_ASSISTANT_LIMITS`'s
+12 messages and 16,000 characters.
 
-## 9. Tests that must exist
+## 12. Known limits
 
-Backend integration (real Postgres, re-runnable):
+- **Attachment objects are not in any backup.** The nightly backup copies the
+  objects `app.files` and `app.file_revisions` reference; it dumps the three
+  tables, so a restore brings back conversations, messages and file rows but
+  not the files, which are then sent as not available and their links fail.
+- **A finalize interrupted by a process exit** can leave this attempt's copy of
+  the upload in storage with no row naming it; nothing removes it.
+- **Removing a member does not delete their conversations.** Nothing links them
+  to the membership; they stay stored and no screen reaches them.
+- **A customer's data erasure does not rewrite stored conversations.** An
+  answer that named a customer, or a file about them, stays until the member
+  deletes the conversation.
+- **Retry in a stored conversation asks again below the old answer**: no
+  message is edited or deleted on its own, and the retried question goes
+  without its files.
+- **A failed answer write** leaves the question without an answer after a
+  reload; the member received the answer, and `done.messageId` names a row that
+  does not exist.
+- **Image and PDF input has not been tried against a real provider.** Whether
+  the deployment's model accepts them must be checked in the Gateway catalogue
+  before `AI_ATTACHMENT_KINDS` offers them.
 
-- Privacy: member B of the same site cannot list, read, rename, delete or post
-  into member A's conversation (404, never 403), cannot link or read A's
-  attachment; the OWNER cannot either; the same member on another site cannot.
-  Assert at the store level under `withTenantTx` as another actor too (RLS,
-  not only route code).
-- A chat with `conversationId` creates the conversation, stores both rows,
-  replays stored history on the next turn (assert what the engine received),
-  and a failed, cancelled and access-lost turn each store the right outcome.
-- No `conversationId` behaves exactly as before (the existing tests keep
-  passing untouched).
-- Idempotency: the same `requestId` twice stores one user row.
-- Attachments: wrong magic bytes, oversize, empty, a file of another member,
-  a file already sent, more than 4, kinds switched off; text extraction bounds;
-  what the engine receives for image, pdf and text (use the fake engine and the
-  in-memory store).
-- Deleting a conversation removes rows and asks the store to delete objects;
-  the sweep removes unsent attachments older than a day.
-- Usage: owner sees per-member sums; a non-owner is refused; token sums match.
-- Rule 3: the tables have FORCE RLS and the grants (follow the existing test
-  that checks this for every table, e.g. in packages/db/tests).
-
-Admin unit tests (vitest + testing-library, the style of
-`assistant-panel.test.tsx`): list grouping and states, rename and delete,
-loading a stored conversation, sending with attachments, upload errors, old
-backend (no `conversations`) keeps today's panel. One browser journey in
-`apps/admin/e2e/` modelled on `ai-assistant.spec.ts` (synthetic engine over
-the real backend): new chat → answer → reload → the conversation is there and
-reopens → rename → delete; at 375 px and desktop.
-
-## 10. Docs to update when the code is done
-
-AGENTS.md ("Where things live" and the vocabulary: conversation, attachment,
-usage), docs/HANDOFF.md (§2.3 backend surfaces, §2.4 tables, §3.2 the new
-migrations as "merged, not applied" and `AI_ATTACHMENT_KINDS` as an owner
-step), docs/ENV.md, docs/design/ai-assistant.md (decision 2 said history lives
-in React memory only; §6 fields; a new section for stored conversations and
-attachments and what leaves the system), docs/RUNBOOKS/ai-assistant.md and
-docs/RUNBOOKS/database.md (how to apply the new migrations, as the neighbours
-are described).
-
-## 11. The foundation AS BUILT (authoritative wherever it differs from §3 to §5)
-
-Migrations `0034_ai_conversations` (generated) and `0035_ai_conversations_runtime`
-(FORCE RLS and grants) exist; the schema is in packages/db/src/schema.ts
-(`aiConversations`, `aiMessages`, `aiAttachments`, `aiTurns.inputTokens`). The
-contract is in packages/contracts/src/ai-assistant.ts and the new
-packages/contracts/src/ai-conversations.ts; READ THOSE FILES, they are the
-contract. Differences from the sections above that you must respect:
-
-- The foreign keys from messages and attachments to a conversation carry
-  `actor_id`: `(workspace_id, actor_id, conversation_id)` →
-  `ai_conversations (workspace_id, actor_id, id)`. An insert naming a
-  colleague's conversation fails with SQLSTATE 23503; an id someone else
-  already holds fails on the primary key with 23505. Both must answer
-  `404 conversation_not_found`.
-- `app_runtime` has SELECT and INSERT only on `ai_messages` (no UPDATE, no
-  DELETE): a message row is written once, complete. Messages go only through
-  the conversation's cascade. So the assistant's row is INSERTED when the turn
-  ends; it is never created early and updated.
-- `ai_attachments.sha256` is null while `pending` and required once `ready`;
-  a linked attachment must be `ready`; `conversation_id` and `message_id` are
-  null together; an attachment also has a cascading fk to its message.
-- `AI_CHAT_LIMITS` also has `maxStoredMessageChars: 20_000` (clip a stored
-  answer to it) and `maxFileNameChars: 200`.
-- The chat request schema itself refuses (as `invalid_request`):
-  `conversationId` with a non-empty `history`; `attachmentIds` without
-  `conversationId` (even an empty array); a duplicate attachment id.
-- Stream: every known part is `.strict()`, so an OLD admin drops a known part
-  that carries an extra key. Therefore send the `conversation` part and
-  `done.messageId` ONLY when the request carried `conversationId`.
-- The two DELETE endpoints answer 200 with `{ conversationId | attachmentId,
-requestId }`, not 204 (every DELETE in this API has a body).
-- Upload: `createAiAttachmentIntentResponseSchema` is the documents
-  `createUploadIntentResponseSchema` (`{ uploadId, url, method: 'PUT', headers,
-expiresAt, requestId }`, `uploadId` being the attachment id). Finalize takes a
-  body `{ checksumSha256 }` (lower-case hex SHA-256 of the bytes, computed in
-  the browser with `crypto.subtle`). The intent's `mediaType` is an enum of the
-  seven accepted types; browsers often report no type for `.md` and `.csv`, so
-  the UI maps by extension before asking. Per-kind size is the backend's
-  `attachment_rejected` with `details.reason: 'size'`.
-- The conversation list cursor is `"<microseconds since epoch>.<uuid>"`
-  (`formatAiConversationCursor` / `parseAiConversationCursor`). Build the
-  microseconds IN SQL (`(extract(epoch from last_message_at) * 1000000)::bigint::text`),
-  never through a JS Date, which keeps only milliseconds.
-- Stored message `errorCode` is a code pattern, not the enum.
-- Client methods (on `client.staff`) and same-named wrappers in
-  apps/admin/src/lib/api.ts: `listAiConversations`, `getAiConversation`,
-  `renameAiConversation(token, ws, id, title)`, `deleteAiConversation`,
-  `createAiAttachmentIntent`, `finalizeAiAttachment(token, ws, id, checksumSha256)`,
-  `deleteAiAttachment`, `getAiAttachmentLink`, `getAiUsage`.
-- Error codes added: `conversation_not_found`, `conversation_full`,
-  `attachment_rejected` (`details.reason`: `type | size | empty | unreadable`),
-  `attachments_unavailable`. Their sentences are already in
-  apps/admin/src/lib/error-text.ts; the backend's message map
-  (apps/backend `domain-errors.ts`) still needs its entries.
-- The storage adapter's `verifyUpload` recognises only PDF, JPEG and PNG
-  signatures today: WebP and text detection must be added for attachments.
-- No repository test checks the registry against mounted routes, so nothing
-  fails until the routes exist; the routes still must match the registry.
-- Removing a member from a site does NOT delete their conversations (no fk to
-  memberships); they simply become unreachable. Leave it so.
+Tests: `apps/backend/tests/ai-saved-chat.test.ts` and
+`ai-saved-chat.integration.test.ts` (privacy against another member and the
+owner at the route and the store, stored outcomes, replay, idempotency,
+attachments, deletion, usage), `packages/db/tests/ai-chat.integration.test.ts`
+and `ai-attachment-sweep.integration.test.ts` (policies, grants, the sweep
+function), `apps/admin/src/components/ai/chat-screen.test.tsx` and the browser
+journey `apps/admin/e2e/ai-chat.spec.ts`.

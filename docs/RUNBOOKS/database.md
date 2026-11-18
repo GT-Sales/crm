@@ -1052,6 +1052,81 @@ select pg_get_functiondef('app.accept_staff_invitations(text,uuid)'::regprocedur
 After applying, run the next nightly backup and check its row counts include
 `app.workspaces` (the backup's completeness guard compares them).
 
+## 0034_ai_conversations, 0035_ai_conversations_runtime and 0036_ai_attachment_sweep (2026-11-18, prepared, not applied)
+
+Ask AI's saved chat (docs/design/ai-chat.md). Not applied by the deploy; the
+owner applies them in order through the SQL editor (0034 and 0035 hold
+`ALTER`, 0036 holds `REVOKE`, which the Supabase tool holds for a
+confirmation prompt), then inserts the Drizzle tracker rows. The deploy and
+the migrations may go in either order: an older backend never touches the new
+tables, and its `ai_turns` insert leaves `input_tokens` to its default.
+
+**0034 (generated).** Three tables, `app.ai_conversations` (a member's
+conversation; the id is chosen by the browser), `app.ai_messages` (one row per
+question and per answer) and `app.ai_attachments` (a message's files: rows
+only, the bytes in the `documents` bucket), with their checks and indexes, an
+owner policy each (`<table>_owner_policy`: site and actor, as `saved_views`
+has) and the backup login's read policy (`<table>_backup_reader_read`). The
+foreign keys to a conversation carry `actor_id`, and messages and files
+cascade from their conversation. `app.ai_turns` gets
+`input_tokens integer not null default 0` (metadata-only, no rewrite) and
+`ai_turns_counts_check` is re-added with it, which scans the table once (its
+rows of the last 90 days).
+
+**0035 (hand-written).** `FORCE ROW LEVEL SECURITY` on the three tables and
+the grants to `app_runtime`: `SELECT, INSERT, UPDATE, DELETE` on
+`ai_conversations` and `ai_attachments`, `SELECT, INSERT` only on
+`ai_messages` (a message is written once and goes only with its conversation,
+by cascade). `prune_operational_rows` is unchanged: conversations are kept
+until the member deletes them. `backup_reader` needs no grant (0007's default
+privileges).
+
+**0036 (hand-written).** `app.sweep_unsent_ai_attachments(site, before,
+limit)`, SECURITY DEFINER with an empty `search_path`, revoked from `PUBLIC`
+and executable by `app_runtime` only. For the transaction's own site, with an
+actor set, it deletes at most `limit` (1 to 1000) unsent files older than a day
+(whatever `before` says), skipping rows a turn has locked, and returns their
+bucket and key so the backend deletes the objects after the commit. The
+scheduler's `document_cleanup` task calls it.
+
+- **To apply** (owner): run the three files in order, then the tracker rows
+  (hash, `created_at`):
+  `0034_ai_conversations` `7b7abbfb41c92d94653b071f728b28b3655662e32a4c8a542696acce23354a18`, `1794971808423`;
+  `0035_ai_conversations_runtime` `de67006e751f07849a04d40045b419abd1b4822491332563c8f7c3f8b5584c2b`, `1794971816462`;
+  `0036_ai_attachment_sweep` `e1528958f575536d53c04a5d38cf392d38c8e19b3c7c4a9eac454e4f6b415f9d`, `1794974355695`.
+  (The hash is the SHA-256 of the file, `created_at` the journal's `when`.)
+- **After applying**: the backend checks the catalogue and switches the saved
+  chat on by itself within 5 minutes of 0034 and 0035, with no redeploy;
+  until then it answers as memory-only Ask AI. The sweep starts with the first
+  `document_cleanup` run after 0036. Then docs/RUNBOOKS/ai-assistant.md §12.
+- Rollback, after reverting the code, and only knowing it deletes every
+  member's stored conversations: `DROP FUNCTION
+app.sweep_unsent_ai_attachments(uuid, timestamptz, integer); DROP TABLE
+app.ai_attachments, app.ai_messages, app.ai_conversations;` and `ALTER TABLE
+app.ai_turns DROP CONSTRAINT ai_turns_counts_check, DROP COLUMN input_tokens,
+ADD CONSTRAINT ai_turns_counts_check CHECK (duration_ms >= 0 and
+output_tokens >= 0 and tool_calls >= 0 and records >= 0 and data_bytes >= 0);`.
+  The attached files' objects stay in the bucket under
+  `workspaces/<site>/ai-attachments/`. A backend that has seen the tables keeps
+  believing they exist until it restarts.
+- Verify against the schema:
+
+```sql
+select relname, relrowsecurity, relforcerowsecurity from pg_class
+ where oid in ('app.ai_conversations'::regclass, 'app.ai_messages'::regclass,
+               'app.ai_attachments'::regclass);                    -- 3 rows, true, true
+select has_table_privilege('app_runtime', 'app.ai_messages', 'update'),
+       has_table_privilege('app_runtime', 'app.ai_messages', 'delete'),
+       has_table_privilege('app_runtime', 'app.ai_attachments', 'delete');  -- false, false, true
+select polname from pg_policy where polrelid = 'app.ai_messages'::regclass;
+                                  -- ai_messages_owner_policy, ai_messages_backup_reader_read
+select column_name, column_default from information_schema.columns
+ where table_schema = 'app' and table_name = 'ai_turns' and column_name = 'input_tokens';  -- 1 row, 0
+select prosecdef, proconfig from pg_proc where proname = 'sweep_unsent_ai_attachments';    -- t, {search_path=""}
+select has_function_privilege('app_runtime',
+  'app.sweep_unsent_ai_attachments(uuid,timestamptz,integer)', 'execute');                -- true
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,
