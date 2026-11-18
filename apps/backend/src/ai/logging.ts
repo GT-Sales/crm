@@ -17,6 +17,7 @@ export interface AiTurnLog {
   readonly promptVersion: number;
   readonly outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost';
   readonly durationMs: number;
+  readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly recoveredDraft?: boolean;
   readonly failureCode?: import('@gt-sales/contracts').AiStreamErrorCode;
@@ -37,6 +38,7 @@ export function logAiTurn(record: AiTurnLog): void {
       promptVersion: record.promptVersion,
       outcome: record.outcome,
       durationMs: record.durationMs,
+      inputTokens: record.inputTokens ?? 0,
       outputTokens: record.outputTokens ?? 0,
       ...(record.recoveredDraft ? { recoveredDraft: true } : {}),
       ...(record.failureCode ? { failureCode: record.failureCode } : {}),

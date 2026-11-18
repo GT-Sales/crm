@@ -99,6 +99,10 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
     'This site already has 50 email templates of its own. Archive one first.',
   ai_unavailable: 'Ask AI is not available here.',
   ai_rate_limited: 'Too many Ask AI questions just now. Try again shortly.',
+  conversation_not_found: 'You have no Ask AI conversation with this id on this site.',
+  conversation_full: 'This Ask AI conversation holds the most messages it may. Start a new chat.',
+  attachment_rejected: 'The file was not accepted; `details.reason` says why.',
+  attachments_unavailable: 'Attaching files to Ask AI is not available here.',
   rate_limited: 'Too many requests just now. Try again shortly.',
   export_too_large:
     'Too many leads for one export; `details` gives the count and the most one export holds. Narrow the filters.',

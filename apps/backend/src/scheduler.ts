@@ -15,6 +15,9 @@ import {
   runAutomationTick,
 } from './automations/tick.js';
 import { loadDeploymentEnvironment } from './config/deployment.js';
+import { createAiAttachmentServiceFromEnv } from './ai/chat-factory.js';
+import { DatabaseAiChatSchemaProbe, type AiChatSchemaProbe } from './ai/chat-schema.js';
+import type { AiAttachmentService } from './ai/attachments.js';
 import { createDocumentServiceFromEnv } from './documents/factory.js';
 import { customerEmailEnvironmentFromEnv } from './email/senders.js';
 import type { DocumentService } from './documents/service.js';
@@ -334,6 +337,10 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   const jobs = createDefaultJobsRouteDependencies();
   const alerts = createOwnerAlertChannelFromEnv();
   const documents = createDocumentServiceFromEnv();
+  const aiAttachments = createAiAttachmentServiceFromEnv();
+  const aiSweep = aiAttachments
+    ? aiAttachmentSweep(aiAttachments, new DatabaseAiChatSchemaProbe())
+    : undefined;
   // Restricting a draft also deletes its documents' objects (audit M-2).
   let objects: Pick<R2DocumentStore, 'deleteObject'> | undefined;
   try {
@@ -361,7 +368,7 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
         (state) => (queueHealth = state),
         () => queueHealth,
       ),
-    runDocumentCleanup: (input) => runDocumentCleanup(documents, input),
+    runDocumentCleanup: (input) => runDocumentCleanup(documents, input, aiSweep),
     runDataRetention: (input) =>
       runDataRetention({ abandonedLeads, operational }, input, new Date()),
     runIntakeCheck: (input) =>
@@ -429,26 +436,85 @@ export async function runDataRetention(
   };
 }
 
+/** One site's sweep of unsent Ask AI attachments; `skipped` until migration 0036 is applied. */
+export type AiAttachmentSweep = (scope: {
+  workspaceId: string;
+  actorId: string;
+}) => Promise<
+  { removed: number; deletedObjects: number; failedDeletes: number } | { skipped: true }
+>;
+
+/**
+ * The sweep of unsent Ask AI attachments (more than a day old, rows and
+ * objects), run inside `document_cleanup`. The rows are owner-only, so the
+ * machine actor reaches them only through the 0036 function; before that
+ * migration is applied the sweep is skipped, never failed.
+ */
+export function aiAttachmentSweep(
+  service: Pick<AiAttachmentService, 'sweepUnsent'>,
+  schema: AiChatSchemaProbe,
+): AiAttachmentSweep {
+  return async (scope) =>
+    (await schema.state(scope)).attachmentSweep
+      ? service.sweepUnsent(scope)
+      : { skipped: true as const };
+}
+
 /**
  * One sweep per authorized workspace. Without object storage configured there
- * are no uploads to clean, so the task reports that and does nothing.
+ * are no uploads to clean, so the task reports that and does nothing. With an
+ * Ask AI attachment sweep, its counts are added under `aiAttachments`; one
+ * site's AI sweep failing is counted there and never stops the documents'.
  */
 export async function runDocumentCleanup(
   documents: Pick<DocumentService, 'sweepExpired'> | undefined,
   input: SchedulerRunInput,
+  aiSweep?: AiAttachmentSweep,
 ): Promise<
   | { skipped: 'feature_not_ready' }
-  | { expiredIntents: number; deletedObjects: number; failedDeletes: number }
+  | {
+      expiredIntents: number;
+      deletedObjects: number;
+      failedDeletes: number;
+      aiAttachments?: {
+        removed: number;
+        deletedObjects: number;
+        failedDeletes: number;
+        skippedSites: number;
+        failedSites: number;
+      };
+    }
 > {
   if (!documents) return { skipped: 'feature_not_ready' };
   const totals = { expiredIntents: 0, deletedObjects: 0, failedDeletes: 0 };
+  const ai = { removed: 0, deletedObjects: 0, failedDeletes: 0, skippedSites: 0, failedSites: 0 };
   for (const workspaceId of new Set(input.authorizedWorkspaceIds)) {
     const result = await documents.sweepExpired({ workspaceId, actorId: input.actorId });
     totals.expiredIntents += result.expiredIntents;
     totals.deletedObjects += result.deletedObjects;
     totals.failedDeletes += result.failedDeletes;
+    if (!aiSweep) continue;
+    try {
+      const swept = await aiSweep({ workspaceId, actorId: input.actorId });
+      if ('skipped' in swept) {
+        ai.skippedSites += 1;
+      } else {
+        ai.removed += swept.removed;
+        ai.deletedObjects += swept.deletedObjects;
+        ai.failedDeletes += swept.failedDeletes;
+      }
+    } catch (error) {
+      ai.failedSites += 1;
+      logRequestError({
+        requestId: DOCUMENT_CLEANUP_PREFIX,
+        workspaceId,
+        route: SCHEDULER_ROUTE,
+        code: 'ai_attachment_sweep_failed',
+        flag: isConnectionLevelError(error) ? 'retryable' : 'not_retryable',
+      });
+    }
   }
-  return totals;
+  return aiSweep ? { ...totals, aiAttachments: ai } : totals;
 }
 
 /**

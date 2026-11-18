@@ -4,11 +4,14 @@ import {
   createGateway,
   stepCountIs,
   streamText,
+  type FilePart,
   type ModelMessage,
+  type TextPart,
   type ToolSet,
   type LanguageModel,
 } from 'ai';
 
+import { attachedFileBlock, omittedFileNote } from './prompt.js';
 import { assertAssistantToolPolicy } from './tool-policy.js';
 
 /**
@@ -27,16 +30,49 @@ export type EngineEvent =
   | { readonly type: 'tool-end'; readonly toolName: string; readonly ok: boolean }
   | {
       readonly type: 'finish';
+      /** Prompt tokens over every step of the turn (the SDK's `totalUsage`); a count only. */
+      readonly inputTokens?: number;
       readonly outputTokens?: number;
       readonly steps?: number;
     };
+
+/**
+ * A file a member attached to one of their messages, as the model receives
+ * it. Image and PDF bytes were read from the object store for this turn only
+ * (bounded by the row's own size) and are never logged; a text file arrives
+ * as its stored decoded text. `omitted` is a file this turn could not carry
+ * (the per-turn file limits): the model is told it is not available rather
+ * than left to guess at it.
+ */
+export type EngineAttachment =
+  | {
+      readonly kind: 'image';
+      readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp';
+      readonly fileName: string;
+      readonly data: Uint8Array;
+    }
+  | {
+      readonly kind: 'pdf';
+      readonly mediaType: 'application/pdf';
+      readonly fileName: string;
+      readonly data: Uint8Array;
+    }
+  | { readonly kind: 'text'; readonly fileName: string; readonly text: string }
+  | { readonly kind: 'omitted'; readonly fileName: string };
+
+/** One turn of the conversation the model is shown; only a member's message carries files. */
+export interface EngineMessage {
+  readonly role: 'user' | 'assistant';
+  readonly text: string;
+  readonly attachments?: readonly EngineAttachment[];
+}
 
 export interface EngineInput {
   readonly system: string;
   readonly automationAuthoring?: boolean;
   /** Whether the turn already holds a signed card (an action or an automation draft). */
   readonly hasPreparedDraft?: () => boolean;
-  readonly messages: readonly { role: 'user' | 'assistant'; text: string }[];
+  readonly messages: readonly EngineMessage[];
   readonly tools: ToolSet;
   readonly signal: AbortSignal;
   /** Injected for the fake engine; the gateway engine lets the SDK execute tools. */
@@ -58,14 +94,44 @@ export class AssistantProviderError extends Error {
   }
 }
 
-function toModelMessages(
-  messages: readonly { role: 'user' | 'assistant'; text: string }[],
-): ModelMessage[] {
-  return messages.map((message) =>
-    message.role === 'user'
-      ? { role: 'user' as const, content: message.text }
-      : { role: 'assistant' as const, content: message.text },
-  );
+/**
+ * The SDK's messages. A message without files is plain text, exactly as
+ * before. A member's message with files becomes multi-part content: each
+ * image and PDF a file part with its bytes and verified media type (the v7
+ * `FilePart`; its `ImagePart` is deprecated in favour of a file part with an
+ * image media type), then the text, to which each text file is added as a
+ * delimited block naming the file. Never a URL: the provider gets bytes, not
+ * a link to our storage.
+ */
+export function toModelMessages(messages: readonly EngineMessage[]): ModelMessage[] {
+  return messages.map((message): ModelMessage => {
+    if (message.role === 'assistant') return { role: 'assistant', content: message.text };
+    const attachments = message.attachments ?? [];
+    if (attachments.length === 0) return { role: 'user', content: message.text };
+    const files: FilePart[] = [];
+    const blocks: string[] = [];
+    for (const attachment of attachments) {
+      switch (attachment.kind) {
+        case 'image':
+        case 'pdf':
+          files.push({
+            type: 'file',
+            mediaType: attachment.mediaType,
+            data: { type: 'data', data: attachment.data },
+          });
+          break;
+        case 'text':
+          blocks.push(attachedFileBlock(attachment.fileName, attachment.text));
+          break;
+        case 'omitted':
+          blocks.push(omittedFileNote(attachment.fileName));
+          break;
+      }
+    }
+    const text = [message.text, ...blocks].join('\n\n');
+    if (files.length === 0) return { role: 'user', content: text };
+    return { role: 'user', content: [...files, { type: 'text', text } satisfies TextPart] };
+  });
 }
 
 /**
@@ -149,6 +215,9 @@ export function createGatewayEngine(
                 throw new AssistantProviderError();
               yield {
                 type: 'finish',
+                ...(part.totalUsage.inputTokens === undefined
+                  ? {}
+                  : { inputTokens: part.totalUsage.inputTokens }),
                 ...(part.totalUsage.outputTokens === undefined
                   ? {}
                   : { outputTokens: part.totalUsage.outputTokens }),
@@ -175,7 +244,13 @@ export interface FakeTurn {
   readonly failWith?: AiStreamErrorCode;
   /** How long to wait before the first chunk, to exercise cancellation. */
   readonly hangMs?: number;
-  readonly usage?: { readonly outputTokens?: number };
+  readonly usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
+}
+
+/** The fake engine, with every input it was given, in order, for tests to assert on. */
+export interface FakeAssistantEngine extends AssistantEngine {
+  readonly kind: 'fake';
+  readonly inputs: EngineInput[];
 }
 
 /**
@@ -183,11 +258,14 @@ export interface FakeTurn {
  * gateway engine, so the HTTP layer, the budget accounting and the stream
  * writer are exercised by tests exactly as they are in production.
  */
-export function createFakeEngine(turns: readonly FakeTurn[]): AssistantEngine {
+export function createFakeEngine(turns: readonly FakeTurn[]): FakeAssistantEngine {
   let index = 0;
+  const inputs: EngineInput[] = [];
   return {
     kind: 'fake',
+    inputs,
     async *stream(input: EngineInput) {
+      inputs.push(input);
       const turn = turns[Math.min(index, turns.length - 1)] ?? {};
       index += 1;
 

@@ -17,6 +17,9 @@ import {
   type PresignedDownload,
   type PresignedUpload,
   type R2DocumentStore,
+  type ReadObjectInput,
+  type ReadObjectResult,
+  type VerifyAttachmentUploadResult,
   type VerifyUploadInput,
   type VerifyUploadResult,
 } from './r2.js';
@@ -292,6 +295,55 @@ export class S3R2DocumentStore implements R2DocumentStore {
     };
   }
 
+  async verifyAttachmentUpload(input: VerifyUploadInput): Promise<VerifyAttachmentUploadResult> {
+    // The same copy-first inspection; only the signature is reported, not required.
+    const inspected = await this.copyAndInspect(
+      this.scopedKey(input.workspaceId, input.stagingKey),
+      this.scopedKey(input.workspaceId, input.candidateKey),
+      input.maxBytes,
+      { requireSignature: false },
+    );
+    if (inspected.status === 'missing') return { status: 'rejected', reason: 'staging_missing' };
+    if (inspected.status !== 'read') return { status: 'rejected', reason: 'too_large' };
+    const checksumSha256 = sha256Hex(inspected.bytes);
+    if (checksumSha256 !== input.expectedChecksumSha256) {
+      return { status: 'rejected', reason: 'checksum_mismatch' };
+    }
+    return {
+      status: 'verified',
+      candidateKey: input.candidateKey,
+      detectedMediaType: detectDocumentType(inspected.bytes),
+      sizeBytes: inspected.bytes.byteLength,
+      checksumSha256,
+    };
+  }
+
+  async readObject(input: ReadObjectInput): Promise<ReadObjectResult> {
+    if (!isPlainKey(input.objectKey)) throw new Error('r2_read_key_invalid');
+    const get = signRequest(this.config, {
+      method: 'GET',
+      key: this.scopedKey(input.workspaceId, input.objectKey),
+      headers: {},
+    });
+    const response = await this.send(get.url, { method: 'GET', headers: get.headers });
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return { status: 'missing' };
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`r2 read failed: ${response.status}`);
+    }
+    // A declared length over the cap is refused before a byte is read; the
+    // stream is capped as well, since the header is not a byte limit.
+    if (Number(response.headers.get('content-length')) > input.maxBytes) {
+      await response.body?.cancel();
+      return { status: 'too_large' };
+    }
+    const bytes = await readBoundedBody(response, input.maxBytes);
+    return bytes === undefined ? { status: 'too_large' } : { status: 'read', bytes };
+  }
+
   async importObject(input: ImportObjectInput): Promise<ImportObjectResult> {
     if (!isWebsiteObjectKey(input.sourceKey)) throw new Error('r2_import_key_invalid');
     const inspected = await this.copyAndInspect(
@@ -407,6 +459,21 @@ export class S3R2DocumentStore implements R2DocumentStore {
   ): Promise<
     | { status: 'missing' | 'too_large' | 'unsupported_signature' }
     | { status: 'read'; bytes: Uint8Array; detectedMediaType: DocumentMediaType }
+  >;
+  private async copyAndInspect(
+    sourceKey: string,
+    candidateKey: string,
+    maxBytes: number,
+    options: { requireSignature: false },
+  ): Promise<{ status: 'missing' | 'too_large' } | { status: 'read'; bytes: Uint8Array }>;
+  private async copyAndInspect(
+    sourceKey: string,
+    candidateKey: string,
+    maxBytes: number,
+    options: { requireSignature: boolean } = { requireSignature: true },
+  ): Promise<
+    | { status: 'missing' | 'too_large' | 'unsupported_signature' }
+    | { status: 'read'; bytes: Uint8Array; detectedMediaType?: DocumentMediaType }
   > {
     const copy = signRequest(this.config, {
       method: 'PUT',
@@ -435,6 +502,7 @@ export class S3R2DocumentStore implements R2DocumentStore {
     if (!candidateResponse.ok) throw new Error(`r2 get failed: ${candidateResponse.status}`);
     const bytes = await readBoundedBody(candidateResponse, maxBytes);
     if (bytes === undefined) return { status: 'too_large' };
+    if (!options.requireSignature) return { status: 'read', bytes };
     const detectedMediaType = detectDocumentType(bytes);
     if (!detectedMediaType) return { status: 'unsupported_signature' };
     return { status: 'read', bytes, detectedMediaType };

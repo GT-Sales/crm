@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-import type { AiUnavailableReason } from '@gt-sales/contracts';
+import {
+  aiAttachmentKindSchema,
+  type AiAttachmentKind,
+  type AiUnavailableReason,
+} from '@gt-sales/contracts';
 
 /**
  * Ask AI's server configuration.
@@ -38,6 +42,13 @@ export interface AiAssistantConfig {
   readonly signingKeySource?: 'dedicated' | 'gateway';
   /** Sites the owner has enabled by id. Empty means none. */
   readonly workspaceIds: ReadonlySet<string>;
+  /**
+   * The kinds of file a member may attach to a message (`AI_ATTACHMENT_KINDS`,
+   * a comma list of `image`, `pdf`, `text`), in that order. Unset, empty or
+   * all-unknown means none: uploads are off, like every AI setting until the
+   * owner turns it on. Storage must be configured too; the routes check that.
+   */
+  readonly attachmentKinds?: readonly AiAttachmentKind[];
 }
 
 /** The shortest `AI_ACTION_SIGNING_SECRET` accepted, in characters. */
@@ -66,6 +77,16 @@ function parseProviders(raw: string | undefined): readonly string[] | undefined 
   return providers.length > 0 ? providers.slice(0, AI_GATEWAY_PROVIDERS_MAX) : undefined;
 }
 
+/** Reads `AI_ATTACHMENT_KINDS`: unknown entries are ignored, the order is fixed. */
+export function parseAttachmentKinds(raw: string | undefined): readonly AiAttachmentKind[] {
+  const named = new Set<AiAttachmentKind>();
+  for (const entry of (raw ?? '').split(',')) {
+    const parsed = aiAttachmentKindSchema.safeParse(entry.trim().toLowerCase());
+    if (parsed.success) named.add(parsed.data);
+  }
+  return aiAttachmentKindSchema.options.filter((kind) => named.has(kind));
+}
+
 function parseWorkspaceIds(raw: string | undefined): ReadonlySet<string> {
   const ids = new Set<string>();
   for (const entry of (raw ?? '').split(',')) {
@@ -85,13 +106,15 @@ export function loadAiAssistantConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): AiAssistantConfig {
   const workspaceIds = parseWorkspaceIds(env['AI_ASSISTANT_WORKSPACE_IDS']);
+  const kinds = parseAttachmentKinds(env['AI_ATTACHMENT_KINDS']);
+  const attachments = kinds.length > 0 ? { attachmentKinds: kinds } : {};
   if (env['AI_ASSISTANT_ENABLED'] !== 'true') {
-    return { enabled: false, reason: 'disabled', workspaceIds };
+    return { enabled: false, reason: 'disabled', workspaceIds, ...attachments };
   }
   const apiKey = env['AI_GATEWAY_API_KEY']?.trim();
   const modelId = modelIdSchema.safeParse(env['AI_GATEWAY_MODEL']);
   if (!apiKey || !modelId.success) {
-    return { enabled: false, reason: 'not_configured', workspaceIds };
+    return { enabled: false, reason: 'not_configured', workspaceIds, ...attachments };
   }
   const secret = env['AI_ACTION_SIGNING_SECRET']?.trim();
   const signing =
@@ -108,6 +131,7 @@ export function loadAiAssistantConfig(
     ...(providers ? { providers } : {}),
     ...signing,
     workspaceIds,
+    ...attachments,
     ...(env['AI_AUTOMATION_WORKSPACE_IDS']
       ? { automationWorkspaceIds: parseWorkspaceIds(env['AI_AUTOMATION_WORKSPACE_IDS']) }
       : {}),

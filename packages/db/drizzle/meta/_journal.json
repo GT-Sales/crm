@@ -253,6 +253,13 @@
       "when": 1794971816462,
       "tag": "0035_ai_conversations_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794974355695,
+      "tag": "0036_ai_attachment_sweep",
+      "breakpoints": true
     }
   ]
 }
