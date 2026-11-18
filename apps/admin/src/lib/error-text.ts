@@ -37,6 +37,22 @@ const PERMISSION_CODES = new Set([
 ]);
 
 const TRY_AGAIN = 'Try again in a minute; if it keeps happening, tell your admin.';
+
+/**
+ * Codes the CRM itself answers with 503 to say a feature is off, not that it
+ * is unreachable: read as `known` before the status is, so they keep their own
+ * sentence. An edge's 503 carries no such code.
+ */
+const SWITCHED_OFF_CODES = new Set(['ai_unavailable', 'attachments_unavailable']);
+
+/** An `attachment_rejected` refusal by its `details.reason`. */
+const ATTACHMENT_REJECTED = {
+  type: 'That kind of file is not accepted. Attach an image (PNG, JPEG or WebP), a PDF or a text file.',
+  size: 'That file is too large to attach. Use a smaller file and try again.',
+  empty: 'That file is empty. Choose the file again and try once more.',
+  unreadable: 'That file could not be read. Save it again or choose another file.',
+  unknown: 'That file could not be attached. Choose it again, or try another file.',
+} as const;
 const RELOAD = 'Reload the page to see the latest, then try again.';
 
 /**
@@ -167,6 +183,12 @@ const KNOWN: Record<string, string | ((action: string) => string)> = {
   // Assistant
   ai_unavailable: 'The assistant is not available on this site right now. Ask the owner.',
   ai_rate_limited: 'The assistant has had too many requests. Wait a minute, then try again.',
+  conversation_not_found:
+    'This conversation no longer exists. It may have been deleted; start a new chat.',
+  conversation_full: 'This conversation is as long as it can get. Start a new chat to go on.',
+  attachment_rejected: ATTACHMENT_REJECTED.unknown,
+  attachments_unavailable:
+    'Attaching files is switched off on this site right now. Send your question without the file.',
 
   // Tracking
   tracking_expired: 'The tracking session expired. Start again.',
@@ -185,6 +207,8 @@ interface ErrorFacts {
   code: string | undefined;
   status: number | undefined;
   requestId: string | undefined;
+  /** `details.reason` of the envelope, when it is a string. */
+  reason: string | undefined;
   network: boolean;
 }
 
@@ -204,22 +228,36 @@ function isNetworkFailure(error: unknown): boolean {
 function facts(error: unknown): ErrorFacts {
   if (error instanceof BackendError) {
     // Read defensively: a stand-in error (tests, an older client) may lack a field.
-    const { code, status, requestId }: { code?: unknown; status?: unknown; requestId?: unknown } =
-      error;
+    const {
+      code,
+      status,
+      requestId,
+      details,
+    }: { code?: unknown; status?: unknown; requestId?: unknown; details?: unknown } = error;
+    const reason: unknown =
+      details && typeof details === 'object' && 'reason' in details ? details.reason : undefined;
     return {
       code: typeof code === 'string' ? code : undefined,
       status: typeof status === 'number' ? status : undefined,
       requestId: typeof requestId === 'string' ? requestId : undefined,
+      reason: typeof reason === 'string' ? reason : undefined,
       network: false,
     };
   }
   if (typeof error === 'string') {
-    return { code: error, status: undefined, requestId: undefined, network: false };
+    return {
+      code: error,
+      status: undefined,
+      requestId: undefined,
+      reason: undefined,
+      network: false,
+    };
   }
   return {
     code: undefined,
     status: undefined,
     requestId: undefined,
+    reason: undefined,
     network: isNetworkFailure(error),
   };
 }
@@ -228,6 +266,7 @@ function facts(error: unknown): ErrorFacts {
 export function errorKind(error: unknown): ErrorKind {
   const { code, status, network } = facts(error);
   if (network) return 'offline';
+  if (code !== undefined && SWITCHED_OFF_CODES.has(code)) return 'known';
   if (status !== undefined && OFFLINE_STATUSES.has(status)) return 'offline';
   if (code === undefined) return 'unknown';
   if (SESSION_CODES.has(code)) return 'session';
@@ -249,7 +288,18 @@ function reference(requestId: string | undefined): string {
  */
 export function describeError(error: unknown, action: string): string {
   const kind = errorKind(error);
-  const { code, requestId } = facts(error);
+  const { code, requestId, reason } = facts(error);
+  if (kind === 'known' && code === 'attachment_rejected') {
+    switch (reason) {
+      case 'type':
+      case 'size':
+      case 'empty':
+      case 'unreadable':
+        return ATTACHMENT_REJECTED[reason];
+      default:
+        return ATTACHMENT_REJECTED.unknown;
+    }
+  }
   const known = kind === 'known' && code !== undefined ? KNOWN[code] : undefined;
   if (known !== undefined) return typeof known === 'function' ? known(action) : known;
   switch (kind) {

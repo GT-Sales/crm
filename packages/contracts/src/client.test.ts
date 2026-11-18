@@ -1040,6 +1040,54 @@ describe('createBackendClient Ask AI stream', () => {
     expect(parts.at(-1)).toEqual(done);
   });
 
+  it('yields the saved chat parts, bare or in the UI-message wrapper, and posts the conversation id', async () => {
+    const conversationId = '00000000-0000-4000-8000-0000000000c1';
+    const conversationPart: AiStreamPart = {
+      type: 'conversation',
+      conversationId,
+      userMessageId: '00000000-0000-4000-8000-0000000000c2',
+      title: 'How many leads came in today',
+      created: true,
+    };
+    const savedDone: AiStreamPart = {
+      type: 'done',
+      messageId: '00000000-0000-4000-8000-0000000000c3',
+    };
+    const { client, calls } = streamClient(() =>
+      sseStream([
+        frame({ type: 'data-assistant', data: conversationPart, transient: true }),
+        frame(answer),
+        // A part a later backend may add is skipped, never thrown.
+        frame({ type: 'data-assistant', data: { type: 'thinking_time', ms: 5 }, transient: true }),
+        frame(savedDone),
+      ]),
+    );
+    const stored: AiChatRequest = {
+      requestId,
+      message: 'How many leads came in today?',
+      history: [],
+      conversationId,
+      attachmentIds: ['00000000-0000-4000-8000-0000000000c4'],
+    };
+
+    expect(await collect(client.staff.askAi(UUID, stored))).toEqual([
+      conversationPart,
+      answer,
+      savedDone,
+    ]);
+    expect(JSON.parse(calls[0]?.body ?? 'null')).toEqual(stored);
+  });
+
+  it('refuses a stored-conversation request that also sends history, before any request', async () => {
+    const { client, calls } = streamClient(() => sseStream([frame(done)]));
+    await expect(
+      client.staff
+        .askAi(UUID, { ...request, conversationId: '00000000-0000-4000-8000-0000000000c1' })
+        .next(),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
   it('reassembles a split frame, accepts CRLF separators and ignores keep-alive comments', async () => {
     const { client } = streamClient(() =>
       sseStream([
@@ -1156,5 +1204,218 @@ describe('createBackendClient Ask AI stream', () => {
     expect(thrown).toBeInstanceOf(DOMException);
     expect(thrown).toMatchObject({ name: 'AbortError' });
     expect(calls[0]?.signal?.aborted).toBe(true);
+  });
+});
+
+describe('Ask AI saved chat client methods', () => {
+  const base = `https://api.example.test/api/v1/staff/workspaces/${UUID}/ai`;
+  const OTHER = '00000000-0000-4000-8000-000000000003';
+  const NOW = '2026-11-18T12:00:00.000Z';
+  const CURSOR = `1794999600123456.${OTHER}`;
+  const conversation = {
+    id: OTHER,
+    title: 'SIM orders this week',
+    createdAt: NOW,
+    updatedAt: NOW,
+    lastMessageAt: NOW,
+  };
+  const attachment = {
+    id: OTHER,
+    kind: 'pdf',
+    mediaType: 'application/pdf',
+    fileName: 'letter.pdf',
+    byteSize: 2048,
+  };
+
+  it('lists conversations with the cursor, limit and search in the query', async () => {
+    const page = { conversations: [conversation], nextCursor: CURSOR, requestId: UUID };
+    const { client, calls } = harness(200, page);
+    expect(
+      await client.staff.listAiConversations(UUID, { cursor: CURSOR, limit: 10, q: 'sim & co' }),
+    ).toEqual(page);
+    const url = new URL(calls[0]?.url ?? '');
+    expect(`${url.origin}${url.pathname}`).toBe(`${base}/conversations`);
+    expect(calls[0]?.method).toBe('GET');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      cursor: CURSOR,
+      limit: '10',
+      q: 'sim & co',
+    });
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it('lists the first page with no query at all, and refuses a bad cursor before sending', async () => {
+    const { client, calls } = harness(200, { conversations: [], requestId: UUID });
+    await client.staff.listAiConversations(UUID);
+    expect(calls[0]?.url).toBe(`${base}/conversations`);
+    await expect(client.staff.listAiConversations(UUID, { cursor: 'nope' })).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('gets one conversation by its encoded id and validates the messages', async () => {
+    const detail = {
+      conversation,
+      messages: [
+        {
+          id: OTHER,
+          role: 'user',
+          text: 'What does this letter ask for?',
+          outcome: 'completed',
+          sources: [],
+          expiredDrafts: 0,
+          createdAt: NOW,
+          attachments: [attachment],
+        },
+      ],
+      requestId: UUID,
+    };
+    const { client, calls } = harness(200, detail);
+    expect(await client.staff.getAiConversation(UUID, OTHER)).toEqual(detail);
+    expect(calls[0]?.url).toBe(`${base}/conversations/${OTHER}`);
+    expect(calls[0]?.method).toBe('GET');
+
+    const drifted = harness(200, { ...detail, messages: [{ ...detail.messages[0], role: 'x' }] });
+    await expect(drifted.client.staff.getAiConversation(UUID, OTHER)).rejects.toThrow();
+    const encoded = harness(200, detail);
+    await encoded.client.staff.getAiConversation(UUID, '../x').catch(() => undefined);
+    expect(encoded.calls[0]?.url).toBe(`${base}/conversations/..%2Fx`);
+  });
+
+  it('renames with a trimmed title and deletes, each answered with JSON', async () => {
+    const renamed = harness(200, { conversation, requestId: UUID });
+    await renamed.client.staff.renameAiConversation(UUID, OTHER, { title: '  New name ' });
+    expect(renamed.calls[0]?.method).toBe('PATCH');
+    expect(renamed.calls[0]?.url).toBe(`${base}/conversations/${OTHER}`);
+    expect(JSON.parse(renamed.calls[0]?.body ?? '{}')).toEqual({ title: 'New name' });
+    await expect(
+      renamed.client.staff.renameAiConversation(UUID, OTHER, { title: 'two\nlines' }),
+    ).rejects.toThrow();
+    expect(renamed.calls).toHaveLength(1);
+
+    const deleted = harness(200, { conversationId: OTHER, requestId: UUID });
+    expect(await deleted.client.staff.deleteAiConversation(UUID, OTHER)).toEqual({
+      conversationId: OTHER,
+      requestId: UUID,
+    });
+    expect(deleted.calls[0]?.method).toBe('DELETE');
+    expect(deleted.calls[0]?.url).toBe(`${base}/conversations/${OTHER}`);
+    expect(deleted.calls[0]?.body).toBeUndefined();
+  });
+
+  it('throws conversation_not_found as a BackendError', async () => {
+    const { client } = harness(404, {
+      error: { code: 'conversation_not_found', message: 'Not found.', requestId: UUID },
+    });
+    const thrown: unknown = await client.staff
+      .getAiConversation(UUID, OTHER)
+      .catch((cause: unknown) => cause);
+    expect(thrown).toBeInstanceOf(BackendError);
+    expect(thrown).toMatchObject({ code: 'conversation_not_found', status: 404 });
+  });
+
+  it('asks for an upload target, finalizes with the checksum, links and deletes an attachment', async () => {
+    const target = {
+      uploadId: OTHER,
+      url: 'https://storage.example.com/put?sig=1',
+      method: 'PUT',
+      headers: { 'content-type': 'application/pdf' },
+      expiresAt: NOW,
+      requestId: UUID,
+    };
+    const intent = harness(201, target);
+    expect(
+      await intent.client.staff.createAiAttachmentIntent(UUID, {
+        fileName: 'letter.pdf',
+        mediaType: 'application/pdf',
+        byteSize: 2048,
+      }),
+    ).toEqual(target);
+    expect(intent.calls[0]?.method).toBe('POST');
+    expect(intent.calls[0]?.url).toBe(`${base}/attachments/intents`);
+    expect(JSON.parse(intent.calls[0]?.body ?? '{}')).toEqual({
+      fileName: 'letter.pdf',
+      mediaType: 'application/pdf',
+      byteSize: 2048,
+    });
+    await expect(
+      intent.client.staff.createAiAttachmentIntent(UUID, {
+        fileName: 'clip.gif',
+        // @ts-expect-error a type the contract does not accept
+        mediaType: 'image/gif',
+        byteSize: 10,
+      }),
+    ).rejects.toThrow();
+
+    const finalized = harness(200, { attachment, requestId: UUID });
+    expect(
+      await finalized.client.staff.finalizeAiAttachment(UUID, OTHER, {
+        checksumSha256: 'c'.repeat(64),
+      }),
+    ).toEqual({ attachment, requestId: UUID });
+    expect(finalized.calls[0]?.method).toBe('POST');
+    expect(finalized.calls[0]?.url).toBe(`${base}/attachments/${OTHER}/finalize`);
+    expect(JSON.parse(finalized.calls[0]?.body ?? '{}')).toEqual({
+      checksumSha256: 'c'.repeat(64),
+    });
+
+    const link = { url: 'https://storage.example.com/get?sig=1', expiresAt: NOW, requestId: UUID };
+    const linked = harness(200, link);
+    expect(await linked.client.staff.getAiAttachmentLink(UUID, OTHER)).toEqual(link);
+    expect(linked.calls[0]?.method).toBe('GET');
+    expect(linked.calls[0]?.url).toBe(`${base}/attachments/${OTHER}/link`);
+
+    const removed = harness(200, { attachmentId: OTHER, requestId: UUID });
+    expect(await removed.client.staff.deleteAiAttachment(UUID, OTHER)).toEqual({
+      attachmentId: OTHER,
+      requestId: UUID,
+    });
+    expect(removed.calls[0]?.method).toBe('DELETE');
+    expect(removed.calls[0]?.url).toBe(`${base}/attachments/${OTHER}`);
+  });
+
+  it('reads a refused file’s reason from the envelope details', async () => {
+    const { client } = harness(400, {
+      error: {
+        code: 'attachment_rejected',
+        message: 'Refused.',
+        requestId: UUID,
+        details: { reason: 'size' },
+      },
+    });
+    const thrown: unknown = await client.staff
+      .finalizeAiAttachment(UUID, OTHER, { checksumSha256: 'c'.repeat(64) })
+      .catch((cause: unknown) => cause);
+    expect(thrown).toMatchObject({
+      code: 'attachment_rejected',
+      status: 400,
+      details: { reason: 'size' },
+    });
+  });
+
+  it('reads usage for a period, with no query by default, and validates the counts', async () => {
+    const usage = {
+      period: 90,
+      totals: { turns: 1, inputTokens: 10, outputTokens: 5 },
+      members: [
+        {
+          actorId: OTHER,
+          displayName: null,
+          turns: 1,
+          inputTokens: 10,
+          outputTokens: 5,
+          lastUsedAt: NOW,
+        },
+      ],
+      requestId: UUID,
+    };
+    const { client, calls } = harness(200, usage);
+    expect(await client.staff.getAiUsage(UUID, { period: 90 })).toEqual(usage);
+    expect(calls[0]?.url).toBe(`${base}/usage?period=90`);
+    expect(calls[0]?.method).toBe('GET');
+    await client.staff.getAiUsage(UUID);
+    expect(calls[1]?.url).toBe(`${base}/usage`);
+    await expect(client.staff.getAiUsage(UUID, { period: 14 })).rejects.toThrow();
+    const drifted = harness(200, { ...usage, totals: { ...usage.totals, turns: -1 } });
+    await expect(drifted.client.staff.getAiUsage(UUID)).rejects.toThrow();
   });
 });

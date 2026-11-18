@@ -239,6 +239,20 @@
       "when": 1794351040645,
       "tag": "0033_workspaces_rls_force",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794971808423,
+      "tag": "0034_ai_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794971816462,
+      "tag": "0035_ai_conversations_runtime",
+      "breakpoints": true
     }
   ]
 }

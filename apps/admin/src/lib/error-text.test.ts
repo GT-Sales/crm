@@ -124,6 +124,50 @@ describe('describeError', () => {
     );
   });
 
+  it('explains the saved chat refusals in plain words', () => {
+    expect(describeError(backend('conversation_not_found', 404), 'open the conversation')).toBe(
+      'This conversation no longer exists. It may have been deleted; start a new chat.',
+    );
+    expect(describeError(backend('conversation_full', 409), 'send the message')).toBe(
+      'This conversation is as long as it can get. Start a new chat to go on.',
+    );
+  });
+
+  it('says why a file was refused from the envelope reason, and something plain otherwise', () => {
+    function rejected(details?: Record<string, unknown>): BackendError {
+      return new BackendError('attachment_rejected', 400, REQUEST_ID, details);
+    }
+    expect(describeError(rejected({ reason: 'type' }), 'attach the file')).toBe(
+      'That kind of file is not accepted. Attach an image (PNG, JPEG or WebP), a PDF or a text file.',
+    );
+    expect(describeError(rejected({ reason: 'size' }), 'attach the file')).toBe(
+      'That file is too large to attach. Use a smaller file and try again.',
+    );
+    expect(describeError(rejected({ reason: 'empty' }), 'attach the file')).toBe(
+      'That file is empty. Choose the file again and try once more.',
+    );
+    expect(describeError(rejected({ reason: 'unreadable' }), 'attach the file')).toBe(
+      'That file could not be read. Save it again or choose another file.',
+    );
+    for (const details of [undefined, {}, { reason: 'later' }, { reason: 7 }]) {
+      expect(describeError(rejected(details), 'attach the file')).toBe(
+        'That file could not be attached. Choose it again, or try another file.',
+      );
+    }
+  });
+
+  it('reads a feature the CRM switched off (its own 503 with a code) as that, not as offline', () => {
+    expect(errorKind(backend('attachments_unavailable', 503))).toBe('known');
+    expect(describeError(backend('attachments_unavailable', 503), 'attach the file')).toBe(
+      'Attaching files is switched off on this site right now. Send your question without the file.',
+    );
+    expect(describeError(backend('ai_unavailable', 503), 'ask the assistant')).toBe(
+      'The assistant is not available on this site right now. Ask the owner.',
+    );
+    // An edge's 503 still reads as offline.
+    expect(errorKind(backend('internal_error', 503))).toBe('offline');
+  });
+
   it('has words for every code the backend can send, none of them a raw code', () => {
     for (const code of apiErrorCodeSchema.options) {
       const text = describeError(backend(code, 409), 'save the change');

@@ -44,6 +44,36 @@ import {
   type AiStreamPart,
 } from './ai-assistant';
 import {
+  aiAttachmentLinkResponseSchema,
+  aiConversationResponseSchema,
+  aiUsageResponseSchema,
+  createAiAttachmentIntentRequestSchema,
+  createAiAttachmentIntentResponseSchema,
+  deleteAiAttachmentResponseSchema,
+  deleteAiConversationResponseSchema,
+  finalizeAiAttachmentRequestSchema,
+  finalizeAiAttachmentResponseSchema,
+  getAiConversationResponseSchema,
+  listAiConversationsQuerySchema,
+  listAiConversationsResponseSchema,
+  renameAiConversationRequestSchema,
+  aiUsageQuerySchema,
+  type AiAttachmentLinkResponse,
+  type AiConversationResponse,
+  type AiUsageQueryInput,
+  type AiUsageResponse,
+  type CreateAiAttachmentIntentRequest,
+  type CreateAiAttachmentIntentResponse,
+  type DeleteAiAttachmentResponse,
+  type DeleteAiConversationResponse,
+  type FinalizeAiAttachmentRequest,
+  type FinalizeAiAttachmentResponse,
+  type GetAiConversationResponse,
+  type ListAiConversationsQueryInput,
+  type ListAiConversationsResponse,
+  type RenameAiConversationRequest,
+} from './ai-conversations';
+import {
   createDownloadLinkRequestSchema,
   createDownloadLinkResponseSchema,
   reviewFileRequestSchema,
@@ -830,6 +860,49 @@ export interface BackendClient {
       body: AiChatRequest,
       options?: { signal?: AbortSignal },
     ): AsyncGenerator<AiStreamPart, void, undefined>;
+    /** The caller's own stored conversations on this site, newest first, a page at a time. */
+    listAiConversations(
+      workspaceId: string,
+      query?: ListAiConversationsQueryInput,
+    ): Promise<ListAiConversationsResponse>;
+    /** One of the caller's conversations with its messages, oldest first. */
+    getAiConversation(
+      workspaceId: string,
+      conversationId: string,
+    ): Promise<GetAiConversationResponse>;
+    renameAiConversation(
+      workspaceId: string,
+      conversationId: string,
+      body: RenameAiConversationRequest,
+    ): Promise<AiConversationResponse>;
+    /** Removes the conversation, its messages and its files for good. */
+    deleteAiConversation(
+      workspaceId: string,
+      conversationId: string,
+    ): Promise<DeleteAiConversationResponse>;
+    /** A signed PUT for one file to attach; `uploadId` is the attachment's id. */
+    createAiAttachmentIntent(
+      workspaceId: string,
+      body: CreateAiAttachmentIntentRequest,
+    ): Promise<CreateAiAttachmentIntentResponse>;
+    /** Verifies the uploaded file (bytes and checksum) and makes it ready to send. */
+    finalizeAiAttachment(
+      workspaceId: string,
+      attachmentId: string,
+      body: FinalizeAiAttachmentRequest,
+    ): Promise<FinalizeAiAttachmentResponse>;
+    /** Removes an attachment that has not been sent. */
+    deleteAiAttachment(
+      workspaceId: string,
+      attachmentId: string,
+    ): Promise<DeleteAiAttachmentResponse>;
+    /** A short-lived signed link to one of the caller's own attachments. */
+    getAiAttachmentLink(
+      workspaceId: string,
+      attachmentId: string,
+    ): Promise<AiAttachmentLinkResponse>;
+    /** The site's Ask AI usage per member: counts only (owner only). */
+    getAiUsage(workspaceId: string, query?: AiUsageQueryInput): Promise<AiUsageResponse>;
   };
 }
 
@@ -1818,6 +1891,67 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body,
           streamOptions,
         ),
+      listAiConversations: async (workspaceId, query) => {
+        const parsed = listAiConversationsQuerySchema.parse(query ?? {});
+        return call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations`,
+          query: { cursor: parsed.cursor, limit: parsed.limit, q: parsed.q },
+          responseSchema: listAiConversationsResponseSchema,
+        });
+      },
+      getAiConversation: async (workspaceId, conversationId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations/${encode(conversationId)}`,
+          responseSchema: getAiConversationResponseSchema,
+        }),
+      renameAiConversation: async (workspaceId, conversationId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations/${encode(conversationId)}`,
+          body: renameAiConversationRequestSchema.parse(body),
+          responseSchema: aiConversationResponseSchema,
+        }),
+      deleteAiConversation: async (workspaceId, conversationId) =>
+        call({
+          method: 'DELETE',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations/${encode(conversationId)}`,
+          responseSchema: deleteAiConversationResponseSchema,
+        }),
+      createAiAttachmentIntent: async (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/intents`,
+          body: createAiAttachmentIntentRequestSchema.parse(body),
+          responseSchema: createAiAttachmentIntentResponseSchema,
+        }),
+      finalizeAiAttachment: async (workspaceId, attachmentId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/${encode(attachmentId)}/finalize`,
+          body: finalizeAiAttachmentRequestSchema.parse(body),
+          responseSchema: finalizeAiAttachmentResponseSchema,
+        }),
+      deleteAiAttachment: async (workspaceId, attachmentId) =>
+        call({
+          method: 'DELETE',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/${encode(attachmentId)}`,
+          responseSchema: deleteAiAttachmentResponseSchema,
+        }),
+      getAiAttachmentLink: async (workspaceId, attachmentId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/${encode(attachmentId)}/link`,
+          responseSchema: aiAttachmentLinkResponseSchema,
+        }),
+      getAiUsage: async (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/usage`,
+          query: { period: aiUsageQuerySchema.parse(query ?? {}).period },
+          responseSchema: aiUsageResponseSchema,
+        }),
     },
   };
 }

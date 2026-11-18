@@ -13,6 +13,20 @@ import type {
   AiAutomationSimulation,
 } from '@gt-sales/contracts';
 import type { AiAutomationSimulateRequest } from '@gt-sales/contracts';
+import type {
+  AiAttachmentLinkResponse,
+  AiConversationResponse,
+  AiUsageQueryInput,
+  AiUsageResponse,
+  CreateAiAttachmentIntentRequest,
+  CreateAiAttachmentIntentResponse,
+  DeleteAiAttachmentResponse,
+  DeleteAiConversationResponse,
+  FinalizeAiAttachmentResponse,
+  GetAiConversationResponse,
+  ListAiConversationsQueryInput,
+  ListAiConversationsResponse,
+} from '@gt-sales/contracts';
 import {
   BackendError,
   createBackendClient,
@@ -272,6 +286,90 @@ export function askAiAssistant(
   options?: { signal?: AbortSignal },
 ): AsyncGenerator<AiStreamPart, void, undefined> {
   return client(accessToken, { quiet: true }).staff.askAi(workspaceId, body, options);
+}
+
+/** Ask AI: the member's own saved conversations on this site, newest first, a page at a time. */
+export async function listAiConversations(
+  accessToken: string,
+  workspaceId: string,
+  query?: ListAiConversationsQueryInput,
+): Promise<ListAiConversationsResponse> {
+  return client(accessToken).staff.listAiConversations(workspaceId, query);
+}
+
+/** Ask AI: one saved conversation with its messages, oldest first. */
+export async function getAiConversation(
+  accessToken: string,
+  workspaceId: string,
+  conversationId: string,
+): Promise<GetAiConversationResponse> {
+  return client(accessToken).staff.getAiConversation(workspaceId, conversationId);
+}
+
+export async function renameAiConversation(
+  accessToken: string,
+  workspaceId: string,
+  conversationId: string,
+  title: string,
+): Promise<AiConversationResponse> {
+  return client(accessToken).staff.renameAiConversation(workspaceId, conversationId, { title });
+}
+
+/** Ask AI: removes the conversation, its messages and its files for good. */
+export async function deleteAiConversation(
+  accessToken: string,
+  workspaceId: string,
+  conversationId: string,
+): Promise<DeleteAiConversationResponse> {
+  return client(accessToken).staff.deleteAiConversation(workspaceId, conversationId);
+}
+
+/** Ask AI: a signed PUT for one file to attach; `uploadId` is the attachment's id. */
+export async function createAiAttachmentIntent(
+  accessToken: string,
+  workspaceId: string,
+  body: CreateAiAttachmentIntentRequest,
+): Promise<CreateAiAttachmentIntentResponse> {
+  return client(accessToken).staff.createAiAttachmentIntent(workspaceId, body);
+}
+
+/** Ask AI: verifies the uploaded file against the SHA-256 of what the browser sent. */
+export async function finalizeAiAttachment(
+  accessToken: string,
+  workspaceId: string,
+  attachmentId: string,
+  checksumSha256: string,
+): Promise<FinalizeAiAttachmentResponse> {
+  return client(accessToken).staff.finalizeAiAttachment(workspaceId, attachmentId, {
+    checksumSha256,
+  });
+}
+
+/** Ask AI: removes a file that has not been sent yet. */
+export async function deleteAiAttachment(
+  accessToken: string,
+  workspaceId: string,
+  attachmentId: string,
+): Promise<DeleteAiAttachmentResponse> {
+  return client(accessToken).staff.deleteAiAttachment(workspaceId, attachmentId);
+}
+
+/** Ask AI: a short-lived signed link to one of the member's own files. */
+export async function getAiAttachmentLink(
+  accessToken: string,
+  workspaceId: string,
+  attachmentId: string,
+): Promise<AiAttachmentLinkResponse> {
+  return client(accessToken).staff.getAiAttachmentLink(workspaceId, attachmentId);
+}
+
+/** Settings → AI usage: turns and tokens per member, never content (owner only). */
+export async function getAiUsage(
+  accessToken: string,
+  workspaceId: string,
+  query?: AiUsageQueryInput,
+): Promise<AiUsageResponse> {
+  return client(accessToken).staff.getAiUsage(workspaceId, query);
 }
 
 export async function getLeadBoard(

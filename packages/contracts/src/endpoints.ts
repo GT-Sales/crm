@@ -162,6 +162,22 @@ import {
   aiChatRequestSchema,
   aiWirePartSchema,
 } from './ai-assistant';
+import {
+  aiAttachmentLinkResponseSchema,
+  aiConversationResponseSchema,
+  aiUsageQuerySchema,
+  aiUsageResponseSchema,
+  createAiAttachmentIntentRequestSchema,
+  createAiAttachmentIntentResponseSchema,
+  deleteAiAttachmentResponseSchema,
+  deleteAiConversationResponseSchema,
+  finalizeAiAttachmentRequestSchema,
+  finalizeAiAttachmentResponseSchema,
+  getAiConversationResponseSchema,
+  listAiConversationsQuerySchema,
+  listAiConversationsResponseSchema,
+  renameAiConversationRequestSchema,
+} from './ai-conversations';
 import { analyticsQuerySchema, analyticsResponseSchema } from './analytics';
 import {
   leadBoardQuerySchema,
@@ -1020,8 +1036,106 @@ export const endpoints: readonly EndpointDef[] = [
       contentType: 'text/event-stream',
       schema: aiWirePartSchema,
       event: 'part',
-      summary: 'One typed part: progress, text, sources, actions, error or done.',
+      summary:
+        'One typed part: progress, text, sources, actions, automation proposals, follow-up, error, done, and for a stored conversation the conversation part.',
     },
+  },
+
+  // Staff — Ask AI as a saved chat. Every route is guarded like capabilities
+  // (session, live membership, decideAiAccess, the feature on for the site) and
+  // answers no-store. Conversations and files are the caller's own: another
+  // member's id is conversation_not_found, never a 403.
+  {
+    operationId: 'listAiConversations',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/conversations',
+    summary:
+      "The caller's own Ask AI conversations on this site, newest message first, a page at a time (keyset cursor); `q` matches the title.",
+    auth: 'staff',
+    successStatus: 200,
+    query: listAiConversationsQuerySchema,
+    response: listAiConversationsResponseSchema,
+  },
+  {
+    operationId: 'getAiConversation',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/conversations/{conversationId}',
+    summary:
+      "One of the caller's conversations with every message, oldest first, and each message's file summaries; another member's is 404 `conversation_not_found`.",
+    auth: 'staff',
+    successStatus: 200,
+    response: getAiConversationResponseSchema,
+  },
+  {
+    operationId: 'renameAiConversation',
+    method: 'PATCH',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/conversations/{conversationId}',
+    summary: "Rename one of the caller's conversations.",
+    auth: 'staff',
+    successStatus: 200,
+    request: renameAiConversationRequestSchema,
+    response: aiConversationResponseSchema,
+  },
+  {
+    operationId: 'deleteAiConversation',
+    method: 'DELETE',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/conversations/{conversationId}',
+    summary:
+      "Delete one of the caller's conversations for good, with its messages and files (the stored files are removed after the commit).",
+    auth: 'staff',
+    successStatus: 200,
+    response: deleteAiConversationResponseSchema,
+  },
+  {
+    operationId: 'createAiAttachmentIntent',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/attachments/intents',
+    summary:
+      'Authorise a direct-to-storage upload of one file to attach to an Ask AI message; 503 `attachments_unavailable` when uploads are off, 400 `attachment_rejected` for a refused file.',
+    auth: 'staff',
+    successStatus: 201,
+    request: createAiAttachmentIntentRequestSchema,
+    response: createAiAttachmentIntentResponseSchema,
+  },
+  {
+    operationId: 'finalizeAiAttachment',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/attachments/{attachmentId}/finalize',
+    summary:
+      'Verify an uploaded attachment by its bytes (type, size) and checksum, making it ready to send; 400 `attachment_rejected` with `details.reason` otherwise.',
+    auth: 'staff',
+    successStatus: 200,
+    request: finalizeAiAttachmentRequestSchema,
+    response: finalizeAiAttachmentResponseSchema,
+  },
+  {
+    operationId: 'deleteAiAttachment',
+    method: 'DELETE',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/attachments/{attachmentId}',
+    summary: "Remove one of the caller's attachments that has not been sent yet.",
+    auth: 'staff',
+    successStatus: 200,
+    response: deleteAiAttachmentResponseSchema,
+  },
+  {
+    operationId: 'getAiAttachmentLink',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/attachments/{attachmentId}/link',
+    summary: "A short-lived signed link to one of the caller's own attachments.",
+    auth: 'staff',
+    successStatus: 200,
+    response: aiAttachmentLinkResponseSchema,
+  },
+  {
+    operationId: 'getAiUsage',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/usage',
+    summary:
+      "The site's Ask AI usage over 7, 30 (default) or 90 days: turns and tokens per member, never content (owner only, the Team page's action).",
+    auth: 'staff',
+    successStatus: 200,
+    query: aiUsageQuerySchema,
+    response: aiUsageResponseSchema,
   },
 
   {
