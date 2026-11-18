@@ -40,8 +40,10 @@
  */
 import postgres from 'postgres';
 import { z } from 'zod';
+import { createAiChatDependenciesFromEnv } from '../../src/ai/chat-factory.js';
 import { DatabaseAiReadService } from '../../src/ai/read-service.js';
 import { DatabaseAiSiteContextStore } from '../../src/ai/site-context.js';
+import { DatabaseAiTurnStore } from '../../src/ai/turn-store.js';
 import { createFakeEngine, type AssistantEngine } from '../../src/ai/engine.js';
 import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
 import { codePropertyCatalog, type FlowDraft } from '@gt-sales/contracts';
@@ -591,6 +593,18 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 12 };
       return;
     }
+    if (question.startsWith('Think hard:')) {
+      // A High turn's reasoning: the stream shows "Thinking" and never the reasoning.
+      if (input.effort !== 'high') throw new Error('expected a High effort turn');
+      yield* createFakeEngine([
+        {
+          reasoningSteps: 1,
+          reasoningMs: 1500,
+          chunks: ['High effort answer: 3 orders need you.'],
+        },
+      ]).stream(input);
+      return;
+    }
     if (question === 'Slow test') {
       yield* createFakeEngine([{ hangMs: 10000, chunks: ['Late test answer'] }]).stream(input);
       return;
@@ -621,11 +635,18 @@ const app = createApp({
         signingKey: 'synthetic-e2e-signing-key',
         automationWorkspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
         workspaceIds: new Set([WORKSPACE_ID, SIM_WORKSPACE_ID]),
+        // High effort offered, served by a synthetic id (the engine is the fake one).
+        highEffort: { modelId: 'synthetic/high-effort', reasoning: 'medium' },
       },
       reads: new DatabaseAiReadService(),
       siteContext: new DatabaseAiSiteContextStore(),
       engine: assistantEngine,
       rateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
+      // Each turn's usage row, as production writes it, so Settings → AI usage
+      // counts the journeys' questions (the reset above deletes them with the sites).
+      turns: new DatabaseAiTurnStore(),
+      // The saved chat over the e2e database; no object store here, so uploads are off.
+      chat: createAiChatDependenciesFromEnv(process.env),
     },
     sessionVerifier: new StubStaffVerifier(),
     // Reviews are database rows; no document is opened, so the objects can be in memory.

@@ -2520,11 +2520,15 @@ export const aiTurns = appSchema
       outcome: text('outcome').notNull(),
       failureCode: text('failure_code'),
       durationMs: integer('duration_ms').notNull(),
+      inputTokens: integer('input_tokens').default(0).notNull(),
       outputTokens: integer('output_tokens').default(0).notNull(),
       toolCalls: integer('tool_calls').default(0).notNull(),
       records: integer('records').default(0).notNull(),
       dataBytes: integer('data_bytes').default(0).notNull(),
       recoveredDraft: boolean('recovered_draft').default(false).notNull(),
+      // The effort level the turn was asked at (`AI_EFFORTS`): `normal`, or
+      // `high` for a harder question. Rows from before 0037 read `normal`.
+      effort: text('effort').default('normal').notNull(),
       createdAt: createdAt(),
     },
     (table) => [
@@ -2535,14 +2539,250 @@ export const aiTurns = appSchema
       ),
       check(
         'ai_turns_counts_check',
-        sql`${table.durationMs} >= 0 and ${table.outputTokens} >= 0 and ${table.toolCalls} >= 0 and ${table.records} >= 0 and ${table.dataBytes} >= 0`,
+        sql`${table.durationMs} >= 0 and ${table.inputTokens} >= 0 and ${table.outputTokens} >= 0 and ${table.toolCalls} >= 0 and ${table.records} >= 0 and ${table.dataBytes} >= 0`,
       ),
       check(
         'ai_turns_text_check',
         sql`length(${table.engine}) <= 20 and length(coalesce(${table.model}, '')) <= 200 and length(coalesce(${table.failureCode}, '')) <= 60`,
       ),
+      check('ai_turns_effort_check', sql`${table.effort} in ('normal', 'high')`),
       tenantPolicy('ai_turns_tenant_policy', table.workspaceId),
       backupReadPolicy('ai_turns'),
+    ],
+  )
+  .enableRLS();
+
+// Ask AI's saved chat. The numeric bounds below repeat `AI_CHAT_LIMITS` and
+// `AI_ASSISTANT_LIMITS` in packages/contracts/src/ai-assistant.ts (this
+// package cannot import contracts); the backend enforces the same numbers
+// before a row is written, so a check here only fires on a bug.
+
+const aiAttachmentImageTypes = sql.raw(`'image/png', 'image/jpeg', 'image/webp'`);
+const aiAttachmentTextTypes = sql.raw(`'text/plain', 'text/csv', 'text/markdown'`);
+
+/**
+ * One staff member's saved Ask AI conversation on one site. Private: the owner
+ * policy shows a row only to its own actor in its own site, so a colleague's
+ * (or the site owner's) request for its id reads as missing. The id is chosen
+ * by the browser before the first message is sent. Holds a title and the
+ * times only; the messages are `ai_messages`. Kept until the member deletes
+ * it, never pruned; deleting it removes its messages and attachment rows by
+ * cascade (the stored objects are removed by the backend after commit).
+ */
+export const aiConversations = appSchema
+  .table(
+    'ai_conversations',
+    {
+      id: uuid('id').primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      actorId: uuid('actor_id').notNull(),
+      title: text('title').notNull(),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+      lastMessageAt: timestamp('last_message_at', { withTimezone: true, mode: 'date' })
+        .defaultNow()
+        .notNull(),
+    },
+    (table) => [
+      // The target of the children's foreign keys. It carries the actor, so a
+      // message or a file can only ever belong to a conversation of its own
+      // actor: the key check runs without row security, the actor column
+      // makes the boundary structural all the same.
+      unique('ai_conversations_workspace_actor_id_unique').on(
+        table.workspaceId,
+        table.actorId,
+        table.id,
+      ),
+      check(
+        'ai_conversations_title_check',
+        sql`length(btrim(${table.title})) between 1 and 120 and length(${table.title}) <= 120 and ${table.title} !~ '[[:cntrl:]]'`,
+      ),
+      // The list, newest first, with the id as the keyset tie-breaker.
+      index('ai_conversations_owner_recent_idx').on(
+        table.workspaceId,
+        table.actorId,
+        table.lastMessageAt.desc(),
+        table.id.desc(),
+      ),
+      ownerPolicy('ai_conversations_owner_policy', table.workspaceId, table.actorId),
+      backupReadPolicy('ai_conversations'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * One message of a saved conversation: the member's question, or the answer
+ * as it was actually streamed with its sources, follow-up question and how the
+ * turn ended (`outcome`, the same words as `ai_turns.outcome`). Never stores an
+ * action card or automation draft (their signed tokens are short-lived by
+ * design; `expired_drafts` only counts them), tool input, tool results or
+ * model reasoning. Never edited: the runtime role may add and read, and
+ * removing the conversation removes its messages.
+ */
+export const aiMessages = appSchema
+  .table(
+    'ai_messages',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id').notNull(),
+      conversationId: uuid('conversation_id').notNull(),
+      actorId: uuid('actor_id').notNull(),
+      role: text('role').notNull(),
+      text: text('text').notNull(),
+      outcome: text('outcome').notNull(),
+      errorCode: text('error_code'),
+      sources: jsonb('sources').default([]).notNull(),
+      followUp: jsonb('follow_up'),
+      expiredDrafts: integer('expired_drafts').default(0).notNull(),
+      requestId: uuid('request_id'),
+      // The effort level of the turn, on both of its rows; null for rows
+      // written before 0037.
+      effort: text('effort'),
+      // The clock, not the transaction's start: a turn's question and answer
+      // are ordered by this time.
+      createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+        .default(sql`clock_timestamp()`)
+        .notNull(),
+    },
+    (table) => [
+      foreignKey({
+        name: 'ai_messages_conversation_fk',
+        columns: [table.workspaceId, table.actorId, table.conversationId],
+        foreignColumns: [aiConversations.workspaceId, aiConversations.actorId, aiConversations.id],
+      }).onDelete('cascade'),
+      // The target of an attachment's message link, within its conversation.
+      unique('ai_messages_workspace_conversation_id_unique').on(
+        table.workspaceId,
+        table.conversationId,
+        table.id,
+      ),
+      check('ai_messages_role_check', sql`${table.role} in ('user', 'assistant')`),
+      check('ai_messages_text_check', sql`length(${table.text}) <= 20000`),
+      check(
+        'ai_messages_outcome_check',
+        sql`(${table.role} = 'user' and ${table.outcome} = 'completed') or (${table.role} = 'assistant' and ${table.outcome} in ('completed', 'failed', 'cancelled', 'access_lost'))`,
+      ),
+      check(
+        'ai_messages_error_code_check',
+        sql`${table.errorCode} is null or (${table.role} = 'assistant' and ${table.errorCode} ~ '^[a-z][a-z0-9_]{0,59}$')`,
+      ),
+      check(
+        'ai_messages_sources_check',
+        sql`jsonb_typeof(${table.sources}) = 'array' and octet_length(${table.sources}::text) <= 131072`,
+      ),
+      check(
+        'ai_messages_follow_up_check',
+        sql`${table.followUp} is null or (jsonb_typeof(${table.followUp}) = 'object' and octet_length(${table.followUp}::text) <= 16384)`,
+      ),
+      check('ai_messages_expired_drafts_check', sql`${table.expiredDrafts} between 0 and 100`),
+      check(
+        'ai_messages_effort_check',
+        sql`${table.effort} is null or ${table.effort} in ('normal', 'high')`,
+      ),
+      // A retried turn (same request id) stores its question and its answer once each.
+      uniqueIndex('ai_messages_request_unique')
+        .on(table.workspaceId, table.conversationId, table.requestId, table.role)
+        .where(sql`${table.requestId} is not null`),
+      index('ai_messages_conversation_created_idx').on(
+        table.workspaceId,
+        table.conversationId,
+        table.createdAt,
+        table.id,
+      ),
+      ownerPolicy('ai_messages_owner_policy', table.workspaceId, table.actorId),
+      backupReadPolicy('ai_messages'),
+    ],
+  )
+  .enableRLS();
+
+/**
+ * A file a member attached to an Ask AI message: an image, a PDF or a text
+ * file, stored in the object store under a server-generated random key (never
+ * derived from the name) and verified by its bytes before it is `ready`.
+ * Unsent until the message that carries it is written: `conversation_id` and
+ * `message_id` are then set together, and the file goes with the conversation.
+ * Never attached to a lead and never a row of `app.files`. For a text file,
+ * `extracted_text` is its decoded text (bounded); nothing else of a file's
+ * content is stored here. Unsent rows older than a day are swept by the
+ * backend with their objects.
+ */
+export const aiAttachments = appSchema
+  .table(
+    'ai_attachments',
+    {
+      id: uuid('id').defaultRandom().primaryKey(),
+      workspaceId: uuid('workspace_id')
+        .notNull()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      actorId: uuid('actor_id').notNull(),
+      conversationId: uuid('conversation_id'),
+      messageId: uuid('message_id'),
+      kind: text('kind').notNull(),
+      mediaType: text('media_type').notNull(),
+      fileName: text('file_name').notNull(),
+      byteSize: integer('byte_size').notNull(),
+      sha256: text('sha256'),
+      bucket: text('bucket').notNull(),
+      objectKey: text('object_key').notNull(),
+      status: text('status').default('pending').notNull(),
+      extractedText: text('extracted_text'),
+      createdAt: createdAt(),
+    },
+    (table) => [
+      foreignKey({
+        name: 'ai_attachments_conversation_fk',
+        columns: [table.workspaceId, table.actorId, table.conversationId],
+        foreignColumns: [aiConversations.workspaceId, aiConversations.actorId, aiConversations.id],
+      }).onDelete('cascade'),
+      foreignKey({
+        name: 'ai_attachments_message_fk',
+        columns: [table.workspaceId, table.conversationId, table.messageId],
+        foreignColumns: [aiMessages.workspaceId, aiMessages.conversationId, aiMessages.id],
+      }).onDelete('cascade'),
+      check(
+        'ai_attachments_kind_check',
+        sql`(${table.kind} = 'image' and ${table.mediaType} in (${aiAttachmentImageTypes})) or (${table.kind} = 'pdf' and ${table.mediaType} = 'application/pdf') or (${table.kind} = 'text' and ${table.mediaType} in (${aiAttachmentTextTypes}))`,
+      ),
+      check(
+        'ai_attachments_file_name_check',
+        sql`length(btrim(${table.fileName})) between 1 and 200 and length(${table.fileName}) <= 200 and ${table.fileName} !~ '[[:cntrl:]/\\\\]'`,
+      ),
+      check(
+        'ai_attachments_byte_size_check',
+        sql`${table.byteSize} > 0 and ${table.byteSize} <= case ${table.kind} when 'image' then 5242880 when 'pdf' then 10485760 else 524288 end`,
+      ),
+      check(
+        'ai_attachments_sha256_check',
+        sql`${table.sha256} is null or ${table.sha256} ~ '^[0-9a-f]{64}$'`,
+      ),
+      check(
+        'ai_attachments_storage_check',
+        sql`length(${table.bucket}) between 1 and 100 and length(${table.objectKey}) between 1 and 300`,
+      ),
+      check('ai_attachments_status_check', sql`${table.status} in ('pending', 'ready')`),
+      check(
+        'ai_attachments_ready_check',
+        sql`${table.status} = 'pending' or ${table.sha256} is not null`,
+      ),
+      check(
+        'ai_attachments_extracted_text_check',
+        sql`${table.extractedText} is null or (${table.kind} = 'text' and ${table.status} = 'ready' and length(${table.extractedText}) <= 20000)`,
+      ),
+      // Sent means both links set together, and only a verified file is sent.
+      check(
+        'ai_attachments_link_check',
+        sql`(${table.conversationId} is null) = (${table.messageId} is null) and (${table.messageId} is null or ${table.status} = 'ready')`,
+      ),
+      index('ai_attachments_owner_created_idx').on(
+        table.workspaceId,
+        table.actorId,
+        table.createdAt,
+      ),
+      index('ai_attachments_message_idx').on(table.workspaceId, table.messageId),
+      ownerPolicy('ai_attachments_owner_policy', table.workspaceId, table.actorId),
+      backupReadPolicy('ai_attachments'),
     ],
   )
   .enableRLS();
@@ -2550,6 +2790,9 @@ export const aiTurns = appSchema
 export const schema = {
   aiAutomationProposals,
   aiTurns,
+  aiConversations,
+  aiMessages,
+  aiAttachments,
   workspaces,
   memberships,
   roles,

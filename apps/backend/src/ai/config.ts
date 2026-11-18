@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-import type { AiUnavailableReason } from '@gt-sales/contracts';
+import {
+  aiAttachmentKindSchema,
+  type AiAttachmentKind,
+  type AiUnavailableReason,
+} from '@gt-sales/contracts';
 
 /**
  * Ask AI's server configuration.
@@ -38,6 +42,78 @@ export interface AiAssistantConfig {
   readonly signingKeySource?: 'dedicated' | 'gateway';
   /** Sites the owner has enabled by id. Empty means none. */
   readonly workspaceIds: ReadonlySet<string>;
+  /**
+   * The kinds of file a member may attach to a message (`AI_ATTACHMENT_KINDS`,
+   * a comma list of `image`, `pdf`, `text`), in that order. Unset, empty or
+   * all-unknown means none: uploads are off, like every AI setting until the
+   * owner turns it on. Storage must be configured too; the routes check that.
+   */
+  readonly attachmentKinds?: readonly AiAttachmentKind[];
+  /**
+   * High effort, for harder questions (`AI_HIGH_EFFORT_ENABLED=true`). Absent
+   * means only Normal exists: capabilities list no `efforts` and a request
+   * for `high` is refused. Present only while the assistant itself is
+   * enabled. A High turn is served by `modelId` and, when `reasoning` is set,
+   * asks the model to reason at that level; a Normal turn never reads this.
+   */
+  readonly highEffort?: AiHighEffortConfig;
+}
+
+/**
+ * The reasoning words `AI_HIGH_EFFORT_REASONING` accepts: the installed SDK's
+ * portable `reasoning` call option, from `ai@7.0.159`'s `LanguageModelCallOptions`
+ * (`node_modules/.pnpm/ai@7.0.159_zod@4.6.7/node_modules/ai/dist/index.d.ts`, which
+ * takes it from `@ai-sdk/provider@4.0.35`'s `LanguageModelV4CallOptions`):
+ *
+ *     reasoning?: 'provider-default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+ *
+ * minus `provider-default` (the same as not asking) and `none` (no reasoning at
+ * all, which is not a harder effort). Each provider maps the word to its own
+ * setting (OpenAI's reasoning effort, Anthropic's thinking, Google's thinking
+ * level, …) and rounds down to a level the model has; one that cannot reason
+ * returns an `unsupported` warning and ignores it (the SDK's reasoning guide,
+ * `docs/03-ai-sdk-core/26-reasoning.mdx`).
+ */
+export const AI_HIGH_EFFORT_REASONING_WORDS = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+export type AiHighEffortReasoning = (typeof AI_HIGH_EFFORT_REASONING_WORDS)[number];
+
+export interface AiHighEffortConfig {
+  /** `AI_GATEWAY_MODEL_HIGH` when set, else `AI_GATEWAY_MODEL`: the exact Gateway model id. */
+  readonly modelId: string;
+  /** `AI_HIGH_EFFORT_REASONING`, sent as the SDK's `reasoning` on High turns only. */
+  readonly reasoning?: AiHighEffortReasoning;
+}
+
+const reasoningSchema = z.enum(AI_HIGH_EFFORT_REASONING_WORDS);
+
+/**
+ * Reads High effort's three variables, for an assistant already enabled with
+ * `modelId`. A High model id that is set but fails the model id check leaves
+ * High off rather than quietly serving it with the normal model.
+ */
+function parseHighEffort(
+  env: Readonly<Record<string, string | undefined>>,
+  modelId: string,
+): AiHighEffortConfig | undefined {
+  if (env['AI_HIGH_EFFORT_ENABLED'] !== 'true') return undefined;
+  const raw = env['AI_GATEWAY_MODEL_HIGH'];
+  let highModel = modelId;
+  if (raw !== undefined && raw.trim() !== '') {
+    const parsed = modelIdSchema.safeParse(raw);
+    if (!parsed.success) return undefined;
+    highModel = parsed.data;
+  }
+  const reasoning = reasoningSchema.safeParse(
+    env['AI_HIGH_EFFORT_REASONING']?.trim().toLowerCase(),
+  );
+  return { modelId: highModel, ...(reasoning.success ? { reasoning: reasoning.data } : {}) };
 }
 
 /** The shortest `AI_ACTION_SIGNING_SECRET` accepted, in characters. */
@@ -66,6 +142,16 @@ function parseProviders(raw: string | undefined): readonly string[] | undefined 
   return providers.length > 0 ? providers.slice(0, AI_GATEWAY_PROVIDERS_MAX) : undefined;
 }
 
+/** Reads `AI_ATTACHMENT_KINDS`: unknown entries are ignored, the order is fixed. */
+export function parseAttachmentKinds(raw: string | undefined): readonly AiAttachmentKind[] {
+  const named = new Set<AiAttachmentKind>();
+  for (const entry of (raw ?? '').split(',')) {
+    const parsed = aiAttachmentKindSchema.safeParse(entry.trim().toLowerCase());
+    if (parsed.success) named.add(parsed.data);
+  }
+  return aiAttachmentKindSchema.options.filter((kind) => named.has(kind));
+}
+
 function parseWorkspaceIds(raw: string | undefined): ReadonlySet<string> {
   const ids = new Set<string>();
   for (const entry of (raw ?? '').split(',')) {
@@ -85,13 +171,15 @@ export function loadAiAssistantConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): AiAssistantConfig {
   const workspaceIds = parseWorkspaceIds(env['AI_ASSISTANT_WORKSPACE_IDS']);
+  const kinds = parseAttachmentKinds(env['AI_ATTACHMENT_KINDS']);
+  const attachments = kinds.length > 0 ? { attachmentKinds: kinds } : {};
   if (env['AI_ASSISTANT_ENABLED'] !== 'true') {
-    return { enabled: false, reason: 'disabled', workspaceIds };
+    return { enabled: false, reason: 'disabled', workspaceIds, ...attachments };
   }
   const apiKey = env['AI_GATEWAY_API_KEY']?.trim();
   const modelId = modelIdSchema.safeParse(env['AI_GATEWAY_MODEL']);
   if (!apiKey || !modelId.success) {
-    return { enabled: false, reason: 'not_configured', workspaceIds };
+    return { enabled: false, reason: 'not_configured', workspaceIds, ...attachments };
   }
   const secret = env['AI_ACTION_SIGNING_SECRET']?.trim();
   const signing =
@@ -101,6 +189,7 @@ export function loadAiAssistantConfig(
         ? { signingKey: secret, signingKeySource: 'dedicated' as const }
         : {};
   const providers = parseProviders(env['AI_GATEWAY_PROVIDERS']);
+  const highEffort = parseHighEffort(env, modelId.data);
   return {
     enabled: true,
     apiKey,
@@ -108,8 +197,10 @@ export function loadAiAssistantConfig(
     ...(providers ? { providers } : {}),
     ...signing,
     workspaceIds,
+    ...attachments,
     ...(env['AI_AUTOMATION_WORKSPACE_IDS']
       ? { automationWorkspaceIds: parseWorkspaceIds(env['AI_AUTOMATION_WORKSPACE_IDS']) }
       : {}),
+    ...(highEffort ? { highEffort } : {}),
   };
 }

@@ -187,7 +187,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -376,7 +380,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -600,7 +608,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -789,7 +801,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1041,7 +1057,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1236,7 +1256,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1468,7 +1492,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1699,7 +1727,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -1925,7 +1957,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2147,7 +2183,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2369,7 +2409,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -2849,7 +2893,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3037,7 +3085,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3423,7 +3475,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -3697,7 +3753,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4420,7 +4480,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -4724,7 +4788,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -5168,7 +5236,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -6588,7 +6660,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -7699,7 +7775,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -8883,7 +8963,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -9968,7 +10052,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -11010,7 +11098,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12033,7 +12125,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12225,7 +12321,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -12859,7 +12959,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -13882,7 +13986,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -14477,7 +14585,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15098,7 +15210,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15379,7 +15495,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -15682,7 +15802,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16129,7 +16253,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16481,7 +16609,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -16812,7 +16944,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17211,7 +17347,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17592,7 +17732,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -17876,7 +18020,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18222,7 +18370,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18466,7 +18618,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -18714,7 +18870,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19098,7 +19258,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19422,7 +19586,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -19856,7 +20024,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20160,7 +20332,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20479,7 +20655,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -20776,7 +20956,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21155,7 +21339,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21497,7 +21685,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -21762,7 +21954,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22124,7 +22320,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22400,7 +22600,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22696,7 +22900,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -22910,7 +23118,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23117,7 +23329,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23396,7 +23612,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -23675,7 +23895,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -26022,7 +26246,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -33633,7 +33861,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -35827,7 +36059,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -43459,7 +43695,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -51071,7 +51311,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -51533,7 +51777,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -51936,7 +52184,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -59550,7 +59802,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -69665,7 +69921,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -77279,7 +77539,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -84912,7 +85176,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -92526,7 +92794,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100140,7 +100412,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100368,7 +100644,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -100784,7 +101064,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -101118,7 +101402,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103580,6 +103868,57 @@
                       "required": ["maxMessageChars", "maxHistoryMessages", "maxConversationChars"],
                       "additionalProperties": false
                     },
+                    "conversations": { "type": "boolean" },
+                    "attachments": {
+                      "type": "object",
+                      "properties": {
+                        "kinds": {
+                          "maxItems": 3,
+                          "type": "array",
+                          "items": { "type": "string", "enum": ["image", "pdf", "text"] }
+                        },
+                        "accept": {
+                          "maxItems": 20,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[a-z0-9.+/-]+$"
+                          }
+                        },
+                        "maxPerMessage": { "type": "integer", "exclusiveMinimum": 0, "maximum": 4 },
+                        "maxImageBytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "maxPdfBytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "maxTextFileBytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "kinds",
+                        "accept",
+                        "maxPerMessage",
+                        "maxImageBytes",
+                        "maxPdfBytes",
+                        "maxTextFileBytes"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "efforts": {
+                      "maxItems": 2,
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["normal", "high"] }
+                    },
                     "requestId": {
                       "type": "string",
                       "format": "uuid",
@@ -103724,7 +104063,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -103763,7 +104106,7 @@
         ],
         "responses": {
           "200": {
-            "description": "One typed part: progress, text, sources, actions, error or done.",
+            "description": "One typed part: progress, text, sources, actions, automation proposals, follow-up, error, done, and for a stored conversation the conversation part.",
             "headers": {
               "cache-control": {
                 "description": "Always `no-store`: a chat answer is never cached.",
@@ -109141,8 +109484,39 @@
                         {
                           "type": "object",
                           "properties": {
+                            "type": { "type": "string", "const": "conversation" },
+                            "conversationId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "userMessageId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                            "created": { "type": "boolean" }
+                          },
+                          "required": [
+                            "type",
+                            "conversationId",
+                            "userMessageId",
+                            "title",
+                            "created"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
                             "type": { "type": "string", "const": "done" },
-                            "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+                            "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+                            "messageId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
                           },
                           "required": ["type"],
                           "additionalProperties": false
@@ -109845,7 +110219,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -109909,10 +110287,2389 @@
                     },
                     "required": ["leadId"],
                     "additionalProperties": false
-                  }
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "attachmentIds": {
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "effort": { "type": "string", "enum": ["normal", "high"] },
+                  "newConversation": { "type": "boolean" }
                 },
                 "required": ["requestId", "message", "history"],
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/conversations": {
+      "get": {
+        "operationId": "listAiConversations",
+        "summary": "The caller's own Ask AI conversations on this site, newest message first, a page at a time (keyset cursor); `q` matches the title.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 60,
+              "pattern": "^(0|[1-9][0-9]{0,16})\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 30 }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 120 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversations": {
+                      "maxItems": 30,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "lastMessageAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": ["id", "title", "createdAt", "updatedAt", "lastMessageAt"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "maxLength": 60,
+                      "pattern": "^(0|[1-9][0-9]{0,16})\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["conversations", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/conversations/{conversationId}": {
+      "get": {
+        "operationId": "getAiConversation",
+        "summary": "One of the caller's conversations with every message, oldest first, and each message's file summaries; another member's is 404 `conversation_not_found`.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "lastMessageAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": ["id", "title", "createdAt", "updatedAt", "lastMessageAt"],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "maxItems": 200,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "role": { "type": "string", "enum": ["user", "assistant"] },
+                          "text": { "type": "string", "maxLength": 40000 },
+                          "outcome": {
+                            "type": "string",
+                            "enum": ["completed", "failed", "cancelled", "access_lost"]
+                          },
+                          "errorCode": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,59}$" },
+                          "sources": {
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": ["lead", "report", "tasks", "overview"]
+                                },
+                                "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                "href": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 400,
+                                  "pattern": "^\\/(?!\\/)"
+                                },
+                                "asOf": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "scope": { "type": "string", "minLength": 1, "maxLength": 300 }
+                              },
+                              "required": ["id", "kind", "label", "href", "asOf", "scope"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "followUp": {
+                            "type": "object",
+                            "properties": {
+                              "question": { "type": "string", "minLength": 1, "maxLength": 300 },
+                              "choices": {
+                                "minItems": 2,
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+                              }
+                            },
+                            "required": ["question", "choices"],
+                            "additionalProperties": false
+                          },
+                          "expiredDrafts": { "type": "integer", "minimum": 0, "maximum": 100 },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "attachments": {
+                            "maxItems": 4,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "kind": { "type": "string", "enum": ["image", "pdf", "text"] },
+                                "mediaType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "image/png",
+                                    "image/jpeg",
+                                    "image/webp",
+                                    "application/pdf",
+                                    "text/plain",
+                                    "text/csv",
+                                    "text/markdown"
+                                  ]
+                                },
+                                "fileName": { "type": "string", "minLength": 1, "maxLength": 200 },
+                                "byteSize": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": ["id", "kind", "mediaType", "fileName", "byteSize"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "effort": { "type": "string", "enum": ["normal", "high"] }
+                        },
+                        "required": [
+                          "id",
+                          "role",
+                          "text",
+                          "outcome",
+                          "sources",
+                          "expiredDrafts",
+                          "createdAt",
+                          "attachments"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["conversation", "messages", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "renameAiConversation",
+        "summary": "Rename one of the caller's conversations.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "lastMessageAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": ["id", "title", "createdAt", "updatedAt", "lastMessageAt"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["conversation", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 } },
+                "required": ["title"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAiConversation",
+        "summary": "Delete one of the caller's conversations for good, with its messages and files (the stored files are removed after the commit).",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversationId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["conversationId", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/attachments/intents": {
+      "post": {
+        "operationId": "createAiAttachmentIntent",
+        "summary": "Authorise a direct-to-storage upload of one file to attach to an Ask AI message; 503 `attachments_unavailable` when uploads are off, 400 `attachment_rejected` for a refused file.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "uploadId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "url": { "type": "string", "format": "uri" },
+                    "method": { "type": "string", "const": "PUT" },
+                    "headers": {
+                      "type": "object",
+                      "propertyNames": { "type": "string" },
+                      "additionalProperties": { "type": "string" }
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["uploadId", "url", "method", "headers", "expiresAt", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+                  "mediaType": {
+                    "type": "string",
+                    "enum": [
+                      "image/png",
+                      "image/jpeg",
+                      "image/webp",
+                      "application/pdf",
+                      "text/plain",
+                      "text/csv",
+                      "text/markdown"
+                    ]
+                  },
+                  "byteSize": { "type": "integer", "exclusiveMinimum": 0, "maximum": 10485760 }
+                },
+                "required": ["fileName", "mediaType", "byteSize"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/attachments/{attachmentId}/finalize": {
+      "post": {
+        "operationId": "finalizeAiAttachment",
+        "summary": "Verify an uploaded attachment by its bytes (type, size) and checksum, making it ready to send; 400 `attachment_rejected` with `details.reason` otherwise.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "attachmentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "attachment": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "kind": { "type": "string", "enum": ["image", "pdf", "text"] },
+                        "mediaType": {
+                          "type": "string",
+                          "enum": [
+                            "image/png",
+                            "image/jpeg",
+                            "image/webp",
+                            "application/pdf",
+                            "text/plain",
+                            "text/csv",
+                            "text/markdown"
+                          ]
+                        },
+                        "fileName": { "type": "string", "minLength": 1, "maxLength": 200 },
+                        "byteSize": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["id", "kind", "mediaType", "fileName", "byteSize"],
+                      "additionalProperties": false
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["attachment", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checksumSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                },
+                "required": ["checksumSha256"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/attachments/{attachmentId}": {
+      "delete": {
+        "operationId": "deleteAiAttachment",
+        "summary": "Remove one of the caller's attachments that has not been sent yet.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "attachmentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "attachmentId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["attachmentId", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/attachments/{attachmentId}/link": {
+      "get": {
+        "operationId": "getAiAttachmentLink",
+        "summary": "A short-lived signed link to one of the caller's own attachments.",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "attachmentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": { "type": "string", "format": "uri" },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["url", "expiresAt", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/staff/workspaces/{workspaceId}/ai/usage": {
+      "get": {
+        "operationId": "getAiUsage",
+        "summary": "The site's Ask AI usage over the last 7, 30 (default) or 90 Toronto calendar days: turns and tokens per member, how turns ended, the models that served them, a daily series, failure reasons and the assistant's current configuration; counts and configuration names only, never content (owner only, the Team page's action).",
+        "tags": ["staff"],
+        "security": [{ "staffSession": [] }],
+        "parameters": [
+          { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "period", "in": "query", "required": false, "schema": { "type": "number" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "period": { "type": "number", "enum": [7, 30, 90] },
+                    "totals": {
+                      "type": "object",
+                      "properties": {
+                        "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "inputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "outputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "completedTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "failedTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "cancelledTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "toolCalls": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "averageDurationMs": {
+                          "anyOf": [
+                            { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            { "type": "null" }
+                          ]
+                        },
+                        "highEffortTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["turns", "inputTokens", "outputTokens"],
+                      "additionalProperties": false
+                    },
+                    "members": {
+                      "maxItems": 1000,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "inputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "outputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "actorId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "displayName": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 80 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "lastUsedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "highEffortTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "turns",
+                          "inputTokens",
+                          "outputTokens",
+                          "actorId",
+                          "displayName",
+                          "lastUsedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistant": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": { "type": "boolean" },
+                        "configuredModel": {
+                          "anyOf": [
+                            { "type": "string", "minLength": 1, "maxLength": 200 },
+                            { "type": "null" }
+                          ]
+                        },
+                        "providers": {
+                          "maxItems": 8,
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+                        },
+                        "conversations": { "type": "boolean" },
+                        "attachmentKinds": {
+                          "maxItems": 3,
+                          "type": "array",
+                          "items": { "type": "string", "enum": ["image", "pdf", "text"] }
+                        },
+                        "highEffort": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": { "type": "boolean" },
+                            "model": {
+                              "anyOf": [
+                                { "type": "string", "minLength": 1, "maxLength": 200 },
+                                { "type": "null" }
+                              ]
+                            }
+                          },
+                          "required": ["enabled", "model"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "enabled",
+                        "configuredModel",
+                        "providers",
+                        "conversations",
+                        "attachmentKinds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "models": {
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "inputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "outputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "model": {
+                            "anyOf": [
+                              { "type": "string", "minLength": 1, "maxLength": 200 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "engine": { "type": "string", "minLength": 1, "maxLength": 20 },
+                          "completedTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "failedTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "averageDurationMs": {
+                            "anyOf": [
+                              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                              { "type": "null" }
+                            ]
+                          },
+                          "lastUsedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          },
+                          "highEffortTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "turns",
+                          "inputTokens",
+                          "outputTokens",
+                          "model",
+                          "engine",
+                          "completedTurns",
+                          "failedTurns",
+                          "averageDurationMs",
+                          "lastUsedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "daily": {
+                      "maxItems": 90,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "day": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                          "failedTurns": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "inputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "outputTokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["day", "turns", "failedTurns", "inputTokens", "outputTokens"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "failures": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,59}$" },
+                          "turns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["code", "turns"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["period", "totals", "members", "requestId"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope `{ error: { code, message, requestId, details? } }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request",
+                            "missing_session",
+                            "invalid_session",
+                            "workspace_not_found",
+                            "membership_missing",
+                            "membership_pending",
+                            "membership_revoked",
+                            "permission_denied",
+                            "membership_not_found",
+                            "membership_conflict",
+                            "internal_error",
+                            "missing_credential",
+                            "invalid_credential",
+                            "credential_revoked",
+                            "credential_not_found",
+                            "scope_denied",
+                            "caller_forbidden",
+                            "rate_limited",
+                            "payload_too_large",
+                            "machine_unknown",
+                            "machine_signature_invalid",
+                            "machine_account_mismatch",
+                            "machine_workspace_mismatch",
+                            "validation_error",
+                            "not_found",
+                            "conflict",
+                            "idempotency_conflict",
+                            "draft_not_found",
+                            "draft_expired",
+                            "draft_already_submitted",
+                            "offer_unavailable",
+                            "region_not_served",
+                            "unpriced_lead_required",
+                            "priced_checkout_disabled",
+                            "quote_not_found",
+                            "quote_expired",
+                            "quote_withdrawn",
+                            "quote_consumed",
+                            "order_not_found",
+                            "job_not_found",
+                            "job_not_retryable",
+                            "job_not_uncertain",
+                            "version_conflict",
+                            "illegal_transition",
+                            "cancellation_reason_required",
+                            "dispatch_details_required",
+                            "documents_incomplete",
+                            "document_override_reason_required",
+                            "feature_not_ready",
+                            "lead_not_found",
+                            "lead_trashed",
+                            "identity_not_found",
+                            "identity_limit_reached",
+                            "task_not_found",
+                            "assignee_not_found",
+                            "reminder_not_found",
+                            "change_request_not_found",
+                            "change_request_resolved",
+                            "change_request_not_allowed",
+                            "external_ref_taken",
+                            "lead_id_taken",
+                            "persistence_unavailable",
+                            "terms_version_unsupported",
+                            "upload_not_found",
+                            "upload_invalid",
+                            "unsupported_media_type",
+                            "file_not_found",
+                            "file_not_available",
+                            "download_denied",
+                            "checklist_mismatch",
+                            "document_too_large",
+                            "document_verification_failed",
+                            "verification_in_progress",
+                            "upload_expired",
+                            "commission_not_found",
+                            "commission_state_invalid",
+                            "invoice_not_found",
+                            "invoice_conflict",
+                            "export_denied",
+                            "export_too_large",
+                            "tracking_challenge_invalid",
+                            "tracking_expired",
+                            "tracking_attempts_exceeded",
+                            "webhook_rejected",
+                            "property_not_found",
+                            "property_limit",
+                            "builtin_property_locked",
+                            "property_option_in_use",
+                            "property_in_use",
+                            "unknown_property_key",
+                            "saved_view_not_found",
+                            "saved_view_name_taken",
+                            "saved_view_limit",
+                            "plan_not_available",
+                            "plan_not_found",
+                            "plan_name_taken",
+                            "plan_limit",
+                            "illegal_stage_move",
+                            "activation_details_required",
+                            "documents_override_not_allowed",
+                            "idempotency_in_progress",
+                            "invalid_fill_in",
+                            "invalid_email_markup",
+                            "automation_not_found",
+                            "intake_check_off",
+                            "automation_limit_reached",
+                            "revision_conflict",
+                            "flow_invalid",
+                            "no_active_version",
+                            "automation_not_builtin",
+                            "automation_builtin",
+                            "activation_needs_lead_manage",
+                            "automation_version_not_found",
+                            "automation_run_not_found",
+                            "automation_archived",
+                            "email_template_not_found",
+                            "email_template_builtin",
+                            "email_template_limit_reached",
+                            "ai_unavailable",
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
+                          ]
+                        },
+                        "message": { "type": "string" },
+                        "requestId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "details": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["error"],
+                  "additionalProperties": false
+                }
               }
             }
           }
@@ -110093,7 +112850,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -115162,7 +117923,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -117947,7 +120712,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -118361,7 +121130,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -118658,7 +121431,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -118923,7 +121700,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -119119,7 +121900,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -119315,7 +122100,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -119546,7 +122335,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -119878,7 +122671,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -120089,7 +122886,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -120360,7 +123161,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -120681,7 +123486,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -121015,7 +123824,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -121275,7 +124088,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -121495,7 +124312,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -121735,7 +124556,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -121998,7 +124823,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -122305,7 +125134,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -122535,7 +125368,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -122738,7 +125575,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -122972,7 +125813,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -123417,7 +126262,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -123685,7 +126534,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -123958,7 +126811,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },
@@ -124247,7 +127104,11 @@
                             "email_template_builtin",
                             "email_template_limit_reached",
                             "ai_unavailable",
-                            "ai_rate_limited"
+                            "ai_rate_limited",
+                            "conversation_not_found",
+                            "conversation_full",
+                            "attachment_rejected",
+                            "attachments_unavailable"
                           ]
                         },
                         "message": { "type": "string" },

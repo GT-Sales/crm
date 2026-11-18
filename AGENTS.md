@@ -157,7 +157,7 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/email/settings-store.ts` and `src/routes/email-settings.ts`; contracts
   in `packages/contracts/src/{automation-keys,automation-flows,automation-api}.ts`
   (the built-ins' labels and phase 4 triggers stay in `automations.ts`).
-- Admin pages: `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,documents,mail,analytics,automations,automations/[key],settings}`
+- Admin pages: `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,documents,mail,chat,analytics,automations,automations/[key],settings}`
   (Settings → Properties at `settings/properties`, Settings → Email at
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
   dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus and side panel
@@ -201,6 +201,20 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `apps/admin/src/components/dashboard.tsx` with its filter bar, URL state and
   charts in `src/components/analytics/`. Money figures need `revenue.view`
   (owner only) and are left out of responses for everyone else.
+- Ask AI's saved chat (docs/design/ai-chat.md): `apps/backend/src/ai/`
+  (`conversation-store.ts` a member's conversations and messages,
+  `attachment-store.ts` and `attachments.ts` the files' rows, upload,
+  verification, links and sweep, `attachment-budget.ts` the memory bound,
+  `usage-store.ts` the owner's usage, `chat-schema.ts` whether 0034–0037 are
+  applied, `chat-factory.ts` the wiring) with the routes in
+  `src/routes/ai-conversations.ts`, mounted from `src/routes/ai-assistant.ts`,
+  which runs a stored turn; contracts in
+  `packages/contracts/src/ai-conversations.ts` and `AI_CHAT_LIMITS` in
+  `ai-assistant.ts`; the page `apps/admin/src/app/w/[workspace]/chat/` with
+  `src/components/ai/` (`chat-screen.tsx`, `conversation-list.tsx`,
+  `chat-thread.tsx`, `chat-composer.tsx`, `attachment-*`; state in
+  `assistant-provider.tsx`); Settings → AI usage at `settings/ai-usage` with
+  `src/components/ai-usage/`.
 - Intake check: `apps/backend/src/intake-check/` (`check.ts` the run and its
   steps, `store.ts` the test site's reads and deletes, `alert-rule.ts` when
   the owner hears about it), the manual run in `src/routes/intake-check.ts`;
@@ -452,6 +466,24 @@ leads `GET /leads/stats` counts (the site and type, not archived, not
 restricted, the window); at most `SOURCE_REPORT_MAX_SOURCES` (50) sources and
 `SOURCE_REPORT_MAX_CAMPAIGNS` (20) campaigns per source, the rest summed into
 one "Other" row. Attribution is customer-influenced text, shown as text only.
+
+A **conversation** is one member's saved Ask AI chat on one site
+(`app.ai_conversations`, its messages in `app.ai_messages`, written once and
+never edited): private to that member under an owner policy, the site's owner
+included (anyone else gets `404 conversation_not_found`), and kept until the
+member deletes it. An **attachment** is a file a member adds to a message
+(`app.ai_attachments`): `image`, `pdf` or `text`, of the kinds
+`AI_ATTACHMENT_KINDS` enables (none when unset), its type decided by its
+bytes. It is never a lead's document and never in `app.files`; it goes with
+its conversation, and an unsent one is swept a day later by the scheduler's
+`document_cleanup` task. **AI usage** is turns, tokens, models, outcomes and
+failure codes per member, model and Toronto day from `app.ai_turns`, beside
+the assistant's current configuration (Settings → AI usage, owner only by
+`staff.remove`), never content. An **effort level** is how hard Ask AI works
+on one question, chosen in the composer: `normal`, or `high`
+(`AI_HIGH_EFFORT_ENABLED`) with larger turn limits, its own model and rate
+limits and optional model reasoning, never wider reads or fewer checks;
+recorded in `ai_turns.effort` and on both stored messages (0037).
 
 The **intake check** proves every 15 minutes that a website could still save a
 lead: the scheduler's task `intake_check` first refuses a site with any

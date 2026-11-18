@@ -43,6 +43,16 @@ import {
 } from './windows.js';
 
 /**
+ * A source card's created-at bounds: the instants of a dated window, nothing
+ * for all time, whose start (the epoch) would only read as noise.
+ */
+function createdBounds(window: { period: string; start: Date; end: Date }): string {
+  return window.period === 'all_time'
+    ? ''
+    : ` · ${window.start.toISOString()} ≤ created < ${window.end.toISOString()}`;
+}
+
+/**
  * The version-1 tool catalogue: five read-only tools, each with a strict input
  * schema, an explicit projection and a hard budget.
  *
@@ -268,7 +278,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         byStage: totals.byStage,
       };
       context.sources.leadsInbox(
-        `${context.site.name} · all lead types · ${window.label} · ${input.status === 'submitted' ? 'submitted only' : 'drafts included'}, archived and restricted excluded · ${window.start.toISOString()} ≤ created < ${window.end.toISOString()}`,
+        `${context.site.name} · all lead types · ${window.label} · ${input.status === 'submitted' ? 'submitted only' : 'drafts included'}, archived and restricted excluded${createdBounds(window)}`,
       );
       return finish(
         {
@@ -316,7 +326,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       })),
     };
     context.sources.leadsInbox(
-      `${context.site.name} · ${leadType} · ${window.label} · ${input.status === 'submitted' ? 'submitted only' : 'drafts included'}, archived and restricted excluded · ${window.start.toISOString()} ≤ created < ${window.end.toISOString()}`,
+      `${context.site.name} · ${leadType} · ${window.label} · ${input.status === 'submitted' ? 'submitted only' : 'drafts included'}, archived and restricted excluded${createdBounds(window)}`,
     );
     return finish(
       {

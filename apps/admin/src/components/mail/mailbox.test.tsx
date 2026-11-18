@@ -12,7 +12,13 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   // An empty text stands for no `?lead=`.
   lead: { current: '' },
-  assistant: { open: vi.fn(), send: vi.fn(), available: true },
+  assistant: {
+    open: vi.fn(),
+    send: vi.fn<(text: string) => boolean>(),
+    newChat: vi.fn(),
+    available: true,
+    load: 'idle',
+  },
 }));
 vi.mock('../../lib/api', async (original) => ({
   ...(await original<typeof import('../../lib/api')>()),
@@ -32,6 +38,12 @@ vi.mock('../ai/assistant-provider', () => ({
     capabilities: { status: 'ready', data: { available: mocks.assistant.available } },
     open: mocks.assistant.open,
     send: mocks.assistant.send,
+    newChat: mocks.assistant.newChat,
+    conversations: {
+      get load() {
+        return { status: mocks.assistant.load };
+      },
+    },
   }),
 }));
 const SELF = '20000000-0000-4000-8000-000000000001';
@@ -57,6 +69,9 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.lead.current = '';
   mocks.assistant.available = true;
+  mocks.assistant.load = 'idle';
+  mocks.assistant.send.mockReset();
+  mocks.assistant.send.mockReturnValue(true);
 });
 
 const NOW = '2026-11-13T10:00:00.000Z';
@@ -202,6 +217,33 @@ describe('Mailbox', () => {
     );
     // Nothing was sent by the page itself.
     expect(mocks.emailLeadCustomer).not.toHaveBeenCalled();
+  });
+
+  it('keeps the brief when Ask AI could not take it, and starts a new chat when the open one is not usable', async () => {
+    mocks.lead.current = NADIA;
+    answer();
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    const conversation = await screen.findByRole('region', { name: 'Emails to Nadia Khan' });
+    fireEvent.click(within(conversation).getByRole('button', { name: 'Write with AI' }));
+    const ask = within(conversation).getByRole('form', { name: 'Write with AI' });
+    const box = within(ask).getByLabelText('What should the email say?');
+    fireEvent.change(box, { target: { value: 'Say the SIM ships tomorrow.' } });
+
+    // An answer is still coming: nothing is sent and the brief stays.
+    mocks.assistant.send.mockReturnValue(false);
+    fireEvent.click(within(ask).getByRole('button', { name: 'Write the draft' }));
+    expect(box).toHaveProperty('value', 'Say the SIM ships tomorrow.');
+    expect(mocks.assistant.newChat).not.toHaveBeenCalled();
+
+    // The open conversation is gone: a new chat takes the brief.
+    mocks.assistant.load = 'not_found';
+    mocks.assistant.send.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(within(ask).getByRole('button', { name: 'Write the draft' }));
+    expect(mocks.assistant.newChat).toHaveBeenCalledTimes(1);
+    expect(mocks.assistant.send).toHaveBeenLastCalledWith(
+      'Write an email to this customer (Nadia Khan). Say the SIM ships tomorrow.',
+    );
+    expect(within(conversation).queryByRole('form', { name: 'Write with AI' })).toBeNull();
   });
 
   it('offers no AI button where Ask AI is not available', async () => {

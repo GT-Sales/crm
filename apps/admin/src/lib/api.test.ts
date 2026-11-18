@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   approveChangeRequest,
+  finalizeAiAttachment,
+  getAiUsage,
   getStaffWorkspaces,
+  listAiConversations,
+  renameAiConversation,
   rejectChangeRequest,
   setLeadArchived,
 } from './api.js';
@@ -177,5 +181,75 @@ describe('Ask AI and the top loading bar', () => {
     await stream.next().catch(() => undefined);
 
     expect(busyDuringRequest).toBe(false);
+  });
+});
+
+describe('Ask AI saved chat wrappers', () => {
+  const WORKSPACE = '10000000-0000-4000-8000-000000000001';
+  const ID = '60000000-0000-4000-8000-000000000001';
+  const REQUEST = '70000000-0000-4000-8000-000000000001';
+  const NOW = '2026-11-18T12:00:00.000Z';
+  const conversation = {
+    id: ID,
+    title: 'Leads this week',
+    createdAt: NOW,
+    updatedAt: NOW,
+    lastMessageAt: NOW,
+  };
+
+  function answer(body: unknown) {
+    const request = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', request);
+    return request;
+  }
+
+  it('lists, renames, finalizes and reads usage through the typed client', async () => {
+    let request = answer({ conversations: [conversation], requestId: REQUEST });
+    await listAiConversations('token', WORKSPACE, { q: 'leads' });
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/ai/conversations?q=leads`,
+    );
+
+    request = answer({ conversation, requestId: REQUEST });
+    await renameAiConversation('token', WORKSPACE, ID, 'Leads this week');
+    expect(request.mock.calls[0]?.[1]?.method).toBe('PATCH');
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      title: 'Leads this week',
+    });
+
+    request = answer({
+      attachment: {
+        id: ID,
+        kind: 'text',
+        mediaType: 'text/csv',
+        fileName: 'leads.csv',
+        byteSize: 10,
+      },
+      requestId: REQUEST,
+    });
+    await finalizeAiAttachment('token', WORKSPACE, ID, 'd'.repeat(64));
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/ai/attachments/${ID}/finalize`,
+    );
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      checksumSha256: 'd'.repeat(64),
+    });
+
+    request = answer({
+      period: 7,
+      totals: { turns: 0, inputTokens: 0, outputTokens: 0 },
+      members: [],
+      requestId: REQUEST,
+    });
+    expect((await getAiUsage('token', WORKSPACE, { period: 7 })).period).toBe(7);
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      `http://localhost:4000/api/v1/staff/workspaces/${WORKSPACE}/ai/usage?period=7`,
+    );
   });
 });

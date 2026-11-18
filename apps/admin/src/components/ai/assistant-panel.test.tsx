@@ -469,7 +469,14 @@ describe('Ask AI panel', () => {
     await openPanel();
     ask('Add a note');
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull());
+    // D1: the panel stays open with the permission sentence; the chat is gone.
+    const panel = screen.getByRole('dialog', { name: 'Ask AI' });
+    expect(
+      await within(panel).findByText(
+        "You don't have permission to use Ask AI. Ask the owner to give your role access.",
+      ),
+    ).toBeTruthy();
+    expect(within(panel).queryByText('Draft ready.')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Ask AI' })).toBeNull();
   });
 
@@ -825,7 +832,7 @@ describe('Ask AI panel', () => {
       vi.stubGlobal('innerWidth', realWidth);
     }
   });
-  it('removes all private messages and disables the trigger on access_lost', async () => {
+  it('removes all private messages and the trigger on access_lost, and the panel says why', async () => {
     mocks.askAiAssistant.mockImplementation(() =>
       streamOf([
         { type: 'text', text: 'Private fixture answer' },
@@ -836,7 +843,9 @@ describe('Ask AI panel', () => {
     render(<Harness />);
     await openPanel();
     ask('Private fixture question');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).toBeNull());
+    // D1: the panel stays open and says what happened, rather than closing silently.
+    const panel = screen.getByRole('dialog', { name: 'Ask AI' });
+    expect(await within(panel).findByText('Your access to this site changed')).toBeTruthy();
     expect(screen.queryByText('Private fixture answer')).toBeNull();
     expect(screen.queryByText('Private fixture question')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Ask AI' })).toBeNull();

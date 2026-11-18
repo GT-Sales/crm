@@ -1,58 +1,30 @@
 'use client';
 
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import Link from 'next/link';
 import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from 'react';
-import { ArrowDownIcon, SendIcon, SparklesIcon, SquareIcon, XIcon } from 'lucide-react';
+  ArrowDownIcon,
+  Maximize2Icon,
+  SendIcon,
+  SparklesIcon,
+  SquareIcon,
+  XIcon,
+} from 'lucide-react';
 import type { LeadType } from '@gt-sales/contracts';
 import { Button, Sheet, SheetContent, SheetTitle, Textarea, useIsMobile } from '@gt-sales/ui';
 
-import { AssistantMessage, aiErrorText } from './assistant-message';
-import { useAssistant, type AiMessage } from './assistant-provider';
-
-/** A suggested question, offered only when the site has a lead type it needs. */
-const SUGGESTED_QUESTIONS: readonly { text: string; leadTypes?: readonly LeadType[] }[] = [
-  { text: 'Summarize leads from the last 30 days' },
-  { text: 'Which follow-ups are due today or earlier?' },
-  { text: 'How are SIM orders distributed by stage?', leadTypes: ['sim_order'] },
-  {
-    text: 'Which sources brought submitted SIM orders in the last 30 days?',
-    leadTypes: ['sim_order'],
-  },
-];
-
-function suggestionsFor(leadTypes: readonly LeadType[]): readonly string[] {
-  return SUGGESTED_QUESTIONS.filter(
-    (question) =>
-      question.leadTypes === undefined ||
-      question.leadTypes.some((leadType) => leadTypes.includes(leadType)),
-  ).map((question) => question.text);
-}
-
-/**
- * The live region's one sentence. Progress labels live inside the conversation
- * (announced only by reading), so an answer's tokens are never read out one at
- * a time: only the move to thinking, answering, ready or an error is.
- */
-function announcementFor(messages: readonly AiMessage[], streaming: boolean): string {
-  const last = messages[messages.length - 1];
-  if (last === undefined) return '';
-  if (last.role === 'user') return streaming ? 'Thinking.' : '';
-  if (last.status === 'streaming') return last.text.length > 0 ? 'Answering.' : 'Thinking.';
-  if (last.status === 'complete') return 'Answer ready.';
-  if (last.status === 'stopped') return 'Answer stopped.';
-  return aiErrorText(last.error ?? 'failed');
-}
-
-function isNearBottom(node: HTMLElement): boolean {
-  return node.scrollHeight - node.scrollTop - node.clientHeight < 48;
-}
+import { AssistantMessage } from './assistant-message';
+import { useAssistant } from './assistant-provider';
+import { EffortControl, HIGH_EFFORT_HINT } from './effort-control';
+import {
+  announcementFor,
+  capabilityFailureText,
+  suggestionsFor,
+  useComposerKeys,
+  useConversationScroll,
+  useStopGuard,
+} from './assistant-shared';
+import { ComposerNotes, keptDraft } from './composer-notes';
 
 export function AssistantPanel() {
   const {
@@ -73,17 +45,27 @@ export function AssistantPanel() {
     reviseAction,
     confirmAction,
     cancelAction,
+    canRetry,
+    retryNote,
+    conversations,
+    workspaceSlug,
+    handOffToChatPage,
+    effort,
+    conversationFull,
+    reloadCapabilities,
   } = useAssistant();
+  const stopGuard = useStopGuard();
+  const [clipped, setClipped] = useState(false);
   const isMobile = useIsMobile();
   const composerId = useId();
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const composingRef = useRef(false);
-  const atBottomRef = useRef(true);
   // Set when the control the user pressed is replaced by the enabled composer.
   const focusComposerAfterStream = useRef(false);
   const [draft, setDraft] = useState('');
-  const [atBottom, setAtBottom] = useState(true);
+  const { scrollRef, atBottom, onScroll, jumpToLatest, resetToBottom } = useConversationScroll(
+    messages,
+    isOpen,
+  );
 
   const available = capabilities.status === 'ready' && capabilities.data.available;
   const leadTypes: readonly LeadType[] =
@@ -91,18 +73,20 @@ export function AssistantPanel() {
   const suggestions = suggestionsFor(leadTypes);
   const announcement = announcementFor(messages, streaming);
   const last = messages[messages.length - 1];
-  const retryId =
-    last !== undefined && last.role === 'assistant' && last.status === 'error'
-      ? last.id
-      : undefined;
+  const retryId = canRetry && last !== undefined ? last.id : undefined;
+  // A stored conversation still loading (or gone) takes no question yet.
+  const load = conversations.load;
+  const ready = available && load.status === 'idle' && !conversationFull;
+  const fullPageHref = `/w/${workspaceSlug}/chat${
+    conversations.activeId === undefined ? '' : `/${conversations.activeId}`
+  }`;
 
   useEffect(() => {
     if (!isOpen) return;
     // A reopened panel starts at the newest message, whatever it was scrolled to.
-    atBottomRef.current = true;
-    setAtBottom(true);
+    resetToBottom();
     composerRef.current?.focus();
-  }, [isOpen, isMobile]);
+  }, [isOpen, isMobile, resetToBottom]);
 
   useEffect(() => {
     if (streaming || !focusComposerAfterStream.current) return;
@@ -112,45 +96,20 @@ export function AssistantPanel() {
     composerRef.current?.focus();
   }, [streaming]);
 
-  const handleScroll = useCallback(() => {
-    const node = scrollRef.current;
-    if (node === null) return;
-    const near = isNearBottom(node);
-    atBottomRef.current = near;
-    setAtBottom(near);
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!isOpen) return;
-    const node = scrollRef.current;
-    if (node === null || !atBottomRef.current) return;
-    node.scrollTop = node.scrollHeight;
-  }, [isOpen, messages]);
-
-  const jumpToLatest = useCallback(() => {
-    const node = scrollRef.current;
-    if (node === null) return;
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
-    if (typeof node.scrollTo === 'function') {
-      node.scrollTo({ top: node.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
-    } else {
-      node.scrollTop = node.scrollHeight;
-    }
-    atBottomRef.current = true;
-    setAtBottom(true);
-  }, []);
-
   function submit(): void {
-    if (!available || streaming) return;
+    if (!ready || streaming) return;
     const text = draft.trim();
     if (text.length === 0) return;
+    stopGuard.markSent();
     send(text);
     setDraft('');
+    setClipped(false);
     composerRef.current?.focus();
   }
 
   function ask(question: string): void {
-    if (!available || streaming) return;
+    if (!ready || streaming) return;
+    stopGuard.markSent();
     send(question);
     composerRef.current?.focus();
   }
@@ -159,22 +118,18 @@ export function AssistantPanel() {
     if (streaming) focusComposerAfterStream.current = true;
     newChat();
     setDraft('');
-    atBottomRef.current = true;
-    setAtBottom(true);
+    resetToBottom();
     composerRef.current?.focus();
   }
 
-  function stopStreaming(): void {
+  function stopStreaming(event: { detail: number }): void {
+    // The second click of a double-click on Send lands here: not a Stop.
+    if (stopGuard.ignoreStop(event)) return;
     focusComposerAfterStream.current = true;
     stop();
   }
 
-  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
-    if (event.key !== 'Enter' || event.shiftKey) return;
-    if (event.nativeEvent.isComposing || composingRef.current) return;
-    event.preventDefault();
-    submit();
-  }
+  const composerKeys = useComposerKeys(submit);
 
   function handlePanelKeyDown(event: KeyboardEvent<HTMLElement>): void {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -204,6 +159,18 @@ export function AssistantPanel() {
       >
         New chat
       </Button>
+      {conversations.enabled ? (
+        <Button asChild variant="ghost" size="icon" className="size-7">
+          <Link
+            href={fullPageHref}
+            aria-label="Open chat in full page"
+            title="Open chat in full page"
+            onClick={handOffToChatPage}
+          >
+            <Maximize2Icon aria-hidden="true" className="size-3.5" />
+          </Link>
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="ghost"
@@ -227,9 +194,34 @@ export function AssistantPanel() {
       aria-live="off"
       aria-relevant="additions"
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
-      onScroll={handleScroll}
+      onScroll={onScroll}
     >
-      {messages.length === 0 ? (
+      {capabilities.status === 'failed' ? (
+        <div className="flex flex-col items-start gap-2">
+          <h2 className="text-sm font-semibold">{capabilityFailureText(capabilities).title}</h2>
+          <p role="alert" className="text-sm text-muted-foreground">
+            {capabilityFailureText(capabilities).text}
+          </p>
+          <Button type="button" size="sm" variant="outline" onClick={reloadCapabilities}>
+            Try again
+          </Button>
+        </div>
+      ) : load.status === 'loading' ? (
+        <p className="text-sm text-muted-foreground">Opening the conversation…</p>
+      ) : load.status === 'not_found' ? (
+        <p className="text-sm text-muted-foreground">
+          This conversation is not available. Press New chat to start another.
+        </p>
+      ) : load.status === 'error' ? (
+        <div className="flex flex-col items-start gap-2">
+          <p role="alert" className="text-sm text-destructive">
+            {load.message}
+          </p>
+          <Button type="button" size="sm" variant="outline" onClick={conversations.reload}>
+            Try again
+          </Button>
+        </div>
+      ) : messages.length === 0 ? (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
             {available
@@ -279,6 +271,7 @@ export function AssistantPanel() {
             onConfirmAction={(id) => confirmAction(message.id, id)}
             onCancelAction={(id) => cancelAction(message.id, id)}
             {...(message.id === retryId ? { onRetry: retry } : {})}
+            {...(message.id === last?.id ? { retryNote, onStartNewChat: startNewChat } : {})}
           />
         ))
       )}
@@ -301,6 +294,12 @@ export function AssistantPanel() {
           Older messages were omitted from this answer’s context.
         </p>
       ) : null}
+      <ComposerNotes
+        clipped={clipped}
+        maxChars={maxMessageChars}
+        full={conversationFull}
+        onNewChat={startNewChat}
+      />
       <label htmlFor={composerId} className="sr-only">
         Ask a question
       </label>
@@ -311,23 +310,26 @@ export function AssistantPanel() {
         rows={3}
         maxLength={maxMessageChars * 2}
         placeholder="Ask about this site’s leads..."
-        disabled={!available || streaming}
+        disabled={!ready || streaming}
         className="max-h-40 min-h-16 resize-none"
-        onChange={(event) =>
-          setDraft(Array.from(event.target.value).slice(0, maxMessageChars).join(''))
-        }
-        onKeyDown={handleComposerKeyDown}
-        onCompositionStart={() => {
-          composingRef.current = true;
+        onChange={(event) => {
+          const kept = keptDraft(event.target.value, maxMessageChars);
+          setDraft(kept.text);
+          setClipped(kept.clipped);
         }}
-        onCompositionEnd={() => {
-          composingRef.current = false;
-        }}
+        {...composerKeys}
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <p className="min-w-0 text-[11px] text-muted-foreground">
-          Enter to send · Shift+Enter for a new line
+          {effort.offered && effort.value === 'high'
+            ? `High effort. ${HIGH_EFFORT_HINT}`
+            : 'Enter to send · Shift+Enter for a new line'}
         </p>
+        {effort.offered ? (
+          <span className="ml-auto">
+            <EffortControl disabled={!ready} />
+          </span>
+        ) : null}
         {streaming ? (
           <Button type="button" size="sm" variant="outline" className="h-8" onClick={stopStreaming}>
             <SquareIcon aria-hidden="true" className="size-3.5" />
@@ -338,7 +340,7 @@ export function AssistantPanel() {
             type="button"
             size="sm"
             className="h-8"
-            disabled={!available || draft.trim().length === 0}
+            disabled={!ready || draft.trim().length === 0}
             onClick={submit}
           >
             <SendIcon aria-hidden="true" className="size-3.5" />

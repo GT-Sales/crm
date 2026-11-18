@@ -196,7 +196,7 @@ describe('POST /workspaces/:workspaceId/leads/export', () => {
       body: JSON.stringify(byFilter),
     });
     expect(response.headers.get('access-control-expose-headers')).toBe(
-      'content-disposition, x-export-row-count',
+      'content-disposition, x-export-row-count, retry-after',
     );
   });
 

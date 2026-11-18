@@ -1,4 +1,7 @@
 import { DatabaseAiTurnStore, type AiTurnStore } from '../ai/turn-store.js';
+import { createAiChatDependenciesFromEnv } from '../ai/chat-factory.js';
+import { DatabaseAiChatSchemaProbe } from '../ai/chat-schema.js';
+import type { AiChatDependencies } from './ai-assistant.js';
 import { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
@@ -177,6 +180,11 @@ export interface StaffRouteDependencies {
     rateLimit?: (input: RateLimitInput) => Promise<RateLimitResult>;
     /** Per-turn usage records; the default dependencies write `app.ai_turns`. */
     turns?: AiTurnStore;
+    /**
+     * The saved chat: conversations, attachments and usage. Absent (as in
+     * most route tests) the assistant is memory-only, exactly as before.
+     */
+    chat?: AiChatDependencies;
     now?: () => Date;
   };
 }
@@ -194,6 +202,8 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
       }),
     );
   }
+  // One catalogue check shared by the saved chat and the turn records.
+  const aiSchema = new DatabaseAiChatSchemaProbe();
   return {
     sessionVerifier: defaultStaffSessionVerifier(),
     rateLimit: rateLimitHit,
@@ -225,11 +235,13 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
               apiKey: aiConfig.apiKey,
               modelId: aiConfig.modelId,
               ...(aiConfig.providers ? { providers: aiConfig.providers } : {}),
+              ...(aiConfig.highEffort ? { highEffort: aiConfig.highEffort } : {}),
             }),
           }
         : {}),
       rateLimit: rateLimitHit,
-      turns: new DatabaseAiTurnStore(),
+      turns: new DatabaseAiTurnStore(undefined, aiSchema),
+      chat: createAiChatDependenciesFromEnv(process.env, aiSchema),
     },
   };
 }
@@ -1860,6 +1872,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       ...(ai.engine === undefined ? {} : { engine: ai.engine }),
       rateLimit: ai.rateLimit ?? rateLimitHit,
       ...(ai.turns === undefined ? {} : { turns: ai.turns }),
+      ...(ai.chat === undefined ? {} : { chat: ai.chat }),
       ...(ai.now === undefined ? {} : { now: ai.now }),
       reportFailure,
     }),

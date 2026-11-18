@@ -2,6 +2,7 @@ import {
   AI_ASSISTANT_LIMITS,
   type AiCapabilitiesResponse,
   type AiChatRequest,
+  type AiEffort,
   type AiStreamPart,
 } from '@gt-sales/contracts';
 
@@ -27,7 +28,15 @@ export type AiUiError =
   | 'offline'
   | 'cancelled'
   | 'timeout'
-  | 'too_long';
+  | 'too_long'
+  /** A stored conversation has as many messages as it may hold (`conversation_full`). */
+  | 'conversation_full'
+  /** The stored conversation is gone or was never this member's (`conversation_not_found`). */
+  | 'conversation_missing'
+  /** High effort's own limits were reached (`ai_rate_limited`, `details.reason: 'high_effort'`). */
+  | 'high_effort_limited'
+  /** The site no longer offers High (`invalid_request`, `details.reason: 'effort_unavailable'`). */
+  | 'effort_unavailable';
 
 /** One earlier turn as text only: the model never receives stored tool data. */
 export interface AiHistoryEntry {
@@ -49,6 +58,28 @@ export interface BuildChatRequestInput {
   requestId: string;
   /** The lead whose record is open, when the question is about that lead. */
   leadId?: string;
+  /**
+   * The effort level the member chose, and the levels the site offers
+   * (capabilities' `efforts`). `effort: 'high'` is sent only when both say
+   * High; Normal is never sent, so a Normal request is exactly what it was
+   * (and an older backend, whose strict request does not know the key, never
+   * receives it).
+   */
+  effort?: AiEffort;
+  efforts?: readonly AiEffort[];
+  /**
+   * A stored conversation's id. With it the server replays its own history,
+   * so `history` is ignored and sent empty (the schema refuses anything else).
+   */
+  conversationId?: string;
+  /** The member's ready files for this message; only with `conversationId`. */
+  attachmentIds?: readonly string[];
+  /**
+   * The first message of a chat this browser made, not yet acknowledged by
+   * the server: only then may the server create the conversation. Only with
+   * `conversationId`.
+   */
+  newConversation?: boolean;
 }
 
 export interface BuiltChatRequest {
@@ -148,6 +179,25 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
 
   const contextLeadId =
     input.leadId !== undefined && UUID_PATTERN.test(input.leadId) ? input.leadId : undefined;
+  const high = input.effort === 'high' && (input.efforts ?? []).includes('high');
+
+  if (input.conversationId !== undefined) {
+    // A stored conversation: the server replays what it kept, the browser sends none.
+    const attachmentIds = input.attachmentIds ?? [];
+    return {
+      request: {
+        requestId: input.requestId,
+        message,
+        history: [],
+        ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
+        conversationId: input.conversationId,
+        ...(input.newConversation === true ? { newConversation: true } : {}),
+        ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
+        ...(high ? { effort: 'high' as const } : {}),
+      },
+      trimmed: message.length !== input.message.length,
+    };
+  }
 
   function compose(): AiChatRequest {
     const conversation = kept.flat();
@@ -160,6 +210,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         ...(entry.signature === undefined ? {} : { signature: entry.signature }),
       })),
       ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
+      ...(high ? { effort: 'high' as const } : {}),
     };
   }
 
@@ -194,6 +245,10 @@ export function uiErrorForBackendCode(code: string): AiUiError {
     case 'ai_rate_limited':
     case 'rate_limited':
       return 'rate_limited';
+    case 'conversation_full':
+      return 'conversation_full';
+    case 'conversation_not_found':
+      return 'conversation_missing';
     default:
       return 'failed';
   }
@@ -206,8 +261,6 @@ export function uiErrorForStreamCode(code: string): AiUiError {
       return 'cancelled';
     case 'rate_limited':
       return 'rate_limited';
-    case 'provider_unavailable':
-      return 'unavailable';
     case 'access_lost':
       return 'denied';
     // UI-10: what the person can do differs, so the words do too.
@@ -226,6 +279,14 @@ export interface StreamAnswerInput {
   request: AiChatRequest;
   signal?: AbortSignal;
   onPart(part: AiStreamPart): void;
+  /** How long to wait before asking again, when a rate limit refused the turn and said. */
+  onRetryAfter?(seconds: number): void;
+}
+
+/** A refusal's `details.reason`, when it is a string. */
+function refusalReason(error: BackendError): string | undefined {
+  const reason = error.details?.['reason'];
+  return typeof reason === 'string' ? reason : undefined;
 }
 
 function isAbort(error: unknown, signal: AbortSignal | undefined): boolean {
@@ -258,7 +319,20 @@ export async function streamAnswer(input: StreamAnswerInput): Promise<AiUiError 
     // The client's whole-turn limit: the answer took too long, the CRM was there.
     if (error instanceof Error && error.name === 'TimeoutError') return 'timeout';
     if (errorKind(error) === 'offline') return 'offline';
-    if (error instanceof BackendError) return uiErrorForBackendCode(error.code);
+    if (error instanceof BackendError) {
+      if (error.code === 'ai_rate_limited' || error.code === 'rate_limited') {
+        // The wait: the response's retry-after, or High's own `details`.
+        const detail = error.details?.['retryAfterSeconds'];
+        const seconds =
+          error.retryAfterSeconds ??
+          (typeof detail === 'number' && Number.isFinite(detail) ? detail : undefined);
+        if (seconds !== undefined && seconds > 0) input.onRetryAfter?.(seconds);
+        if (refusalReason(error) === 'high_effort') return 'high_effort_limited';
+      }
+      if (error.code === 'invalid_request' && refusalReason(error) === 'effort_unavailable')
+        return 'effort_unavailable';
+      return uiErrorForBackendCode(error.code);
+    }
     return 'failed';
   }
 }

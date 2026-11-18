@@ -35,6 +35,7 @@ import {
   confirmAiActionResponseSchema,
   type ConfirmAiActionRequest,
   type ConfirmAiActionResponse,
+  AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
@@ -43,6 +44,36 @@ import {
   type AiChatRequest,
   type AiStreamPart,
 } from './ai-assistant';
+import {
+  aiAttachmentLinkResponseSchema,
+  aiConversationResponseSchema,
+  aiUsageResponseSchema,
+  createAiAttachmentIntentRequestSchema,
+  createAiAttachmentIntentResponseSchema,
+  deleteAiAttachmentResponseSchema,
+  deleteAiConversationResponseSchema,
+  finalizeAiAttachmentRequestSchema,
+  finalizeAiAttachmentResponseSchema,
+  getAiConversationResponseSchema,
+  listAiConversationsQuerySchema,
+  listAiConversationsResponseSchema,
+  renameAiConversationRequestSchema,
+  aiUsageQuerySchema,
+  type AiAttachmentLinkResponse,
+  type AiConversationResponse,
+  type AiUsageQueryInput,
+  type AiUsageResponse,
+  type CreateAiAttachmentIntentRequest,
+  type CreateAiAttachmentIntentResponse,
+  type DeleteAiAttachmentResponse,
+  type DeleteAiConversationResponse,
+  type FinalizeAiAttachmentRequest,
+  type FinalizeAiAttachmentResponse,
+  type GetAiConversationResponse,
+  type ListAiConversationsQueryInput,
+  type ListAiConversationsResponse,
+  type RenameAiConversationRequest,
+} from './ai-conversations';
 import {
   createDownloadLinkRequestSchema,
   createDownloadLinkResponseSchema,
@@ -364,6 +395,13 @@ function anySignal(signals: readonly AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
+/** A response's `retry-after` as whole seconds; undefined when absent or not a number of seconds. */
+function retryAfterOf(response: Response): number | undefined {
+  const raw = response.headers.get('retry-after');
+  if (raw === null || !/^\d{1,9}$/.test(raw.trim())) return undefined;
+  return Number(raw.trim());
+}
+
 export class BackendError extends Error {
   constructor(
     readonly code: ApiErrorCode | 'internal_error',
@@ -371,6 +409,8 @@ export class BackendError extends Error {
     readonly requestId: string,
     /** The envelope's `details` (for example `{ leadCount }` on `property_in_use`), when the backend sent any. */
     readonly details?: ErrorDetails,
+    /** The response's `retry-after`, in whole seconds, when it sent a readable one. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(code);
     this.name = 'BackendError';
@@ -400,6 +440,12 @@ export interface BackendClientOptions {
    * Defaults to 90s: the backend's own 60s budget plus room for the transport.
    */
   readonly chatTimeoutMs?: number;
+  /**
+   * The same for a question asked at High effort (`effort: 'high'`). Defaults
+   * to the backend's High budget (`requestTimeoutMsHigh`, 180s) plus the same
+   * 30s of room.
+   */
+  readonly chatHighTimeoutMs?: number;
   /**
    * Timeout for a leads export, in milliseconds. Defaults to 60s: the backend
    * gives the export's own statements 30s, and the file still has to travel.
@@ -830,6 +876,49 @@ export interface BackendClient {
       body: AiChatRequest,
       options?: { signal?: AbortSignal },
     ): AsyncGenerator<AiStreamPart, void, undefined>;
+    /** The caller's own stored conversations on this site, newest first, a page at a time. */
+    listAiConversations(
+      workspaceId: string,
+      query?: ListAiConversationsQueryInput,
+    ): Promise<ListAiConversationsResponse>;
+    /** One of the caller's conversations with its messages, oldest first. */
+    getAiConversation(
+      workspaceId: string,
+      conversationId: string,
+    ): Promise<GetAiConversationResponse>;
+    renameAiConversation(
+      workspaceId: string,
+      conversationId: string,
+      body: RenameAiConversationRequest,
+    ): Promise<AiConversationResponse>;
+    /** Removes the conversation, its messages and its files for good. */
+    deleteAiConversation(
+      workspaceId: string,
+      conversationId: string,
+    ): Promise<DeleteAiConversationResponse>;
+    /** A signed PUT for one file to attach; `uploadId` is the attachment's id. */
+    createAiAttachmentIntent(
+      workspaceId: string,
+      body: CreateAiAttachmentIntentRequest,
+    ): Promise<CreateAiAttachmentIntentResponse>;
+    /** Verifies the uploaded file (bytes and checksum) and makes it ready to send. */
+    finalizeAiAttachment(
+      workspaceId: string,
+      attachmentId: string,
+      body: FinalizeAiAttachmentRequest,
+    ): Promise<FinalizeAiAttachmentResponse>;
+    /** Removes an attachment that has not been sent. */
+    deleteAiAttachment(
+      workspaceId: string,
+      attachmentId: string,
+    ): Promise<DeleteAiAttachmentResponse>;
+    /** A short-lived signed link to one of the caller's own attachments. */
+    getAiAttachmentLink(
+      workspaceId: string,
+      attachmentId: string,
+    ): Promise<AiAttachmentLinkResponse>;
+    /** The site's Ask AI usage per member: counts only (owner only). */
+    getAiUsage(workspaceId: string, query?: AiUsageQueryInput): Promise<AiUsageResponse>;
   };
 }
 
@@ -840,6 +929,8 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
   const doFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 10_000;
   const chatTimeoutMs = options.chatTimeoutMs ?? 90_000;
+  const chatHighTimeoutMs =
+    options.chatHighTimeoutMs ?? AI_ASSISTANT_LIMITS.requestTimeoutMsHigh + 30_000;
   const exportTimeoutMs = options.exportTimeoutMs ?? 60_000;
 
   async function call<TResponse>(config: CallConfig<TResponse>): Promise<TResponse> {
@@ -900,6 +991,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           response.status,
           parsed.data.error.requestId,
           parsed.data.error.details,
+          retryAfterOf(response),
         );
       }
       throw new BackendError('internal_error', response.status, requestId);
@@ -940,7 +1032,9 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
     const url = new URL(path, origin);
     assertApiPath(url, origin);
     const requestId = globalThis.crypto.randomUUID();
-    const signals: AbortSignal[] = [timeoutSignal(chatTimeoutMs)];
+    const signals: AbortSignal[] = [
+      timeoutSignal(body.effort === 'high' ? chatHighTimeoutMs : chatTimeoutMs),
+    ];
     if (streamOptions?.signal) signals.push(streamOptions.signal);
 
     const response = await doFetch(url, {
@@ -973,6 +1067,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           response.status,
           parsed.data.error.requestId,
           parsed.data.error.details,
+          retryAfterOf(response),
         );
       }
       throw new BackendError('internal_error', response.status, requestId);
@@ -1041,6 +1136,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           response.status,
           parsed.data.error.requestId,
           parsed.data.error.details,
+          retryAfterOf(response),
         );
       }
       throw new BackendError('internal_error', response.status, requestId);
@@ -1818,6 +1914,67 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body,
           streamOptions,
         ),
+      listAiConversations: async (workspaceId, query) => {
+        const parsed = listAiConversationsQuerySchema.parse(query ?? {});
+        return call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations`,
+          query: { cursor: parsed.cursor, limit: parsed.limit, q: parsed.q },
+          responseSchema: listAiConversationsResponseSchema,
+        });
+      },
+      getAiConversation: async (workspaceId, conversationId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations/${encode(conversationId)}`,
+          responseSchema: getAiConversationResponseSchema,
+        }),
+      renameAiConversation: async (workspaceId, conversationId, body) =>
+        call({
+          method: 'PATCH',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations/${encode(conversationId)}`,
+          body: renameAiConversationRequestSchema.parse(body),
+          responseSchema: aiConversationResponseSchema,
+        }),
+      deleteAiConversation: async (workspaceId, conversationId) =>
+        call({
+          method: 'DELETE',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/conversations/${encode(conversationId)}`,
+          responseSchema: deleteAiConversationResponseSchema,
+        }),
+      createAiAttachmentIntent: async (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/intents`,
+          body: createAiAttachmentIntentRequestSchema.parse(body),
+          responseSchema: createAiAttachmentIntentResponseSchema,
+        }),
+      finalizeAiAttachment: async (workspaceId, attachmentId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/${encode(attachmentId)}/finalize`,
+          body: finalizeAiAttachmentRequestSchema.parse(body),
+          responseSchema: finalizeAiAttachmentResponseSchema,
+        }),
+      deleteAiAttachment: async (workspaceId, attachmentId) =>
+        call({
+          method: 'DELETE',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/${encode(attachmentId)}`,
+          responseSchema: deleteAiAttachmentResponseSchema,
+        }),
+      getAiAttachmentLink: async (workspaceId, attachmentId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/attachments/${encode(attachmentId)}/link`,
+          responseSchema: aiAttachmentLinkResponseSchema,
+        }),
+      getAiUsage: async (workspaceId, query) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/usage`,
+          query: { period: aiUsageQuerySchema.parse(query ?? {}).period },
+          responseSchema: aiUsageResponseSchema,
+        }),
     },
   };
 }

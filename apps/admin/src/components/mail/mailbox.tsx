@@ -223,7 +223,15 @@ function Reply({
     if (!assistant || !wanted) return;
     // Ask AI already knows the customer: the page's address names the lead.
     assistant.open();
-    assistant.send(`Write an email to this customer (${person.name}). ${wanted}`);
+    const question = `Write an email to this customer (${person.name}). ${wanted}`;
+    let sent = assistant.send(question);
+    if (!sent && assistant.conversations.load.status !== 'idle') {
+      // The open conversation cannot take a question (still opening, or gone): a new one can.
+      assistant.newChat();
+      sent = assistant.send(question);
+    }
+    // The brief stays when nothing was sent (an answer is still coming), so it is not lost.
+    if (!sent) return;
     setBrief('');
     setAsking(false);
   }

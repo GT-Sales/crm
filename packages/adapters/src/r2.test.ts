@@ -555,3 +555,144 @@ describe('S3R2DocumentStore copies into another bucket', () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+describe('Ask AI attachments: WebP, unsigned text and bounded reads', () => {
+  const WEBP = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38,
+  ]);
+  const WAVE = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74,
+  ]);
+  const TEXT = new TextEncoder().encode('Order MS-101: please change the delivery address.');
+  const base = {
+    workspaceId: 'w1',
+    stagingKey: 'ai-attachments/abc/upload',
+    candidateKey: 'ai-attachments/abc/file',
+    maxBytes: 1024,
+  };
+
+  it('recognises WebP by its RIFF container and WEBP form, and nothing else in RIFF', () => {
+    expect(detectDocumentType(WEBP)).toBe('image/webp');
+    expect(detectDocumentType(WAVE)).toBeUndefined();
+    expect(detectDocumentType(WEBP.slice(0, 11))).toBeUndefined();
+    // The document checks are unchanged.
+    expect(detectDocumentType(PDF)).toBe('application/pdf');
+    expect(detectDocumentType(JPEG)).toBe('image/jpeg');
+    expect(detectDocumentType(PNG)).toBe('image/png');
+  });
+
+  it('verifies an unsigned text upload by size and checksum, reporting no signature', async () => {
+    const store = new InMemoryR2DocumentStore();
+    store.putStagingObject(base.stagingKey, TEXT);
+    expect(
+      await store.verifyAttachmentUpload({ ...base, expectedChecksumSha256: sha256Hex(TEXT) }),
+    ).toEqual({
+      status: 'verified',
+      candidateKey: base.candidateKey,
+      detectedMediaType: undefined,
+      sizeBytes: TEXT.byteLength,
+      checksumSha256: sha256Hex(TEXT),
+    });
+    expect(
+      await store.verifyAttachmentUpload({ ...base, expectedChecksumSha256: sha256Hex(PNG) }),
+    ).toEqual({ status: 'rejected', reason: 'checksum_mismatch' });
+    expect(
+      await store.verifyAttachmentUpload({
+        ...base,
+        maxBytes: 4,
+        expectedChecksumSha256: sha256Hex(TEXT),
+      }),
+    ).toEqual({ status: 'rejected', reason: 'too_large' });
+    // verifyUpload still refuses the same bytes for a document.
+    expect(await store.verifyUpload({ ...base, expectedChecksumSha256: sha256Hex(TEXT) })).toEqual({
+      status: 'rejected',
+      reason: 'unsupported_signature',
+    });
+  });
+
+  it('reads an object only within the caller’s bound (in memory)', async () => {
+    const store = new InMemoryR2DocumentStore();
+    store.putObject('ai-attachments/abc/file', PNG);
+    expect(
+      await store.readObject({
+        workspaceId: 'w1',
+        objectKey: 'ai-attachments/abc/file',
+        maxBytes: 9,
+      }),
+    ).toEqual({ status: 'read', bytes: PNG });
+    expect(
+      await store.readObject({
+        workspaceId: 'w1',
+        objectKey: 'ai-attachments/abc/file',
+        maxBytes: 8,
+      }),
+    ).toEqual({ status: 'too_large' });
+    expect(
+      await store.readObject({
+        workspaceId: 'w1',
+        objectKey: 'ai-attachments/x/file',
+        maxBytes: 8,
+      }),
+    ).toEqual({ status: 'missing' });
+  });
+
+  it('verifies an unsigned candidate over S3 and reports a WebP signature', async () => {
+    let bytes: Uint8Array = TEXT;
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      if (init?.method === 'PUT') return new Response(null);
+      if (init?.method === 'HEAD')
+        return new Response(null, { headers: { 'content-length': String(bytes.byteLength) } });
+      return new Response(bytes);
+    };
+    const store = new S3R2DocumentStore(config, fetchImpl);
+    expect(
+      await store.verifyAttachmentUpload({ ...base, expectedChecksumSha256: sha256Hex(TEXT) }),
+    ).toMatchObject({ status: 'verified', detectedMediaType: undefined, sizeBytes: TEXT.length });
+    bytes = WEBP;
+    expect(
+      await store.verifyAttachmentUpload({ ...base, expectedChecksumSha256: sha256Hex(WEBP) }),
+    ).toMatchObject({ status: 'verified', detectedMediaType: 'image/webp' });
+    expect(
+      await store.verifyAttachmentUpload({ ...base, expectedChecksumSha256: sha256Hex(PNG) }),
+    ).toEqual({ status: 'rejected', reason: 'checksum_mismatch' });
+  });
+
+  it('reads a scoped object over S3, refusing a declared or streamed body over the bound', async () => {
+    const urls: string[] = [];
+    let response = (): Response => new Response(PNG, { headers: { 'content-length': '9' } });
+    const fetchImpl: typeof fetch = async (url, init) => {
+      urls.push(`${init?.method} ${String(url)}`);
+      return response();
+    };
+    const store = new S3R2DocumentStore(config, fetchImpl);
+    const input = { workspaceId: 'w1', objectKey: 'ai-attachments/abc/file', maxBytes: 9 };
+    expect(await store.readObject(input)).toEqual({ status: 'read', bytes: PNG });
+    expect(urls[0]).toBe(
+      'GET https://acct.r2.cloudflarestorage.com/docs/workspaces/w1/ai-attachments/abc/file',
+    );
+    expect(await store.readObject({ ...input, maxBytes: 8 })).toEqual({ status: 'too_large' });
+
+    let cancelled = false;
+    response = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(6));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+      );
+    expect(await store.readObject({ ...input, maxBytes: 10 })).toEqual({ status: 'too_large' });
+    expect(cancelled).toBe(true);
+
+    response = () => new Response('missing', { status: 404 });
+    expect(await store.readObject(input)).toEqual({ status: 'missing' });
+    response = () => new Response('private provider details', { status: 500 });
+    await expect(store.readObject(input)).rejects.toThrow('r2 read failed: 500');
+    await expect(store.readObject({ ...input, objectKey: '../other' })).rejects.toThrow(
+      'r2_read_key_invalid',
+    );
+  });
+});

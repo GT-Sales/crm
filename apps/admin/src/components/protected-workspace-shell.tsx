@@ -29,6 +29,9 @@ function pageShape(pathname: string | null) {
       return 'documents';
     case 'mail':
       return 'mail';
+    // The chat is a list beside a thread, as Mail is.
+    case 'chat':
+      return 'mail';
     case 'automations':
       return subpage ? 'flow' : 'list';
     case 'settings':

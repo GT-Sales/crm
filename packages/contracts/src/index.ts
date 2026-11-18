@@ -797,7 +797,23 @@ export {
   type AiStreamErrorCode,
   type AiStreamPart,
   type AiUnavailableReason,
+  AI_CHAT_LIMITS,
+  AI_ATTACHMENT_MEDIA_TYPES,
+  aiAttachmentKindOf,
+  aiAttachmentKindSchema,
+  aiAttachmentMaxBytes,
+  aiAttachmentMediaTypeSchema,
+  aiConversationTitleSchema,
+  type AiAttachmentKind,
+  type AiAttachmentMediaType,
+  type AiChatLimits,
+  AI_EFFORTS,
+  aiEffortSchema,
+  type AiEffort,
 } from './ai-assistant';
+
+// Ask AI as a saved chat: stored conversations, attached files, owner usage
+export * from './ai-conversations';
 
 export * from './ai-automations';
 

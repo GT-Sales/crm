@@ -2,19 +2,50 @@
 import type { AiActionDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
-import { CheckIcon, CopyIcon } from 'lucide-react';
+import Link from 'next/link';
+import { CheckIcon, CopyIcon, GaugeIcon } from 'lucide-react';
 import { Button } from '@gt-sales/ui';
 
 import type { AiUiError } from '../../lib/ai-transport';
-import type { AiAssistantMessage, AiMessage } from './assistant-provider';
+import {
+  useOptionalAssistant,
+  type AiAssistantMessage,
+  type AiMessage,
+} from './assistant-provider';
 import { AssistantSources } from './assistant-sources';
 import { AssistantMarkdown } from './assistant-markdown';
 import { AssistantAction } from './assistant-action';
 import { AssistantAutomation } from './assistant-automation';
+import { MessageAttachments } from './attachment-chip';
 
-/** Plain language for each way an answer can fail. Never a provider detail. */
-export function aiErrorText(error: AiUiError): string {
+/**
+ * A rate limit's wait (`retry-after`, in seconds) in plain words: seconds
+ * under a minute, whole minutes (rounded up) under an hour, then "about an
+ * hour" or "about N hours". The one helper every rate-limit sentence uses.
+ */
+export function waitInWords(seconds: number): string {
+  const wait = Math.max(1, Math.ceil(seconds));
+  if (wait < 60) return wait === 1 ? '1 second' : `${String(wait)} seconds`;
+  if (wait < 3_600) {
+    const minutes = Math.ceil(wait / 60);
+    return minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+  }
+  const hours = Math.round(wait / 3_600);
+  return hours <= 1 ? 'about an hour' : `about ${String(hours)} hours`;
+}
+
+/**
+ * Plain language for each way an answer can fail. Never a provider detail.
+ * `retryAfterSeconds` is a rate limit's wait, when the refusal said it.
+ */
+export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): string {
   switch (error) {
+    case 'high_effort_limited':
+      return retryAfterSeconds === undefined
+        ? 'High effort has reached its limit for now. Ask at Normal effort, or try again later.'
+        : `High effort has reached its limit for now. Ask at Normal effort, or try again in ${waitInWords(retryAfterSeconds)}.`;
+    case 'effort_unavailable':
+      return 'High effort is no longer offered on this site. Press Retry to ask at Normal effort.';
     case 'unavailable':
       return 'Ask AI isn’t available for this site right now.';
     case 'session_expired':
@@ -22,7 +53,9 @@ export function aiErrorText(error: AiUiError): string {
     case 'denied':
       return 'You don’t have access to this site’s leads.';
     case 'rate_limited':
-      return 'Too many questions right now. Wait a minute and then try again.';
+      return retryAfterSeconds === undefined
+        ? 'Too many questions right now. Wait a minute and then try again.'
+        : `Too many questions right now. Try again in ${waitInWords(retryAfterSeconds)}.`;
     case 'cancelled':
       return 'Stopped.';
     case 'timeout':
@@ -31,6 +64,10 @@ export function aiErrorText(error: AiUiError): string {
       return 'That question needed more work than one answer allows. Split it into smaller questions.';
     case 'offline':
       return 'Couldn’t reach the CRM to answer. Check your internet connection and try again.';
+    case 'conversation_full':
+      return 'This conversation is as long as it can get. Start a new chat to go on.';
+    case 'conversation_missing':
+      return 'This conversation is no longer available. Start a new chat to keep asking.';
     case 'failed':
     default:
       return 'Ask AI had a problem and couldn’t answer. Try again; if it keeps happening, tell your admin.';
@@ -72,6 +109,32 @@ function CopyAnswer({ text }: { text: string }) {
       )}
       {copied ? 'Copied' : 'Copy'}
     </Button>
+  );
+}
+
+/**
+ * A reloaded answer that prepared drafts (cards or automation proposals):
+ * they are not kept in the conversation, and whether the member confirmed
+ * one is not known here, so the line says what is true either way. The
+ * answer's own lead source, when it has one, is the place to check.
+ */
+function ExpiredDrafts({ message }: { message: AiAssistantMessage }) {
+  const one = message.expiredDrafts === 1;
+  const lead = message.sources.find((source) => source.kind === 'lead');
+  return (
+    <p className="text-xs text-muted-foreground">
+      {one
+        ? 'This answer prepared a draft. Drafts are not kept in the conversation: if you confirmed it, it was saved on the lead; if not, ask again.'
+        : 'This answer prepared drafts. Drafts are not kept in the conversation: if you confirmed them, they were saved on the lead; if not, ask again.'}
+      {lead !== undefined && lead.href.startsWith('/') && !lead.href.startsWith('//') ? (
+        <>
+          {' '}
+          <Link href={lead.href} className="underline underline-offset-2">
+            {`Open ${lead.label}`}
+          </Link>
+        </>
+      ) : null}
+    </p>
   );
 }
 
@@ -133,6 +196,8 @@ function ThinkingLine({ label }: { label?: string }) {
 function AssistantAnswer({
   message,
   onRetry,
+  retryNote,
+  onStartNewChat,
   onConfirmAction,
   onCancelAction,
   onReviseAction,
@@ -140,11 +205,17 @@ function AssistantAnswer({
 }: {
   message: AiAssistantMessage;
   onRetry?: () => void;
+  retryNote?: string;
+  onStartNewChat?: () => void;
   onConfirmAction?: (id: string) => void;
   onCancelAction?: (id: string) => void;
   onReviseAction?: (id: string, draft: AiActionDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
+  // A stored conversation says "Stopped." under a partial answer too, so a
+  // reloaded one reads as stopped; the memory-only panel looks as it always did.
+  const stored = useOptionalAssistant()?.conversations.enabled === true;
+  const full = message.status === 'error' && message.error === 'conversation_full';
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {message.text.length > 0 ? <AssistantMarkdown text={message.text} /> : null}
@@ -153,17 +224,29 @@ function AssistantAnswer({
       message.text.length === 0 &&
       !message.followUp &&
       !message.actions?.length &&
-      !message.automationProposals?.length ? (
+      !message.automationProposals?.length &&
+      !message.expiredDrafts ? (
         <p className="text-sm text-muted-foreground">
           No answer came back. Try asking in another way.
         </p>
       ) : null}
-      {message.status === 'stopped' && message.text.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Stopped.</p>
+      {message.status === 'stopped' && (message.text.length === 0 || stored) ? (
+        <p
+          className={
+            message.text.length === 0
+              ? 'text-sm text-muted-foreground'
+              : 'text-xs text-muted-foreground'
+          }
+        >
+          Stopped.
+        </p>
       ) : null}
       {message.status === 'error' ? (
-        <p className="text-sm text-muted-foreground">{aiErrorText(message.error ?? 'failed')}</p>
+        <p className="text-sm text-muted-foreground">
+          {aiErrorText(message.error ?? 'failed', message.retryAfterSeconds)}
+        </p>
       ) : null}
+      {message.expiredDrafts ? <ExpiredDrafts message={message} /> : null}
       <AssistantSources sources={message.sources} />
       {message.status === 'complete'
         ? message.automationProposals?.map((proposal) => (
@@ -205,10 +288,33 @@ function AssistantAnswer({
             />
           ))
         : null}
-      {message.status !== 'streaming' && (message.text.length > 0 || message.status === 'error') ? (
+      {retryNote !== undefined && (message.status === 'error' || message.status === 'stopped') ? (
+        <p className="text-xs text-muted-foreground">{retryNote}</p>
+      ) : null}
+      {message.status !== 'streaming' &&
+      (message.text.length > 0 ||
+        message.status === 'error' ||
+        (message.status === 'stopped' && onRetry)) ? (
         <div className="flex flex-wrap items-center gap-1">
           {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
-          {message.status === 'error' && onRetry ? (
+          {message.effort === 'high' ? (
+            <span className="inline-flex h-7 items-center gap-1 px-2 text-[11px] text-muted-foreground">
+              <GaugeIcon aria-hidden="true" className="size-3.5" />
+              High effort
+            </span>
+          ) : null}
+          {full && onStartNewChat ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={onStartNewChat}
+            >
+              Start a new chat
+            </Button>
+          ) : null}
+          {(message.status === 'error' || message.status === 'stopped') && onRetry ? (
             <Button
               type="button"
               variant="outline"
@@ -229,6 +335,8 @@ function AssistantAnswer({
 export function AssistantMessage({
   message,
   onRetry,
+  retryNote,
+  onStartNewChat,
   onConfirmAction,
   onCancelAction,
   onReviseAction,
@@ -236,15 +344,29 @@ export function AssistantMessage({
 }: {
   message: AiMessage;
   onRetry?: () => void;
+  /** Why the answer is not offered again (its files cannot be resent). */
+  retryNote?: string;
+  /** Offered when the conversation is full. */
+  onStartNewChat?: () => void;
   onConfirmAction?: (id: string) => void;
   onCancelAction?: (id: string) => void;
   onReviseAction?: (id: string, draft: AiActionDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
   if (message.role === 'user') {
+    if (message.attachments?.length) {
+      return (
+        <div className="flex flex-col items-end gap-2">
+          <MessageAttachments attachments={message.attachments} />
+          <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]">
+            {message.text}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground">
+        <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]">
           {message.text}
         </p>
       </div>
@@ -254,6 +376,8 @@ export function AssistantMessage({
     <AssistantAnswer
       message={message}
       onRetry={onRetry}
+      retryNote={retryNote}
+      onStartNewChat={onStartNewChat}
       onConfirmAction={onConfirmAction}
       onCancelAction={onCancelAction}
       onReviseAction={onReviseAction}

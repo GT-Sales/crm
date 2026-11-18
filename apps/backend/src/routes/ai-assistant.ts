@@ -3,7 +3,24 @@ import { createAutomationTools, AUTOMATION_TOOL_NAMES } from '../ai/automation-t
 import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import type { FlowStore } from '../automations/flow-store.js';
 import { AISDKError, tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
-import { AssistantProviderError } from '../ai/engine.js';
+import { randomUUID } from 'node:crypto';
+
+import { AssistantProviderError, type EngineAttachment, type EngineMessage } from '../ai/engine.js';
+import type { AiChatSchemaProbe } from '../ai/chat-schema.js';
+import { aiAttachmentAccept, type AiAttachmentService } from '../ai/attachments.js';
+import {
+  sharedAttachmentByteBudget,
+  type AttachmentBudgetLease,
+  type AttachmentByteBudget,
+} from '../ai/attachment-budget.js';
+import {
+  conversationTitleFrom,
+  type AiConversationStore,
+  type AiReplayMessage,
+  type AiTurnAttachment,
+} from '../ai/conversation-store.js';
+import type { AiUsageStore } from '../ai/usage-store.js';
+import { createAiConversationRoutes } from './ai-conversations.js';
 import { createCrmGuideTool, runCrmGuide } from '../ai/crm-guide.js';
 import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
 import { signAssistantTurn, trustedHistory } from '../ai/history.js';
@@ -18,13 +35,18 @@ import {
   aiAssistantHistoryText,
   type AiFollowUp,
   AI_ASSISTANT_LIMITS,
+  AI_EFFORTS,
   aiCapabilitiesResponseSchema,
   confirmAiActionRequestSchema,
   confirmAiActionResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
+  AI_CHAT_LIMITS,
+  type AiAttachmentKind,
+  type AiSource,
   type AiCapabilitiesResponse,
   type AiChatRequest,
+  type AiEffort,
   type AiStreamPart,
   leadStageLabel,
   leadTypeLabel,
@@ -45,7 +67,7 @@ import type { VerifiedStaffSession } from '../auth/session.js';
 import type { AiAssistantConfig } from '../ai/config.js';
 import type { AssistantEngine } from '../ai/engine.js';
 import { logAiTurn, type AiTurnLog } from '../ai/logging.js';
-import { TurnBudget } from '../ai/limits.js';
+import { TurnBudget, turnLimits } from '../ai/limits.js';
 import { buildSystemPrompt, openLeadDataBlock, AI_PROMPT_VERSION } from '../ai/prompt.js';
 import { serializedBytes } from '../ai/projections.js';
 import type { AiReadService } from '../ai/read-service.js';
@@ -142,8 +164,75 @@ export interface AiAssistantRouteDependencies {
   rateLimit(input: RateLimitInput): Promise<RateLimitResult>;
   /** Where each turn's usage is recorded; absent in tests that do not check it. */
   turns?: AiTurnStore;
+  /**
+   * Ask AI as a saved chat (docs/design/ai-chat.md). Absent, or with a
+   * schema not yet migrated, the assistant is memory-only exactly as before:
+   * capabilities claim no `conversations`, and a chat naming a conversation
+   * and the conversation and attachment routes answer 503. The usage view
+   * needs only its store (it reads `ai_turns`, which exists before 0034).
+   */
+  chat?: AiChatDependencies;
   now?: () => Date;
   reportFailure: PlanRouteDependencies['reportFailure'];
+}
+
+export interface AiChatDependencies {
+  /** The member's own conversations and messages. */
+  conversations?: AiConversationStore;
+  /** Uploads, verification, links and the sweep; absent when storage is not configured. */
+  attachments?: AiAttachmentService;
+  /** The owner's usage view. */
+  usage?: AiUsageStore;
+  /** Whether migrations 0034–0036 are applied; never claims conversations without it. */
+  schema: AiChatSchemaProbe;
+  /** The bound on attachment bytes held for the model; the process-wide one by default. */
+  memoryBudget?: AttachmentByteBudget;
+}
+
+/** What the saved chat can do for this site right now. */
+export interface AiChatAvailability {
+  readonly conversations: boolean;
+  readonly attachments: boolean;
+}
+
+/** Off unless the store is wired and the database holds its tables; a failed check is "off". */
+export async function aiChatAvailability(
+  chat: AiChatDependencies | undefined,
+  scope: Scope,
+): Promise<AiChatAvailability> {
+  if (!chat?.conversations) return { conversations: false, attachments: false };
+  const state = await chat.schema.state(scope).catch(() => undefined);
+  const conversations = state?.conversations === true;
+  return {
+    conversations,
+    attachments: conversations && (chat.attachments?.kinds.length ?? 0) > 0,
+  };
+}
+
+/**
+ * A failure of the saved chat's storage, for the error tracker: a fixed code
+ * and the SQLSTATE when there is one, never the error itself, whose detail
+ * could repeat a failing row (a message's text, a title or a file name).
+ */
+export function chatStoreFailure(code: string, error: unknown): Error {
+  for (let current: unknown = error, depth = 0; depth < 3; depth += 1) {
+    if (typeof current !== 'object' || current === null) break;
+    if ('code' in current && typeof current.code === 'string' && /^[0-9A-Z]{5}$/.test(current.code))
+      return new Error(`${code}:${current.code}`);
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return new Error(code);
+}
+
+/** A stored conversation's turn, from the member's saved message to the answer's id. */
+interface StoredTurn {
+  readonly conversationId: string;
+  readonly title: string;
+  readonly created: boolean;
+  readonly userMessageId: string;
+  /** Chosen now, so `done.messageId` can name the answer that is stored when the turn ends. */
+  readonly answerId: string;
+  readonly attachments: readonly AiTurnAttachment[];
 }
 
 function session(req: { staffSession?: VerifiedStaffSession }): VerifiedStaffSession | undefined {
@@ -164,10 +253,28 @@ function capabilityDocument(
   unavailable?: AiCapabilitiesResponse['reason'],
   canAct = false,
   automationAuthoring = false,
+  chat?: { availability: AiChatAvailability; kinds: readonly AiAttachmentKind[] },
+  highEffort = false,
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
+    // Only where High is on: absent, the composer shows no effort control
+    // (and an older admin, which does not know the field, strips it).
+    ...(highEffort && unavailable === undefined ? { efforts: [...AI_EFFORTS] } : {}),
     ...(automationAuthoring ? { automationAuthoring: true } : {}),
+    ...(chat?.availability.conversations ? { conversations: true } : {}),
+    ...(chat?.availability.attachments && chat.kinds.length > 0
+      ? {
+          attachments: {
+            kinds: [...chat.kinds],
+            accept: aiAttachmentAccept(chat.kinds),
+            maxPerMessage: AI_CHAT_LIMITS.maxAttachmentsPerMessage,
+            maxImageBytes: AI_CHAT_LIMITS.maxImageBytes,
+            maxPdfBytes: AI_CHAT_LIMITS.maxPdfBytes,
+            maxTextFileBytes: AI_CHAT_LIMITS.maxTextFileBytes,
+          },
+        }
+      : {}),
     actions: canAct && unavailable === undefined ? ['task', 'note', 'email', 'lead_update'] : [],
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
@@ -338,6 +445,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
   });
 
   router.use(createAiAutomationRoutes(dependencies));
+  router.use(createAiConversationRoutes(dependencies));
 
   async function refuseDisabled(res: Response, requestId: string): Promise<void> {
     sendDomainError(res, requestId, 'ai_unavailable', 503);
@@ -379,6 +487,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
 
+      const availability = await aiChatAvailability(dependencies.chat, {
+        workspaceId: workspaceId.data,
+        actorId: actor.actorId,
+      });
       res.setHeader('cache-control', 'no-store');
       res.json(
         capabilityDocument(
@@ -396,6 +508,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             dependencies.config.automationWorkspaceIds?.has(workspaceId.data) &&
             decideAccess(access, 'integration.manage').allowed,
           ),
+          { availability, kinds: dependencies.chat?.attachments?.kinds ?? [] },
+          dependencies.config.highEffort !== undefined,
         ),
       );
     } catch (error) {
@@ -683,6 +797,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       return;
     }
     const body = parsed.data;
+    // Absent is Normal: the turn exactly as it always was.
+    const effort: AiEffort = body.effort ?? 'normal';
+    const high = effort === 'high';
+    const limits = turnLimits(effort);
     const startedAt = Date.now();
     const controller = new AbortController();
     activeTurns.add(controller);
@@ -692,7 +810,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, AI_ASSISTANT_LIMITS.requestTimeoutMs);
+    }, limits.timeoutMs);
     const onClose = () => {
       if (!res.writableEnded) {
         clientGone = true;
@@ -715,6 +833,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
       if (!dependencies.config.workspaceIds.has(workspaceId.data)) {
         await refuseDisabled(res, req.id);
+        return;
+      }
+      // The member chose High: a site that does not offer it says so, before
+      // any work, rather than quietly answering at Normal.
+      const highEffort = dependencies.config.highEffort;
+      if (high && highEffort === undefined) {
+        sendDomainError(res, req.id, 'invalid_request', 400, { reason: 'effort_unavailable' });
         return;
       }
 
@@ -773,6 +898,48 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'ai_rate_limited', 429);
         return;
       }
+      // High costs more: its own hourly and daily limits on top of the ones
+      // above, through the same limiter, failing closed the same way. A Normal
+      // turn never touches these buckets. The member's own limit is asked
+      // first and refuses alone: the limiter counts every call, so a member
+      // past their hour must not also use up the site's day for everyone.
+      if (high) {
+        const refuseHigh = (retryAfter: number) => {
+          res.setHeader('retry-after', String(retryAfter));
+          sendDomainError(res, req.id, 'ai_rate_limited', 429, {
+            reason: 'high_effort',
+            retryAfterSeconds: retryAfter,
+          });
+        };
+        try {
+          const highActorLimit = await wait(
+            dependencies.rateLimit({
+              bucketKey: `ai_high_actor:${actor.actorId}:${workspaceId.data}`,
+              windowSeconds: 3_600,
+              maxCount: AI_ASSISTANT_LIMITS.highPerActorPerHour,
+            }),
+          );
+          if (!highActorLimit.allowed) {
+            refuseHigh(highActorLimit.retryAfterSeconds);
+            return;
+          }
+          const highSiteDayLimit = await wait(
+            dependencies.rateLimit({
+              bucketKey: `ai_high_site_day:${workspaceId.data}`,
+              windowSeconds: 86_400,
+              maxCount: AI_ASSISTANT_LIMITS.highPerSitePerDay,
+            }),
+          );
+          if (!highSiteDayLimit.allowed) {
+            refuseHigh(highSiteDayLimit.retryAfterSeconds);
+            return;
+          }
+        } catch (error) {
+          dependencies.reportFailure(req, error);
+          await refuseDisabled(res, req.id);
+          return;
+        }
+      }
 
       // A duplicate client request id is the same question twice (two tabs, a
       // retried fetch): refuse it instead of spending a second turn. The claim
@@ -799,7 +966,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
 
       const turnStarted = now();
       const scope: Scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const budget = new TurnBudget();
+      const budget = new TurnBudget(effort);
       const actionTools =
         dependencies.work &&
         dependencies.config.signingKey &&
@@ -864,12 +1031,227 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
 
+      // A stored conversation (docs/design/ai-chat.md): the conversation is
+      // created or loaded, this message's files linked and the member's
+      // message stored, in one transaction, before the first frame, so every
+      // refusal is still an ordinary JSON error.
+      let stored: StoredTurn | undefined;
+      let effortColumn = false;
+      const chat = dependencies.chat;
+      if (body.conversationId !== undefined) {
+        const availability = await wait(aiChatAvailability(chat, scope));
+        const conversations = chat?.conversations;
+        if (!availability.conversations || !conversations) {
+          await refuseDisabled(res, req.id);
+          return;
+        }
+        const attachmentIds = body.attachmentIds ?? [];
+        if (attachmentIds.length > 0 && !availability.attachments) {
+          sendDomainError(res, req.id, 'attachments_unavailable', 503);
+          return;
+        }
+        // Both rows of the turn keep its level once 0037 holds the column.
+        effortColumn = await wait(chat?.schema.state(scope) ?? Promise.resolve(undefined)).then(
+          (state) => state?.effort === true,
+          (error: unknown) => {
+            if (error instanceof AssistantProviderError) throw error;
+            return false;
+          },
+        );
+        let begun: Awaited<ReturnType<AiConversationStore['beginTurn']>>;
+        try {
+          // Not raced against the abort: the transaction commits either way
+          // (its statements carry their own timeout), so the turn waits for it
+          // and, if it was stopped meanwhile, stores the stopped answer below.
+          begun = await conversations.beginTurn(scope, {
+            conversationId: body.conversationId,
+            create: body.newConversation === true,
+            title: conversationTitleFrom(body.message),
+            requestId: body.requestId,
+            text: body.message,
+            attachmentIds,
+            ...(effortColumn ? { effort } : {}),
+          });
+        } catch (error) {
+          dependencies.reportFailure(req, chatStoreFailure('ai_turn_store_failed', error));
+          if (!res.headersSent && !clientGone)
+            sendStaffAuthError(res, req.id, 'internal_error', 500);
+          return;
+        }
+        if (begun.status === 'started' && controller.signal.aborted) {
+          // The member's question is stored; so is the answer that never came,
+          // so a reload shows the turn as stopped (or timed out) and its files
+          // are not left looking unanswered.
+          await conversations
+            .appendAnswer(scope, {
+              conversationId: begun.conversation.id,
+              messageId: randomUUID(),
+              requestId: body.requestId,
+              text: '',
+              outcome: timedOut ? 'failed' : 'cancelled',
+              ...(timedOut ? { errorCode: 'timeout' } : {}),
+              sources: [],
+              expiredDrafts: 0,
+              ...(effortColumn ? { effort } : {}),
+            })
+            .catch((error: unknown) => {
+              dependencies.reportFailure(req, chatStoreFailure('ai_answer_store_failed', error));
+            });
+          if (!res.headersSent && !clientGone) await refuseDisabled(res, req.id);
+          return;
+        }
+        switch (begun.status) {
+          case 'not_found':
+            sendDomainError(res, req.id, 'conversation_not_found', 404);
+            return;
+          case 'full':
+            sendDomainError(res, req.id, 'conversation_full', 409);
+            return;
+          case 'invalid_attachments':
+            sendStaffAuthError(res, req.id, 'invalid_request', 400);
+            return;
+          case 'duplicate':
+            // The same question twice, past the replay claim: one stored row.
+            sendDomainError(res, req.id, 'conflict', 409);
+            return;
+          case 'started':
+            stored = {
+              conversationId: begun.conversation.id,
+              title: begun.conversation.title,
+              created: begun.created,
+              userMessageId: begun.userMessageId,
+              answerId: randomUUID(),
+              attachments: begun.attachments,
+            };
+        }
+      }
+      const storedTurn = stored;
+      const memoryBudget = chat?.memoryBudget ?? sharedAttachmentByteBudget;
+      let attachmentLease: AttachmentBudgetLease | undefined;
+
+      /**
+       * The model's messages for a stored turn: the replayed history, then the
+       * new message, each member's message with its files while this turn's
+       * file limits allow (the new message's first, then the most recent
+       * earlier ones). A file past the limits, of a kind now switched off, or
+       * without storage is named as unavailable instead. Bytes are read per
+       * turn, bounded by each row's own size, and never logged or kept.
+       */
+      const storedTurnMessages = async (
+        turn: StoredTurn,
+        text: string,
+      ): Promise<EngineMessage[]> => {
+        const conversations = chat?.conversations;
+        if (!conversations) throw new Error('conversation store missing');
+        const history: readonly AiReplayMessage[] = await wait(
+          conversations.history(scope, {
+            conversationId: turn.conversationId,
+            beforeMessageId: turn.userMessageId,
+            reservedChars: Array.from(body.message).length,
+          }),
+        );
+        const service = chat?.attachments;
+        const kinds = service?.kinds ?? [];
+        const candidates = [
+          ...turn.attachments,
+          ...[...history].reverse().flatMap((message) => message.attachments),
+        ];
+        const included = new Set<string>();
+        let bytes = 0;
+        for (const file of candidates) {
+          if (!kinds.includes(file.kind) || (file.kind !== 'text' && !service)) continue;
+          // Until either limit: the first file that does not fit ends the list.
+          if (
+            included.size >= AI_CHAT_LIMITS.maxAttachmentsPerTurnContext ||
+            bytes + file.byteSize > AI_CHAT_LIMITS.maxAttachmentBytesPerTurn
+          )
+            break;
+          included.add(file.id);
+          bytes += file.byteSize;
+        }
+        // The process-wide bound on bytes held for the model: this turn takes
+        // its share at once or sends its images and PDFs as not available,
+        // rather than queueing behind other turns. Released in the turn's
+        // `finally`, however it ends.
+        const binary = candidates.filter((file) => included.has(file.id) && file.kind !== 'text');
+        const share = binary.reduce((total, file) => total + file.byteSize, 0);
+        if (share > 0) {
+          const lease = memoryBudget.tryAcquire(share);
+          if (lease) attachmentLease = lease;
+          else for (const file of binary) included.delete(file.id);
+        }
+        const toEngine = async (
+          files: readonly AiTurnAttachment[],
+        ): Promise<EngineAttachment[]> => {
+          const out: EngineAttachment[] = [];
+          for (const file of files) {
+            if (!included.has(file.id)) {
+              out.push({ kind: 'omitted', fileName: file.fileName });
+            } else if (file.kind === 'text') {
+              out.push({ kind: 'text', fileName: file.fileName, text: file.extractedText ?? '' });
+            } else if (service) {
+              let data: Uint8Array;
+              try {
+                data = await wait(service.readForModel(scope, file));
+              } catch (error) {
+                if (error instanceof AssistantProviderError) throw error;
+                // Gone meanwhile (its conversation is being deleted) or unreadable:
+                // the turn goes on without it, and says so.
+                out.push({ kind: 'omitted', fileName: file.fileName });
+                continue;
+              }
+              if (file.mediaType === 'application/pdf') {
+                out.push({ kind: 'pdf', mediaType: file.mediaType, fileName: file.fileName, data });
+              } else if (
+                file.mediaType === 'image/png' ||
+                file.mediaType === 'image/jpeg' ||
+                file.mediaType === 'image/webp'
+              ) {
+                out.push({
+                  kind: 'image',
+                  mediaType: file.mediaType,
+                  fileName: file.fileName,
+                  data,
+                });
+              }
+            }
+          }
+          return out;
+        };
+        const messages: EngineMessage[] = [];
+        for (const message of history) {
+          const attachments = await toEngine(message.attachments);
+          messages.push({
+            role: message.role,
+            text: message.text,
+            ...(attachments.length > 0 ? { attachments } : {}),
+          });
+        }
+        const attachments = await toEngine(turn.attachments);
+        messages.push({
+          role: 'user',
+          text,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        });
+        return messages;
+      };
+
       const engine = dependencies.engine;
       const stream = createUIMessageStream({
         execute: async ({ writer }) => {
           // The answer as the client will hold it, for its history signature.
           let answered = '';
+          // What this turn actually sent, for a stored conversation's answer row.
+          let sentSources: AiSource[] = [];
+          let sentFollowUp: AiFollowUp | undefined;
+          let releasedDrafts = 0;
+          let sentErrorCode: import('@gt-sales/contracts').AiStreamErrorCode | undefined;
           const writePart = (part: AiStreamPart) => {
+            if (part.type === 'sources') sentSources = part.sources;
+            if (part.type === 'follow_up') sentFollowUp = part.followUp;
+            if (part.type === 'actions') releasedDrafts += part.actions.length;
+            if (part.type === 'automation_proposals') releasedDrafts += part.proposals.length;
+            if (part.type === 'error') sentErrorCode = part.code;
             if (part.type === 'text') {
               answered += part.text;
               // CHAT-11: a provider chunk over the part limit goes out in pieces.
@@ -906,9 +1288,21 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                       aiAssistantHistoryText({ text: answered, followUp }),
                     ),
                   }),
+              // Only for a request that named a conversation: `done` is strict,
+              // so an older admin would drop one carrying a key it does not know.
+              ...(storedTurn ? { messageId: storedTurn.answerId } : {}),
             });
           };
           writePart({ type: 'progress', label: 'Getting ready' });
+          if (storedTurn) {
+            writePart({
+              type: 'conversation',
+              conversationId: storedTurn.conversationId,
+              userMessageId: storedTurn.userMessageId,
+              title: storedTurn.title,
+              created: storedTurn.created,
+            });
+          }
 
           const leadHint =
             body.context === undefined
@@ -958,24 +1352,26 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 }),
           });
           const openLeadData = leadHint === undefined ? undefined : openLeadDataBlock(leadHint);
-          // CHAT-2: only whole turns whose answer this server signed are replayed.
-          const history = trustedHistory(body.history, dependencies.config.signingKey, scope);
-          const messages = [
-            ...history.messages,
-            {
-              role: 'user' as const,
-              text:
-                openLeadData === undefined ? body.message : `${openLeadData}\n\n${body.message}`,
-            },
-          ];
+          const userText =
+            openLeadData === undefined ? body.message : `${openLeadData}\n\n${body.message}`;
 
           let recoveredDraft = false;
           let failureCode: import('@gt-sales/contracts').AiStreamErrorCode | undefined;
           let outcome: 'completed' | 'cancelled' | 'failed' | 'access_lost' = 'completed';
+          let inputTokens: number | undefined;
           let outputTokens: number | undefined;
           let finished = false;
 
           try {
+            // A stored conversation replays its own store (trusted: written by
+            // this server, no signature needed); otherwise CHAT-2: only whole
+            // turns whose answer this server signed are replayed.
+            const messages: EngineMessage[] = storedTurn
+              ? await storedTurnMessages(storedTurn, userText)
+              : [
+                  ...trustedHistory(body.history, dependencies.config.signingKey, scope).messages,
+                  { role: 'user' as const, text: userText },
+                ];
             for await (const event of engine.stream({
               system,
               messages,
@@ -992,6 +1388,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 getCrmGuide: createCrmGuideTool(budget),
               },
               signal: controller.signal,
+              // Only a High turn names its level, so a Normal turn's input is as it was.
+              ...(high ? { effort } : {}),
               executeTool: (name, input) =>
                 isToolName(name)
                   ? toolset.execute(name, input)
@@ -1023,8 +1421,15 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                       : (CARD_PROGRESS_LABELS[event.toolName] ?? 'Checking the CRM'),
                   });
                   break;
+                case 'reasoning':
+                  // The model is reasoning (a step's first reasoning part): the
+                  // member sees it is working, never what it thinks. A Normal
+                  // turn's stream is unchanged, whatever its model does.
+                  if (high) writePart({ type: 'progress', label: 'Thinking' });
+                  break;
                 case 'finish':
                   finished = true;
+                  inputTokens = event.inputTokens;
                   outputTokens = event.outputTokens;
                   break;
                 default:
@@ -1051,41 +1456,46 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               return;
             }
 
-            if (!controller.signal.aborted) {
-              // A dropped engine stream is a failed turn, even if it already
-              // yielded some text. Only an explicit finish can release sources
-              // and the successful terminal frame.
-              if (!finished) throw new AssistantProviderError();
-              // Access is rechecked before any answer is released: a role removed
-              // while the model was writing must not receive the rest of the turn.
-              const finalAccess = await wait(
-                dependencies.loadAccess(actor.actorId, workspaceId.data),
-              );
-              if (!decideAiAccess(finalAccess).allowed) {
-                outcome = 'access_lost';
-                writePart({
-                  type: 'error',
-                  code: 'access_lost',
-                  message: 'Your access to this site changed. Close Ask AI and sign in again.',
-                });
-                return;
-              }
-              const cards = sources.list();
-              if (cards.length > 0) writePart({ type: 'sources', sources: cards });
-              if (
-                actionTools &&
-                actionTools.proposals.length > 0 &&
-                decideAccess(finalAccess, 'lead.manage').allowed
-              )
-                writePart({ type: 'actions', actions: actionTools.proposals });
-              if (
-                automationTools?.proposals.length &&
-                decideAccess(finalAccess, 'integration.manage').allowed
-              )
-                writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
-              if (followUp) writePart({ type: 'follow_up', followUp });
-              writeDone();
+            // Aborted without an exception (the engine yielded once more after
+            // the client left, or the process is shutting down): a stopped
+            // turn, never a completed one.
+            if (controller.signal.aborted) {
+              outcome = 'cancelled';
+              return;
             }
+            // A dropped engine stream is a failed turn, even if it already
+            // yielded some text. Only an explicit finish can release sources
+            // and the successful terminal frame.
+            if (!finished) throw new AssistantProviderError();
+            // Access is rechecked before any answer is released: a role removed
+            // while the model was writing must not receive the rest of the turn.
+            const finalAccess = await wait(
+              dependencies.loadAccess(actor.actorId, workspaceId.data),
+            );
+            if (!decideAiAccess(finalAccess).allowed) {
+              outcome = 'access_lost';
+              writePart({
+                type: 'error',
+                code: 'access_lost',
+                message: 'Your access to this site changed. Close Ask AI and sign in again.',
+              });
+              return;
+            }
+            const cards = sources.list();
+            if (cards.length > 0) writePart({ type: 'sources', sources: cards });
+            if (
+              actionTools &&
+              actionTools.proposals.length > 0 &&
+              decideAccess(finalAccess, 'lead.manage').allowed
+            )
+              writePart({ type: 'actions', actions: actionTools.proposals });
+            if (
+              automationTools?.proposals.length &&
+              decideAccess(finalAccess, 'integration.manage').allowed
+            )
+              writePart({ type: 'automation_proposals', proposals: automationTools.proposals });
+            if (followUp) writePart({ type: 'follow_up', followUp });
+            writeDone();
           } catch (error) {
             if (revoked || error instanceof AssistantAccessRevokedError) {
               outcome = 'access_lost';
@@ -1170,15 +1580,19 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           } finally {
             activeTurns.delete(controller);
             clearTimeout(timer);
+            attachmentLease?.release();
             const turnRecord: AiTurnLog = {
               requestId: req.id,
               workspaceId: workspaceId.data,
               actorId: actor.actorId,
               engine: engine.kind,
-              modelId: dependencies.config.modelId,
+              // The model that served the turn: High's own when it has one.
+              modelId: high ? highEffort?.modelId : dependencies.config.modelId,
+              effort,
               promptVersion: AI_PROMPT_VERSION,
               outcome,
               durationMs: Date.now() - startedAt,
+              ...(inputTokens === undefined ? {} : { inputTokens }),
               ...(outputTokens === undefined ? {} : { outputTokens }),
               ...budget.usage,
               ...(failureCode ? { failureCode } : {}),
@@ -1191,6 +1605,35 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               await dependencies.turns.record(turnRecord).catch((error: unknown) => {
                 dependencies.reportFailure(req, error);
               });
+            }
+            // A stored conversation keeps the answer however the turn ended,
+            // as it was streamed (a stopped answer included, so a reload shows
+            // it). Access lost keeps nothing of what was said: the row is
+            // stored empty. A failed write is reported by code and changes
+            // nothing the client already received.
+            if (storedTurn && chat?.conversations) {
+              const lost = outcome === 'access_lost';
+              await chat.conversations
+                .appendAnswer(scope, {
+                  conversationId: storedTurn.conversationId,
+                  messageId: storedTurn.answerId,
+                  requestId: body.requestId,
+                  text: lost ? '' : answered,
+                  outcome,
+                  ...(outcome === 'failed'
+                    ? { errorCode: sentErrorCode ?? failureCode ?? 'internal_error' }
+                    : {}),
+                  sources: lost ? [] : sentSources,
+                  ...(lost || sentFollowUp === undefined ? {} : { followUp: sentFollowUp }),
+                  expiredDrafts: lost ? 0 : releasedDrafts,
+                  ...(effortColumn ? { effort } : {}),
+                })
+                .catch((error: unknown) => {
+                  dependencies.reportFailure(
+                    req,
+                    chatStoreFailure('ai_answer_store_failed', error),
+                  );
+                });
             }
           }
         },

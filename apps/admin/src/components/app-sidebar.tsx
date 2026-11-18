@@ -23,6 +23,7 @@ import { getLeadsSummary, listDocumentReviewQueue } from '../lib/api';
 import { DOCUMENTS_REVIEWED } from '../lib/lead-work-events';
 import { STAFF_DISPLAY_NAME_CHANGED, initials } from '../lib/people';
 import { useLeadWorkspace } from './leads/use-lead-workspace';
+import { useAskAiPageAvailable, withAskAi } from './ai/chat-nav';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
 import { WorkspaceSwitcher } from './workspace-switcher';
@@ -98,6 +99,9 @@ export function AppSidebar({ workspace }: { workspace: string }) {
     return () => window.removeEventListener(STAFF_DISPLAY_NAME_CHANGED, refresh);
   }, [reloadMembers]);
   const { isMobile, setOpenMobile } = useSidebar();
+  const askAi = useAskAiPageAvailable();
+  // Ask AI's page sits with the daily work, after Mail, once it is available.
+  const navItems = withAskAi(NAV_ITEMS, askAi);
   const unopened = useUnopenedLeads(workspace, pathname);
   const toReview = useDocumentsToReview(workspace, pathname);
   // What a menu entry is waiting on, said beside it and to screen readers.
@@ -136,7 +140,7 @@ export function AppSidebar({ workspace }: { workspace: string }) {
           <SidebarGroupContent>
             <nav aria-label="Site navigation">
               <SidebarMenu>
-                {NAV_ITEMS.map(({ section, label, icon: Icon }) => {
+                {navItems.map(({ section, label, icon: Icon }) => {
                   const href = `/w/${workspace}/${section}`;
                   const isActive = pathname === href || pathname.startsWith(`${href}/`);
 

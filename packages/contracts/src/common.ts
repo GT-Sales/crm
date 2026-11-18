@@ -154,6 +154,16 @@ export const domainErrorCodeSchema = z.enum([
   // `ai_rate_limited` is the per-actor or per-site request budget.
   'ai_unavailable',
   'ai_rate_limited',
+  // Ask AI's saved chat. `conversation_not_found` (404) is also the answer for
+  // another member's conversation, so it never reveals one exists;
+  // `conversation_full` (409) is a conversation at its message limit;
+  // `attachment_rejected` (400) a file refused, with a safe `details.reason`
+  // (`type`, `size`, `empty`, `unreadable`); `attachments_unavailable` (503) a
+  // deployment with uploads switched off or no storage.
+  'conversation_not_found',
+  'conversation_full',
+  'attachment_rejected',
+  'attachments_unavailable',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

@@ -17,6 +17,7 @@ import {
 import { getStaffLeads } from '../lib/api';
 import { describeError } from '../lib/error-text';
 import { leadDisplayName } from './leads/lead-display';
+import { useAskAiPageAvailable, withAskAi } from './ai/chat-nav';
 import { NAV_ITEMS } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
 
@@ -50,6 +51,7 @@ export function QuickNavigation({
 }) {
   const router = useRouter();
   const { accessToken } = useStaffSession();
+  const askAi = useAskAiPageAvailable();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState<LeadSearch>({ status: 'idle' });
@@ -99,7 +101,9 @@ export function QuickNavigation({
     return () => clearTimeout(timer);
   }, [searchable, term, accessToken, workspaceId]);
 
-  const pages = NAV_ITEMS.filter((item) => item.label.toLowerCase().includes(term.toLowerCase()));
+  const pages = withAskAi(NAV_ITEMS, askAi).filter((item) =>
+    item.label.toLowerCase().includes(term.toLowerCase()),
+  );
   const leads = search.status === 'done' ? search.leads : [];
   const leadHref = (lead: LeadListItem) => `/w/${workspaceSlug}/leads/${lead.id}`;
   const firstHref = leads[0]
