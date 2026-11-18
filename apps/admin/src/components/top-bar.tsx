@@ -8,11 +8,15 @@ import { NAV_ITEMS } from './nav-items';
 import { ThemeToggle } from './theme-toggle';
 import { QuickNavigation } from './quick-navigation';
 import { AssistantTrigger } from './ai/assistant-trigger';
+import { ASK_AI_NAV_ITEM } from './ai/chat-nav';
 
 export function TopBar({ workspace }: { workspace: StaffWorkspace }) {
   const pathname = usePathname();
   const section = pathname.split('/')[3] ?? 'leads';
-  const page = NAV_ITEMS.find((item) => item.section === section);
+  const page =
+    section === ASK_AI_NAV_ITEM.section
+      ? ASK_AI_NAV_ITEM
+      : NAV_ITEMS.find((item) => item.section === section);
   const PageIcon = page?.icon;
   const isLeadsInbox = section === 'leads' && pathname.split('/').length === 4;
 

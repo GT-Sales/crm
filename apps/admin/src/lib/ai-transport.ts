@@ -27,7 +27,11 @@ export type AiUiError =
   | 'offline'
   | 'cancelled'
   | 'timeout'
-  | 'too_long';
+  | 'too_long'
+  /** A stored conversation has as many messages as it may hold (`conversation_full`). */
+  | 'conversation_full'
+  /** The stored conversation is gone or was never this member's (`conversation_not_found`). */
+  | 'conversation_missing';
 
 /** One earlier turn as text only: the model never receives stored tool data. */
 export interface AiHistoryEntry {
@@ -49,6 +53,13 @@ export interface BuildChatRequestInput {
   requestId: string;
   /** The lead whose record is open, when the question is about that lead. */
   leadId?: string;
+  /**
+   * A stored conversation's id. With it the server replays its own history,
+   * so `history` is ignored and sent empty (the schema refuses anything else).
+   */
+  conversationId?: string;
+  /** The member's ready files for this message; only with `conversationId`. */
+  attachmentIds?: readonly string[];
 }
 
 export interface BuiltChatRequest {
@@ -149,6 +160,22 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
   const contextLeadId =
     input.leadId !== undefined && UUID_PATTERN.test(input.leadId) ? input.leadId : undefined;
 
+  if (input.conversationId !== undefined) {
+    // A stored conversation: the server replays what it kept, the browser sends none.
+    const attachmentIds = input.attachmentIds ?? [];
+    return {
+      request: {
+        requestId: input.requestId,
+        message,
+        history: [],
+        ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
+        conversationId: input.conversationId,
+        ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
+      },
+      trimmed: message.length !== input.message.length,
+    };
+  }
+
   function compose(): AiChatRequest {
     const conversation = kept.flat();
     return {
@@ -194,6 +221,10 @@ export function uiErrorForBackendCode(code: string): AiUiError {
     case 'ai_rate_limited':
     case 'rate_limited':
       return 'rate_limited';
+    case 'conversation_full':
+      return 'conversation_full';
+    case 'conversation_not_found':
+      return 'conversation_missing';
     default:
       return 'failed';
   }

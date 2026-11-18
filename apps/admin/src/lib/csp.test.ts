@@ -33,13 +33,15 @@ describe('admin Content-Security-Policy', () => {
     ).toContain("'unsafe-eval'");
   });
 
-  it('keeps connect-src to the API, Supabase and Sentry, and frames/images to Storage', () => {
+  it('keeps connect-src to the API, Supabase, Sentry and its own Storage, and frames/images to Storage', () => {
     const csp = buildContentSecurityPolicy('n', env);
+    // Storage is there for Ask AI attachments: the browser sends the file to a signed link.
     expect(directive(csp, 'connect-src')).toEqual([
       "'self'",
       'https://api.example.test',
       'https://abcdef.supabase.co',
       'https://o1.ingest.sentry.io',
+      'https://abcdef.storage.supabase.co',
     ]);
     expect(directive(csp, 'frame-src')).toEqual(["'self'", 'https://abcdef.storage.supabase.co']);
     expect(directive(csp, 'frame-ancestors')).toEqual(["'none'"]);

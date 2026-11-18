@@ -8,13 +8,16 @@ import { useOptionalAssistant } from './assistant-provider';
 /**
  * The top bar's entry point. It stays out of the DOM until the capability call
  * succeeds and says the caller may use the assistant, so a failed or slow load
- * can never flash an enabled button.
+ * can never flash an enabled button. On the full Ask AI page it stays away
+ * too: that page is the same conversation, and a panel over it would be a
+ * second copy of it.
  */
 export function AssistantTrigger() {
   const assistant = useOptionalAssistant();
   if (!assistant) return null;
-  const { capabilities, isOpen, open } = assistant;
+  const { capabilities, isOpen, open, chatPageOpen } = assistant;
   if (capabilities.status !== 'ready' || !capabilities.data.available) return null;
+  if (chatPageOpen) return null;
   return (
     <Button
       type="button"

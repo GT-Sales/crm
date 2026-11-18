@@ -70,8 +70,10 @@ export function buildContentSecurityPolicy(nonce: string, env: CspEnvironment): 
     'script-src': ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", ...scriptExtra],
     // Backend API, Supabase Auth (token verification + refresh), and Sentry only:
     // a bare https: would let an injected script post the localStorage session
-    // anywhere. Signed document links open in a new tab, not via fetch.
-    'connect-src': dedupe(["'self'", apiOrigin, supabaseOrigin, sentryOrigin]),
+    // anywhere. Signed document links open in a new tab, not via fetch. This
+    // project's own Storage is the one more: an Ask AI attachment is sent
+    // there straight from the browser, to a signed upload link.
+    'connect-src': dedupe(["'self'", apiOrigin, supabaseOrigin, sentryOrigin, storageOrigin]),
     'worker-src': ["'self'", 'blob:'],
     'manifest-src': ["'self'"],
   };

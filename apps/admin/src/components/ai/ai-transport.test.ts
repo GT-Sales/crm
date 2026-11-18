@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { aiChatRequestSchema } from '@gt-sales/contracts';
 
 import {
   buildAiChatRequest,
@@ -106,5 +107,50 @@ describe('UI error mapping', () => {
     // UI-10: a timeout and an over-budget turn get their own advice.
     expect(uiErrorForStreamCode('timeout')).toBe('timeout');
     expect(uiErrorForStreamCode('budget_exceeded')).toBe('too_long');
+  });
+});
+
+describe('stored conversations', () => {
+  const CONVERSATION_ID = 'c0000000-0000-4000-8000-000000000001';
+  const FILE_ID = 'f0000000-0000-4000-8000-000000000001';
+
+  it('names the conversation and sends no history: the server replays its own', () => {
+    const { request, trimmed } = buildAiChatRequest({
+      message: 'And the ones from Google?',
+      history: [...turn(1), ...turn(2)],
+      limits: LIMITS,
+      requestId: REQUEST_ID,
+      leadId: LEAD_ID,
+      conversationId: CONVERSATION_ID,
+      attachmentIds: [FILE_ID],
+    });
+    expect(trimmed).toBe(false);
+    expect(request).toEqual({
+      requestId: REQUEST_ID,
+      message: 'And the ones from Google?',
+      history: [],
+      context: { leadId: LEAD_ID },
+      conversationId: CONVERSATION_ID,
+      attachmentIds: [FILE_ID],
+    });
+    expect(aiChatRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it('leaves attachmentIds out when there are no files (the schema refuses an empty list without a conversation)', () => {
+    const { request } = buildAiChatRequest({
+      message: 'Hi',
+      history: [],
+      limits: LIMITS,
+      requestId: REQUEST_ID,
+      conversationId: CONVERSATION_ID,
+      attachmentIds: [],
+    });
+    expect('attachmentIds' in request).toBe(false);
+    expect(aiChatRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it('maps the stored-conversation refusals to their own words', () => {
+    expect(uiErrorForBackendCode('conversation_full')).toBe('conversation_full');
+    expect(uiErrorForBackendCode('conversation_not_found')).toBe('conversation_missing');
   });
 });

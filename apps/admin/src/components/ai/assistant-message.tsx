@@ -11,6 +11,7 @@ import { AssistantSources } from './assistant-sources';
 import { AssistantMarkdown } from './assistant-markdown';
 import { AssistantAction } from './assistant-action';
 import { AssistantAutomation } from './assistant-automation';
+import { MessageAttachments } from './attachment-chip';
 
 /** Plain language for each way an answer can fail. Never a provider detail. */
 export function aiErrorText(error: AiUiError): string {
@@ -31,6 +32,10 @@ export function aiErrorText(error: AiUiError): string {
       return 'That question needed more work than one answer allows. Split it into smaller questions.';
     case 'offline':
       return 'Couldn’t reach the CRM to answer. Check your internet connection and try again.';
+    case 'conversation_full':
+      return 'This conversation is as long as it can get. Start a new chat to go on.';
+    case 'conversation_missing':
+      return 'This conversation is no longer available. Start a new chat to keep asking.';
     case 'failed':
     default:
       return 'Ask AI had a problem and couldn’t answer. Try again; if it keeps happening, tell your admin.';
@@ -153,16 +158,33 @@ function AssistantAnswer({
       message.text.length === 0 &&
       !message.followUp &&
       !message.actions?.length &&
-      !message.automationProposals?.length ? (
+      !message.automationProposals?.length &&
+      !message.expiredDrafts ? (
         <p className="text-sm text-muted-foreground">
           No answer came back. Try asking in another way.
         </p>
       ) : null}
-      {message.status === 'stopped' && message.text.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Stopped.</p>
+      {message.status === 'stopped' ? (
+        // Said after any partial text too, so a reloaded stopped answer reads as one.
+        <p
+          className={
+            message.text.length === 0
+              ? 'text-sm text-muted-foreground'
+              : 'text-xs text-muted-foreground'
+          }
+        >
+          Stopped.
+        </p>
       ) : null}
       {message.status === 'error' ? (
         <p className="text-sm text-muted-foreground">{aiErrorText(message.error ?? 'failed')}</p>
+      ) : null}
+      {message.expiredDrafts ? (
+        <p className="text-xs text-muted-foreground">
+          {message.expiredDrafts === 1
+            ? 'The draft prepared in this answer is no longer available. Ask again for a fresh one.'
+            : 'The drafts prepared in this answer are no longer available. Ask again for fresh ones.'}
+        </p>
       ) : null}
       <AssistantSources sources={message.sources} />
       {message.status === 'complete'
@@ -205,10 +227,13 @@ function AssistantAnswer({
             />
           ))
         : null}
-      {message.status !== 'streaming' && (message.text.length > 0 || message.status === 'error') ? (
+      {message.status !== 'streaming' &&
+      (message.text.length > 0 ||
+        message.status === 'error' ||
+        (message.status === 'stopped' && onRetry)) ? (
         <div className="flex flex-wrap items-center gap-1">
           {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
-          {message.status === 'error' && onRetry ? (
+          {(message.status === 'error' || message.status === 'stopped') && onRetry ? (
             <Button
               type="button"
               variant="outline"
@@ -242,9 +267,19 @@ export function AssistantMessage({
   onAnswerChoice?: (choice: string) => void;
 }) {
   if (message.role === 'user') {
+    if (message.attachments?.length) {
+      return (
+        <div className="flex flex-col items-end gap-2">
+          <MessageAttachments attachments={message.attachments} />
+          <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]">
+            {message.text}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground">
+        <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]">
           {message.text}
         </p>
       </div>
