@@ -1061,6 +1061,14 @@ confirmation prompt), then inserts the Drizzle tracker rows. The deploy and
 the migrations may go in either order: an older backend never touches the new
 tables, and its `ai_turns` insert leaves `input_tokens` to its default.
 
+Apply 0034 and 0035 only once BOTH the backend and the admin of this release
+are live, and let open admin tabs be reloaded first: the saved chat switches
+itself on when the tables appear, and the first message of a new chat carries
+`newConversation`, which this backend requires and an earlier build of the
+saved chat neither sends nor accepts. For the same reason, do not roll either
+app back to a build from before this release while the tables exist; to go
+back, switch Ask AI off (`AI_ASSISTANT_ENABLED`) instead.
+
 **0034 (generated).** Three tables, `app.ai_conversations` (a member's
 conversation; the id is chosen by the browser), `app.ai_messages` (one row per
 question and per answer) and `app.ai_attachments` (a message's files: rows

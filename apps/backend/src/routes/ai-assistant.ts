@@ -900,40 +900,43 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
       // High costs more: its own hourly and daily limits on top of the ones
       // above, through the same limiter, failing closed the same way. A Normal
-      // turn never touches these buckets.
+      // turn never touches these buckets. The member's own limit is asked
+      // first and refuses alone: the limiter counts every call, so a member
+      // past their hour must not also use up the site's day for everyone.
       if (high) {
-        let highActorLimit: RateLimitResult;
-        let highSiteDayLimit: RateLimitResult;
+        const refuseHigh = (retryAfter: number) => {
+          res.setHeader('retry-after', String(retryAfter));
+          sendDomainError(res, req.id, 'ai_rate_limited', 429, {
+            reason: 'high_effort',
+            retryAfterSeconds: retryAfter,
+          });
+        };
         try {
-          highActorLimit = await wait(
+          const highActorLimit = await wait(
             dependencies.rateLimit({
               bucketKey: `ai_high_actor:${actor.actorId}:${workspaceId.data}`,
               windowSeconds: 3_600,
               maxCount: AI_ASSISTANT_LIMITS.highPerActorPerHour,
             }),
           );
-          highSiteDayLimit = await wait(
+          if (!highActorLimit.allowed) {
+            refuseHigh(highActorLimit.retryAfterSeconds);
+            return;
+          }
+          const highSiteDayLimit = await wait(
             dependencies.rateLimit({
               bucketKey: `ai_high_site_day:${workspaceId.data}`,
               windowSeconds: 86_400,
               maxCount: AI_ASSISTANT_LIMITS.highPerSitePerDay,
             }),
           );
+          if (!highSiteDayLimit.allowed) {
+            refuseHigh(highSiteDayLimit.retryAfterSeconds);
+            return;
+          }
         } catch (error) {
           dependencies.reportFailure(req, error);
           await refuseDisabled(res, req.id);
-          return;
-        }
-        if (!highActorLimit.allowed || !highSiteDayLimit.allowed) {
-          const retryAfter = Math.max(
-            highActorLimit.retryAfterSeconds,
-            highSiteDayLimit.retryAfterSeconds,
-          );
-          res.setHeader('retry-after', String(retryAfter));
-          sendDomainError(res, req.id, 'ai_rate_limited', 429, {
-            reason: 'high_effort',
-            retryAfterSeconds: retryAfter,
-          });
           return;
         }
       }

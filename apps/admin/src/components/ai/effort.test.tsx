@@ -488,7 +488,7 @@ describe('effort levels: after the answer', () => {
     fireEvent.click(await screen.findByRole('radio', { name: 'High' }));
     await ask('Hard question');
     const sentence =
-      'You have used High effort a lot in the last hour. Ask at Normal effort, or try again in 25 minutes.';
+      'High effort has reached its limit for now. Ask at Normal effort, or try again in 25 minutes.';
     expect(
       await within(screen.getByRole('log', { name: 'Conversation' })).findByText(sentence),
     ).toBeTruthy();

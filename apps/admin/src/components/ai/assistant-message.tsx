@@ -42,8 +42,8 @@ export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): strin
   switch (error) {
     case 'high_effort_limited':
       return retryAfterSeconds === undefined
-        ? 'You have used High effort a lot in the last hour. Ask at Normal effort, or try again later.'
-        : `You have used High effort a lot in the last hour. Ask at Normal effort, or try again in ${waitInWords(retryAfterSeconds)}.`;
+        ? 'High effort has reached its limit for now. Ask at Normal effort, or try again later.'
+        : `High effort has reached its limit for now. Ask at Normal effort, or try again in ${waitInWords(retryAfterSeconds)}.`;
     case 'effort_unavailable':
       return 'High effort is no longer offered on this site. Press Retry to ask at Normal effort.';
     case 'unavailable':

@@ -24,7 +24,7 @@ describe('waitInWords, the one rate-limit wait in words', () => {
       'Too many questions right now. Try again in 30 seconds.',
     );
     expect(aiErrorText('high_effort_limited', 3_600)).toBe(
-      'You have used High effort a lot in the last hour. Ask at Normal effort, or try again in about an hour.',
+      'High effort has reached its limit for now. Ask at Normal effort, or try again in about an hour.',
     );
     expect(aiErrorText('rate_limited')).toBe(
       'Too many questions right now. Wait a minute and then try again.',

@@ -358,9 +358,10 @@ never changes by itself; `buildAiChatRequest` adds `effort: 'high'` only when
 it is High and offered, and Retry asks a question again at its own level. A
 High answer's progress line reads _Thinking…_ from the server's progress part,
 and the answer carries a _High effort_ tag beside Copy and Retry, also from the
-stored `effort` after a reload. High's own rate limit reads "You have used
-High effort a lot in the last hour. Ask at Normal effort, or try again in N
-minutes."; a site that stopped offering High says so, its capabilities are
+stored `effort` after a reload. High's own rate limit (the member's hour is
+asked first and refuses alone, so a member past it never counts against the
+site's day) reads "High effort has reached its limit for now. Ask at Normal
+effort, or try again in N minutes."; a site that stopped offering High says so, its capabilities are
 fetched again (the control goes), and the question is asked again, at Normal,
 only on Retry. Settings → AI usage shows _High effort_ (On with its model, or
 Off) on the Assistant card, a _High effort turns_ tile and a _High_ column in

@@ -1818,6 +1818,29 @@ describe('effort levels (Normal and High)', () => {
     await normal.text();
   });
 
+  it("does not count a member past their own High limit against the site's daily High budget", async () => {
+    // One member retrying at High must not use up High for everyone on the site.
+    const hits: string[] = [];
+    await start(
+      appWith({
+        config: config({ highEffort: HIGH }),
+        rateLimit: async (input) => {
+          hits.push(input.bucketKey.split(':')[0] ?? '');
+          return input.bucketKey.startsWith('ai_high_actor:')
+            ? { allowed: false, retryAfterSeconds: 1_500 }
+            : { allowed: true, retryAfterSeconds: 0 };
+        },
+      }),
+    );
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await post(body({ effort: 'high', requestId: crypto.randomUUID() }));
+      expect(response.status).toBe(429);
+      await response.text();
+    }
+    expect(hits.filter((bucket) => bucket === 'ai_high_actor')).toHaveLength(3);
+    expect(hits.filter((bucket) => bucket === 'ai_high_site_day')).toHaveLength(0);
+  });
+
   it('keeps the generic refusal when a Normal limit is the one reached', async () => {
     await start(
       appWith({
