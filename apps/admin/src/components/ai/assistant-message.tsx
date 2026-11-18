@@ -2,6 +2,7 @@
 import type { AiActionDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { CheckIcon, CopyIcon, GaugeIcon } from 'lucide-react';
 import { Button } from '@gt-sales/ui';
 
@@ -17,22 +18,32 @@ import { AssistantAction } from './assistant-action';
 import { AssistantAutomation } from './assistant-automation';
 import { MessageAttachments } from './attachment-chip';
 
-/** "N minutes" (at least one) until High may be asked again. */
-function minutesUntil(seconds: number): string {
-  const minutes = Math.max(1, Math.ceil(seconds / 60));
-  return minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+/**
+ * A rate limit's wait (`retry-after`, in seconds) in plain words: seconds
+ * under a minute, whole minutes (rounded up) under an hour, then "about an
+ * hour" or "about N hours". The one helper every rate-limit sentence uses.
+ */
+export function waitInWords(seconds: number): string {
+  const wait = Math.max(1, Math.ceil(seconds));
+  if (wait < 60) return wait === 1 ? '1 second' : `${String(wait)} seconds`;
+  if (wait < 3_600) {
+    const minutes = Math.ceil(wait / 60);
+    return minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+  }
+  const hours = Math.round(wait / 3_600);
+  return hours <= 1 ? 'about an hour' : `about ${String(hours)} hours`;
 }
 
 /**
  * Plain language for each way an answer can fail. Never a provider detail.
- * `retryAfterSeconds` is High's own wait, when its limit refused the turn.
+ * `retryAfterSeconds` is a rate limit's wait, when the refusal said it.
  */
 export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): string {
   switch (error) {
     case 'high_effort_limited':
       return retryAfterSeconds === undefined
         ? 'You have used High effort a lot in the last hour. Ask at Normal effort, or try again later.'
-        : `You have used High effort a lot in the last hour. Ask at Normal effort, or try again in ${minutesUntil(retryAfterSeconds)}.`;
+        : `You have used High effort a lot in the last hour. Ask at Normal effort, or try again in ${waitInWords(retryAfterSeconds)}.`;
     case 'effort_unavailable':
       return 'High effort is no longer offered on this site. Press Retry to ask at Normal effort.';
     case 'unavailable':
@@ -42,7 +53,9 @@ export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): strin
     case 'denied':
       return 'You don’t have access to this site’s leads.';
     case 'rate_limited':
-      return 'Too many questions right now. Wait a minute and then try again.';
+      return retryAfterSeconds === undefined
+        ? 'Too many questions right now. Wait a minute and then try again.'
+        : `Too many questions right now. Try again in ${waitInWords(retryAfterSeconds)}.`;
     case 'cancelled':
       return 'Stopped.';
     case 'timeout':
@@ -96,6 +109,32 @@ function CopyAnswer({ text }: { text: string }) {
       )}
       {copied ? 'Copied' : 'Copy'}
     </Button>
+  );
+}
+
+/**
+ * A reloaded answer that prepared drafts (cards or automation proposals):
+ * they are not kept in the conversation, and whether the member confirmed
+ * one is not known here, so the line says what is true either way. The
+ * answer's own lead source, when it has one, is the place to check.
+ */
+function ExpiredDrafts({ message }: { message: AiAssistantMessage }) {
+  const one = message.expiredDrafts === 1;
+  const lead = message.sources.find((source) => source.kind === 'lead');
+  return (
+    <p className="text-xs text-muted-foreground">
+      {one
+        ? 'This answer prepared a draft. Drafts are not kept in the conversation: if you confirmed it, it was saved on the lead; if not, ask again.'
+        : 'This answer prepared drafts. Drafts are not kept in the conversation: if you confirmed them, they were saved on the lead; if not, ask again.'}
+      {lead !== undefined && lead.href.startsWith('/') && !lead.href.startsWith('//') ? (
+        <>
+          {' '}
+          <Link href={lead.href} className="underline underline-offset-2">
+            {`Open ${lead.label}`}
+          </Link>
+        </>
+      ) : null}
+    </p>
   );
 }
 
@@ -207,13 +246,7 @@ function AssistantAnswer({
           {aiErrorText(message.error ?? 'failed', message.retryAfterSeconds)}
         </p>
       ) : null}
-      {message.expiredDrafts ? (
-        <p className="text-xs text-muted-foreground">
-          {message.expiredDrafts === 1
-            ? 'The draft prepared in this answer is no longer available. Ask again for a fresh one.'
-            : 'The drafts prepared in this answer are no longer available. Ask again for fresh ones.'}
-        </p>
-      ) : null}
+      {message.expiredDrafts ? <ExpiredDrafts message={message} /> : null}
       <AssistantSources sources={message.sources} />
       {message.status === 'complete'
         ? message.automationProposals?.map((proposal) => (

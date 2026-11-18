@@ -103,7 +103,9 @@ describe('UI error mapping', () => {
     expect(uiErrorForBackendCode('permission_denied')).toBe('denied');
     expect(uiErrorForBackendCode('internal_error')).toBe('failed');
     expect(uiErrorForStreamCode('cancelled')).toBe('cancelled');
-    expect(uiErrorForStreamCode('provider_unavailable')).toBe('unavailable');
+    // D6: a provider failure is a failure, not "not available for this site".
+    expect(uiErrorForStreamCode('provider_unavailable')).toBe('failed');
+    expect(uiErrorForStreamCode('internal_error')).toBe('failed');
     // UI-10: a timeout and an over-budget turn get their own advice.
     expect(uiErrorForStreamCode('timeout')).toBe('timeout');
     expect(uiErrorForStreamCode('budget_exceeded')).toBe('too_long');
@@ -134,6 +136,28 @@ describe('stored conversations', () => {
       attachmentIds: [FILE_ID],
     });
     expect(aiChatRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it('says newConversation only for a first message, and never without a conversation', () => {
+    const base = { message: 'Hello', history: [], limits: LIMITS, requestId: REQUEST_ID };
+    const first = buildAiChatRequest({
+      ...base,
+      conversationId: CONVERSATION_ID,
+      newConversation: true,
+    }).request;
+    expect(first.newConversation).toBe(true);
+    expect(aiChatRequestSchema.safeParse(first).success).toBe(true);
+    expect(
+      buildAiChatRequest({ ...base, conversationId: CONVERSATION_ID }).request,
+    ).not.toHaveProperty('newConversation');
+    expect(
+      buildAiChatRequest({ ...base, conversationId: CONVERSATION_ID, newConversation: false })
+        .request,
+    ).not.toHaveProperty('newConversation');
+    // The memory-only request (an older backend) never carries it.
+    expect(buildAiChatRequest({ ...base, newConversation: true }).request).not.toHaveProperty(
+      'newConversation',
+    );
   });
 
   it('leaves attachmentIds out when there are no files (the schema refuses an empty list without a conversation)', () => {

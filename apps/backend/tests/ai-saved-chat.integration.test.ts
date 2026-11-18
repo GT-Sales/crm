@@ -266,12 +266,23 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
   let server: Server | undefined;
   let baseUrl: string;
 
-  /** A fresh request id per call unless one is given. */
+  /** The conversation ids a request has already named in this test. */
+  let named = new Set<string>();
+
+  /**
+   * A fresh request id per call unless one is given. As the admin does, the
+   * first request that names a conversation id says `newConversation: true`
+   * (the browser made the id) and later ones do not; a test may say otherwise.
+   */
   function chatBody(overrides: Record<string, unknown> = {}) {
+    const id = overrides['conversationId'];
+    const first = typeof id === 'string' && !named.has(id);
+    if (typeof id === 'string') named.add(id);
     return {
       requestId: crypto.randomUUID(),
       message: 'How many SIM orders?',
       history: [],
+      ...(first ? { newConversation: true } : {}),
       ...overrides,
     };
   }
@@ -459,6 +470,7 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       [`${OWNER}:${SITE}`, ['owner']],
       [`${VIEWER}:${SITE}`, ['viewer']],
     ]);
+    named = new Set();
     objects = new InMemoryR2DocumentStore();
     engine = createFakeEngine([{ chunks: ['You received ', '1 SIM order.'] }]);
     limiter = countingLimiter();
@@ -701,6 +713,83 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       expect(await storedRows(conversationId)).toHaveLength(AI_CHAT_LIMITS.maxConversationMessages);
     });
 
+    it('creates a conversation only for a first message, and never brings back a deleted one', async () => {
+      // An id this member has never had, without newConversation: nothing is created.
+      const unknown = crypto.randomUUID();
+      const stale = await chat('a', SITE, { ...chatBody(), conversationId: unknown });
+      expect(stale.status).toBe(404);
+      expect(stale.error?.error.code).toBe('conversation_not_found');
+      const [none] = await admin<{ count: number }[]>`
+        select count(*)::int as count from app.ai_conversations where id = ${unknown}
+      `;
+      expect(none?.count).toBe(0);
+      expect(
+        (
+          await chat('a', SITE, {
+            ...chatBody(),
+            conversationId: unknown,
+            newConversation: false,
+          })
+        ).status,
+      ).toBe(404);
+
+      // Asked into a conversation deleted in another tab: 404, not recreated.
+      const conversationId = crypto.randomUUID();
+      expect((await chat('a', SITE, chatBody({ conversationId }))).status).toBe(200);
+      expect(
+        (await call('a', 'DELETE', `/${SITE}/ai/conversations/${conversationId}`)).status,
+      ).toBe(200);
+      const after = await chat('a', SITE, chatBody({ conversationId, message: 'Still there?' }));
+      expect(after.status).toBe(404);
+      expect(after.error?.error.code).toBe('conversation_not_found');
+      expect(await storedRows(conversationId)).toEqual([]);
+    });
+
+    it('stores a title with a joined emoji whole, past the database check', async () => {
+      const conversationId = crypto.randomUUID();
+      const family = '👩\u200D👩\u200D👧\u200D👦';
+      const turn = await chat(
+        'a',
+        SITE,
+        chatBody({ conversationId, message: `Orders for ${family}` }),
+      );
+      expect(turn.status).toBe(200);
+      const [row] = await admin<{ title: string }[]>`
+        select title from app.ai_conversations where id = ${conversationId}
+      `;
+      expect(row?.title).toBe(`Orders for ${family}`);
+    });
+
+    it('goes on in the conversation a retried first message already created', async () => {
+      const conversationId = crypto.randomUUID();
+      const first = await chat('a', SITE, chatBody({ conversationId, message: 'First try' }));
+      expect(first.parts.find((part) => part.type === 'conversation')).toMatchObject({
+        created: true,
+      });
+      const retried = await chat('a', SITE, {
+        ...chatBody({ conversationId, message: 'First try, again' }),
+        newConversation: true,
+      });
+      expect(retried.status).toBe(200);
+      expect(retried.parts.find((part) => part.type === 'conversation')).toMatchObject({
+        conversationId,
+        created: false,
+      });
+      expect((await storedRows(conversationId)).map((row) => row.text)).toEqual([
+        'First try',
+        'You received 1 SIM order.',
+        'First try, again',
+        'You received 1 SIM order.',
+      ]);
+      // A colleague's id with newConversation is still not theirs to take.
+      const colleague = await chat('b', SITE, {
+        ...chatBody({ message: 'Mine now?' }),
+        conversationId,
+        newConversation: true,
+      });
+      expect(colleague.status).toBe(404);
+    });
+
     it('sends neither the conversation part nor done.messageId without conversationId, and stores nothing', async () => {
       const turn = await chat('a', SITE, chatBody());
       expect(turn.parts.some((part) => part.type === 'conversation')).toBe(false);
@@ -886,6 +975,8 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         expect(
           await conversations.beginTurn(other, {
             conversationId,
+            // Even asked to create it, a colleague's id is not theirs.
+            create: true,
             title: 'x',
             requestId: crypto.randomUUID(),
             text: 'Let me in',

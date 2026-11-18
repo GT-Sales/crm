@@ -335,8 +335,9 @@ export type AiHistoryMessage = z.infer<typeof aiHistoryMessageSchema>;
  * sends the signed `history` and nothing is stored. With `conversationId` (a
  * UUID the browser generates for a new chat) the server keeps the
  * conversation: `history` must be empty because the server replays its own
- * store, the conversation is created on its first message, and an id that is
- * someone else's answers `conversation_not_found`. `attachmentIds` are the
+ * store, the conversation is created by its first message (`newConversation:
+ * true`), and an id that is unknown or someone else's answers
+ * `conversation_not_found`. `attachmentIds` are the
  * member's own ready, unsent files for this message, and only for a stored
  * conversation. The cross-field rules are part of the schema, so the route's
  * parse refuses a breach as `invalid_request`.
@@ -364,6 +365,16 @@ export const aiChatRequestSchema = z
      * not offer it is `invalid_request` (`details.reason: 'effort_unavailable'`).
      */
     effort: aiEffortSchema.optional(),
+    /**
+     * True on the first message of a chat the browser made (its id is the
+     * browser's): the server creates the conversation under that id, or, for
+     * a retried first message whose conversation already exists, goes on in
+     * it. Absent or false, the conversation must already be this member's,
+     * else `conversation_not_found`, so a question asked in a tab whose
+     * conversation was deleted elsewhere never brings it back. Only beside
+     * `conversationId`.
+     */
+    newConversation: z.boolean().optional(),
   })
   .strict()
   .superRefine((request, context) => {
@@ -372,6 +383,13 @@ export const aiChatRequestSchema = z
         code: 'custom',
         path: ['history'],
         message: 'a stored conversation replays its own history',
+      });
+    }
+    if (request.newConversation !== undefined && request.conversationId === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['newConversation'],
+        message: 'a new conversation needs its id',
       });
     }
     if (request.attachmentIds !== undefined && request.conversationId === undefined) {

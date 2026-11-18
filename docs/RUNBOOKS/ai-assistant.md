@@ -193,7 +193,8 @@ A confirmed save may finish after closing the panel or New chat; these controls
 cannot undo a submitted write. The receipt persists across panel close/open,
 but all card state clears on Site/member changes or browser reload; so does
 the memory-only chat. A stored conversation comes back after a reload with its
-text, and its answers say their drafts are no longer available.
+text, and its answers say they prepared a draft that is not kept there (a
+confirmed one was saved on the lead).
 
 ## 8. Diagnosing
 
@@ -259,7 +260,7 @@ Stored conversations, attached files and the owner's usage page. Design:
    backend sees the tables and the saved chat switches itself on, with no
    redeploy or restart.
 3. Check, as a member of the site: the sidebar and Ctrl/Cmd K list **Ask AI**,
-   the side panel has **Open full page**, and a question asked on the page is
+   the side panel has **Open chat in full page**, and a question asked on the page is
    still there after a reload. In the SQL editor (counts only):
 
    ```sql

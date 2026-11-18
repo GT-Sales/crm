@@ -13,6 +13,7 @@ import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
 import type { DatabaseClient, TenantTransaction } from '@gt-sales/db';
 import {
   aiCapabilitiesResponseSchema,
+  aiConversationTitleSchema,
   aiUsageResponseSchema,
   apiErrorResponseSchema,
   aiWirePartSchema,
@@ -260,6 +261,27 @@ describe('names, titles and text', () => {
     expect(Array.from(conversationTitleFrom('é'.repeat(100)))).toHaveLength(60);
     expect(conversationTitleFrom('\u0007​')).toBe('New chat');
     expect(clipCharacters('😀😀😀', 2)).toBe('😀😀');
+  });
+
+  it('keeps joined emoji whole in a title, never splitting one at the clip', () => {
+    const family = '👩\u200D👩\u200D👧\u200D👦';
+    const heart = '❤\uFE0F';
+    expect(conversationTitleFrom(`Hello ${family} and ${heart}  there`)).toBe(
+      `Hello ${family} and ${heart} there`,
+    );
+    // Other format characters still go (a zero-width space is not a joiner).
+    expect(conversationTitleFrom('a\u200Bb')).toBe('a b');
+    // At the clip a joined emoji is kept whole or left out, never cut, and
+    // the title stays within 60 characters (code points, as the database counts).
+    const title = conversationTitleFrom(`${'x'.repeat(55)}${family}${family}`);
+    expect(title).toBe('x'.repeat(55));
+    expect(conversationTitleFrom(`${'x'.repeat(50)}${family}`)).toBe(`${'x'.repeat(50)}${family}`);
+    for (const text of [`${family.repeat(20)}`, `${'é'.repeat(59)}${family}`]) {
+      const clipped = conversationTitleFrom(text);
+      expect(Array.from(clipped).length).toBeLessThanOrEqual(60);
+      expect(clipped.endsWith('\u200D')).toBe(false);
+      expect(aiConversationTitleSchema.safeParse(clipped).success).toBe(true);
+    }
   });
 
   it('keeps a file’s staging upload beside its object, under the attachments prefix only', () => {

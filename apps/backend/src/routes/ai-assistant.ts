@@ -1062,6 +1062,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           // and, if it was stopped meanwhile, stores the stopped answer below.
           begun = await conversations.beginTurn(scope, {
             conversationId: body.conversationId,
+            create: body.newConversation === true,
             title: conversationTitleFrom(body.message),
             requestId: body.requestId,
             text: body.message,

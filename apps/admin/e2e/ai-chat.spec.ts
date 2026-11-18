@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { getAiConversationResponseSchema } from '@gt-sales/contracts';
 
 /**
  * Ask AI as a saved chat, over the real backend harness with its synthetic
@@ -149,3 +150,97 @@ for (const width of [375, 1440]) {
     await expect(page).toHaveURL(/\/w\/canadawide\/chat$/);
   });
 }
+
+const API = 'http://127.0.0.1:4100/api/v1/staff/workspaces/10000000-0000-4000-8000-0000000e2e01';
+const AUTH = {
+  authorization: `Bearer ${process.env['E2E_STAFF_BEARER'] ?? 'e2e-staff-session-owner'}`,
+};
+
+/** The conversation id in the address, once the first answer gave it one. */
+async function conversationIdOf(page: Page): Promise<string> {
+  await expect(page).toHaveURL(new RegExp(`/w/canadawide/chat/${UUID}$`));
+  return page.url().split('/').at(-1) ?? '';
+}
+
+test('a double-click on Send asks once and the answer is not stopped', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/w/canadawide/chat');
+  const composer = page.getByRole('textbox', { name: 'Ask a question' });
+  await composer.fill('How many leads are there? (double-click)');
+  await page.getByRole('button', { name: 'Send' }).dblclick();
+  const thread = page.getByRole('log', { name: 'Conversation' });
+  await expect(thread.getByText(/Synthetic model: \d+ leads checked in this site\./)).toBeVisible();
+  await expect(thread.getByText('Stopped.')).toHaveCount(0);
+  await expect(thread.getByText('How many leads are there? (double-click)')).toHaveCount(1);
+  const id = await conversationIdOf(page);
+  const stored = await page.request.get(`${API}/ai/conversations/${id}`, { headers: AUTH });
+  const outcomes = getAiConversationResponseSchema
+    .parse(await stored.json())
+    .messages.map((message) => message.outcome);
+  expect(outcomes).toEqual(['completed', 'completed']);
+  await page.request.delete(`${API}/ai/conversations/${id}`, { headers: AUTH });
+});
+
+test('a question asked into a conversation deleted elsewhere is not recreated', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/w/canadawide/chat');
+  const composer = page.getByRole('textbox', { name: 'Ask a question' });
+  await composer.fill('How many leads are there? (deleted elsewhere)');
+  await composer.press('Enter');
+  const thread = page.getByRole('log', { name: 'Conversation' });
+  await expect(thread.getByText(/Synthetic model: \d+ leads checked in this site\./)).toBeVisible();
+  const id = await conversationIdOf(page);
+  // Another tab deletes it.
+  expect(
+    (await page.request.delete(`${API}/ai/conversations/${id}`, { headers: AUTH })).status(),
+  ).toBe(200);
+  await composer.fill('Is it still there?');
+  await composer.press('Enter');
+  await expect(
+    page.getByRole('heading', { name: 'This conversation is not available' }),
+  ).toBeVisible();
+  await expect(thread.getByText(/Synthetic model/)).toHaveCount(0);
+  const after = await page.request.get(`${API}/ai/conversations/${id}`, { headers: AUTH });
+  expect(after.status()).toBe(404);
+});
+
+test('a reload right after sending shows the turn as stopped or answered, never a bare question', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/w/canadawide/chat');
+  const composer = page.getByRole('textbox', { name: 'Ask a question' });
+  await composer.fill('Slow test');
+  await composer.press('Enter');
+  const id = await conversationIdOf(page);
+  await page.reload();
+  const thread = page.getByRole('log', { name: 'Conversation' });
+  await expect(thread.getByText('Slow test', { exact: true })).toBeVisible();
+  // At once: the stopped turn with Retry (the stored stopped answer replaces it when read again).
+  await expect(thread.getByText('Stopped.')).toBeVisible({ timeout: 1_500 });
+  await expect(thread.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await page.request.delete(`${API}/ai/conversations/${id}`, { headers: AUTH });
+});
+
+test('a question asked is counted on Settings → AI usage', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/w/canadawide/chat');
+  const composer = page.getByRole('textbox', { name: 'Ask a question' });
+  await composer.fill('How many leads are there? (usage)');
+  await composer.press('Enter');
+  await expect(
+    page
+      .getByRole('log', { name: 'Conversation' })
+      .getByText(/Synthetic model: \d+ leads checked in this site\./),
+  ).toBeVisible();
+  const id = await conversationIdOf(page);
+  await page.goto('/w/canadawide/settings/ai-usage');
+  const totals = page.getByRole('region', { name: 'Totals' });
+  await expect(totals).toBeVisible();
+  const turns = totals.getByRole('heading', { name: 'Turns', exact: true }).locator('+ p');
+  await expect(turns).not.toHaveText('0');
+  await expect(page.getByRole('table', { name: /Ask AI usage per member/ })).toBeVisible();
+  await page.request.delete(`${API}/ai/conversations/${id}`, { headers: AUTH });
+});

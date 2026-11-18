@@ -1173,6 +1173,42 @@ describe('createBackendClient Ask AI stream', () => {
     expect(call?.signal?.aborted).toBe(true);
   });
 
+  it('hands on a refusal’s retry-after in seconds, and nothing without one', async () => {
+    const refusal = (headers: Record<string, string>) =>
+      streamClient(
+        () =>
+          new Response(
+            JSON.stringify({
+              error: { code: 'ai_rate_limited', message: 'Slow down.', requestId },
+            }),
+            { status: 429, headers: { 'content-type': 'application/json', ...headers } },
+          ),
+      ).client;
+    const caught = async (headers: Record<string, string>) => {
+      try {
+        await collect(refusal(headers).staff.askAi(UUID, request));
+      } catch (error) {
+        return error;
+      }
+      throw new Error('expected a refusal');
+    };
+    expect(await caught({ 'retry-after': '30' })).toMatchObject({
+      code: 'ai_rate_limited',
+      status: 429,
+      retryAfterSeconds: 30,
+    });
+    const unreadable: Record<string, string>[] = [
+      {},
+      { 'retry-after': 'soon' },
+      { 'retry-after': '-5' },
+    ];
+    for (const headers of unreadable) {
+      const error = await caught(headers);
+      if (!(error instanceof BackendError)) throw new Error('expected a BackendError');
+      expect(error.retryAfterSeconds, JSON.stringify(headers)).toBeUndefined();
+    }
+  });
+
   it('gives a High question the High whole-turn timeout and a Normal one the usual 90 s', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     try {

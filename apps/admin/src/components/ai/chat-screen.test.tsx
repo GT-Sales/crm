@@ -320,7 +320,7 @@ describe('Ask AI full page: availability', () => {
       // The header trigger stays (the page did not take over), and its panel has no full page link.
       fireEvent.click(await screen.findByRole('button', { name: 'Ask AI' }));
       const panel = screen.getByRole('dialog', { name: 'Ask AI' });
-      expect(within(panel).queryByRole('link', { name: 'Open full page' })).toBeNull();
+      expect(within(panel).queryByRole('link', { name: 'Open chat in full page' })).toBeNull();
       fireEvent.change(within(panel).getByRole('textbox', { name: 'Ask a question' }), {
         target: { value: 'First' },
       });
@@ -606,7 +606,7 @@ describe('Ask AI full page: a stored conversation', () => {
     expect(screen.getByRole('heading', { name: 'Mixed outcomes' })).toBeTruthy();
     expect(
       within(log).getByText(
-        'The drafts prepared in this answer are no longer available. Ask again for fresh ones.',
+        'This answer prepared drafts. Drafts are not kept in the conversation: if you confirmed them, they were saved on the lead; if not, ask again.',
       ),
     ).toBeTruthy();
     expect(
@@ -737,7 +737,7 @@ describe('Ask AI full page: a stored conversation', () => {
 });
 
 describe('Ask AI full page: losing access', () => {
-  it('access_lost clears the thread and the list, and the page says Ask AI is unavailable', async () => {
+  it('access_lost clears the thread and the list, and the page says the access changed', async () => {
     mocks.listAiConversations.mockResolvedValue(page([conversation(1, 'Private title')]));
     mocks.askAiAssistant.mockImplementation(() =>
       streamOf([
@@ -750,7 +750,7 @@ describe('Ask AI full page: losing access', () => {
     fireEvent.change(composer(), { target: { value: 'Private question' } });
     fireEvent.keyDown(composer(), { key: 'Enter' });
     expect(
-      await screen.findByRole('heading', { name: 'Ask AI is not available right now' }),
+      await screen.findByRole('heading', { name: 'Your access to this site changed' }),
     ).toBeTruthy();
     expect(screen.queryByText('Private words')).toBeNull();
     expect(screen.queryByText('Private question')).toBeNull();
@@ -1181,7 +1181,7 @@ describe('Ask AI side panel with stored conversations', () => {
     render(<PanelOnly />);
     fireEvent.click(await screen.findByRole('button', { name: 'Ask AI' }));
     const panel = screen.getByRole('dialog', { name: 'Ask AI' });
-    const full = within(panel).getByRole('link', { name: 'Open full page' });
+    const full = within(panel).getByRole('link', { name: 'Open chat in full page' });
     expect(full.getAttribute('href')).toBe(BASE);
     // No list and no attach control in the panel: it stays the quick-question surface.
     expect(within(panel).queryByRole('navigation')).toBeNull();
@@ -1194,7 +1194,7 @@ describe('Ask AI side panel with stored conversations', () => {
     const body = mocks.askAiAssistant.mock.calls[0]?.[2];
     expect(body?.conversationId).toMatch(UUID);
     expect(body?.history).toEqual([]);
-    const link = within(panel).getByRole('link', { name: 'Open full page' });
+    const link = within(panel).getByRole('link', { name: 'Open chat in full page' });
     expect(link.getAttribute('href')).toBe(`${BASE}/${body?.conversationId}`);
     // Opening the full page closes the panel but keeps the answer coming.
     link.addEventListener('click', (event) => event.preventDefault());

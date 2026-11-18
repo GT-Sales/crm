@@ -283,6 +283,29 @@ describe('aiChatRequestSchema with a stored conversation', () => {
   });
 });
 
+describe('aiChatRequestSchema and the first message of a new chat', () => {
+  it('takes newConversation only beside a conversation id', () => {
+    expect(
+      aiChatRequestSchema.parse(chat({ conversationId: CONVERSATION_ID, newConversation: true }))
+        .newConversation,
+    ).toBe(true);
+    expect(
+      aiChatRequestSchema.parse(chat({ conversationId: CONVERSATION_ID, newConversation: false }))
+        .newConversation,
+    ).toBe(false);
+    expect(aiChatRequestSchema.parse(chat({ conversationId: CONVERSATION_ID }))).not.toHaveProperty(
+      'newConversation',
+    );
+    for (const body of [
+      chat({ newConversation: true }),
+      chat({ newConversation: false }),
+      chat({ conversationId: CONVERSATION_ID, newConversation: 'yes' }),
+    ]) {
+      expect(aiChatRequestSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+});
+
 describe('the saved chat stream parts', () => {
   const conversationPart = {
     type: 'conversation',

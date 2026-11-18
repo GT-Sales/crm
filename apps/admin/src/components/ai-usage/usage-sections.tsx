@@ -8,6 +8,7 @@ import { Badge, Card, CardContent, cn } from '@gt-sales/ui';
 import { dateTimeLabel } from '../../lib/dates';
 import { BarList, percentFormat } from '../analytics/charts';
 import { failureReason } from './failure-reasons';
+import { ScrollEdge } from './scroll-edge';
 import { answerTime, attachmentKindsLabel, count, engineLabel, lastUsed } from './usage-format';
 
 export const HEAD_CELL = 'px-3 py-2 font-medium';
@@ -170,7 +171,7 @@ export function ModelsTable({
       {models.length === 0 ? (
         <p className="text-sm text-muted-foreground">No model answered in this period.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <ScrollEdge>
           <table className="w-full min-w-[820px] text-sm">
             <caption className="sr-only">{`Models that served Ask AI turns, last ${String(period)} days`}</caption>
             <thead>
@@ -240,7 +241,7 @@ export function ModelsTable({
               })}
             </tbody>
           </table>
-        </div>
+        </ScrollEdge>
       )}
     </section>
   );

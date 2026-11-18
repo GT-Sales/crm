@@ -74,6 +74,12 @@ export interface BuildChatRequestInput {
   conversationId?: string;
   /** The member's ready files for this message; only with `conversationId`. */
   attachmentIds?: readonly string[];
+  /**
+   * The first message of a chat this browser made, not yet acknowledged by
+   * the server: only then may the server create the conversation. Only with
+   * `conversationId`.
+   */
+  newConversation?: boolean;
 }
 
 export interface BuiltChatRequest {
@@ -185,6 +191,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         history: [],
         ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
         conversationId: input.conversationId,
+        ...(input.newConversation === true ? { newConversation: true } : {}),
         ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
         ...(high ? { effort: 'high' as const } : {}),
       },
@@ -254,8 +261,6 @@ export function uiErrorForStreamCode(code: string): AiUiError {
       return 'cancelled';
     case 'rate_limited':
       return 'rate_limited';
-    case 'provider_unavailable':
-      return 'unavailable';
     case 'access_lost':
       return 'denied';
     // UI-10: what the person can do differs, so the words do too.
@@ -274,7 +279,7 @@ export interface StreamAnswerInput {
   request: AiChatRequest;
   signal?: AbortSignal;
   onPart(part: AiStreamPart): void;
-  /** How long until High may be asked again, when its own limit refused the turn. */
+  /** How long to wait before asking again, when a rate limit refused the turn and said. */
   onRetryAfter?(seconds: number): void;
 }
 
@@ -315,11 +320,14 @@ export async function streamAnswer(input: StreamAnswerInput): Promise<AiUiError 
     if (error instanceof Error && error.name === 'TimeoutError') return 'timeout';
     if (errorKind(error) === 'offline') return 'offline';
     if (error instanceof BackendError) {
-      if (error.code === 'ai_rate_limited' && refusalReason(error) === 'high_effort') {
-        const seconds = error.details?.['retryAfterSeconds'];
-        if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0)
-          input.onRetryAfter?.(seconds);
-        return 'high_effort_limited';
+      if (error.code === 'ai_rate_limited' || error.code === 'rate_limited') {
+        // The wait: the response's retry-after, or High's own `details`.
+        const detail = error.details?.['retryAfterSeconds'];
+        const seconds =
+          error.retryAfterSeconds ??
+          (typeof detail === 'number' && Number.isFinite(detail) ? detail : undefined);
+        if (seconds !== undefined && seconds > 0) input.onRetryAfter?.(seconds);
+        if (refusalReason(error) === 'high_effort') return 'high_effort_limited';
       }
       if (error.code === 'invalid_request' && refusalReason(error) === 'effort_unavailable')
         return 'effort_unavailable';

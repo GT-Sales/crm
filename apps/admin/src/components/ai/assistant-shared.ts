@@ -10,8 +10,9 @@ import {
 } from 'react';
 import type { LeadType } from '@gt-sales/contracts';
 
+import { describeError } from '../../lib/error-text';
 import { aiErrorText } from './assistant-message';
-import type { AiMessage } from './assistant-provider';
+import type { AiMessage, AssistantCapabilities } from './assistant-provider';
 
 /**
  * What the side panel and the full page share, so the two surfaces type,
@@ -137,4 +138,59 @@ export function useConversationScroll(
   }, []);
 
   return { scrollRef, atBottom, onScroll, jumpToLatest, resetToBottom };
+}
+
+/**
+ * What the page and the panel say when Ask AI cannot be used here, by why:
+ * the sign-in expired (the sentence the rest of the CRM uses), the member's
+ * access changed (the access-removed wording), or the CRM could not say.
+ * Each offers Try again, which asks for the capabilities once more. Never a
+ * raw code.
+ */
+export function capabilityFailureText(
+  capabilities: Extract<AssistantCapabilities, { status: 'failed' }>,
+): { title: string; text: string } {
+  switch (capabilities.reason) {
+    case 'session':
+      return {
+        title: 'Your sign-in has expired',
+        text: describeError(capabilities.failure ?? 'invalid_session', 'use Ask AI'),
+      };
+    case 'access':
+      return {
+        title: 'Your access to this site changed',
+        text:
+          capabilities.failure === undefined
+            ? 'Your access to this site changed. Ask the owner if you need it back.'
+            : describeError(capabilities.failure, 'use Ask AI'),
+      };
+    case 'unavailable':
+      return {
+        title: 'Ask AI is not available right now',
+        text: 'The CRM could not say whether Ask AI is on for this site. Try again in a moment.',
+      };
+  }
+}
+
+/** A click on Stop this soon after the click that sent is the second half of a double-click. */
+export const STOP_GUARD_MS = 600;
+
+/**
+ * Keeps a double-click on Send from stopping the answer it started: Send
+ * turns into Stop in the same place, so the second click of a double-click
+ * lands on Stop. That click (a pointer click whose `detail`, the click count,
+ * is 2 or more) within `STOP_GUARD_MS` of the send is ignored. A single click
+ * on Stop, however soon, and a keyboard press (`detail` 0) are never held
+ * back, and nothing is disabled, so the button does not flicker.
+ */
+export function useStopGuard(now: () => number = Date.now) {
+  const sentAt = useRef(Number.NEGATIVE_INFINITY);
+  const markSent = useCallback(() => {
+    sentAt.current = now();
+  }, [now]);
+  const ignoreStop = useCallback(
+    (event: { detail: number }) => event.detail > 1 && now() - sentAt.current < STOP_GUARD_MS,
+    [now],
+  );
+  return { markSent, ignoreStop };
 }

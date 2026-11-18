@@ -1100,6 +1100,23 @@ describe('POST /workspaces/:id/ai/chat', () => {
     );
   });
 
+  it('lets the admin origin read retry-after on a refusal', async () => {
+    await start(appWith({ rateLimit: async () => ({ allowed: false, retryAfterSeconds: 42 }) }));
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer token',
+        'content-type': 'application/json',
+        origin: process.env['ADMIN_ORIGIN'] ?? 'http://localhost:3000',
+      },
+      body: JSON.stringify(body()),
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get('access-control-expose-headers')?.split(', ')).toContain(
+      'retry-after',
+    );
+  });
+
   it('holds each site to a daily turn ceiling beside the per-minute ones', async () => {
     const seen: RateLimitInput[] = [];
     const limiter = countingLimiter(seen);

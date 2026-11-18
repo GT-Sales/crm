@@ -395,6 +395,13 @@ function anySignal(signals: readonly AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
+/** A response's `retry-after` as whole seconds; undefined when absent or not a number of seconds. */
+function retryAfterOf(response: Response): number | undefined {
+  const raw = response.headers.get('retry-after');
+  if (raw === null || !/^\d{1,9}$/.test(raw.trim())) return undefined;
+  return Number(raw.trim());
+}
+
 export class BackendError extends Error {
   constructor(
     readonly code: ApiErrorCode | 'internal_error',
@@ -402,6 +409,8 @@ export class BackendError extends Error {
     readonly requestId: string,
     /** The envelope's `details` (for example `{ leadCount }` on `property_in_use`), when the backend sent any. */
     readonly details?: ErrorDetails,
+    /** The response's `retry-after`, in whole seconds, when it sent a readable one. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(code);
     this.name = 'BackendError';
@@ -982,6 +991,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           response.status,
           parsed.data.error.requestId,
           parsed.data.error.details,
+          retryAfterOf(response),
         );
       }
       throw new BackendError('internal_error', response.status, requestId);
@@ -1057,6 +1067,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           response.status,
           parsed.data.error.requestId,
           parsed.data.error.details,
+          retryAfterOf(response),
         );
       }
       throw new BackendError('internal_error', response.status, requestId);
@@ -1125,6 +1136,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           response.status,
           parsed.data.error.requestId,
           parsed.data.error.details,
+          retryAfterOf(response),
         );
       }
       throw new BackendError('internal_error', response.status, requestId);

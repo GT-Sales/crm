@@ -56,7 +56,7 @@ Access is rechecked **before every tool call** (`reauthorize` in
 `ai/tools.ts`, throwing `AssistantAccessRevokedError`) and **once more before the
 answer is released** (`routes/ai-assistant.ts`), which answers `access_lost` and
 stops. Text already streamed cannot be recalled; the UI clears the conversation
-on `access_lost`.
+on `access_lost` and says the member's access changed.
 
 ## 3. Reused reads, new queries, and side effects
 

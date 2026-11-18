@@ -50,7 +50,7 @@ import {
   deleteAiAttachment,
   getAiAttachmentLink,
 } from '../../lib/api';
-import { describeError } from '../../lib/error-text';
+import { describeError, errorKind } from '../../lib/error-text';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
 import { createAttachmentLinkCache, type AttachmentLinkCache } from './attachment-links';
 import {
@@ -152,6 +152,12 @@ export interface AiAssistantMessage {
   expiredDrafts?: number;
   /** The saved answer's id (`done.messageId`) in a stored conversation. */
   storedId?: string;
+  /**
+   * A reloaded conversation's last question had no stored answer yet (the
+   * page was reloaded while it was being written): shown as stopped until
+   * the stored answer is read again.
+   */
+  interrupted?: boolean;
   /** Answered at High effort: the quiet "High effort" tag, live and after a reload. */
   effort?: 'high';
   /** High's own limit refused this turn: seconds until it may be asked at High again. */
@@ -172,8 +178,37 @@ export interface AiActionView {
   error?: string;
 }
 
+/**
+ * Why Ask AI cannot be used here right now: the sign-in expired (`session`),
+ * the member's access to the site or to Ask AI was taken away (`access`), or
+ * the CRM could not say (`unavailable`: a failure or no connection).
+ */
+export type AssistantCapabilityFailure = 'session' | 'access' | 'unavailable';
+
 export type AssistantCapabilities =
-  { status: 'loading' } | { status: 'failed' } | { status: 'ready'; data: AiCapabilitiesResponse };
+  | { status: 'loading' }
+  | { status: 'failed'; reason: AssistantCapabilityFailure; failure?: unknown }
+  | { status: 'ready'; data: AiCapabilitiesResponse };
+
+/** The capabilities state of a failure, for `reason` (and the error, when there is one). */
+function failedCapabilities(
+  key: string,
+  reason: AssistantCapabilityFailure,
+  failure?: unknown,
+): CapabilitiesState {
+  return {
+    key,
+    value: { status: 'failed', reason, ...(failure === undefined ? {} : { failure }) },
+  };
+}
+
+/** Which failure an error is: an expired sign-in, lost access, or anything else. */
+export function capabilityFailureOf(error: unknown): AssistantCapabilityFailure {
+  const kind = errorKind(error);
+  if (kind === 'session') return 'session';
+  if (kind === 'permission') return 'access';
+  return 'unavailable';
+}
 
 export interface AssistantWorkspace {
   id: string;
@@ -346,6 +381,13 @@ export interface AssistantContextValue {
   retry(): void;
   /** The last answer may be asked again (failed, or stopped in a stored conversation). */
   canRetry: boolean;
+  /**
+   * The open stored conversation holds as many messages as it may: nothing
+   * more can be sent in it, and a new chat is the way on.
+   */
+  conversationFull: boolean;
+  /** Asks for capabilities again (after a failure the member can try to recover from). */
+  reloadCapabilities(): void;
   /** Why the last failed answer is not offered again, in plain words, when that needs saying. */
   retryNote?: string;
   conversations: AssistantConversations;
@@ -510,6 +552,34 @@ export function storedToMessage(row: AiStoredMessage): AiMessage {
     ...(row.expiredDrafts > 0 ? { expiredDrafts: row.expiredDrafts } : {}),
     ...high,
   };
+}
+
+/** The id of a reloaded conversation's interrupted-turn placeholder. */
+const INTERRUPTED_ID = 'interrupted-turn';
+
+/** How long after opening a conversation with an interrupted turn it is read once more. */
+export const INTERRUPTED_REREAD_MS = 2_000;
+
+/**
+ * A stored conversation whose last message is a question with no answer was
+ * read while that answer was still being written (a reload mid-answer): the
+ * turn is shown as stopped at once, with Retry, rather than as a bare
+ * question, until the stored answer is read.
+ */
+function withInterruptedTurn(messages: readonly AiMessage[]): AiMessage[] {
+  if (messages.at(-1)?.role !== 'user') return [...messages];
+  return [
+    ...messages,
+    {
+      id: INTERRUPTED_ID,
+      role: 'assistant',
+      text: '',
+      status: 'stopped',
+      sources: [],
+      accepted: true,
+      interrupted: true,
+    },
+  ];
 }
 
 /** The title the server gives a new conversation, until its own arrives: the opening words. */
@@ -733,7 +803,11 @@ export function AssistantProvider({
     [commitAttachments, sessionKey, workspace.id],
   );
 
-  /** The member lost access: everything private goes, as the memory-only panel always did. */
+  /**
+   * The member lost access (or their sign-in): everything private goes, as
+   * the memory-only panel always did. An open panel stays open, so it can say
+   * why (the capabilities' failure).
+   */
   const clearPrivate = useCallback(() => {
     generationRef.current += 1;
     loadGenerationRef.current += 1;
@@ -743,7 +817,6 @@ export function AssistantProvider({
     clearAttachments(false);
     commitSession(emptySession(sessionKey));
     commitList(() => emptyList());
-    setIsOpen(false);
   }, [clearAttachments, commitList, commitSession, sessionKey]);
 
   const clearPrivateRef = useRef(clearPrivate);
@@ -752,7 +825,7 @@ export function AssistantProvider({
   useEffect(() => {
     const requestGeneration = ++capabilitiesGenerationRef.current;
     if (accessToken.length === 0) {
-      setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+      setCapabilitiesState(failedCapabilities(sessionKey, 'session'));
       return;
     }
     let current = true;
@@ -763,7 +836,7 @@ export function AssistantProvider({
       },
       (error: unknown) => {
         if (!current || capabilitiesGenerationRef.current !== requestGeneration) return;
-        setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+        setCapabilitiesState(failedCapabilities(sessionKey, capabilityFailureOf(error), error));
         if (
           error instanceof BackendError &&
           [
@@ -903,6 +976,13 @@ export function AssistantProvider({
       abortRef.current = controller;
       // High only when the question is High and the site offers it now.
       const high = userMessage.effort === 'high' && efforts.includes('high');
+      // The first message of a chat this browser made, not yet acknowledged
+      // by the server: only it may create the conversation (a retry of it
+      // goes on in the one its first try made).
+      const fresh =
+        stored !== undefined &&
+        sessionRef.current.provisional === true &&
+        sessionRef.current.conversationId === stored.conversationId;
       const assistant: AiAssistantMessage = {
         id: nextMessageId(),
         role: 'assistant',
@@ -925,7 +1005,11 @@ export function AssistantProvider({
         ...(contextLeadId === undefined ? {} : { leadId: contextLeadId }),
         ...(stored === undefined
           ? {}
-          : { conversationId: stored.conversationId, attachmentIds: stored.attachmentIds }),
+          : {
+              conversationId: stored.conversationId,
+              attachmentIds: stored.attachmentIds,
+              ...(fresh ? { newConversation: true } : {}),
+            }),
         ...(userMessage.effort === undefined ? {} : { effort: userMessage.effort, efforts }),
       });
       setHistoryTrimmed(built.trimmed);
@@ -973,7 +1057,7 @@ export function AssistantProvider({
             if (part.type === 'error' && part.code === 'access_lost') {
               controller.abort();
               clearPrivateRef.current();
-              setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+              setCapabilitiesState(failedCapabilities(sessionKey, 'access'));
               return;
             }
             if (part.type === 'conversation') {
@@ -1025,7 +1109,28 @@ export function AssistantProvider({
         if (result === 'denied' || result === 'session_expired') {
           controller.abort();
           clearPrivateRef.current();
-          setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+          setCapabilitiesState(
+            failedCapabilities(sessionKey, result === 'session_expired' ? 'session' : 'access'),
+          );
+          return;
+        }
+        if (result === 'conversation_missing' && stored !== undefined && !fresh) {
+          // Asked into a conversation that is gone (deleted in another tab):
+          // nothing was recreated, and the stale thread must not look alive.
+          const current = sessionRef.current;
+          if (current.conversationId === stored.conversationId) {
+            commitSession({
+              key: sessionKey,
+              messages: [],
+              streaming: false,
+              conversationId: stored.conversationId,
+              load: { status: 'not_found' },
+            });
+          }
+          commitList((list) => ({
+            ...list,
+            items: list.items.filter((item) => item.id !== stored.conversationId),
+          }));
           return;
         }
         finalize(assistant.id, result);
@@ -1060,6 +1165,7 @@ export function AssistantProvider({
       accessToken,
       contextLeadId,
       applyPart,
+      commitList,
       commitSession,
       finalize,
       sessionKey,
@@ -1138,7 +1244,35 @@ export function AssistantProvider({
         : message,
     );
     commitSession({ ...current, messages, streaming: false });
-  }, [commitSession]);
+    // A first message stopped before the server named its conversation may
+    // still have been stored (with its stopped answer): ask once, a moment
+    // later, so the address, the heading and the list agree with the server.
+    const conversationId = current.conversationId;
+    if (current.provisional !== true || conversationId === undefined) return;
+    const key = sessionKey;
+    const timer = window.setTimeout(() => {
+      timersRef.current.delete(timer);
+      const still = () =>
+        sessionRef.current.key === key &&
+        sessionRef.current.provisional === true &&
+        sessionRef.current.conversationId === conversationId &&
+        !sessionRef.current.streaming;
+      if (!still()) return;
+      void getAiConversation(tokenRef.current, workspace.id, conversationId).then(
+        (response) => {
+          if (!still()) return;
+          commitSession({
+            ...sessionRef.current,
+            provisional: false,
+            title: response.conversation.title,
+          });
+          upsertConversation(response.conversation);
+        },
+        () => undefined,
+      );
+    }, INTERRUPTED_REFRESH_MS);
+    timersRef.current.add(timer);
+  }, [commitSession, sessionKey, upsertConversation, workspace.id]);
 
   const loadConversation = useCallback(
     (id: string) => {
@@ -1166,18 +1300,40 @@ export function AssistantProvider({
       void getAiConversation(tokenRef.current, workspace.id, id).then(
         (response) => {
           if (!isCurrent()) return;
+          const messages = withInterruptedTurn(response.messages.map(storedToMessage));
           commitSession({
             ...sessionRef.current,
-            messages: response.messages.map(storedToMessage),
+            messages,
             title: response.conversation.title,
             load: { status: 'idle' },
           });
+          if (messages.at(-1)?.role !== 'assistant' || messages.at(-1)?.id !== INTERRUPTED_ID)
+            return;
+          // Read once more a moment later: the stored answer (stopped, as
+          // the reload left it) usually arrives then. Never more than once.
+          const timer = window.setTimeout(() => {
+            timersRef.current.delete(timer);
+            const current = sessionRef.current;
+            if (!isCurrent() || current.streaming || current.messages.at(-1)?.id !== INTERRUPTED_ID)
+              return;
+            void getAiConversation(tokenRef.current, workspace.id, id).then(
+              (again) => {
+                const latest = sessionRef.current;
+                if (!isCurrent() || latest.streaming) return;
+                if (latest.messages.at(-1)?.id !== INTERRUPTED_ID) return;
+                if (again.messages.at(-1)?.role !== 'assistant') return;
+                commitSession({ ...latest, messages: again.messages.map(storedToMessage) });
+              },
+              () => undefined,
+            );
+          }, INTERRUPTED_REREAD_MS);
+          timersRef.current.add(timer);
         },
         (error: unknown) => {
           if (!isCurrent()) return;
           if (isAccessLoss(error)) {
             clearPrivateRef.current();
-            setCapabilitiesState({ key, value: { status: 'failed' } });
+            setCapabilitiesState(failedCapabilities(key, capabilityFailureOf(error), error));
             return;
           }
           if (error instanceof BackendError && error.code === 'conversation_not_found') {
@@ -1258,7 +1414,7 @@ export function AssistantProvider({
           if (listGenerationRef.current !== run || sessionRef.current.key !== key) return;
           if (isAccessLoss(error)) {
             clearPrivateRef.current();
-            setCapabilitiesState({ key, value: { status: 'failed' } });
+            setCapabilitiesState(failedCapabilities(key, capabilityFailureOf(error), error));
             return;
           }
           // A quiet refresh of rows already shown keeps them rather than an error wall.
@@ -1324,7 +1480,7 @@ export function AssistantProvider({
         if (listGenerationRef.current !== run || sessionRef.current.key !== key) return;
         if (isAccessLoss(error)) {
           clearPrivateRef.current();
-          setCapabilitiesState({ key, value: { status: 'failed' } });
+          setCapabilitiesState(failedCapabilities(key, capabilityFailureOf(error), error));
           return;
         }
         commitList((value) => ({
@@ -1373,7 +1529,7 @@ export function AssistantProvider({
         if (sessionRef.current.key !== key) return;
         if (isAccessLoss(error)) {
           clearPrivateRef.current();
-          setCapabilitiesState({ key, value: { status: 'failed' } });
+          setCapabilitiesState(failedCapabilities(key, capabilityFailureOf(error), error));
           return;
         }
         // Back to the old title, unless something renamed it again meanwhile.
@@ -1411,7 +1567,7 @@ export function AssistantProvider({
         }
         if (isAccessLoss(error)) {
           clearPrivateRef.current();
-          setCapabilitiesState({ key, value: { status: 'failed' } });
+          setCapabilitiesState(failedCapabilities(key, capabilityFailureOf(error), error));
           return { ok: false, message: describeError(error, 'delete the conversation') };
         }
         return { ok: false, message: describeError(error, 'delete the conversation') };
@@ -1492,7 +1648,7 @@ export function AssistantProvider({
           if (!alive()) return;
           if (isAccessLoss(error)) {
             clearPrivateRef.current();
-            setCapabilitiesState({ key, value: { status: 'failed' } });
+            setCapabilitiesState(failedCapabilities(key, capabilityFailureOf(error), error));
             return;
           }
           patchAttachment(localId, {
@@ -1603,6 +1759,13 @@ export function AssistantProvider({
         );
         return true;
       }
+      // A conversation at its message limit takes no more (the server would refuse it).
+      if (
+        current.conversationId !== undefined &&
+        current.messages.filter((message) => message.id !== INTERRUPTED_ID).length >=
+          AI_CHAT_LIMITS.maxConversationMessages
+      )
+        return false;
       const pending = options?.withAttachments === true ? attachmentsRef.current.items : [];
       if (pending.some((item) => item.status === 'uploading')) return false;
       const ready = pending.flatMap((item) =>
@@ -1666,6 +1829,17 @@ export function AssistantProvider({
       workspace.id,
     ],
   );
+
+  const conversationFull =
+    storesConversations &&
+    activeSession.conversationId !== undefined &&
+    activeSession.messages.filter((message) => message.id !== INTERRUPTED_ID).length >=
+      AI_CHAT_LIMITS.maxConversationMessages;
+
+  const reloadCapabilities = useCallback(() => {
+    setCapabilitiesState({ key: sessionKey, value: { status: 'loading' } });
+    setCapabilitiesReload((count) => count + 1);
+  }, [sessionKey]);
 
   const { canRetry, note: retryNote } = retryState(
     activeSession.messages,
@@ -1809,7 +1983,7 @@ export function AssistantProvider({
             return;
           if (isAccessLoss(error)) {
             clearPrivateRef.current();
-            setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+            setCapabilitiesState(failedCapabilities(sessionKey, capabilityFailureOf(error), error));
             return;
           }
           updateAction(messageId, actionId, {
@@ -1856,7 +2030,7 @@ export function AssistantProvider({
             return;
           if (isAccessLoss(error)) {
             clearPrivateRef.current();
-            setCapabilitiesState({ key: sessionKey, value: { status: 'failed' } });
+            setCapabilitiesState(failedCapabilities(sessionKey, capabilityFailureOf(error), error));
             return;
           }
           const gate =
@@ -1996,6 +2170,8 @@ export function AssistantProvider({
       stop,
       retry,
       canRetry,
+      conversationFull,
+      reloadCapabilities,
       ...(retryNote === undefined ? {} : { retryNote }),
       updateAutomationCard,
       reviseAction,
@@ -2017,6 +2193,8 @@ export function AssistantProvider({
       activeSession,
       attachments,
       canRetry,
+      conversationFull,
+      reloadCapabilities,
       retryNote,
       capabilities,
       chatPages,

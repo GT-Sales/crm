@@ -18,10 +18,13 @@ import { useAssistant } from './assistant-provider';
 import { EffortControl, HIGH_EFFORT_HINT } from './effort-control';
 import {
   announcementFor,
+  capabilityFailureText,
   suggestionsFor,
   useComposerKeys,
   useConversationScroll,
+  useStopGuard,
 } from './assistant-shared';
+import { ComposerNotes, keptDraft } from './composer-notes';
 
 export function AssistantPanel() {
   const {
@@ -48,7 +51,11 @@ export function AssistantPanel() {
     workspaceSlug,
     handOffToChatPage,
     effort,
+    conversationFull,
+    reloadCapabilities,
   } = useAssistant();
+  const stopGuard = useStopGuard();
+  const [clipped, setClipped] = useState(false);
   const isMobile = useIsMobile();
   const composerId = useId();
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -69,7 +76,7 @@ export function AssistantPanel() {
   const retryId = canRetry && last !== undefined ? last.id : undefined;
   // A stored conversation still loading (or gone) takes no question yet.
   const load = conversations.load;
-  const ready = available && load.status === 'idle';
+  const ready = available && load.status === 'idle' && !conversationFull;
   const fullPageHref = `/w/${workspaceSlug}/chat${
     conversations.activeId === undefined ? '' : `/${conversations.activeId}`
   }`;
@@ -93,13 +100,16 @@ export function AssistantPanel() {
     if (!ready || streaming) return;
     const text = draft.trim();
     if (text.length === 0) return;
+    stopGuard.markSent();
     send(text);
     setDraft('');
+    setClipped(false);
     composerRef.current?.focus();
   }
 
   function ask(question: string): void {
     if (!ready || streaming) return;
+    stopGuard.markSent();
     send(question);
     composerRef.current?.focus();
   }
@@ -112,7 +122,9 @@ export function AssistantPanel() {
     composerRef.current?.focus();
   }
 
-  function stopStreaming(): void {
+  function stopStreaming(event: { detail: number }): void {
+    // The second click of a double-click on Send lands here: not a Stop.
+    if (stopGuard.ignoreStop(event)) return;
     focusComposerAfterStream.current = true;
     stop();
   }
@@ -151,8 +163,8 @@ export function AssistantPanel() {
         <Button asChild variant="ghost" size="icon" className="size-7">
           <Link
             href={fullPageHref}
-            aria-label="Open full page"
-            title="Open full page"
+            aria-label="Open chat in full page"
+            title="Open chat in full page"
             onClick={handOffToChatPage}
           >
             <Maximize2Icon aria-hidden="true" className="size-3.5" />
@@ -184,7 +196,17 @@ export function AssistantPanel() {
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
       onScroll={onScroll}
     >
-      {load.status === 'loading' ? (
+      {capabilities.status === 'failed' ? (
+        <div className="flex flex-col items-start gap-2">
+          <h2 className="text-sm font-semibold">{capabilityFailureText(capabilities).title}</h2>
+          <p role="alert" className="text-sm text-muted-foreground">
+            {capabilityFailureText(capabilities).text}
+          </p>
+          <Button type="button" size="sm" variant="outline" onClick={reloadCapabilities}>
+            Try again
+          </Button>
+        </div>
+      ) : load.status === 'loading' ? (
         <p className="text-sm text-muted-foreground">Opening the conversation…</p>
       ) : load.status === 'not_found' ? (
         <p className="text-sm text-muted-foreground">
@@ -272,6 +294,12 @@ export function AssistantPanel() {
           Older messages were omitted from this answer’s context.
         </p>
       ) : null}
+      <ComposerNotes
+        clipped={clipped}
+        maxChars={maxMessageChars}
+        full={conversationFull}
+        onNewChat={startNewChat}
+      />
       <label htmlFor={composerId} className="sr-only">
         Ask a question
       </label>
@@ -284,9 +312,11 @@ export function AssistantPanel() {
         placeholder="Ask about this site’s leads..."
         disabled={!ready || streaming}
         className="max-h-40 min-h-16 resize-none"
-        onChange={(event) =>
-          setDraft(Array.from(event.target.value).slice(0, maxMessageChars).join(''))
-        }
+        onChange={(event) => {
+          const kept = keptDraft(event.target.value, maxMessageChars);
+          setDraft(kept.text);
+          setClipped(kept.clipped);
+        }}
         {...composerKeys}
       />
       <div className="mt-2 flex items-center justify-between gap-2">

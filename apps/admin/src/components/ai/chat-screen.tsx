@@ -14,7 +14,7 @@ import {
 } from '@gt-sales/ui';
 
 import { useAssistant } from './assistant-provider';
-import { announcementFor, useConversationScroll } from './assistant-shared';
+import { announcementFor, capabilityFailureText, useConversationScroll } from './assistant-shared';
 import { ChatComposer, type ChatComposerHandle } from './chat-composer';
 import { ChatThread } from './chat-thread';
 import { ConversationList } from './conversation-list';
@@ -120,6 +120,7 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
     newChat,
     attachments,
     registerChatPage,
+    reloadCapabilities,
   } = assistant;
   const pathname = usePathname();
   const urlId = chatIdFromPath(pathname);
@@ -224,11 +225,13 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
 
   if (capabilities.status === 'loading') return <ChatSkeleton />;
   if (capabilities.status === 'failed') {
+    const { title, text } = capabilityFailureText(capabilities);
     return (
-      <Unavailable title="Ask AI is not available right now">
-        <p>
-          The CRM could not say whether Ask AI is on for this site. Reload the page to try again.
-        </p>
+      <Unavailable title={title}>
+        <p role="alert">{text}</p>
+        <Button type="button" variant="outline" className="mt-3" onClick={reloadCapabilities}>
+          Try again
+        </Button>
       </Unavailable>
     );
   }
@@ -375,7 +378,13 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
             moveTo(base, 'replace');
           }}
         />
-        <ChatComposer ref={composerRef} />
+        <ChatComposer
+          ref={composerRef}
+          onNewChat={() => {
+            startNewChat();
+            moveTo(base, 'replace');
+          }}
+        />
 
         {dragging ? (
           <div

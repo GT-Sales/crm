@@ -43,6 +43,7 @@ import { z } from 'zod';
 import { createAiChatDependenciesFromEnv } from '../../src/ai/chat-factory.js';
 import { DatabaseAiReadService } from '../../src/ai/read-service.js';
 import { DatabaseAiSiteContextStore } from '../../src/ai/site-context.js';
+import { DatabaseAiTurnStore } from '../../src/ai/turn-store.js';
 import { createFakeEngine, type AssistantEngine } from '../../src/ai/engine.js';
 import { InMemoryR2DocumentStore } from '@gt-sales/adapters';
 import { codePropertyCatalog, type FlowDraft } from '@gt-sales/contracts';
@@ -641,6 +642,9 @@ const app = createApp({
       siteContext: new DatabaseAiSiteContextStore(),
       engine: assistantEngine,
       rateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
+      // Each turn's usage row, as production writes it, so Settings → AI usage
+      // counts the journeys' questions (the reset above deletes them with the sites).
+      turns: new DatabaseAiTurnStore(),
       // The saved chat over the e2e database; no object store here, so uploads are off.
       chat: createAiChatDependenciesFromEnv(process.env),
     },

@@ -16,6 +16,7 @@ import { useResource } from '../../lib/use-resource';
 import { percentFormat } from '../analytics/charts';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { useStaffSession } from '../staff-session-provider';
+import { ScrollEdge } from './scroll-edge';
 import { UsageDaily } from './usage-daily';
 import { answerTime, count, lastUsed, totalTokens } from './usage-format';
 import {
@@ -267,7 +268,7 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
         {members.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nobody has used Ask AI in this period.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
+          <ScrollEdge>
             <table className="w-full min-w-[640px] text-sm">
               <caption className="sr-only">{`Ask AI usage per member, last ${String(usage.period)} days`}</caption>
               <thead>
@@ -333,7 +334,7 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollEdge>
         )}
       </section>
     </div>

@@ -67,6 +67,12 @@ export interface AiReplayMessage {
 
 export interface BeginAiTurnInput {
   readonly conversationId: string;
+  /**
+   * The request's `newConversation`: only then is a conversation created under
+   * `conversationId` (or, already this member's, gone on in: a retried first
+   * message). Otherwise an id the member does not have is `not_found`.
+   */
+  readonly create: boolean;
   /** The title a new conversation gets (`conversationTitleFrom`). */
   readonly title: string;
   /** The chat request's client id: the idempotency key of both rows. */
@@ -170,13 +176,35 @@ export interface AiConversationStore {
 /** Completed turns read back to build the replayed history (the newest are kept within the limits). */
 export const AI_HISTORY_SCAN_MESSAGES = 48;
 
-/** The first title of a conversation: its opening message's first 60 characters, on one line. */
+/** The most characters (code points, as the database counts them) of a first title. */
+const FIRST_TITLE_CHARS = 60;
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/**
+ * The first title of a conversation: its opening message's first 60
+ * characters, on one line. Control and format characters become spaces,
+ * except the zero-width joiner and the emoji variation selector, which hold a
+ * joined emoji together (👩‍👩‍👧‍👦, ❤️). The clip takes whole graphemes, so a
+ * joined emoji is kept whole or left out, never cut.
+ */
 export function conversationTitleFrom(message: string): string {
   const line = message
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (character) =>
+      // The joiner and the emoji variation selector stay: they hold an emoji together.
+      character === '\u200D' || character === '\uFE0F' ? character : ' ',
+    )
     .replace(/\s+/g, ' ')
     .trim();
-  const title = Array.from(line).slice(0, 60).join('').trim();
+  let title = '';
+  let characters = 0;
+  for (const { segment } of graphemes.segment(line)) {
+    const size = Array.from(segment).length;
+    if (characters + size > FIRST_TITLE_CHARS) break;
+    title += segment;
+    characters += size;
+  }
+  title = title.trim();
   return title.length > 0 ? title : 'New chat';
 }
 
@@ -487,15 +515,19 @@ export class DatabaseAiConversationStore implements AiConversationStore {
   async beginTurn(scope: TenantContext, input: BeginAiTurnInput): Promise<BeginAiTurnOutcome> {
     try {
       return await this.database.withTenantTx(scope, async (tx) => {
-        // Created on its first message under the browser's id. An id someone
-        // else holds is invisible here: the insert does nothing and the read
-        // below finds nothing, which answers exactly like an unknown id.
-        const inserted = await tx.execute<{ id: string }>(sql`
-          insert into app.ai_conversations (id, workspace_id, actor_id, title, last_message_at)
-          values (${input.conversationId}, ${scope.workspaceId}, ${scope.actorId}, ${withoutNul(input.title)}, now())
-          on conflict (id) do nothing
-          returning id
-        `);
+        // Created by its first message only (`create`), under the browser's
+        // id, so a question asked into a conversation deleted elsewhere never
+        // brings it back. An id someone else holds is invisible here: the
+        // insert does nothing and the read below finds nothing, which answers
+        // exactly like an unknown id.
+        const inserted = input.create
+          ? await tx.execute<{ id: string }>(sql`
+              insert into app.ai_conversations (id, workspace_id, actor_id, title, last_message_at)
+              values (${input.conversationId}, ${scope.workspaceId}, ${scope.actorId}, ${withoutNul(input.title)}, now())
+              on conflict (id) do nothing
+              returning id
+            `)
+          : [];
         // Locked, so two turns of one conversation count its messages in turn.
         const [conversation] = await tx.execute<{ id: string }>(sql`
           select c.id from app.ai_conversations c

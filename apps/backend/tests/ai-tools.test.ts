@@ -185,6 +185,21 @@ describe('getSiteOverview', () => {
     expect(data.byStage[0]?.stageLabel).toBe('Pending');
   });
 
+  it('names an all-time source in words, and keeps the bounds of a dated window', async () => {
+    const sources = new SourceRegistry({ workspaceSlug: 'getcanadasim', asOf: NOW });
+    const toolset = createAssistantTools(context({ sources }));
+    await toolset.execute('getSiteOverview', { leadType: 'sim_order', period: 'all_time' });
+    await toolset.execute('getSiteOverview', { period: 'all_time' });
+    await toolset.execute('getSiteOverview', { leadType: 'sim_order', period: 'last_7_days' });
+    const scopes = sources.list().map((source) => source.scope);
+    expect(scopes).toHaveLength(3);
+    for (const scope of scopes.slice(0, 2)) {
+      expect(scope).toContain('all time');
+      expect(scope).not.toMatch(/1970|\d{4}-\d{2}-\d{2}T/);
+    }
+    expect(scopes[2]).toMatch(/the last 7 days .* ≤ created < 2026-/);
+  });
+
   it('answers zero for a real lead type this site has no leads of yet', async () => {
     const toolset = createAssistantTools(context());
     const result = parse(await toolset.execute('getSiteOverview', { leadType: 'mobility' }));
