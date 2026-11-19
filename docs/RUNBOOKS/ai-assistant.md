@@ -123,16 +123,20 @@ group by outcome;
   text (from the browser session, or from the stored conversation, §12), the
   files the person attached to the conversation's messages within the per-turn
   limits (images and PDFs as bytes, text files as text), and the tool results (only the projected
-  fields listed in the design doc). No email, phone, address, SIN, passport,
-  or document value is in that set. Safe order fields are included; price in
-  CAD cents, payment and commission status require effective `financial.read`.
-  A user can type personal information in their own question, and requested
-  note excerpts can contain it; those texts are sent to the provider.
+  fields listed in the design doc, §6). No email, phone, address, SIN,
+  passport, document, mail body or hidden or sensitive property value is in
+  that set. Order money follows the lead page: price in CAD cents, payment and
+  commission status for the roles that see lead details, commission amounts
+  and revenue only with `revenue.view`. A user can type personal information
+  in their own question, and requested note excerpts and form or custom values
+  can contain it; those texts are sent to the provider.
 - **Kept by us:** in the memory-only chat no chat history (it lives in the
   browser tab's memory only); in a stored conversation the member's messages,
   the answers as streamed, their source cards and follow-ups
   (`app.ai_messages`) and the attached files (the `documents` bucket), until
-  the member deletes the conversation. No prompts, no tool payloads, no names
+  the member deletes the conversation, the member has been gone from the site
+  for 30 days, or (for the turns that name them) a customer's data is
+  restricted (§12, Removing a conversation). No prompts, no tool payloads, no names
   in normal logs. One allowlisted line per
   turn: request id, opaque site/actor ids, engine, model id, prompt version,
   outcome, duration, output tokens, tool/record/byte counts.
@@ -198,15 +202,19 @@ confirmed one was saved on the lead).
 
 ## 8. Diagnosing
 
-| Symptom                       | Check                                                                                                                                                           |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Button missing for everyone   | Capability: `available: false` → `disabled` (switch), `not_configured` (key/model), `site_not_enabled` (allowlist)                                              |
-| Button missing for one person | Their roles: the assistant needs a lead-detail action; Viewer/Content/Partners never see it                                                                     |
-| 429 / "too many questions"    | Per-actor (10/min), per-site (60/min) or per-site daily (500); see `retry-after`. Check `app.rate_limit_buckets` for `ai_actor:`/`ai_site:`/`ai_site_day:` keys |
-| 503 `ai_unavailable`          | Config incomplete, site not allowlisted, or the limiter could not be reached (the request is refused rather than bypassing the limit)                           |
-| "could not answer just now"   | Provider failure or timeout; check `ai_turn` outcome `failed`, then the Gateway status and the key's credit                                                     |
-| `access_lost`                 | The caller's membership changed during the turn; the panel clears. Expected, not a bug                                                                          |
-| Answers with no source cards  | The model answered without reading anything, or every read was empty; the prompt forbids invented facts — rephrase with a record reference                      |
+| Symptom                                                  | Check                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button missing for everyone                              | Capability: `available: false` → `disabled` (switch), `not_configured` (key/model, or `AI_ACTION_SIGNING_SECRET` set but shorter than 32: startup log `ai_signing_secret_invalid`), `site_not_enabled` (allowlist)                                                                                                                                                                              |
+| Button missing for one person                            | Their roles: the assistant needs a lead-detail action; Viewer/Content/Partners never see it                                                                                                                                                                                                                                                                                                     |
+| 429 / "too many questions"                               | Per-actor (10/min), per-site (60/min) or per-site daily (500); see `retry-after`. Check `app.rate_limit_buckets` for `ai_actor:`/`ai_site:`/`ai_site_day:` keys                                                                                                                                                                                                                                 |
+| 503 `ai_unavailable`                                     | Config incomplete, site not allowlisted, or the limiter could not be reached (the request is refused rather than bypassing the limit)                                                                                                                                                                                                                                                           |
+| "could not answer just now"                              | Provider failure or timeout; check `ai_turn` outcome `failed`, then the Gateway status and the key's credit                                                                                                                                                                                                                                                                                     |
+| Confirm refused with 429 `daily_changes` or `daily_mail` | The member confirmed 200 AI changes or 50 AI emails on this site today (`ai_card_day:` / `ai_mail_day:` keys in `app.rate_limit_buckets`, UTC days); expected. The card says when the cap opens (`details.retryAfterSeconds`) and offers no Retry save. A mail the mail cap refuses is not counted as a change. A 503 on Confirm with `ai_unavailable` can be the limiter itself (fails closed) |
+| Confirm or revise refused with 403 `card_not_permitted`  | The member still has Ask AI but may no longer make that change (a role or individual permission changed since the card was prepared): only the card is refused, the chat stays. A plain 403 `permission_denied` means Ask AI itself was taken away, and the panel clears                                                                                                                        |
+| Send refused with 409 and a `details.reason`             | `recipient_changed` (the customer's address), `sender_changed` (Settings → Email), `template_changed` (the template was saved again) or `text_changed` (what the template fills in from the lead): the card says which; ask for a fresh draft                                                                                                                                                   |
+| A revision refused with 503 `ai_unavailable`             | The names of the leads the first card was checked against for other customers could not be read; nothing changed, try again                                                                                                                                                                                                                                                                     |
+| `access_lost`                                            | The caller's membership changed during the turn; the panel clears. Expected, not a bug                                                                                                                                                                                                                                                                                                          |
+| Answers with no source cards                             | The model answered without reading anything, or every read was empty; the prompt forbids invented facts — rephrase with a record reference                                                                                                                                                                                                                                                      |
 
 ## 9. Kill switch and rollback
 
@@ -372,13 +380,36 @@ from when 0034 is applied. Top to bottom:
 | `attachment_rejected`                                         | `details.reason`: `type` (the bytes are not an accepted type of an enabled kind), `size` (over the kind's limit, or not the size announced), `empty`, `unreadable` (not strict UTF-8, a NUL, a checksum that does not match the bytes, or no upload found). The admin says it in plain words.                                                                                                                                                                                      |
 | A turn with an image or PDF fails                             | The model may not accept that input: `ai_turn` outcome `failed`. Drop the kind from `AI_ATTACHMENT_KINDS`.                                                                                                                                                                                                                                                                                                                                                                         |
 | The answer says a file was not available                      | More than 6 files or 15 MiB in the turn, a kind switched off, an object that could not be read, or the backend's memory budget for files was full at that moment. Expected, not a fault.                                                                                                                                                                                                                                                                                           |
+| "Today's file limit for Ask AI is used up."                   | The member sent 300 MiB of files to the model on this site today, earlier messages' files counted again on every turn (`ai_file_bytes:<member>:<site>` in `app.rate_limit_buckets`, one count per MiB, a UTC day). The turn still ran without its files; they are read again from the next UTC day. A limiter that cannot be reached also sends no file, without the line, and reports `ai_attachment_budget_unavailable` to the error tracker.                                    |
+| `409 conversation_limit_reached` on a new chat                | The member keeps 500 conversations on this site; the admin asks them to delete old chats. Their existing chats still take questions.                                                                                                                                                                                                                                                                                                                                               |
 
 ### Removing a conversation
 
 Only the member can delete a conversation, from the full page; no admin
 screen or route deletes another member's, the owner's included, and these
-runbooks document no database route for it. A removed member's conversations
-stay stored and unreachable. A customer's data erasure does not touch them.
+runbooks document no database route for it. Two things remove chats without
+the member, both from migration 0039 (docs/RUNBOOKS/database.md) and both
+skipped, never failed, until it is applied:
+
+- **A member who left the site.** Once someone has had no active membership
+  on a site for 30 days (`AI_DEPARTED_MEMBER_CHAT_DAYS`) and the conversation
+  is that old too, the scheduler's hourly `document_cleanup` deletes their
+  conversations there, files first. Added back within the 30 days, they find
+  their chats as they left them. A chat whose file cannot be deleted is kept
+  and tried again next hour. Nobody can open a departed member's chats in the
+  meantime.
+- **A customer's data erasure.** When a lead is restricted (the abandoned
+  draft erasure in `data_retention`), the same transaction empties, in every
+  member's chats on that site, each turn whose answer linked the lead or
+  whose text holds its order number (`MS-<n>`), both question and answer;
+  the admin shows "This message was removed because the customer's data was
+  erased." A title that came from such a question becomes "Chat with a
+  removed message". The turn's files are deleted by the next
+  `document_cleanup` (within the hour), objects first; until then they can
+  no longer be opened. A turn about a restricted lead is never sent to the
+  model again, even before the erasure has run. An answer that named a
+  customer without a source card and without the order number is not found
+  (docs/design/ai-chat.md §12).
 
 ### Log events
 
@@ -389,10 +420,23 @@ stay stored and unreachable. A customer's data erasure does not touch them.
   the site id and a count.
 - `ai_attachment_sweep_failed`: one site's sweep failed inside
   `document_cleanup`; the other sites and the documents' own cleanup go on.
+- `ai_chat_cleanup_failed`: one site's cleanup of erased turns' files and
+  departed members' chats failed inside `document_cleanup`; the rest goes on.
+  `document_cleanup`'s summary counts it under `aiChats` (`erasedFiles`,
+  `departedConversations`, `deletedObjects`, `failedDeletes`, `skippedSites`,
+  `failedSites`); `skippedSites` stays above 0 until 0039 is applied.
+- `ai_chat_erasure_function_missing`: a lead was restricted before 0039 was
+  applied, so its stored chat turns were not emptied (they are still never
+  replayed); applying 0039 empties them. With the site id only.
+- `ai_signing_secret_invalid` at startup: `AI_ACTION_SIGNING_SECRET` is set
+  but shorter than 32 characters, so Ask AI is off (`not_configured`) until
+  it is fixed (docs/ENV.md).
 - To the error tracker, beside the request's `internal_error` or
   `persistence_unavailable` line: `ai_turn_store_failed` (the member's message
   could not be stored; the request answers 500), `ai_answer_store_failed` (the
-  answer could not be stored; the member already has it), `ai_chat_route_failed`
+  answer could not be stored; the member already has it),
+  `ai_attachment_budget_unavailable` (the daily file budget could not be read;
+  the turn went without its files), `ai_chat_route_failed`
   and `ai_attachment_delete_failed` (a delete answered 503). A store code may
   end with `:<SQLSTATE>`; no code carries text, a title or a file name.
 

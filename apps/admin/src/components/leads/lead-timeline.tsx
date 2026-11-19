@@ -448,7 +448,7 @@ export function LeadTimeline({
                               ? memberName(approvingMember)
                               : actorName(activity.actorId, members)}
                           {activity.viaAi && !activity.automation ? (
-                            <span className="text-xs font-normal text-primary"> · via AI</span>
+                            <span className="text-xs font-normal text-primary"> · via Ask AI</span>
                           ) : null}
                         </span>{' '}
                       </>

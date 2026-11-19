@@ -27,14 +27,14 @@ import type { z } from 'zod';
 import type { ErrorDetails } from './common';
 
 import {
-  reviseAiActionRequestSchema,
-  aiActionProposalSchema,
-  type ReviseAiActionRequest,
-  type AiActionProposal,
-  confirmAiActionRequestSchema,
-  confirmAiActionResponseSchema,
-  type ConfirmAiActionRequest,
-  type ConfirmAiActionResponse,
+  reviseAiCardRequestSchema,
+  aiActionCardSchema,
+  type ReviseAiCardRequest,
+  type AiActionCard,
+  confirmAiCardRequestSchema,
+  confirmAiCardResponseSchema,
+  type ConfirmAiCardRequest,
+  type ConfirmAiCardResponse,
   AI_ASSISTANT_LIMITS,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
@@ -865,11 +865,12 @@ export interface BackendClient {
       workspaceId: string,
       body: AutomationZod.infer<typeof aiAutomationSimulateRequestSchema>,
     ): Promise<AiAutomationSimulation>;
-    reviseAiAction(workspaceId: string, body: ReviseAiActionRequest): Promise<AiActionProposal>;
+    /** An older proposal parses as a card; `wide` asks for the card in full. */
+    reviseAiAction(workspaceId: string, body: ReviseAiCardRequest): Promise<AiActionCard>;
     confirmAiAction(
       workspaceId: string,
-      body: ConfirmAiActionRequest,
-    ): Promise<ConfirmAiActionResponse>;
+      body: ConfirmAiCardRequest,
+    ): Promise<ConfirmAiCardResponse>;
     /**
      * Ask the assistant. Yields text, sources and confirmation proposals in order;
      * the caller aborts through `options.signal`. A rejected promise means the
@@ -1904,15 +1905,15 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
         call({
           method: 'POST',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/actions/revise`,
-          body: reviseAiActionRequestSchema.parse(body),
-          responseSchema: aiActionProposalSchema,
+          body: reviseAiCardRequestSchema.parse(body),
+          responseSchema: aiActionCardSchema,
         }),
       confirmAiAction: (workspaceId, body) =>
         call({
           method: 'POST',
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/actions/confirm`,
-          body: confirmAiActionRequestSchema.parse(body),
-          responseSchema: confirmAiActionResponseSchema,
+          body: confirmAiCardRequestSchema.parse(body),
+          responseSchema: confirmAiCardResponseSchema,
         }),
       aiCapabilities: (workspaceId) =>
         call({

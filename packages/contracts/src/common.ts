@@ -162,6 +162,9 @@ export const domainErrorCodeSchema = z.enum([
   // deployment with uploads switched off or no storage.
   'conversation_not_found',
   'conversation_full',
+  // `conversation_limit_reached` (409): a new conversation past the member's
+  // stored-conversation limit on the site (`AI_CHAT_LIMITS.maxConversationsPerActor`).
+  'conversation_limit_reached',
   'attachment_rejected',
   'attachments_unavailable',
   // A plain task (a task with no lead) asked of a database without migration

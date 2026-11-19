@@ -296,6 +296,8 @@ export interface LeadFilters {
   view?: LeadView;
   /** Only leads with an open task due on or before this calendar day. */
   dueBy?: string;
+  /** Only leads nobody who works leads has opened yet (the inbox's "New" badge). */
+  unopenedOnly?: boolean;
   /** Validated property filters combined with AND. */
   where?: readonly LeadPropertyFilter[];
   /** Validated sort string (`<field>:<asc|desc>`). */
@@ -576,6 +578,15 @@ function leadConditions(filters: LeadFilters): SQL {
         and due.lead_id = l.id
         and due.status in ('open', 'in_progress')
         and due.due_at < ${dueCutoff(filters.dueBy)}
+    )`);
+  }
+  if (filters.unopenedOnly) {
+    conditions.push(sql`not exists (
+      select 1 from app.lead_activities opened
+      where opened.workspace_id = l.workspace_id
+        and opened.lead_id = l.id
+        and opened.kind = 'system'
+        and opened.data ->> 'event' = 'opened'
     )`);
   }
   if (filters.search) {

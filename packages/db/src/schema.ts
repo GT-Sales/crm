@@ -2646,6 +2646,10 @@ export const aiMessages = appSchema
       // The effort level of the turn, on both of its rows; null for rows
       // written before 0037.
       effort: text('effort'),
+      // When the turn's text was removed because a customer it named had their
+      // data restricted or erased (0039, `app.erase_restricted_lead_ai_turns`);
+      // the row stays, empty, so the chat shows where it was.
+      erasedAt: timestamp('erased_at', { withTimezone: true, mode: 'date' }),
       // The clock, not the transaction's start: a turn's question and answer
       // are ordered by this time.
       createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })

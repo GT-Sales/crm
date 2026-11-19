@@ -56,3 +56,19 @@ the flow's switch itself and leaves it off, so it depends on no lead journey.
 It stays out of the serial lead journeys because a serial retry reruns the
 whole file against data the first pass already changed: one slow step there
 would fail journeys that cannot pass a second time.
+
+## Ask AI's wider cards (`zz-ai-wide-cards.spec.ts`)
+
+Included in `test:e2e:leads` (and kept out of the shell config). One journey
+per wider card kind, each ending in the app itself: a stage move with its
+dispatch or activation details (the card shows the default date as today and
+no unchanged detail), lead details (a card with nothing to type offers no
+Edit), task assignment and edit, a template email, archive and restore (the
+restore from the archived lead's own page), an automation switched off, an
+email naming another customer, a member whose role changes while a card is
+open (only the card is refused; the chat stays), and the wider reads. Every
+journey makes its own leads through the website's intake, and the file sorts
+last (`zz-`) so the lead counts the other suites assert are unchanged when it
+runs. Besides the session verifier the harness has a second token for the
+seeded colleague (Leads role) and one test-only route in front of the app,
+`POST /__e2e/colleague-role`, that changes that colleague's role on CanadaWide.

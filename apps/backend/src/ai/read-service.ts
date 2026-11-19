@@ -4,10 +4,22 @@ import {
   type DatabaseClient,
   type TenantTransaction,
 } from '@gt-sales/db';
-import { AI_ASSISTANT_LIMITS } from '@gt-sales/contracts';
+import {
+  AI_ASSISTANT_LIMITS,
+  type LeadPropertyFilter,
+  type LeadStatus,
+  type LeadTypeCount,
+  type PropertyCatalog,
+} from '@gt-sales/contracts';
 import { sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  selectLeadPage,
+  selectLeadSummary,
+  selectLeadWithWork,
+  type LeadWithWork,
+} from '../leads/staff-queries.js';
 import { loadPropertyCatalog } from '../properties/catalog.js';
 import type { Scope } from '../tenant-scope.js';
 import {
@@ -51,8 +63,24 @@ export interface FindLeadsQuery {
   readonly stage?: string;
   readonly assignee?: 'me' | 'none' | string;
   readonly archived?: boolean;
+  /** `incomplete` drafts or `submitted` leads only. */
+  readonly status?: LeadStatus;
+  /** Only leads nobody has opened yet (the inbox's New badge). */
+  readonly unopenedOnly?: boolean;
+  /** Only leads with an open task due on or before this calendar day. */
+  readonly dueBy?: string;
+  /** Property filters, already checked against the site's catalogue by the caller. */
+  readonly where?: readonly LeadPropertyFilter[];
+  /** The catalogue `where` was checked against; read again when absent. */
+  readonly catalog?: PropertyCatalog;
   readonly limit: number;
   readonly offset: number;
+}
+
+/** The inbox's counters: per type its active and unopened leads and follow-ups due, and the archive. */
+export interface InboxCounts {
+  readonly types: readonly LeadTypeCount[];
+  readonly archived: number;
 }
 
 export interface LeadPage {
@@ -66,6 +94,24 @@ export interface LeadSummaryQuery {
   readonly includeNotes?: boolean;
   readonly includeArchived?: boolean;
   readonly includeFinancial?: boolean;
+  /** A frozen plan's commission too (`revenue.view`). */
+  readonly includeCommission?: boolean;
+  /** The lead page's own read (`selectLeadWithWork`): timeline, documents, change request, values. */
+  readonly includeRecord?: boolean;
+}
+
+/** The lead page as the staff route reads it, plus the site's names for its timeline. */
+export interface LeadRecordRows {
+  readonly work: LeadWithWork;
+  readonly catalog: PropertyCatalog;
+  /** Display names of the site's members by actor id, for the timeline's people. */
+  readonly names: ReadonlyMap<string, string | null>;
+  /**
+   * Entries of an older kind the lead page's contract does not list (`call`,
+   * `email`, `merge`): the page reads them as neutral system entries, so
+   * their own kind is kept here, by entry id, to name them in words.
+   */
+  readonly legacyKinds: ReadonlyMap<string, string>;
 }
 
 export interface ActivityRow {
@@ -82,6 +128,8 @@ export interface LeadSummaryRows {
   readonly activity: readonly ActivityRow[];
   /** The most recent notes, only when the caller asked for the notes section. */
   readonly notes: readonly ActivityRow[];
+  /** Only with `includeRecord`. */
+  readonly record?: LeadRecordRows;
 }
 
 export interface OpenTasksQuery {
@@ -91,6 +139,8 @@ export interface OpenTasksQuery {
   readonly status?: 'active' | 'open' | 'in_progress' | 'done' | 'cancelled';
   /** Only tasks whose title holds this text (case-insensitive; `%` and `_` taken literally). */
   readonly titleContains?: string;
+  /** Only tasks completed at or after this instant (the start of a calendar day, UTC). */
+  readonly completedSince?: Date;
   readonly limit: number;
   readonly offset: number;
 }
@@ -108,6 +158,29 @@ export interface AiReadService {
   openTasks(scope: Scope, query: OpenTasksQuery): Promise<TaskPage>;
   /** A validated hint for the lead the page has open; never trusted as a read. */
   leadHint(scope: Scope, leadId: string): Promise<LeadHint | undefined>;
+  /** The site's lead property catalogue, to check property filters against. */
+  siteCatalog?(scope: Scope): Promise<PropertyCatalog>;
+  /** The inbox's counters, read by the staff summary's own query. */
+  inboxCounts?(scope: Scope, dueBy: string): Promise<InboxCounts>;
+  /**
+   * A reference and name for each active, unrestricted lead of these ids, for
+   * reads whose own rows name a lead by "name, else email" (the sent box, the
+   * review queue): the model gets the lead's reference and name, never an
+   * address. A lead not returned is not available.
+   */
+  leadLabels?(scope: Scope, leadIds: readonly string[]): Promise<Map<string, LeadHint>>;
+  /**
+   * B1: the real name and reference of each of these leads (at most 100), an
+   * archived one included, for the mention check alone; never sent to the
+   * model. A restricted or gone lead is not returned. A failure throws, and
+   * the card or revision that needed it is refused.
+   */
+  mentionLabels?(
+    scope: Scope,
+    leadIds: readonly string[],
+  ): Promise<Map<string, { name: string | null; reference: string | null }>>;
+  /** Display names of the site's active members by actor id. */
+  memberNames?(scope: Scope): Promise<Map<string, string | null>>;
 }
 
 export interface LeadHint {
@@ -116,6 +189,8 @@ export interface LeadHint {
   readonly stage: string;
   readonly reference: string | null;
   readonly name: string | null;
+  /** When the lead was received: a card's label names it (B5). */
+  readonly createdAt?: Date;
 }
 
 const leadHintRowSchema = z.object({
@@ -124,6 +199,7 @@ const leadHintRowSchema = z.object({
   stage: z.string().min(1),
   external_ref: z.string().nullable(),
   full_name: z.string().nullable(),
+  created_at: z.coerce.date().optional(),
 });
 
 type ReadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
@@ -161,17 +237,63 @@ function assigneeJoin(): SQL {
 
 const countRowSchema = z.object({ total: z.int().nonnegative() });
 
-/**
- * The exact total for the same cohort a page selected, used only when the page
- * itself is empty (an offset past the end) and the window count is unavailable.
- */
-async function countLeads(tx: TenantTransaction, conditions: SQL[]): Promise<number> {
-  const [row] = await tx.execute<{ [key: string]: unknown }>(sql`
-    select count(*)::int as total
-    from app.leads l
-    where ${sql.join(conditions, sql` and `)}
+const legacyKindRowSchema = z.object({ id: z.uuid(), kind: z.string().min(1) });
+
+/** The lead's timeline entries of a kind the contract does not list, by id (bounded as the page is). */
+async function legacyActivityKinds(
+  tx: TenantTransaction,
+  leadId: string,
+): Promise<Map<string, string>> {
+  const rows = await tx.execute<{ [key: string]: unknown }>(sql`
+    select a.id, a.kind
+    from app.lead_activities a
+    where a.workspace_id = ${contextWorkspaceId}
+      and a.lead_id = ${leadId}
+      and a.kind not in ('note', 'status_change', 'assignment', 'edit', 'document', 'system')
+    order by a.created_at desc, a.id desc
+    limit 500
   `);
-  return countRowSchema.parse(row).total;
+  return new Map(
+    rows.map((row) => {
+      const parsed = legacyKindRowSchema.parse(row);
+      return [parsed.id, parsed.kind];
+    }),
+  );
+}
+
+const memberNameRowSchema = z.object({ user_id: z.uuid(), display_name: z.string().nullable() });
+
+/**
+ * Display names of this site's active members, by actor id: the `ids` given,
+ * or every member when `ids` is undefined (a lead's timeline names people who
+ * may be anyone on the site). Bounded by the site's membership.
+ */
+async function memberNames(
+  tx: TenantTransaction,
+  ids?: readonly string[],
+): Promise<Map<string, string | null>> {
+  if (ids !== undefined && ids.length === 0) return new Map();
+  const filter =
+    ids === undefined
+      ? sql`true`
+      : sql`m.user_id in (${sql.join(
+          [...new Set(ids)].map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`;
+  const rows = await tx.execute<{ [key: string]: unknown }>(sql`
+    select m.user_id, m.display_name
+    from app.memberships m
+    where m.workspace_id = ${contextWorkspaceId}
+      and m.status = 'active'
+      and ${filter}
+    limit 500
+  `);
+  return new Map(
+    rows.map((row) => {
+      const parsed = memberNameRowSchema.parse(row);
+      return [parsed.user_id, parsed.display_name];
+    }),
+  );
 }
 
 export class DatabaseAiReadService implements AiReadService {
@@ -242,49 +364,65 @@ export class DatabaseAiReadService implements AiReadService {
     });
   }
 
+  /**
+   * The inbox's own page query (`selectLeadPage`, the staff `GET /leads`
+   * route's), inside this read-only, time-limited tenant transaction; its
+   * rows are narrowed here to the AI's lead row, the assignee's name read
+   * from the active memberships as the other reads do.
+   */
   findLeads(scope: Scope, query: FindLeadsQuery): Promise<LeadPage> {
-    const conditions: SQL[] = [
-      sql`l.workspace_id = ${contextWorkspaceId}`,
-      sql`l.customer_data_restricted_at is null`,
-      query.archived ? sql`l.deleted_at is not null` : sql`l.deleted_at is null`,
-    ];
-    if (query.leadType !== undefined) conditions.push(sql`l.lead_type = ${query.leadType}`);
-    if (query.stage !== undefined) conditions.push(sql`l.stage = ${query.stage}`);
-    if (query.search !== undefined) {
-      const pattern = likePattern(query.search);
-      conditions.push(
-        sql`(l.full_name ilike ${pattern} or l.external_ref ilike ${pattern} or l.email ilike ${pattern} or l.phone ilike ${pattern})`,
-      );
-    }
-    if (query.assignee === 'me') {
-      conditions.push(sql`l.assigned_actor_id = ${scope.actorId}`);
-    } else if (query.assignee === 'none') {
-      conditions.push(sql`l.assigned_actor_id is null`);
-    } else if (query.assignee !== undefined) {
-      conditions.push(sql`l.assigned_actor_id = ${query.assignee}`);
-    }
-
     return this.read(scope, async (tx) => {
-      const rows = await tx.execute<{ [key: string]: unknown }>(sql`
-        select
-          l.id, l.lead_type, l.stage, l.status, l.external_ref, l.full_name,
-          m.display_name as assignee_name,
-          l.created_at, l.updated_at, l.deleted_at,
-          count(*) over ()::int as total
-        from app.leads l
-        ${assigneeJoin()}
-        where ${sql.join(conditions, sql` and `)}
-        order by l.updated_at desc, l.id
-        limit ${query.limit} offset ${query.offset}
-      `);
-      const total = rows[0]?.['total'];
-      if (typeof total === 'number') {
-        return { rows: rows.map((row) => leadRowSchema.parse(row)), total };
-      }
-      // An offset past the last row returns no page, so the window count is
-      // gone with it; count the same cohort directly rather than reporting 0.
-      return { rows: [], total: await countLeads(tx, conditions) };
+      const catalog = query.catalog ?? (await loadPropertyCatalog(tx, 'lead', {}));
+      const page = await selectLeadPage(
+        tx,
+        {
+          workspaceId: scope.workspaceId,
+          actorId: scope.actorId,
+          view: query.archived === true ? 'archived' : 'active',
+          ...(query.status === undefined ? {} : { status: query.status }),
+          ...(query.leadType === undefined ? {} : { leadType: query.leadType }),
+          ...(query.stage === undefined ? {} : { stage: query.stage }),
+          ...(query.assignee === undefined ? {} : { assignee: query.assignee }),
+          ...(query.search === undefined ? {} : { search: query.search }),
+          ...(query.dueBy === undefined ? {} : { dueBy: query.dueBy }),
+          ...(query.unopenedOnly === true ? { unopenedOnly: true } : {}),
+          ...(query.where === undefined || query.where.length === 0 ? {} : { where: query.where }),
+          catalog,
+        },
+        Math.floor(query.offset / query.limit) + 1,
+        query.limit,
+      );
+      const names = await memberNames(
+        tx,
+        page.leads.flatMap((lead) => (lead.assignedActorId === null ? [] : [lead.assignedActorId])),
+      );
+      return {
+        rows: page.leads.map((lead) =>
+          leadRowSchema.parse({
+            id: lead.id,
+            lead_type: lead.leadType,
+            stage: lead.stage,
+            status: lead.status,
+            external_ref: lead.externalRef,
+            full_name: lead.contact.fullName ?? null,
+            assignee_name:
+              lead.assignedActorId === null ? null : (names.get(lead.assignedActorId) ?? null),
+            created_at: lead.createdAt,
+            updated_at: lead.updatedAt,
+            deleted_at: lead.deletedAt,
+          }),
+        ),
+        total: page.total,
+      };
     });
+  }
+
+  siteCatalog(scope: Scope): Promise<PropertyCatalog> {
+    return this.read(scope, (tx) => loadPropertyCatalog(tx, 'lead', {}));
+  }
+
+  inboxCounts(scope: Scope, dueBy: string): Promise<InboxCounts> {
+    return this.read(scope, (tx) => selectLeadSummary(tx, dueBy));
   }
 
   leadSummary(scope: Scope, query: LeadSummaryQuery): Promise<LeadSummaryRows | undefined> {
@@ -299,6 +437,8 @@ export class DatabaseAiReadService implements AiReadService {
             'quantity', l.order_details -> 'quantity',
             'dispatchedAt', l.order_details -> 'dispatchedAt',
             'activatedAt', l.order_details -> 'activatedAt',
+            'courier', l.order_details -> 'courier',
+            'commission', case when ${query.includeCommission === true} then l.order_details -> 'plan' -> 'commission' end,
             'priceMinor', case when ${query.includeFinancial === true} then l.order_details -> 'plan' -> 'priceMinor' end,
             'currency', case when ${query.includeFinancial === true} then l.order_details -> 'plan' -> 'currency' end,
             'paymentStatus', case when ${query.includeFinancial === true} then l.order_details -> 'paymentStatus' end,
@@ -321,6 +461,8 @@ export class DatabaseAiReadService implements AiReadService {
         quantity: 'quantity',
         dispatchedAt: 'dispatchedAt',
         activatedAt: 'activatedAt',
+        courier: 'courier',
+        commission: 'plan',
         priceMinor: 'plan',
         currency: 'plan',
         paymentStatus: 'paymentStatus',
@@ -331,6 +473,8 @@ export class DatabaseAiReadService implements AiReadService {
         'quantity',
         'dispatchedAt',
         'activatedAt',
+        'courier',
+        'commission',
         'priceMinor',
         'currency',
         'paymentStatus',
@@ -381,7 +525,23 @@ export class DatabaseAiReadService implements AiReadService {
           `)
         : [];
 
+      // The lead page's own read, for its timeline, documents, change request
+      // and values; projected for the model by the caller (lead-record.ts).
+      const work = query.includeRecord
+        ? await selectLeadWithWork(tx, scope.workspaceId, query.leadId, catalog)
+        : undefined;
+      const record =
+        work === undefined
+          ? undefined
+          : {
+              work,
+              catalog,
+              names: await memberNames(tx),
+              legacyKinds: await legacyActivityKinds(tx, query.leadId),
+            };
+
       return {
+        ...(record === undefined ? {} : { record }),
         lead: leadRowSchema.parse(leadRow),
         ...(Object.keys(order).length === 0 ? {} : { order }),
         truncated:
@@ -418,6 +578,8 @@ export class DatabaseAiReadService implements AiReadService {
     ];
     if (query.titleContains !== undefined)
       conditions.push(sql`t.title ilike ${likePattern(query.titleContains)}`);
+    if (query.completedSince !== undefined)
+      conditions.push(sql`t.completed_at >= ${query.completedSince.toISOString()}::timestamptz`);
     const order =
       status === 'done'
         ? sql`t.completed_at desc nulls last, t.id`
@@ -464,10 +626,70 @@ export class DatabaseAiReadService implements AiReadService {
     });
   }
 
+  leadLabels(scope: Scope, leadIds: readonly string[]): Promise<Map<string, LeadHint>> {
+    const ids = [...new Set(leadIds)].slice(0, 100);
+    if (ids.length === 0) return Promise.resolve(new Map());
+    return this.read(scope, async (tx) => {
+      const rows = await tx.execute<{ [key: string]: unknown }>(sql`
+        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name
+        from app.leads l
+        where l.workspace_id = ${contextWorkspaceId}
+          and l.id in (${sql.join(
+            ids.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})
+          and l.deleted_at is null
+          and l.customer_data_restricted_at is null
+      `);
+      const labels = new Map<string, LeadHint>();
+      for (const row of rows) {
+        const parsed = leadHintRowSchema.parse(row);
+        labels.set(parsed.id, {
+          leadId: parsed.id,
+          leadType: parsed.lead_type,
+          stage: parsed.stage,
+          reference: parsed.external_ref,
+          name: parsed.full_name,
+        });
+      }
+      return labels;
+    });
+  }
+
+  mentionLabels(
+    scope: Scope,
+    leadIds: readonly string[],
+  ): Promise<Map<string, { name: string | null; reference: string | null }>> {
+    const ids = [...new Set(leadIds)].slice(0, 100);
+    if (ids.length === 0) return Promise.resolve(new Map());
+    return this.read(scope, async (tx) => {
+      const rows = await tx.execute<{ [key: string]: unknown }>(sql`
+        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name
+        from app.leads l
+        where l.workspace_id = ${contextWorkspaceId}
+          and l.id in (${sql.join(
+            ids.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})
+          and l.customer_data_restricted_at is null
+      `);
+      const labels = new Map<string, { name: string | null; reference: string | null }>();
+      for (const row of rows) {
+        const parsed = leadHintRowSchema.parse(row);
+        labels.set(parsed.id, { name: parsed.full_name, reference: parsed.external_ref });
+      }
+      return labels;
+    });
+  }
+
+  memberNames(scope: Scope): Promise<Map<string, string | null>> {
+    return this.read(scope, (tx) => memberNames(tx));
+  }
+
   leadHint(scope: Scope, leadId: string): Promise<LeadHint | undefined> {
     return this.read(scope, async (tx) => {
       const [row] = await tx.execute<{ [key: string]: unknown }>(sql`
-        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name
+        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name, l.created_at
         from app.leads l
         where l.workspace_id = ${contextWorkspaceId}
           and l.id = ${leadId}
@@ -483,6 +705,7 @@ export class DatabaseAiReadService implements AiReadService {
         stage: parsed.data.stage,
         reference: parsed.data.external_ref,
         name: parsed.data.full_name,
+        ...(parsed.data.created_at ? { createdAt: parsed.data.created_at } : {}),
       };
     });
   }

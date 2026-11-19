@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { withTenantTx, type DatabaseClient, type TenantContext } from '@gt-sales/db';
 import {
   aiAttachmentKindSchema,
@@ -29,6 +29,8 @@ export interface AiAttachmentRecord {
   readonly status: 'pending' | 'ready';
   /** Set once the message that carries it is stored; then the file can no longer be removed alone. */
   readonly messageId: string | null;
+  /** Its message was emptied by a customer's erasure: never linked again, deleted by the cleanup. */
+  readonly erased?: boolean;
 }
 
 export interface CreatePendingAttachmentInput {
@@ -89,6 +91,35 @@ export interface AiAttachmentStore {
     scope: TenantContext,
     input: { before: Date; limit: number },
   ): Promise<StoredObject[]>;
+  /**
+   * The machine cleanup (0039): files of turns emptied by a customer's
+   * erasure, every member's, for the caller to delete their objects first.
+   */
+  erasedFiles(scope: TenantContext, input: { limit: number }): Promise<ErasedFile[]>;
+  /** Removes the listed rows that still belong to an erased turn; returns how many. */
+  deleteErasedFiles(scope: TenantContext, ids: readonly string[]): Promise<number>;
+  /**
+   * The machine cleanup (0039): conversations of someone with no active
+   * membership on the site since before `before`, with their files' objects.
+   */
+  departedConversations(
+    scope: TenantContext,
+    input: { before: Date; limit: number },
+  ): Promise<DepartedConversation[]>;
+  /** Deletes the listed conversations that are still departed by the same rule; returns how many. */
+  deleteDepartedConversations(
+    scope: TenantContext,
+    input: { before: Date; ids: readonly string[] },
+  ): Promise<number>;
+}
+
+export interface ErasedFile extends StoredObject {
+  readonly id: string;
+}
+
+export interface DepartedConversation {
+  readonly id: string;
+  readonly objects: readonly StoredObject[];
 }
 
 /** Unsent files are swept a day after they were created. */
@@ -96,6 +127,19 @@ export const AI_ATTACHMENT_UNSENT_TTL_MS = 24 * 60 * 60_000;
 
 /** Rows one sweep call removes for one site at most (the function's own cap is 1000). */
 export const AI_ATTACHMENT_SWEEP_BATCH = 200;
+
+/**
+ * How long the conversations of someone who left a site are kept (audit C13):
+ * deleted, files first, once they have had no active membership on the site
+ * for this many days (and the conversation is at least as old). Added back
+ * within the period, the member finds their chats as they left them. Nobody
+ * can open a departed member's chats in the meantime: they are private to
+ * that member, and every route asks for a live membership.
+ */
+export const AI_DEPARTED_MEMBER_CHAT_DAYS = 30;
+
+/** Conversations one departed-member cleanup call lists for one site at most (the function's cap is 1000). */
+export const AI_DEPARTED_SWEEP_BATCH = 100;
 
 function toRecord(row: Record<string, unknown>): AiAttachmentRecord {
   const status = row['status'];
@@ -137,12 +181,22 @@ export class DatabaseAiAttachmentStore implements AiAttachmentStore {
 
   get(scope: TenantContext, attachmentId: string): Promise<AiAttachmentRecord | undefined> {
     return this.database.withTenantTx(scope, async (tx) => {
+      // `erased`: its message was emptied by a customer's erasure (0039's
+      // column, read through the row so this runs before it exists).
       const [row] = await tx.execute<Record<string, unknown>>(sql`
-        select ${COLUMNS} from app.ai_attachments a
+        select ${COLUMNS},
+          exists (
+            select 1 from app.ai_messages m
+            where m.workspace_id = a.workspace_id and m.conversation_id = a.conversation_id
+              and m.id = a.message_id and (to_jsonb(m)->>'erased_at') is not null
+          ) as erased
+        from app.ai_attachments a
         where a.workspace_id = ${scope.workspaceId} and a.actor_id = ${scope.actorId}
           and a.id = ${attachmentId}
       `);
-      return row ? toRecord(row) : undefined;
+      if (!row) return undefined;
+      const record = toRecord(row);
+      return row['erased'] === true ? { ...record, erased: true } : record;
     });
   }
 
@@ -219,4 +273,72 @@ export class DatabaseAiAttachmentStore implements AiAttachmentStore {
       return rows.map((row) => ({ bucket: row.bucket, objectKey: row.objectKey }));
     });
   }
+
+  erasedFiles(scope: TenantContext, input: { limit: number }): Promise<ErasedFile[]> {
+    return this.database.withTenantTx(scope, async (tx) => {
+      const rows = await tx.execute<{ id: string; bucket: string; objectKey: string }>(sql`
+        select e.id, e.bucket, e.object_key as "objectKey"
+        from app.erased_ai_attachments(${scope.workspaceId}::uuid, ${input.limit}::integer) e
+      `);
+      return rows.map((row) => ({
+        id: String(row.id),
+        bucket: row.bucket,
+        objectKey: row.objectKey,
+      }));
+    });
+  }
+
+  async deleteErasedFiles(scope: TenantContext, ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    return this.database.withTenantTx(scope, async (tx) => {
+      const [row] = await tx.execute<{ count: number }>(sql`
+        select app.delete_erased_ai_attachments(${scope.workspaceId}::uuid, ${uuidArray(ids)}) as count
+      `);
+      return Number(row?.count ?? 0);
+    });
+  }
+
+  departedConversations(
+    scope: TenantContext,
+    input: { before: Date; limit: number },
+  ): Promise<DepartedConversation[]> {
+    return this.database.withTenantTx(scope, async (tx) => {
+      const rows = await tx.execute<{
+        conversationId: string;
+        bucket: string | null;
+        objectKey: string | null;
+      }>(sql`
+        select d.conversation_id as "conversationId", d.bucket, d.object_key as "objectKey"
+        from app.departed_ai_conversations(${scope.workspaceId}::uuid,
+          ${input.before.toISOString()}::timestamptz, ${input.limit}::integer) d
+      `);
+      const byId = new Map<string, StoredObject[]>();
+      for (const row of rows) {
+        const objects = byId.get(String(row.conversationId)) ?? [];
+        if (row.bucket !== null && row.objectKey !== null) {
+          objects.push({ bucket: row.bucket, objectKey: row.objectKey });
+        }
+        byId.set(String(row.conversationId), objects);
+      }
+      return [...byId].map(([id, objects]) => ({ id, objects }));
+    });
+  }
+
+  async deleteDepartedConversations(
+    scope: TenantContext,
+    input: { before: Date; ids: readonly string[] },
+  ): Promise<number> {
+    if (input.ids.length === 0) return 0;
+    return this.database.withTenantTx(scope, async (tx) => {
+      const [row] = await tx.execute<{ count: number }>(sql`
+        select app.delete_departed_ai_conversations(${scope.workspaceId}::uuid,
+          ${input.before.toISOString()}::timestamptz, ${uuidArray(input.ids)}) as count
+      `);
+      return Number(row?.count ?? 0);
+    });
+  }
+}
+
+function uuidArray(ids: readonly string[]): SQL {
+  return sql`${`{${ids.join(',')}}`}::uuid[]`;
 }

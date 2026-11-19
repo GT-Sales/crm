@@ -5,7 +5,7 @@ import { withTenantTx, type DatabaseClient, type TenantContext } from '@gt-sales
  * Whether the database already holds what Ask AI's saved chat needs.
  *
  * Migrations are applied by hand, after the deploy (docs/RUNBOOKS/database.md),
- * so this backend may run against a database without 0034–0037 for a while.
+ * so this backend may run against a database without 0034–0039 for a while.
  * Until then the assistant works exactly as before (memory-only, the browser
  * holds the conversation), capabilities never claim `conversations`, the
  * conversation and attachment routes answer 503, and a turn's usage row is
@@ -27,6 +27,14 @@ export interface AiChatSchemaState {
   readonly attachmentSweep: boolean;
   /** 0037: `app.ai_turns.effort` exists (and with it `app.ai_messages.effort`). */
   readonly effort: boolean;
+  /**
+   * 0039: `app.ai_messages.erased_at` exists and the runtime role may run the
+   * chat erasure and departed-member functions. Until then the scheduler's
+   * cleanup of erased files and of departed members' chats is skipped; a
+   * restriction still keeps the turns out of every replay (history reads the
+   * lead's state itself).
+   */
+  readonly chatErasure: boolean;
 }
 
 export interface AiChatSchemaProbe {
@@ -49,8 +57,23 @@ const REQUIRED_GRANTS: readonly (readonly [string, string])[] = [
 ];
 
 function ready(state: AiChatSchemaState): boolean {
-  return state.conversations && state.inputTokens && state.attachmentSweep && state.effort;
+  return (
+    state.conversations &&
+    state.inputTokens &&
+    state.attachmentSweep &&
+    state.effort &&
+    state.chatErasure
+  );
 }
+
+/** The functions 0039 adds, each of which the runtime role must be able to run. */
+const ERASURE_FUNCTIONS: readonly string[] = [
+  'app.erase_restricted_lead_ai_turns(uuid,uuid[])',
+  'app.erased_ai_attachments(uuid,integer)',
+  'app.delete_erased_ai_attachments(uuid,uuid[])',
+  'app.departed_ai_conversations(uuid,timestamptz,integer)',
+  'app.delete_departed_ai_conversations(uuid,timestamptz,uuid[])',
+];
 
 export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
   private cached: { state: AiChatSchemaState; at: number } | undefined;
@@ -94,6 +117,7 @@ export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
         inputTokens: boolean;
         attachmentSweep: boolean;
         effort: boolean;
+        chatErasure: boolean;
       }>(sql`
         select
           (
@@ -125,13 +149,26 @@ export class DatabaseAiChatSchemaProbe implements AiChatSchemaProbe {
               where a.attrelid = to_regclass('app.ai_messages')
                 and a.attname = 'effort' and not a.attisdropped
             )
-          ) as effort
+          ) as effort,
+          exists (
+            select 1 from pg_catalog.pg_attribute a
+            where a.attrelid = to_regclass('app.ai_messages')
+              and a.attname = 'erased_at' and not a.attisdropped
+          ) and ${sql.join(
+            ERASURE_FUNCTIONS.map((signature) =>
+              sql.raw(
+                `case when to_regprocedure('${signature}') is not null then has_function_privilege('${signature}', 'EXECUTE') else false end`,
+              ),
+            ),
+            sql` and `,
+          )} as "chatErasure"
       `);
       return {
         conversations: row?.conversations === true,
         inputTokens: row?.inputTokens === true,
         attachmentSweep: row?.attachmentSweep === true,
         effort: row?.effort === true,
+        chatErasure: row?.chatErasure === true,
       };
     });
   }
@@ -144,6 +181,7 @@ export function fixedAiChatSchema(state: Partial<AiChatSchemaState> = {}): AiCha
     inputTokens: true,
     attachmentSweep: true,
     effort: true,
+    chatErasure: true,
     ...state,
   };
   return { state: async () => answer };

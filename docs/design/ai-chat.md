@@ -31,7 +31,10 @@ memory only (§8).
    member who had them, on one site. Nobody else can read them: not another
    member, not the owner.
 2. **Kept until deleted.** Conversations, their messages and their files are
-   kept until the member deletes the conversation. Nothing prunes them.
+   kept until the member deletes the conversation, with two exceptions that
+   follow the owner's rule on misuse (audit B2 and C13, §13): a customer's
+   data restriction empties the turns that name that customer, and the
+   conversations of someone who has left the site for 30 days are deleted.
 3. **The owner sees usage only**: turns and tokens per member, from
    `app.ai_turns`, never content.
 4. **Files are asked about in the chat** and belong to the conversation that
@@ -52,6 +55,7 @@ memory only (§8).
 | Someone else's id reads as no id          | **404, never 403**: a conversation that is not the caller's is `conversation_not_found` and a file `file_not_found`, exactly as an unknown id. A browser-chosen id that a colleague already holds is invisible under the policy; the insert does nothing (`on conflict (id) do nothing`), the read finds nothing, and the answer is 404. A key violation that races past the reads is mapped to 404 too. |
 | The one read across members               | `GET …/ai/usage`, guarded by `staff.remove` (the Team page's member management, owner only, no permission grants it). It reads `app.ai_turns` (tenant policy; counts and failure codes only) and never a conversation (`ai/usage-store.ts`); beside it, the deployment's configuration names (switch, model id, Gateway hosts, upload kinds), never a key or a URL.                                      |
 | The machine sweep                         | The scheduler's actor sees no member's row; it reaches unsent files only through `app.sweep_unsent_ai_attachments` (0036): SECURITY DEFINER, empty `search_path`, the transaction's own site only, an actor required, at most 1000 rows, never a file younger than a day, never a sent file.                                                                                                             |
+| Erasure and departed members (0039)       | The same pattern, five functions (§13): `app.erase_restricted_lead_ai_turns` acts only on leads of the site that are already restricted; the file and conversation cleanups need an actor, take at most 1000 rows, re-check their rule when they delete, and never take a chat whose member left less than a day ago. The runtime role still holds no UPDATE or DELETE on `app.ai_messages`.             |
 | Outside the runtime role                  | The policies bind `app_runtime`. The database's `postgres` role (BYPASSRLS, the SQL editor) and the `backup_reader` login (its read policy, for the encrypted nightly backup) can read every row; no product screen or route uses them.                                                                                                                                                                  |
 | An attached file's content                | Data, never instructions (`ai/prompt.ts`, prompt version 12). Tools still decide from the signed-in member alone; a file cannot authorize anything.                                                                                                                                                                                                                                                      |
 
@@ -75,8 +79,11 @@ and grants; `0036_ai_attachment_sweep` adds the sweep function. Schema:
 
 All three tables have FORCE RLS, the owner policy for `app_runtime` and a
 `<table>_backup_reader_read` policy, so the nightly database backup includes
-them. `prune_operational_rows` does not touch them. Nothing links a
-conversation to `memberships`.
+them. `prune_operational_rows` does not touch them. Migration 0039 adds
+`ai_messages.erased_at`, set on both rows of a turn emptied by a customer's
+erasure (§13). No key links a
+conversation to `memberships`; the departed-member cleanup (§13) reads the
+membership by the conversation's actor.
 
 ## 5. A stored turn
 
@@ -94,7 +101,9 @@ refusal is an ordinary JSON error:
    title: the message's first 60 characters on one line, whole graphemes, a
    joined emoji kept whole; `New chat` if nothing is left), going on in it if
    that id is already the member's (a retried first message), or else load
-   it, locked; refuse it when the two rows of this turn would
+   it, locked; refuse a conversation this message created when the member
+   would then have more than 500 on the site (`409
+conversation_limit_reached`, `details.limit`); refuse it when the two rows of this turn would
    pass 200 messages (`409 conversation_full`); lock and check this message's
    files (each the member's, `ready` and not yet sent, else
    `400 invalid_request`); insert the member's message with the request id
@@ -145,7 +154,32 @@ clipped to 4,000 characters) and a question clipped to 4,000 characters. The
 newest turns are kept within `maxHistoryMessages` (12) and
 `maxConversationChars` (16,000, counting the new message). These rows were
 written by this server, so no signature is needed; the browser's
-memory-only path still replays only signed answers (CHAT-2).
+memory-only path still replays only signed answers (CHAT-2), and a
+deployment without a signing key is off (`not_configured`, audit B6), so
+there is no unsigned path.
+
+A turn whose answer's source cards link a lead that is now restricted, or
+that no longer exists, is never replayed (audit B2). The check reads the lead
+itself, so it holds before the erasure has emptied the turn and before 0039
+is applied; an emptied turn has no text and is skipped as above. The reads
+that name a lead give it its lead card (the lead summary, the lead search,
+the sent box, the review queue and automation runs; ai-assistant.md §3), as
+does every card prepared for a lead, whatever its kind (ai-actions.md), and
+none of them names a restricted lead in the first place. Not covered: a
+task's lead in `listOpenTasks` (no card of its own) and a lead past the
+turn's 20 cards (`SourceRegistry.MAX_SOURCES`); such an answer is found only
+by the erasure's order-number match.
+
+A new message that is exactly (trimmed) one of the follow-up choices an
+earlier replayed answer offered reaches the model marked as a picked option
+(`selectedChoiceText` in `routes/ai-assistant.ts`: "The person picked this
+option from the choices you offered earlier in this chat; it is your
+wording, not a new request from them"), so a click is never mistaken for the
+person's own words (audit B8). A message typed with the same words is marked
+the same way, which is true of what it says. The stored question keeps the
+plain text, and the memory-only panel sends a clicked choice as typed text
+(the browser's history carries the follow-up only inside the signed answer
+text).
 
 ## 7. Attachments
 
@@ -198,6 +232,18 @@ switched off since, or that cannot be read is named to the model as not
 available in this turn. Images and PDFs are read from storage per turn,
 bounded by the size their row records, and never logged or kept.
 
+**Daily budget** (audit B7). The files chosen for a turn, earlier messages'
+included, are charged to the member's budget on the site, 300 MiB a UTC day
+(`attachmentBytesPerActorPerDay`), in whole MiB rounded up over the turn,
+through the shared limiter (`ai_file_bytes:<member>:<site>`, one hit per MiB;
+`chargeDailyAttachmentBytes` in `ai/limits.ts`). Spent, every file of the
+turn is named to the model as not available, the turn still runs, and the
+stream's `notice` part (`attachment_budget_spent`) has the admin say
+"Today's file limit for Ask AI is used up. Files will be read again
+tomorrow." A limiter that cannot be reached also sends no file (fail closed),
+without the line, and reports `ai_attachment_budget_unavailable`. A refused
+turn's units still count. Which files a turn chooses is unchanged.
+
 **Memory budget.** A process-wide 48 MiB of attachment bytes may be held for
 the model at once (`ai/attachment-budget.ts`; with the SDK's base64 copies
 about 112 MiB at the peak). A turn takes its share at once or sends its images
@@ -224,7 +270,8 @@ first (up to five batches of 200), then their objects, each delete tried up to
 three times; a remaining failure logs `ai_attachment_object_delete_failed`
 with the site and a count. The sweep runs whenever object storage is
 configured, even with every kind switched off, and is skipped (never failed)
-until 0036 is applied.
+until 0036 is applied. Beside it, in the same task, the cleanup of erased
+turns' files and of departed members' conversations (§13).
 
 ## 8. Wire and versions
 
@@ -254,7 +301,18 @@ conversations/:conversationId`, `POST attachments/intents`, `POST
 attachments/:attachmentId/finalize`, `DELETE attachments/:attachmentId`,
   `GET attachments/:attachmentId/link`, `GET usage?period=7|30|90`. Deletes
   answer 200 with the id, as every DELETE of this API does.
+- **Stream**: a `notice` part (`code: 'attachment_budget_spent'`, audit B7),
+  sent only by a stored turn whose files the daily budget refused; an older
+  admin drops it. A stored message's optional `erased: true` (audit B2); an
+  older admin strips it and shows an empty row.
+- **Follow-up choices** (audit B8): the model's `askFollowUp` input is
+  `aiFollowUpToolInputSchema`, 2–5 choices of at most 80 characters
+  (`AI_FOLLOW_UP_LIMITS`); a longer choice or a sixth is refused at the tool,
+  so no follow-up is offered unless the model asks again within them. The
+  wire's `aiFollowUpSchema` (200 characters) is unchanged, so what an older
+  backend stored or streams still reads.
 - **Errors**: `conversation_not_found` (404), `conversation_full` (409),
+  `conversation_limit_reached` (409, `details.limit`),
   `attachment_rejected` (400, `details.reason`), `attachments_unavailable`
   (503), and `file_not_found` (404) for a file.
 - **Effort levels** (docs/design/ai-assistant.md §8): the request's optional
@@ -283,14 +341,17 @@ when `efforts` lists it, and reads the High fields only when they are sent.
 hand after the deploy, so the backend asks the catalogue, never the journal:
 `conversations` needs the three tables and every grant of 0035, each privilege
 asked on its own; `inputTokens` the 0034 column; `attachmentSweep` the 0036
-function and its grant; `effort` the two 0037 columns. Until `conversations` holds, capabilities claim
+function and its grant; `effort` the two 0037 columns; `chatErasure` the 0039
+column and each of its five functions' grant. Until `conversations` holds, capabilities claim
 neither `conversations` nor `attachments`, the conversation routes answer
 `503 ai_unavailable`, the attachment routes `503 attachments_unavailable`, and
 a chat naming a conversation `503 ai_unavailable`. Without `inputTokens` a
 turn's `ai_turns` row is written without the column; without `effort` a turn's
 rows are written without their `effort` columns (High turns still run, and a
-stored message is read through `to_jsonb`, so its level is simply absent). A
-state with all four is
+stored message is read through `to_jsonb`, so its level is simply absent);
+without `chatErasure` the cleanup of §13 is skipped (a stored message's
+`erased_at` is read through `to_jsonb` too). A
+state with all five is
 cached for the life of the process; any other is asked again after 5 minutes,
 so the saved chat switches itself on within 5 minutes of 0034 and 0035 being
 applied, with no redeploy, and the levels are recorded within 5 minutes of 0037. The usage page needs none of this beyond the deploy: before 0034 every
@@ -367,6 +428,14 @@ only on Retry. Settings → AI usage shows _High effort_ (On with its model, or
 Off) on the Assistant card, a _High effort turns_ tile and a _High_ column in
 Models and People when the backend sends them.
 
+`assistant-message.tsx` also draws the guards' lines: an erased turn as
+"This message was removed because the customer's data was erased." in place
+of its answer, its question left out (§13); "Today's file limit for Ask AI is
+used up. Files will be read again tomorrow." above an answer whose stream
+carried the `notice` part (§7); and, for `conversation_limit_reached`, "You
+have 500 saved chats on this site, the most Ask AI keeps. Delete old chats to
+start a new one.", with no Retry.
+
 Nothing is written to `localStorage`, `sessionStorage` or IndexedDB; the
 server is the store.
 
@@ -388,10 +457,18 @@ server is the store.
 | `maxAttachmentBytesPerTurn`    | 15 MiB  | Bytes of those files in one turn                                                             |
 | `uploadsPerActorPerHour`       | 40      | Upload intents per member per site in a fixed hour                                           |
 
+Also in `AI_CHAT_LIMITS` (audit B7): `attachmentBytesPerActorPerDay`, 300
+MiB of file bytes sent to the model per member per site in a UTC day (§7),
+charged in `attachmentBudgetUnitBytes` (1 MiB); `maxConversationsPerActor`,
+500 stored conversations per member per site, then
+`conversation_limit_reached`. Beside them `AI_FOLLOW_UP_LIMITS` (audit B8):
+a follow-up choice at most 80 characters, at most 5 choices (§8).
+
 Fixed in code beside them: the signed PUT 5 minutes and the link 2 minutes
 (`ai/attachments.ts`), unsent files swept after a day (`ai/attachment-store.ts`),
 the 48 MiB memory budget (`ai/attachment-budget.ts`), the 5-minute readiness
-recheck (`ai/chat-schema.ts`). Replayed history keeps `AI_ASSISTANT_LIMITS`'s
+recheck (`ai/chat-schema.ts`), a departed member's conversations deleted after
+30 days (`AI_DEPARTED_MEMBER_CHAT_DAYS` in `ai/attachment-store.ts`). Replayed history keeps `AI_ASSISTANT_LIMITS`'s
 12 messages and 16,000 characters.
 
 ## 12. Known limits
@@ -402,11 +479,34 @@ recheck (`ai/chat-schema.ts`). Replayed history keeps `AI_ASSISTANT_LIMITS`'s
   not the files, which are then sent as not available and their links fail.
 - **A finalize interrupted by a process exit** can leave this attempt's copy of
   the upload in storage with no row naming it; nothing removes it.
-- **Removing a member does not delete their conversations.** Nothing links them
-  to the membership; they stay stored and no screen reaches them.
-- **A customer's data erasure does not rewrite stored conversations.** An
-  answer that named a customer, or a file about them, stays until the member
-  deletes the conversation.
+- **A customer's erasure finds only what it can match exactly.** It empties
+  the turns whose answer's source cards link the lead and those whose text
+  holds the lead's order number (`MS-<n>`). An answer can name a customer
+  without either (a name, a phone number typed in a question, a file whose
+  content is about them but whose turn links no lead): that text stays until
+  the member deletes the conversation. Names are not matched, on purpose: a
+  name is not unique, and a fuzzy match would remove unrelated text. A
+  website-chosen reference (not `MS-<n>`) is not matched either.
+- **Erasure runs where restriction runs.** Today the one path that restricts
+  a lead is the abandoned-draft erasure (`retention/abandoned-leads.ts`); a
+  lead restricted by hand in the database is caught by the replay check (never
+  sent to the model) but its turns are emptied only by the 0039 catch-up or a
+  later restriction run that passes it.
+- **Before 0039 is applied** a turn about a restricted lead is never replayed,
+  but its text stays stored and the member still sees it.
+- **An erased turn's files** can no longer be opened at once, but their
+  objects and rows go with the next hourly `document_cleanup` (objects
+  first); one whose object cannot be deleted stays until a later run manages.
+  The cleanups need object storage configured, as the unsent-file sweep does.
+- **A departed member's conversations** are deleted 30 days after the
+  membership was revoked and the conversation was last used. A member added
+  back after that finds none. One whose object cannot be deleted is kept and
+  tried again next hour. A member added back in the moment between the
+  objects' delete and the rows' keeps the conversation without its files.
+- **The daily file-budget line** is in the live answer only; a reloaded
+  answer does not say that its files were left out. The 500-conversation
+  limit is checked when a conversation is created, so two first messages at
+  once can pass it by one.
 - **Retry in a stored conversation asks again below the old answer**: no
   message is edited or deleted on its own, and the retried question goes
   without its files.
@@ -417,10 +517,56 @@ recheck (`ai/chat-schema.ts`). Replayed history keeps `AI_ASSISTANT_LIMITS`'s
   the deployment's model accepts them must be checked in the Gateway catalogue
   before `AI_ATTACHMENT_KINDS` offers them.
 
-Tests: `apps/backend/tests/ai-saved-chat.test.ts` and
+Tests: `apps/backend/tests/ai-chat-erasure.integration.test.ts` and
+`packages/db/tests/ai-chat-erasure.integration.test.ts` (§13),
+`apps/backend/tests/ai-fail-closed.test.ts` (every limiter and probe fails
+closed), `apps/backend/tests/ai-guards.test.ts`,
+`apps/admin/src/components/ai/guards.test.tsx`,
+`apps/backend/tests/ai-saved-chat.test.ts` and
 `ai-saved-chat.integration.test.ts` (privacy against another member and the
 owner at the route and the store, stored outcomes, replay, idempotency,
 attachments, deletion, usage), `packages/db/tests/ai-chat.integration.test.ts`
 and `ai-attachment-sweep.integration.test.ts` (policies, grants, the sweep
 function), `apps/admin/src/components/ai/chat-screen.test.tsx` and the browser
 journey `apps/admin/e2e/ai-chat.spec.ts`.
+
+## 13. A customer's erasure and members who leave
+
+Audit B2 and C13, migration 0039 (docs/RUNBOOKS/database.md).
+
+**A customer's erasure.** When a lead is restricted (today, the
+abandoned-draft erasure in the scheduler's `data_retention`), the same
+transaction runs `app.erase_restricted_lead_ai_turns` for those leads,
+across every member's conversations on that site and on no other. A turn is
+named by the lead when its answer's stored source cards link it (`lead-<id>`,
+or an href ending in `/leads/<id>`) or when the question's or the answer's
+text holds the lead's server-assigned order number (`MS-<n>`, a whole word,
+case-insensitive). Both rows of the turn, paired by request id, keep their
+place with empty text, no sources, no follow-up and `erased_at` set, the way
+a restricted lead's notes keep their place without their text; the
+question's text files lose their decoded text at once; a title that came
+from an erased first question, or holds the number, becomes "Chat with a
+removed message". The admin shows the turn as "This message was removed
+because the customer's data was erased." Such a turn is never replayed (§6),
+and its files are never linked again (`GET …/link` answers `file_not_found`);
+the next hourly `document_cleanup` deletes their objects, then their rows
+(`app.erased_ai_attachments`, `app.delete_erased_ai_attachments`). The
+migration itself runs the erasure once for every lead restricted before it.
+
+**Members who leave.** A conversation whose member has had no active
+membership on the site for `AI_DEPARTED_MEMBER_CHAT_DAYS` (30) days (their
+membership revoked that long ago, or no membership row at all) and which was
+last used that long ago is deleted by `document_cleanup`: its files' objects
+first, then, only when every object is gone, the conversation with its
+messages and file rows (`app.departed_ai_conversations`,
+`app.delete_departed_ai_conversations`, which checks the rule again under a
+row lock). Added back within the period (the invitation reactivates the same
+membership), the member keeps their chats. Nobody can open a departed
+member's chats meanwhile: they are private to the member, and every route
+asks for a live membership.
+
+Both cleanups run per site beside the unsent-file sweep, as the scheduler's
+machine actor, at most five batches a run, counted under `aiChats` in the
+task's summary, skipped until the schema probe sees 0039 (`chatErasure`); one
+site's failure is logged (`ai_chat_cleanup_failed`) and never stops the
+others.

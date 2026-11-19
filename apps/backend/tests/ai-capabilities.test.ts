@@ -10,7 +10,7 @@ import type { StaffRoleName } from '@gt-sales/types';
 
 import { createApp } from '../src/app.js';
 import type { StaffSessionVerifier, VerifiedStaffSession } from '../src/auth/session.js';
-import type { AiAssistantConfig } from '../src/ai/config.js';
+import { loadAiAssistantConfig, type AiAssistantConfig } from '../src/ai/config.js';
 import type { AiSiteContextStore } from '../src/ai/site-context.js';
 import type { LeadStore } from '../src/leads/store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
@@ -272,6 +272,24 @@ describe('GET /workspaces/:id/ai/capabilities', () => {
     const body = aiCapabilitiesResponseSchema.parse(await (await call(capabilitiesUrl())).json());
     expect(body.available).toBe(false);
     expect(body.reason).toBe('not_configured');
+  });
+
+  it('reports a signing secret that is set but too short as not configured (audit B6)', async () => {
+    await start(
+      appWith(
+        loadAiAssistantConfig({
+          AI_ASSISTANT_ENABLED: 'true',
+          AI_GATEWAY_API_KEY: 'test-key-not-real',
+          AI_GATEWAY_MODEL: 'test/model',
+          AI_ACTION_SIGNING_SECRET: 'too-short',
+          AI_ASSISTANT_WORKSPACE_IDS: WORKSPACE,
+        }),
+      ),
+    );
+    const body = aiCapabilitiesResponseSchema.parse(await (await call(capabilitiesUrl())).json());
+    expect(body.available).toBe(false);
+    expect(body.reason).toBe('not_configured');
+    expect(body.actions).toEqual([]);
   });
 
   it('reports a site outside the allowlist as not enabled', async () => {

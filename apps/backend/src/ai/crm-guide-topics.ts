@@ -321,14 +321,13 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
   },
   {
     id: 'ask-ai',
-    summary:
-      'What Ask AI can and cannot do: questions, prepared notes/tasks/emails, automation drafts',
+    summary: 'What Ask AI can and cannot do: questions, change cards, emails, automation drafts',
     body: text(
-      'Open it with "Ask AI" in the top bar. With a lead open it knows which lead you mean ("Remove lead context" drops that).',
-      'It can read this site’s lead counts, stages, lead and order summaries, assignments, open tasks and source performance, and explain how the CRM works.',
-      'For people who manage leads it can prepare a note, a task (for you or unassigned; on a lead, or a plain task with "No lead" when you name none), an email to the lead’s customer, a change to a lead’s stage, assignee, name or phone, or move a task to To do, In progress, Done or Cancelled. Each is a card: nothing is saved until you press "Confirm" (or "Send" for an email). "Cancel" drops it. Stage rules and documents still apply.',
-      'With the Integrations permission it can draft or edit an automation; press "Save draft" on the card. Activating and switching it on stay in Automations.',
-      'It cannot archive, export or delete anything, send bulk mail, or show contact details; use the lead page for those.',
+      'Open it with "Ask AI" in the top bar. With a lead open it knows which lead you mean.',
+      'It reads only what you can see: leads, timelines, orders, tasks, plans, analytics, mail and job statuses, the team, automations, your permissions. Contact details, documents, hidden fields and mail text never go to the AI provider.',
+      'For people who manage leads it prepares cards: a note; a task for anyone on the team; a change to a task’s stage, title, due date or assignee; an email you write, or a site template it fills in; a stage move with its courier or activation details; plan, quantity, payment, form and custom fields; archiving or restoring one lead. Each card shows the change and what else happens. Nothing is saved until you press "Confirm" ("Send" for mail). A card naming other customers needs your tick first.',
+      'With the Integrations permission it can draft an automation ("Save draft") or switch one off. Switching on and activating stay in Automations.',
+      'It cannot override documents, change a customer’s email, export, delete, invite or remove people, change roles, reveal sealed values or show contact details; use the page. Each member has a daily limit on changes and emails made with it.',
     ),
   },
 ];

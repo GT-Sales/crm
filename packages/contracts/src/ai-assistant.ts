@@ -4,7 +4,14 @@ import { z } from 'zod';
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import { leadTypeSchema } from './leads';
 import { documentChecklistKeySchema } from './domain';
-import { leadTaskStatusSchema } from './lead-work';
+import {
+  leadTaskStatusSchema,
+  queueCustomerEmailRequestSchema,
+  updateWorkspaceLeadRequestSchema,
+} from './lead-work';
+import { automationKeySchema } from './automation-keys';
+import { leadFormEditSchema } from './lead-fields';
+import { leadOrderEditSchema } from './plans';
 
 /**
  * The staff AI assistant ("Ask AI"): its capability document, the one chat
@@ -132,6 +139,21 @@ export const AI_CHAT_LIMITS = {
   maxAttachmentBytesPerTurn: 15 * 1024 * 1024,
   /** Upload intents per actor per site in a fixed one-hour window. */
   uploadsPerActorPerHour: 40,
+  /**
+   * Attachment bytes sent to the model per actor per site in a UTC day,
+   * earlier messages' files resent with each turn included (audit B7). Past
+   * it a turn still runs, its files named to the model as not available, and
+   * the stream's `notice` part says so. Charged in whole
+   * `attachmentBudgetUnitBytes`, through the shared limiter.
+   */
+  attachmentBytesPerActorPerDay: 300 * 1024 * 1024,
+  /** The step the daily attachment budget is charged in: a turn's file bytes, rounded up. */
+  attachmentBudgetUnitBytes: 1024 * 1024,
+  /**
+   * Stored conversations per actor per site (audit B7). A new chat past it is
+   * refused with `409 conversation_limit_reached` until the member deletes old ones.
+   */
+  maxConversationsPerActor: 500,
 } as const;
 
 export type AiChatLimits = typeof AI_CHAT_LIMITS;
@@ -241,6 +263,13 @@ export const aiCapabilitiesResponseSchema = z.object({
     .array(z.enum(['plain_task', 'task_update']))
     .max(2)
     .optional(),
+  /**
+   * Every card kind this member may confirm here (`AI_CARD_KINDS`), from the
+   * one table the prepare tools, revise and confirm use. Its presence also
+   * says the backend sends `action_cards` and takes `wide` on a revision.
+   * Absent from an older backend.
+   */
+  cardActions: z.array(z.string().min(1).max(40)).max(20).optional(),
   reason: aiUnavailableReasonSchema.optional(),
   site: z.object({
     id: z.uuid(),
@@ -387,6 +416,14 @@ export const aiChatRequestSchema = z
      * `conversationId`.
      */
     newConversation: z.boolean().optional(),
+    /**
+     * True from an admin that shows every card kind in full (`action_cards`).
+     * The admin sends it only when the capabilities list `cardActions` (an
+     * older backend's strict request refuses the key). Absent, the turn is
+     * offered only the card kinds an older admin shows (note, task, email,
+     * lead update, task move) and prepares no card it could not show.
+     */
+    wide: z.literal(true).optional(),
   })
   .strict()
   .superRefine((request, context) => {
@@ -586,6 +623,31 @@ export const aiFollowUpSchema = z
   .strict();
 export type AiFollowUp = z.infer<typeof aiFollowUpSchema>;
 
+/**
+ * Audit B8: the follow-up choices the model may offer, which the person can
+ * send with one click. Shorter than the wire's own bound (`aiFollowUpSchema`,
+ * kept as it was so an older backend's stored choices still read): the
+ * backend refuses a longer choice or more choices at the tool's input, so the
+ * model must ask again within them.
+ */
+export const AI_FOLLOW_UP_LIMITS = {
+  /** One choice, in characters. */
+  maxChoiceChars: 80,
+  /** Choices in one question. */
+  maxChoices: 5,
+} as const;
+
+/** The model's `askFollowUp` input: `aiFollowUpSchema` within `AI_FOLLOW_UP_LIMITS`. */
+export const aiFollowUpToolInputSchema = z
+  .object({
+    question: aiFollowUpSchema.shape.question,
+    choices: z
+      .array(z.string().trim().min(1).max(AI_FOLLOW_UP_LIMITS.maxChoiceChars))
+      .min(2)
+      .max(AI_FOLLOW_UP_LIMITS.maxChoices),
+  })
+  .strict();
+
 export const confirmAiActionRequestSchema = z
   .object({ token: z.string().min(1).max(40000) })
   .strict();
@@ -598,6 +660,289 @@ export const confirmAiActionResponseSchema = z.object({
   requestId: requestIdSchema,
 });
 export type ConfirmAiActionResponse = z.infer<typeof confirmAiActionResponseSchema>;
+
+/*
+ * Wider cards (docs/design/ai-actions.md, "Wider cards"). Everything below is
+ * additive on the wire: the `actions` stream part, `aiActionDraftSchema` and
+ * `aiActionProposalSchema` above keep the shapes an older admin parses, and a
+ * backend that has these cards sends every card a second time, in full, in
+ * the `action_cards` part an older admin ignores.
+ */
+
+/** Daily caps on what one member confirms through Ask AI, per site (C7). Fail closed. */
+export const AI_CARD_LIMITS = {
+  /** Confirmed AI changes of any kind per member per site per UTC day (mail included). */
+  changesPerMemberPerDay: 200,
+  /** Confirmed AI-prepared customer mail (written or template) per member per site per UTC day. */
+  mailPerMemberPerDay: 50,
+  /** Fields one lead edit card may change (stage, order details, form fields and custom values together). */
+  maxLeadEditFields: 12,
+  /** A text value on a lead edit card, in characters. */
+  maxLeadEditTextChars: 1_000,
+  /** Other leads a mention warning names. */
+  maxMentionNames: 10,
+} as const;
+
+/** Every card kind; `actions` and `taskActions` in the capabilities keep their older lists. */
+export const AI_CARD_KINDS = [
+  'note',
+  'task',
+  'email',
+  'lead_update',
+  'task_update',
+  'lead_edit',
+  'template_email',
+  'lead_archive',
+  'automation_off',
+] as const;
+export const aiCardKindSchema = z.enum(AI_CARD_KINDS);
+export type AiCardKind = z.infer<typeof aiCardKindSchema>;
+
+/** A task's assignee on a card: the asking member (`me`), nobody (`none`) or an active member's id. */
+export const aiTaskAssigneeSchema = z.union([z.enum(['me', 'none']), z.uuid()]);
+export type AiTaskAssignee = z.infer<typeof aiTaskAssigneeSchema>;
+
+/** The dispatch and activation details a stage move's card can carry. */
+export const AI_ORDER_DETAIL_FIELDS = [
+  'courier',
+  'trackingNumber',
+  'dispatchedAt',
+  'activatedAt',
+  'activationNumber',
+  'activationAccount',
+] as const;
+export const aiOrderDetailFieldSchema = z.enum(AI_ORDER_DETAIL_FIELDS);
+export type AiOrderDetailField = z.infer<typeof aiOrderDetailFieldSchema>;
+
+const leadEditValueSchema = z.union([
+  z.string().max(AI_CARD_LIMITS.maxLeadEditTextChars),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+
+/**
+ * What a lead edit card changes: a subset of the staff `PATCH` body
+ * (`updateWorkspaceLeadRequestSchema`), never contact details and never a
+ * documents override. Confirmation parses it again with the staff route's
+ * own schema.
+ */
+export const aiLeadEditChangesSchema = z
+  .object({
+    stage: updateWorkspaceLeadRequestSchema.shape.stage,
+    order: leadOrderEditSchema.optional(),
+    form: leadFormEditSchema
+      .refine((values) =>
+        Object.values(values).every(
+          (value) =>
+            typeof value !== 'string' || value.length <= AI_CARD_LIMITS.maxLeadEditTextChars,
+        ),
+      )
+      .optional(),
+    customValues: z
+      .record(
+        updateWorkspaceLeadRequestSchema.shape.customValues.unwrap().keyType,
+        leadEditValueSchema,
+      )
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (changes) =>
+      changes.stage !== undefined ||
+      changes.order !== undefined ||
+      changes.form !== undefined ||
+      changes.customValues !== undefined,
+    { message: 'nothing to change' },
+  )
+  .refine(
+    (changes) =>
+      (changes.stage === undefined ? 0 : 1) +
+        Object.keys(changes.order ?? {}).length +
+        Object.keys(changes.form ?? {}).length +
+        Object.keys(changes.customValues ?? {}).length <=
+      AI_CARD_LIMITS.maxLeadEditFields,
+    { message: 'too many fields for one card' },
+  );
+export type AiLeadEditChanges = z.infer<typeof aiLeadEditChangesSchema>;
+
+/** The templates a card may send: exactly those the staff route sends by hand. */
+export const aiTemplateEmailKeySchema = queueCustomerEmailRequestSchema.options[0].shape.template;
+
+/**
+ * Every card's draft. The `note`, `email` and `lead_update` drafts are the
+ * older ones; `task` takes any active member as assignee; `task_update`
+ * changes any of status, title, due date and assignee.
+ */
+export const aiCardDraftSchema = z.discriminatedUnion('kind', [
+  aiActionDraftSchema.options[0],
+  z
+    .object({
+      kind: z.literal('task'),
+      leadId: z.uuid().optional(),
+      title: z.string().trim().min(1).max(200),
+      dueDate: z.iso.date().nullable(),
+      assignee: aiTaskAssigneeSchema,
+    })
+    .strict(),
+  aiActionDraftSchema.options[2],
+  aiActionDraftSchema.options[3],
+  z
+    .object({
+      kind: z.literal('task_update'),
+      taskId: z.uuid(),
+      status: leadTaskStatusSchema.optional(),
+      title: z.string().trim().min(1).max(200).optional(),
+      dueDate: z.iso.date().nullable().optional(),
+      assignee: aiTaskAssigneeSchema.optional(),
+    })
+    .strict()
+    .refine(
+      (draft) =>
+        draft.status !== undefined ||
+        draft.title !== undefined ||
+        draft.dueDate !== undefined ||
+        draft.assignee !== undefined,
+      { message: 'nothing to change' },
+    ),
+  /** Stage, order details, form fields and custom values of one lead, in one signed diff. */
+  z
+    .object({ kind: z.literal('lead_edit'), leadId: z.uuid(), changes: aiLeadEditChangesSchema })
+    .strict(),
+  /** One of the site's templates, rendered on the server, to the lead's customer. */
+  z
+    .object({
+      kind: z.literal('template_email'),
+      leadId: z.uuid(),
+      template: aiTemplateEmailKeySchema,
+    })
+    .strict(),
+  /** Archive one lead (`archived: true`) or restore it. */
+  z.object({ kind: z.literal('lead_archive'), leadId: z.uuid(), archived: z.boolean() }).strict(),
+  /** Switch one automation flow off. There is no card that switches one on. */
+  z.object({ kind: z.literal('automation_off'), automationKey: automationKeySchema }).strict(),
+]);
+export type AiCardDraft = z.infer<typeof aiCardDraftSchema>;
+
+/** One changed field of a lead edit card, as the person reads it: current and proposed, in words. */
+export const aiLeadEditRowSchema = z
+  .object({
+    /** `stage`, `order.<field>`, `form.<key>` or `custom.<key>`. */
+    key: z.string().min(1).max(100),
+    label: z.string().min(1).max(160),
+    before: z.string().max(AI_CARD_LIMITS.maxLeadEditTextChars).nullable(),
+    after: z.string().max(AI_CARD_LIMITS.maxLeadEditTextChars).nullable(),
+  })
+  .strict();
+
+/**
+ * A lead edit card's context, read when it is prepared and shown only in the
+ * browser: each changed field's current and proposed value, the dispatch or
+ * activation details the person may fill in or correct on the card
+ * (`inputs`, with the current values in `rows`), and what a stage move still
+ * needs before Confirm (`needs`).
+ */
+export const aiLeadEditContextSchema = z
+  .object({
+    rows: z.array(aiLeadEditRowSchema).max(40),
+    inputs: z
+      .array(
+        z
+          .object({
+            field: aiOrderDetailFieldSchema,
+            label: z.string().min(1).max(80),
+            kind: z.enum(['text', 'date']),
+            required: z.boolean(),
+            current: z.string().max(200).nullable(),
+          })
+          .strict(),
+      )
+      .max(AI_ORDER_DETAIL_FIELDS.length),
+    needs: aiStageMoveNeedSchema.optional(),
+  })
+  .strict();
+export type AiLeadEditContext = z.infer<typeof aiLeadEditContextSchema>;
+
+/** A template email card's server-rendered preview: what the customer receives. */
+export const aiTemplateEmailContextSchema = z
+  .object({
+    templateName: z.string().min(1).max(80),
+    version: z.int().min(0),
+    subject: z.string().min(1).max(300),
+    text: z.string().min(1).max(20_000),
+  })
+  .strict();
+
+/** The flow a switch-off card names, as it was when the card was prepared. */
+export const aiAutomationOffContextSchema = z
+  .object({ name: z.string().min(1).max(80), revision: z.int().min(0) })
+  .strict();
+
+/** A choice of assignee for a task card: `me`, `none` or a member id, with its label. */
+export const aiAssigneeChoiceSchema = z
+  .object({ value: aiTaskAssigneeSchema, label: z.string().min(1).max(160) })
+  .strict();
+
+/** What a task edit card changes besides the status, before and after, in words. */
+export const aiTaskEditContextSchema = z
+  .object({
+    dueDate: z.iso.date().nullable(),
+    assigneeLabel: z.string().min(1).max(160),
+  })
+  .strict();
+
+/**
+ * One card in full. The older proposal's fields with the wider draft, and,
+ * all optional and server-computed:
+ * - `sideEffects`: what Confirm sets off besides the change itself (flows
+ *   that fire and the mail they send, an unfinished checkout submitted,
+ *   waiting runs and timers cancelled), every entry shown in full;
+ * - `mentions`: the names and references of other leads read in the same
+ *   turn that the email or note mentions; with `acknowledgementRequired`
+ *   the confirmation is refused unless the person ticks that they checked it;
+ * - the context of the new kinds, and assignee choices for task cards.
+ */
+export const aiActionCardSchema = z.object({
+  ...aiActionProposalSchema.shape,
+  draft: aiCardDraftSchema,
+  sideEffects: z.array(z.string().min(1).max(300)).max(20).optional(),
+  mentions: z.array(z.string().min(1).max(160)).max(AI_CARD_LIMITS.maxMentionNames).optional(),
+  acknowledgementRequired: z.boolean().optional(),
+  leadEditContext: aiLeadEditContextSchema.optional(),
+  templateEmailContext: aiTemplateEmailContextSchema.optional(),
+  automationOffContext: aiAutomationOffContextSchema.optional(),
+  assigneeChoices: z.array(aiAssigneeChoiceSchema).max(101).optional(),
+  taskEditContext: aiTaskEditContextSchema.optional(),
+});
+export type AiActionCard = z.infer<typeof aiActionCardSchema>;
+
+/**
+ * `POST …/ai/actions/revise` for a newer admin: the wider draft, and `wide`
+ * (sent only when the capabilities list `cardActions`) to receive the card in
+ * full rather than in the older proposal's shape.
+ */
+export const reviseAiCardRequestSchema = z
+  .object({
+    token: z.string().min(1).max(40000),
+    draft: aiCardDraftSchema,
+    wide: z.literal(true).optional(),
+  })
+  .strict();
+export type ReviseAiCardRequest = z.infer<typeof reviseAiCardRequestSchema>;
+
+/**
+ * `POST …/ai/actions/confirm`: the token, and `acknowledged` once the person
+ * ticked that they checked a card whose `acknowledgementRequired` is set.
+ */
+export const confirmAiCardRequestSchema = z
+  .object({ token: z.string().min(1).max(40000), acknowledged: z.literal(true).optional() })
+  .strict();
+export type ConfirmAiCardRequest = z.infer<typeof confirmAiCardRequestSchema>;
+
+export const confirmAiCardResponseSchema = confirmAiActionResponseSchema.extend({
+  kind: aiCardKindSchema,
+});
+export type ConfirmAiCardResponse = z.infer<typeof confirmAiCardResponseSchema>;
 
 /** Why a streamed answer ended without one. Safe to show; never a provider body. */
 export const aiStreamErrorCodeSchema = z.enum([
@@ -631,6 +976,13 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
   z
     .object({ type: z.literal('actions'), actions: z.array(aiActionProposalSchema).max(3) })
     .strict(),
+  /**
+   * Every card of the turn in full (`aiActionCardSchema`), sent before the
+   * `actions` part. An older admin ignores this part and reads `actions`,
+   * which carries only the cards it can show, in their older shape; a newer
+   * admin keeps each card from here and skips its copy in `actions`.
+   */
+  z.object({ type: z.literal('action_cards'), cards: z.array(aiActionCardSchema).max(3) }).strict(),
   z
     .object({
       type: z.literal('error'),
@@ -639,6 +991,13 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('follow_up'), followUp: aiFollowUpSchema }).strict(),
+  /**
+   * Something the person should know about how this answer was made, by a
+   * fixed code the admin words itself. `attachment_budget_spent`: the
+   * member's daily attachment budget is used up, so this turn's files were
+   * not sent (audit B7). An older admin drops the part.
+   */
+  z.object({ type: z.literal('notice'), code: z.enum(['attachment_budget_spent']) }).strict(),
   /**
    * Stored conversations only, sent once right after the member's message is
    * saved and before any answer: the conversation it belongs to, the saved

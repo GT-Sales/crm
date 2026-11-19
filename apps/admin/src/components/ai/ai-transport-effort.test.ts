@@ -122,3 +122,17 @@ describe('streamAnswer and the High refusals', () => {
     expect(await ask()).toBe('failed');
   });
 });
+
+describe('buildAiChatRequest and the card kinds the admin shows (T12)', () => {
+  it('says it shows every card kind only when told, on both kinds of request', () => {
+    const plain = buildAiChatRequest(base).request;
+    expect(plain).not.toHaveProperty('wide');
+    expect(buildAiChatRequest({ ...base, wide: false }).request).toEqual(plain);
+    const wide = buildAiChatRequest({ ...base, wide: true }).request;
+    expect(wide).toEqual({ ...plain, wide: true });
+    expect(aiChatRequestSchema.parse(wide).wide).toBe(true);
+    const stored = buildAiChatRequest({ ...base, conversationId: CONVERSATION_ID, wide: true });
+    expect(stored.request).toMatchObject({ conversationId: CONVERSATION_ID, wide: true });
+    expect(aiChatRequestSchema.safeParse(stored.request).success).toBe(true);
+  });
+});

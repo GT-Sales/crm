@@ -160,7 +160,7 @@ export function ChatThread({
             message={message}
             onReviseAction={(id, draft) => reviseAction(message.id, id, draft)}
             onAnswerChoice={message.id === last?.id && !streaming ? send : undefined}
-            onConfirmAction={(id) => confirmAction(message.id, id)}
+            onConfirmAction={(id, acknowledged) => confirmAction(message.id, id, acknowledged)}
             onCancelAction={(id) => cancelAction(message.id, id)}
             {...(message.id === retryId ? { onRetry: retry } : {})}
             {...(message.id === last?.id ? { retryNote, onStartNewChat: onNewChat } : {})}

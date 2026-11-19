@@ -199,6 +199,8 @@ const KNOWN: Record<string, string | ((action: string) => string)> = {
   conversation_not_found:
     'This conversation no longer exists. It may have been deleted; start a new chat.',
   conversation_full: 'This conversation is as long as it can get. Start a new chat to go on.',
+  conversation_limit_reached:
+    'You have as many saved chats on this site as Ask AI keeps. Delete old chats to start a new one.',
   attachment_rejected: ATTACHMENT_REJECTED.unknown,
   attachments_unavailable:
     'Attaching files is switched off on this site right now. Send your question without the file.',

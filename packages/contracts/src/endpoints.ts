@@ -155,10 +155,10 @@ import {
 } from './uploads';
 import { sourceReportQuerySchema, sourceReportResponseSchema } from './reports';
 import {
-  reviseAiActionRequestSchema,
-  aiActionProposalSchema,
-  confirmAiActionRequestSchema,
-  confirmAiActionResponseSchema,
+  reviseAiCardRequestSchema,
+  aiActionCardSchema,
+  confirmAiCardRequestSchema,
+  confirmAiCardResponseSchema,
   aiCapabilitiesResponseSchema,
   aiChatRequestSchema,
   aiWirePartSchema,
@@ -1187,8 +1187,8 @@ export const endpoints: readonly EndpointDef[] = [
     summary: 'Revise an unsaved action card without writing business data.',
     auth: 'staff',
     successStatus: 200,
-    request: reviseAiActionRequestSchema,
-    response: aiActionProposalSchema,
+    request: reviseAiCardRequestSchema,
+    response: aiActionCardSchema,
   },
   {
     operationId: 'confirmAiAction',
@@ -1198,8 +1198,8 @@ export const endpoints: readonly EndpointDef[] = [
       'Confirm a signed task, note, lead update or reviewed customer email; requires lead.manage and is safe to retry.',
     auth: 'staff',
     successStatus: 200,
-    request: confirmAiActionRequestSchema,
-    response: confirmAiActionResponseSchema,
+    request: confirmAiCardRequestSchema,
+    response: confirmAiCardResponseSchema,
   },
 
   // Staff — outbox jobs

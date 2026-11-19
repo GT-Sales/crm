@@ -305,9 +305,9 @@ for (const width of [375, 1440]) {
       const aiChange = page
         .getByRole('region', { name: 'Timeline' })
         .getByRole('listitem')
-        .filter({ hasText: 'via AI' })
+        .filter({ hasText: 'via Ask AI' })
         .first();
-      await expect(aiChange).toContainText('Takib · via AI');
+      await expect(aiChange).toContainText('Takib · via Ask AI');
       await expect(aiChange).toContainText('corrected the phone');
     } finally {
       await page.unroute('**/ai/actions/confirm');

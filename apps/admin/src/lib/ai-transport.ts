@@ -31,6 +31,8 @@ export type AiUiError =
   | 'too_long'
   /** A stored conversation has as many messages as it may hold (`conversation_full`). */
   | 'conversation_full'
+  /** The member keeps as many saved chats on this site as it allows (`conversation_limit_reached`). */
+  | 'conversation_limit'
   /** The stored conversation is gone or was never this member's (`conversation_not_found`). */
   | 'conversation_missing'
   /** High effort's own limits were reached (`ai_rate_limited`, `details.reason: 'high_effort'`). */
@@ -80,6 +82,11 @@ export interface BuildChatRequestInput {
    * `conversationId`.
    */
   newConversation?: boolean;
+  /**
+   * This admin shows every card kind (T12): sent only against a backend whose
+   * capabilities list `cardActions`, which then offers the new card kinds.
+   */
+  wide?: boolean;
 }
 
 export interface BuiltChatRequest {
@@ -194,6 +201,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         ...(input.newConversation === true ? { newConversation: true } : {}),
         ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
         ...(high ? { effort: 'high' as const } : {}),
+        ...(input.wide === true ? { wide: true as const } : {}),
       },
       trimmed: message.length !== input.message.length,
     };
@@ -211,6 +219,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
       })),
       ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
       ...(high ? { effort: 'high' as const } : {}),
+      ...(input.wide === true ? { wide: true as const } : {}),
     };
   }
 
@@ -247,6 +256,8 @@ export function uiErrorForBackendCode(code: string): AiUiError {
       return 'rate_limited';
     case 'conversation_full':
       return 'conversation_full';
+    case 'conversation_limit_reached':
+      return 'conversation_limit';
     case 'conversation_not_found':
       return 'conversation_missing';
     default:

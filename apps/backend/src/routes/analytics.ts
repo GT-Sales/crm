@@ -4,7 +4,8 @@ import { z } from 'zod';
 
 import { withoutMoney, type AnalyticsStore } from '../analytics/store.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
-import { decideAccess, denyReasonOf } from '../staff/authorization.js';
+import { denyReasonOf } from '../staff/authorization.js';
+import { moneyVisibilityOf } from '../staff/lead-visibility.js';
 import type { PlanRouteDependencies } from './plans.js';
 
 export interface AnalyticsRouteDependencies {
@@ -44,7 +45,7 @@ export function createAnalyticsRoutes(dependencies: AnalyticsRouteDependencies):
         actorId: actor.actorId,
         ...query.data,
       });
-      const revenue = decideAccess(decision.access, 'revenue.view').allowed;
+      const revenue = moneyVisibilityOf(decision.access).revenue;
       res.json({ ...(revenue ? figures : withoutMoney(figures)), requestId: req.id });
     } catch (error) {
       dependencies.reportFailure(req, error);

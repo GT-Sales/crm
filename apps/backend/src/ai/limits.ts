@@ -1,4 +1,5 @@
-import { AI_ASSISTANT_LIMITS, type AiEffort } from '@gt-sales/contracts';
+import type { RateLimitInput, RateLimitResult } from '@gt-sales/db';
+import { AI_ASSISTANT_LIMITS, AI_CHAT_LIMITS, type AiEffort } from '@gt-sales/contracts';
 
 /**
  * What one turn may spend at its effort level. A Normal turn reads exactly the
@@ -115,4 +116,37 @@ export class TurnBudget {
       leadSummaries: this.leadSummaries,
     };
   }
+}
+
+/**
+ * Audit B7: charges a turn's attachment bytes to the member's daily budget on
+ * this site (`AI_CHAT_LIMITS.attachmentBytesPerActorPerDay`), in whole
+ * `attachmentBudgetUnitBytes`, through the shared limiter: one hit per unit,
+ * so the database's own counter is the budget and every replica sees it.
+ * `spent` once a hit is refused (the rest are not asked); `unavailable` when
+ * the limiter cannot be reached. Either way the caller sends no file: the
+ * budget fails closed. A refused turn's units still count, so a member past
+ * the budget stays past it until the UTC day ends.
+ */
+export async function chargeDailyAttachmentBytes(
+  rateLimit: (input: RateLimitInput) => Promise<RateLimitResult>,
+  scope: { workspaceId: string; actorId: string },
+  bytes: number,
+): Promise<'allowed' | 'spent' | 'unavailable'> {
+  const unit = AI_CHAT_LIMITS.attachmentBudgetUnitBytes;
+  const units = Math.ceil(Math.max(0, bytes) / unit);
+  for (let charged = 0; charged < units; charged += 1) {
+    let result: RateLimitResult;
+    try {
+      result = await rateLimit({
+        bucketKey: `ai_file_bytes:${scope.actorId}:${scope.workspaceId}`,
+        windowSeconds: 86_400,
+        maxCount: Math.floor(AI_CHAT_LIMITS.attachmentBytesPerActorPerDay / unit),
+      });
+    } catch {
+      return 'unavailable';
+    }
+    if (!result.allowed) return 'spent';
+  }
+  return 'allowed';
 }

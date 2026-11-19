@@ -3,14 +3,18 @@
 Version 3 adds three requested behaviors to the existing Site-scoped assistant.
 
 - Pending task/note/email cards have an Edit form. Task title, due date and
-  assignment (You/Unassigned), note text, email subject and message can change.
+  assignment (any active member), note text, email subject and message can change.
   Update draft calls the authenticated revision endpoint; it validates the old
   signed token, preserves the lead and action kind, rechecks live permissions
   and returns a fresh signed card. Revision does not save business data.
-- `askFollowUp` emits one question and two to five choices. The staff member can
+- `askFollowUp` emits one question and two to five choices of at most 80
+  characters each (`aiFollowUpToolInputSchema`, audit B8). The staff member can
   click a choice or type freely. The question is included in the next turn's
-  text history. Old choices become disabled when a newer turn starts. Choice
-  text grants no authority; all tools still validate inputs and Site access.
+  text history; in a stored conversation a message that is exactly an offered
+  choice reaches the model marked as picked ([ai-chat.md](ai-chat.md) §6). Old
+  choices become disabled when a newer turn starts. Choice text grants no
+  authority, and a picked choice is never the Confirm button (the prompt says
+  so); all tools still validate inputs and Site access.
 - `prepareEmail` drafts plain text for one lead's customer. The authorized
   browser card receives backend-resolved To/From addresses, which are signed
   with the draft and omitted from the model's tool result/history. Send uses

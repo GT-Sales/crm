@@ -1,5 +1,5 @@
 'use client';
-import type { AiActionDraft } from '@gt-sales/contracts';
+import { AI_CHAT_LIMITS, type AiCardDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -66,6 +66,8 @@ export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): strin
       return 'Couldn’t reach the CRM to answer. Check your internet connection and try again.';
     case 'conversation_full':
       return 'This conversation is as long as it can get. Start a new chat to go on.';
+    case 'conversation_limit':
+      return `You have ${String(AI_CHAT_LIMITS.maxConversationsPerActor)} saved chats on this site, the most Ask AI keeps. Delete old chats to start a new one.`;
     case 'conversation_missing':
       return 'This conversation is no longer available. Start a new chat to keep asking.';
     case 'failed':
@@ -111,6 +113,14 @@ function CopyAnswer({ text }: { text: string }) {
     </Button>
   );
 }
+
+/** A turn emptied because the customer it named had their data erased (audit B2). */
+export const ERASED_MESSAGE_TEXT =
+  'This message was removed because the customer’s data was erased.';
+
+/** The member's daily file budget was spent, so this answer was made without the files (audit B7). */
+export const FILE_LIMIT_TEXT =
+  'Today’s file limit for Ask AI is used up. Files will be read again tomorrow.';
 
 /**
  * A reloaded answer that prepared drafts (cards or automation proposals):
@@ -207,17 +217,23 @@ function AssistantAnswer({
   onRetry?: () => void;
   retryNote?: string;
   onStartNewChat?: () => void;
-  onConfirmAction?: (id: string) => void;
+  onConfirmAction?: (id: string, acknowledged?: boolean) => void;
   onCancelAction?: (id: string) => void;
-  onReviseAction?: (id: string, draft: AiActionDraft) => void;
+  onReviseAction?: (id: string, draft: AiCardDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
   // A stored conversation says "Stopped." under a partial answer too, so a
   // reloaded one reads as stopped; the memory-only panel looks as it always did.
   const stored = useOptionalAssistant()?.conversations.enabled === true;
   const full = message.status === 'error' && message.error === 'conversation_full';
+  if (message.erased) {
+    return <p className="text-sm italic text-muted-foreground">{ERASED_MESSAGE_TEXT}</p>;
+  }
   return (
     <div className="flex min-w-0 flex-col gap-2">
+      {message.fileLimitReached ? (
+        <p className="text-xs text-muted-foreground">{FILE_LIMIT_TEXT}</p>
+      ) : null}
       {message.text.length > 0 ? <AssistantMarkdown text={message.text} /> : null}
       {message.status === 'streaming' ? <StreamingState message={message} /> : null}
       {message.status === 'complete' &&
@@ -283,7 +299,7 @@ function AssistantAnswer({
               key={action.proposal.id}
               action={action}
               onRevise={(draft) => onReviseAction?.(action.proposal.id, draft)}
-              onConfirm={() => onConfirmAction?.(action.proposal.id)}
+              onConfirm={(acknowledged) => onConfirmAction?.(action.proposal.id, acknowledged)}
               onCancel={() => onCancelAction?.(action.proposal.id)}
             />
           ))
@@ -348,12 +364,14 @@ export function AssistantMessage({
   retryNote?: string;
   /** Offered when the conversation is full. */
   onStartNewChat?: () => void;
-  onConfirmAction?: (id: string) => void;
+  onConfirmAction?: (id: string, acknowledged?: boolean) => void;
   onCancelAction?: (id: string) => void;
-  onReviseAction?: (id: string, draft: AiActionDraft) => void;
+  onReviseAction?: (id: string, draft: AiCardDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
   if (message.role === 'user') {
+    // An erased turn says so once, on its answer.
+    if (message.erased) return null;
     if (message.attachments?.length) {
       return (
         <div className="flex flex-col items-end gap-2">

@@ -14,6 +14,8 @@ import {
 
 import {
   AI_ATTACHMENT_SWEEP_BATCH,
+  AI_DEPARTED_MEMBER_CHAT_DAYS,
+  AI_DEPARTED_SWEEP_BATCH,
   AI_ATTACHMENT_UNSENT_TTL_MS,
   type AiAttachmentRecord,
   type AiAttachmentStore,
@@ -367,7 +369,7 @@ export class AiAttachmentService {
     attachmentId: string,
   ): Promise<{ status: 'issued'; url: string; expiresAt: Date } | { status: 'not_found' }> {
     const row = await this.store.get(scope, attachmentId);
-    if (!row || row.status !== 'ready') return { status: 'not_found' };
+    if (!row || row.status !== 'ready' || row.erased === true) return { status: 'not_found' };
     const link = await this.objects.issueDownload({
       workspaceId: scope.workspaceId,
       objectKey: aiAttachmentObjectKeys(row.objectKey).file,
@@ -445,6 +447,86 @@ export class AiAttachmentService {
       totals.deletedObjects += deleted.deleted;
       totals.failedDeletes += deleted.failed;
       if (objects.length < AI_ATTACHMENT_SWEEP_BATCH) break;
+    }
+    if (totals.failedDeletes > 0) {
+      logCleanupFailure(
+        'ai_attachment_object_delete_failed',
+        scope.workspaceId,
+        totals.failedDeletes,
+      );
+    }
+    return totals;
+  }
+
+  /**
+   * The scheduled cleanup of files whose turn a customer's erasure emptied
+   * (audit B2, migration 0039), every member's on one site, as the machine
+   * actor: objects first, each key tried a few times, then only the rows
+   * whose objects are gone. A file whose object could not be deleted keeps
+   * its row and is tried again on the next run; the count is logged.
+   */
+  async sweepErased(
+    scope: Scope,
+    options: { maxBatches?: number } = {},
+  ): Promise<{ removed: number; deletedObjects: number; failedDeletes: number }> {
+    const totals = { removed: 0, deletedObjects: 0, failedDeletes: 0 };
+    for (let batch = 0; batch < (options.maxBatches ?? 5); batch += 1) {
+      const files = await this.store.erasedFiles(scope, { limit: AI_ATTACHMENT_SWEEP_BATCH });
+      const gone: string[] = [];
+      for (const file of files) {
+        const deleted = await this.deleteObjects(scope, [file], AI_ATTACHMENT_DELETE_ATTEMPTS);
+        totals.deletedObjects += deleted.deleted;
+        totals.failedDeletes += deleted.failed;
+        if (deleted.failed === 0) gone.push(file.id);
+      }
+      totals.removed += await this.store.deleteErasedFiles(scope, gone);
+      // A short page, or one whose every object failed (it would come back first).
+      if (files.length < AI_ATTACHMENT_SWEEP_BATCH || gone.length === 0) break;
+    }
+    if (totals.failedDeletes > 0) {
+      logCleanupFailure(
+        'ai_attachment_object_delete_failed',
+        scope.workspaceId,
+        totals.failedDeletes,
+      );
+    }
+    return totals;
+  }
+
+  /**
+   * The scheduled cleanup of the conversations of people who left the site
+   * (audit C13): no active membership for `AI_DEPARTED_MEMBER_CHAT_DAYS`.
+   * Each conversation's objects go first; only a conversation whose every
+   * object is gone is then deleted (messages and file rows by cascade), and
+   * the database checks again, under a lock, that its member is still away.
+   */
+  async sweepDepartedMembers(
+    scope: Scope,
+    options: { maxBatches?: number } = {},
+  ): Promise<{ conversations: number; deletedObjects: number; failedDeletes: number }> {
+    const before = new Date(this.now().getTime() - AI_DEPARTED_MEMBER_CHAT_DAYS * 86_400_000);
+    const totals = { conversations: 0, deletedObjects: 0, failedDeletes: 0 };
+    for (let batch = 0; batch < (options.maxBatches ?? 5); batch += 1) {
+      const listed = await this.store.departedConversations(scope, {
+        before,
+        limit: AI_DEPARTED_SWEEP_BATCH,
+      });
+      const ready: string[] = [];
+      for (const conversation of listed) {
+        const deleted = await this.deleteObjects(
+          scope,
+          conversation.objects,
+          AI_ATTACHMENT_DELETE_ATTEMPTS,
+        );
+        totals.deletedObjects += deleted.deleted;
+        totals.failedDeletes += deleted.failed;
+        if (deleted.failed === 0) ready.push(conversation.id);
+      }
+      totals.conversations += await this.store.deleteDepartedConversations(scope, {
+        before,
+        ids: ready,
+      });
+      if (listed.length < AI_DEPARTED_SWEEP_BATCH || ready.length === 0) break;
     }
     if (totals.failedDeletes > 0) {
       logCleanupFailure(

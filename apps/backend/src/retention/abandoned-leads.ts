@@ -185,6 +185,7 @@ export class DatabaseAbandonedLeadPruner {
               }),
             );
           }
+          await eraseAiChatTurns(tx, input.workspaceId, eraseIds);
         }
 
         const requestId = randomUUID();
@@ -243,6 +244,37 @@ export class DatabaseAbandonedLeadPruner {
     };
   }
 }
+
+/**
+ * Audit B2: Ask AI's saved turns that name these (now restricted) leads lose
+ * their text in the same transaction, for every member of the site
+ * (`app.erase_restricted_lead_ai_turns`, migration 0039); their files go with
+ * the scheduler's next `document_cleanup`, objects first. Until 0039 is
+ * applied the turns stay stored but are never replayed (the history reads the
+ * lead's state), and this says so; the migration erases the turns of every
+ * lead restricted before it.
+ */
+async function eraseAiChatTurns(
+  tx: Tx,
+  workspaceId: string,
+  leadIds: readonly string[],
+): Promise<void> {
+  const [fn] = await tx.execute<{ present: boolean }>(
+    sql`select to_regprocedure('app.erase_restricted_lead_ai_turns(uuid,uuid[])') is not null as present`,
+  );
+  if (!fn?.present) {
+    console.warn(JSON.stringify({ event: 'ai_chat_erasure_function_missing', workspaceId }));
+    return;
+  }
+  for (let at = 0; at < leadIds.length; at += AI_CHAT_ERASURE_BATCH) {
+    await tx.execute(
+      sql`select * from app.erase_restricted_lead_ai_turns(${workspaceId}::uuid, ${uuidArray(leadIds.slice(at, at + AI_CHAT_ERASURE_BATCH))})`,
+    );
+  }
+}
+
+/** The 0039 function takes at most this many leads per call. */
+const AI_CHAT_ERASURE_BATCH = 1000;
 
 /** A constant SQL `text[]` literal from code-owned keys (never request data). */
 function textArray(keys: readonly string[]): string {

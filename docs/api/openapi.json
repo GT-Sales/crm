@@ -190,6 +190,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -384,6 +385,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -613,6 +615,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -807,6 +810,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1064,6 +1068,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1264,6 +1269,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1501,6 +1507,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1737,6 +1744,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1968,6 +1976,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -2195,6 +2204,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -2422,6 +2432,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -2907,6 +2918,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -3100,6 +3112,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -3491,6 +3504,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -3770,6 +3784,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -4498,6 +4513,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -4807,6 +4823,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -5256,6 +5273,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -6686,6 +6704,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -7802,6 +7821,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -8991,6 +9011,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -10081,6 +10102,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -11128,6 +11150,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -12156,6 +12179,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -12353,6 +12377,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -12992,6 +13017,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -14020,6 +14046,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -14620,6 +14647,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -15246,6 +15274,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -15537,6 +15566,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -15849,6 +15879,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -16312,6 +16343,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -16590,6 +16622,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -16985,6 +17018,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -17321,6 +17355,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -17725,6 +17760,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -18111,6 +18147,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -18400,6 +18437,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -18751,6 +18789,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19000,6 +19039,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19253,6 +19293,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19642,6 +19683,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19971,6 +20013,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -20410,6 +20453,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -20719,6 +20763,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -21043,6 +21088,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -21345,6 +21391,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -21729,6 +21776,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22076,6 +22124,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22346,6 +22395,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22713,6 +22763,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22994,6 +23045,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -23295,6 +23347,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -23514,6 +23567,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -23726,6 +23780,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -24010,6 +24065,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -24294,6 +24350,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -26646,6 +26703,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -34262,6 +34320,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -36461,6 +36520,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -44098,6 +44158,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -51715,6 +51776,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -52182,6 +52244,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -52590,6 +52653,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -60209,6 +60273,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -70329,6 +70394,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -77948,6 +78014,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -85586,6 +85653,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -93205,6 +93273,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -100824,6 +100893,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -101057,6 +101127,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -101478,6 +101549,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -101817,6 +101889,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -104236,6 +104309,11 @@
                       "type": "array",
                       "items": { "type": "string", "enum": ["plain_task", "task_update"] }
                     },
+                    "cardActions": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+                    },
                     "reason": {
                       "type": "string",
                       "enum": ["disabled", "not_configured", "site_not_enabled"]
@@ -104484,6 +104562,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -109893,6 +109972,686 @@
                         {
                           "type": "object",
                           "properties": {
+                            "type": { "type": "string", "const": "action_cards" },
+                            "cards": {
+                              "maxItems": 3,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "token": { "type": "string", "minLength": 1, "maxLength": 40000 },
+                                  "expiresAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  },
+                                  "leadUpdateContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "version": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 100
+                                      },
+                                      "before": {
+                                        "anyOf": [
+                                          { "type": "string", "maxLength": 200 },
+                                          { "type": "null" }
+                                        ]
+                                      },
+                                      "beforeLabel": { "type": "string", "maxLength": 200 },
+                                      "choices": {
+                                        "maxItems": 100,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "value": {
+                                              "anyOf": [
+                                                { "type": "string", "maxLength": 100 },
+                                                { "type": "null" }
+                                              ]
+                                            },
+                                            "label": { "type": "string", "maxLength": 160 },
+                                            "needs": {
+                                              "type": "string",
+                                              "enum": [
+                                                "dispatch_details",
+                                                "activation_details",
+                                                "documents"
+                                              ]
+                                            },
+                                            "missingDocuments": {
+                                              "maxItems": 16,
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[a-z0-9_]+$"
+                                              }
+                                            }
+                                          },
+                                          "required": ["value", "label"],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "required": ["version", "before", "beforeLabel", "choices"],
+                                    "additionalProperties": false
+                                  },
+                                  "taskUpdateContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "version": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 100
+                                      },
+                                      "title": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 200
+                                      },
+                                      "before": {
+                                        "type": "string",
+                                        "enum": ["open", "in_progress", "done", "cancelled"]
+                                      },
+                                      "leadId": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          { "type": "null" }
+                                        ]
+                                      }
+                                    },
+                                    "required": ["version", "title", "before", "leadId"],
+                                    "additionalProperties": false
+                                  },
+                                  "emailContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "toAddress": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                                      },
+                                      "fromAddress": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                                      }
+                                    },
+                                    "required": ["toAddress", "fromAddress"],
+                                    "additionalProperties": false
+                                  },
+                                  "siteName": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 160
+                                  },
+                                  "leadLabel": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 160
+                                  },
+                                  "leadHref": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 400,
+                                    "pattern": "^\\/(?!\\/)"
+                                  },
+                                  "draft": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "note" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "body": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 4000
+                                          }
+                                        },
+                                        "required": ["kind", "leadId", "body"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "task" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "title": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 200
+                                          },
+                                          "dueDate": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "format": "date",
+                                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                              },
+                                              { "type": "null" }
+                                            ]
+                                          },
+                                          "assignee": {
+                                            "anyOf": [
+                                              { "type": "string", "enum": ["me", "none"] },
+                                              {
+                                                "type": "string",
+                                                "format": "uuid",
+                                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "required": ["kind", "title", "dueDate", "assignee"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "email" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "subject": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 150
+                                          },
+                                          "body": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 4000
+                                          }
+                                        },
+                                        "required": ["kind", "leadId", "subject", "body"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "lead_update" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "field": {
+                                            "type": "string",
+                                            "enum": [
+                                              "stage",
+                                              "assignedActorId",
+                                              "fullName",
+                                              "phone"
+                                            ]
+                                          },
+                                          "value": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 160
+                                              },
+                                              { "type": "null" }
+                                            ]
+                                          }
+                                        },
+                                        "required": ["kind", "leadId", "field", "value"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "task_update" },
+                                          "taskId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "status": {
+                                            "type": "string",
+                                            "enum": ["open", "in_progress", "done", "cancelled"]
+                                          },
+                                          "title": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 200
+                                          },
+                                          "dueDate": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "format": "date",
+                                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                              },
+                                              { "type": "null" }
+                                            ]
+                                          },
+                                          "assignee": {
+                                            "anyOf": [
+                                              { "type": "string", "enum": ["me", "none"] },
+                                              {
+                                                "type": "string",
+                                                "format": "uuid",
+                                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "required": ["kind", "taskId"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "lead_edit" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "changes": {
+                                            "type": "object",
+                                            "properties": {
+                                              "stage": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[a-z0-9_]+$"
+                                              },
+                                              "order": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "planId": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                      },
+                                                      { "type": "null" }
+                                                    ]
+                                                  },
+                                                  "quantity": {
+                                                    "type": "integer",
+                                                    "minimum": 1,
+                                                    "maximum": 99
+                                                  },
+                                                  "paymentStatus": {
+                                                    "type": "string",
+                                                    "enum": ["not_needed", "pending", "paid"]
+                                                  },
+                                                  "carrierCommission": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "not_yet",
+                                                      "invoiced",
+                                                      "received",
+                                                      "clawback"
+                                                    ]
+                                                  },
+                                                  "courier": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 120
+                                                      },
+                                                      { "type": "null" }
+                                                    ]
+                                                  },
+                                                  "trackingNumber": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 120
+                                                      },
+                                                      { "type": "null" }
+                                                    ]
+                                                  },
+                                                  "dispatchedAt": { "type": ["string", "null"] },
+                                                  "activatedAt": { "type": ["string", "null"] },
+                                                  "activationNumber": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 40
+                                                      },
+                                                      { "type": "null" }
+                                                    ]
+                                                  },
+                                                  "activationAccount": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 80
+                                                      },
+                                                      { "type": "null" }
+                                                    ]
+                                                  }
+                                                },
+                                                "additionalProperties": false
+                                              },
+                                              "form": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string",
+                                                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                                },
+                                                "additionalProperties": {
+                                                  "anyOf": [
+                                                    { "type": "string", "maxLength": 4000 },
+                                                    { "type": "boolean" },
+                                                    { "type": "number" },
+                                                    { "type": "null" }
+                                                  ]
+                                                }
+                                              },
+                                              "customValues": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string",
+                                                  "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                                },
+                                                "additionalProperties": {
+                                                  "anyOf": [
+                                                    { "type": "string", "maxLength": 1000 },
+                                                    { "type": "number" },
+                                                    { "type": "boolean" },
+                                                    { "type": "null" }
+                                                  ]
+                                                }
+                                              }
+                                            },
+                                            "additionalProperties": false
+                                          }
+                                        },
+                                        "required": ["kind", "leadId", "changes"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "template_email" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "template": {
+                                            "type": "string",
+                                            "const": "sim_number_ready"
+                                          }
+                                        },
+                                        "required": ["kind", "leadId", "template"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "lead_archive" },
+                                          "leadId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          "archived": { "type": "boolean" }
+                                        },
+                                        "required": ["kind", "leadId", "archived"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": { "type": "string", "const": "automation_off" },
+                                          "automationKey": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "order_received",
+                                                  "sim_order_information_needed",
+                                                  "sim_order_dispatched",
+                                                  "sim_order_activated",
+                                                  "sim_order_cancelled",
+                                                  "mobility_activated"
+                                                ]
+                                              },
+                                              { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
+                                            ]
+                                          }
+                                        },
+                                        "required": ["kind", "automationKey"],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "sideEffects": {
+                                    "maxItems": 20,
+                                    "type": "array",
+                                    "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+                                  },
+                                  "mentions": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+                                  },
+                                  "acknowledgementRequired": { "type": "boolean" },
+                                  "leadEditContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "rows": {
+                                        "maxItems": 40,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "key": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 100
+                                            },
+                                            "label": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 160
+                                            },
+                                            "before": {
+                                              "anyOf": [
+                                                { "type": "string", "maxLength": 1000 },
+                                                { "type": "null" }
+                                              ]
+                                            },
+                                            "after": {
+                                              "anyOf": [
+                                                { "type": "string", "maxLength": 1000 },
+                                                { "type": "null" }
+                                              ]
+                                            }
+                                          },
+                                          "required": ["key", "label", "before", "after"],
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "inputs": {
+                                        "maxItems": 6,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "field": {
+                                              "type": "string",
+                                              "enum": [
+                                                "courier",
+                                                "trackingNumber",
+                                                "dispatchedAt",
+                                                "activatedAt",
+                                                "activationNumber",
+                                                "activationAccount"
+                                              ]
+                                            },
+                                            "label": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 80
+                                            },
+                                            "kind": { "type": "string", "enum": ["text", "date"] },
+                                            "required": { "type": "boolean" },
+                                            "current": {
+                                              "anyOf": [
+                                                { "type": "string", "maxLength": 200 },
+                                                { "type": "null" }
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "field",
+                                            "label",
+                                            "kind",
+                                            "required",
+                                            "current"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "needs": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dispatch_details",
+                                          "activation_details",
+                                          "documents"
+                                        ]
+                                      }
+                                    },
+                                    "required": ["rows", "inputs"],
+                                    "additionalProperties": false
+                                  },
+                                  "templateEmailContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "templateName": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 80
+                                      },
+                                      "version": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "subject": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 300
+                                      },
+                                      "text": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 20000
+                                      }
+                                    },
+                                    "required": ["templateName", "version", "subject", "text"],
+                                    "additionalProperties": false
+                                  },
+                                  "automationOffContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                                      "revision": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": ["name", "revision"],
+                                    "additionalProperties": false
+                                  },
+                                  "assigneeChoices": {
+                                    "maxItems": 101,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "value": {
+                                          "anyOf": [
+                                            { "type": "string", "enum": ["me", "none"] },
+                                            {
+                                              "type": "string",
+                                              "format": "uuid",
+                                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                            }
+                                          ]
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 160
+                                        }
+                                      },
+                                      "required": ["value", "label"],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "taskEditContext": {
+                                    "type": "object",
+                                    "properties": {
+                                      "dueDate": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "date",
+                                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                          },
+                                          { "type": "null" }
+                                        ]
+                                      },
+                                      "assigneeLabel": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 160
+                                      }
+                                    },
+                                    "required": ["dueDate", "assigneeLabel"],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": ["id", "token", "expiresAt", "siteName", "draft"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["type", "cards"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
                             "type": { "type": "string", "const": "error" },
                             "code": {
                               "type": "string",
@@ -109932,6 +110691,15 @@
                             }
                           },
                           "required": ["type", "followUp"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": { "type": "string", "const": "notice" },
+                            "code": { "type": "string", "enum": ["attachment_budget_spent"] }
+                          },
+                          "required": ["type", "code"],
                           "additionalProperties": false
                         },
                         {
@@ -110675,6 +111443,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -110757,7 +111526,8 @@
                     }
                   },
                   "effort": { "type": "string", "enum": ["normal", "high"] },
-                  "newConversation": { "type": "boolean" }
+                  "newConversation": { "type": "boolean" },
+                  "wide": { "type": "boolean", "const": true }
                 },
                 "required": ["requestId", "message", "history"],
                 "additionalProperties": false
@@ -110990,6 +111760,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111178,7 +111949,8 @@
                               "additionalProperties": false
                             }
                           },
-                          "effort": { "type": "string", "enum": ["normal", "high"] }
+                          "effort": { "type": "string", "enum": ["normal", "high"] },
+                          "erased": { "type": "boolean", "const": true }
                         },
                         "required": [
                           "id",
@@ -111340,6 +112112,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111566,6 +112339,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111782,6 +112556,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111993,6 +112768,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -112247,6 +113023,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -112462,6 +113239,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -112663,6 +113441,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -113109,6 +113888,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -113316,6 +114096,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -118390,6 +119171,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121180,6 +121962,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121427,7 +122210,16 @@
                                 { "type": "null" }
                               ]
                             },
-                            "assignee": { "type": "string", "enum": ["me", "none"] }
+                            "assignee": {
+                              "anyOf": [
+                                { "type": "string", "enum": ["me", "none"] },
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                }
+                              ]
+                            }
                           },
                           "required": ["kind", "title", "dueDate", "assignee"],
                           "additionalProperties": false
@@ -121482,12 +122274,329 @@
                             "status": {
                               "type": "string",
                               "enum": ["open", "in_progress", "done", "cancelled"]
+                            },
+                            "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                            "dueDate": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                },
+                                { "type": "null" }
+                              ]
+                            },
+                            "assignee": {
+                              "anyOf": [
+                                { "type": "string", "enum": ["me", "none"] },
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                }
+                              ]
                             }
                           },
-                          "required": ["kind", "taskId", "status"],
+                          "required": ["kind", "taskId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "type": "string", "const": "lead_edit" },
+                            "leadId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "changes": {
+                              "type": "object",
+                              "properties": {
+                                "stage": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9_]+$"
+                                },
+                                "order": {
+                                  "type": "object",
+                                  "properties": {
+                                    "planId": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                                    "paymentStatus": {
+                                      "type": "string",
+                                      "enum": ["not_needed", "pending", "paid"]
+                                    },
+                                    "carrierCommission": {
+                                      "type": "string",
+                                      "enum": ["not_yet", "invoiced", "received", "clawback"]
+                                    },
+                                    "courier": {
+                                      "anyOf": [
+                                        { "type": "string", "minLength": 1, "maxLength": 120 },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "trackingNumber": {
+                                      "anyOf": [
+                                        { "type": "string", "minLength": 1, "maxLength": 120 },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "dispatchedAt": { "type": ["string", "null"] },
+                                    "activatedAt": { "type": ["string", "null"] },
+                                    "activationNumber": {
+                                      "anyOf": [
+                                        { "type": "string", "minLength": 1, "maxLength": 40 },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "activationAccount": {
+                                      "anyOf": [
+                                        { "type": "string", "minLength": 1, "maxLength": 80 },
+                                        { "type": "null" }
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "form": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                  },
+                                  "additionalProperties": {
+                                    "anyOf": [
+                                      { "type": "string", "maxLength": 4000 },
+                                      { "type": "boolean" },
+                                      { "type": "number" },
+                                      { "type": "null" }
+                                    ]
+                                  }
+                                },
+                                "customValues": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                  },
+                                  "additionalProperties": {
+                                    "anyOf": [
+                                      { "type": "string", "maxLength": 1000 },
+                                      { "type": "number" },
+                                      { "type": "boolean" },
+                                      { "type": "null" }
+                                    ]
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["kind", "leadId", "changes"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "type": "string", "const": "template_email" },
+                            "leadId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "template": { "type": "string", "const": "sim_number_ready" }
+                          },
+                          "required": ["kind", "leadId", "template"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "type": "string", "const": "lead_archive" },
+                            "leadId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "archived": { "type": "boolean" }
+                          },
+                          "required": ["kind", "leadId", "archived"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "type": "string", "const": "automation_off" },
+                            "automationKey": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "order_received",
+                                    "sim_order_information_needed",
+                                    "sim_order_dispatched",
+                                    "sim_order_activated",
+                                    "sim_order_cancelled",
+                                    "mobility_activated"
+                                  ]
+                                },
+                                { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
+                              ]
+                            }
+                          },
+                          "required": ["kind", "automationKey"],
                           "additionalProperties": false
                         }
                       ]
+                    },
+                    "sideEffects": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+                    },
+                    "mentions": {
+                      "maxItems": 10,
+                      "type": "array",
+                      "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+                    },
+                    "acknowledgementRequired": { "type": "boolean" },
+                    "leadEditContext": {
+                      "type": "object",
+                      "properties": {
+                        "rows": {
+                          "maxItems": 40,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": { "type": "string", "minLength": 1, "maxLength": 100 },
+                              "label": { "type": "string", "minLength": 1, "maxLength": 160 },
+                              "before": {
+                                "anyOf": [
+                                  { "type": "string", "maxLength": 1000 },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "after": {
+                                "anyOf": [
+                                  { "type": "string", "maxLength": 1000 },
+                                  { "type": "null" }
+                                ]
+                              }
+                            },
+                            "required": ["key", "label", "before", "after"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "inputs": {
+                          "maxItems": 6,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "enum": [
+                                  "courier",
+                                  "trackingNumber",
+                                  "dispatchedAt",
+                                  "activatedAt",
+                                  "activationNumber",
+                                  "activationAccount"
+                                ]
+                              },
+                              "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                              "kind": { "type": "string", "enum": ["text", "date"] },
+                              "required": { "type": "boolean" },
+                              "current": {
+                                "anyOf": [
+                                  { "type": "string", "maxLength": 200 },
+                                  { "type": "null" }
+                                ]
+                              }
+                            },
+                            "required": ["field", "label", "kind", "required", "current"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "needs": {
+                          "type": "string",
+                          "enum": ["dispatch_details", "activation_details", "documents"]
+                        }
+                      },
+                      "required": ["rows", "inputs"],
+                      "additionalProperties": false
+                    },
+                    "templateEmailContext": {
+                      "type": "object",
+                      "properties": {
+                        "templateName": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "subject": { "type": "string", "minLength": 1, "maxLength": 300 },
+                        "text": { "type": "string", "minLength": 1, "maxLength": 20000 }
+                      },
+                      "required": ["templateName", "version", "subject", "text"],
+                      "additionalProperties": false
+                    },
+                    "automationOffContext": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["name", "revision"],
+                      "additionalProperties": false
+                    },
+                    "assigneeChoices": {
+                      "maxItems": 101,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "anyOf": [
+                              { "type": "string", "enum": ["me", "none"] },
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            ]
+                          },
+                          "label": { "type": "string", "minLength": 1, "maxLength": 160 }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "taskEditContext": {
+                      "type": "object",
+                      "properties": {
+                        "dueDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "assigneeLabel": { "type": "string", "minLength": 1, "maxLength": 160 }
+                      },
+                      "required": ["dueDate", "assigneeLabel"],
+                      "additionalProperties": false
                     }
                   },
                   "required": ["id", "token", "expiresAt", "siteName", "draft"],
@@ -121631,6 +122740,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121703,7 +122813,16 @@
                               { "type": "null" }
                             ]
                           },
-                          "assignee": { "type": "string", "enum": ["me", "none"] }
+                          "assignee": {
+                            "anyOf": [
+                              { "type": "string", "enum": ["me", "none"] },
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            ]
+                          }
                         },
                         "required": ["kind", "title", "dueDate", "assignee"],
                         "additionalProperties": false
@@ -121758,13 +122877,193 @@
                           "status": {
                             "type": "string",
                             "enum": ["open", "in_progress", "done", "cancelled"]
+                          },
+                          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                          "dueDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "assignee": {
+                            "anyOf": [
+                              { "type": "string", "enum": ["me", "none"] },
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            ]
                           }
                         },
-                        "required": ["kind", "taskId", "status"],
+                        "required": ["kind", "taskId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "lead_edit" },
+                          "leadId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "changes": {
+                            "type": "object",
+                            "properties": {
+                              "stage": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9_]+$"
+                              },
+                              "order": {
+                                "type": "object",
+                                "properties": {
+                                  "planId": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      },
+                                      { "type": "null" }
+                                    ]
+                                  },
+                                  "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+                                  "paymentStatus": {
+                                    "type": "string",
+                                    "enum": ["not_needed", "pending", "paid"]
+                                  },
+                                  "carrierCommission": {
+                                    "type": "string",
+                                    "enum": ["not_yet", "invoiced", "received", "clawback"]
+                                  },
+                                  "courier": {
+                                    "anyOf": [
+                                      { "type": "string", "minLength": 1, "maxLength": 120 },
+                                      { "type": "null" }
+                                    ]
+                                  },
+                                  "trackingNumber": {
+                                    "anyOf": [
+                                      { "type": "string", "minLength": 1, "maxLength": 120 },
+                                      { "type": "null" }
+                                    ]
+                                  },
+                                  "dispatchedAt": { "type": ["string", "null"] },
+                                  "activatedAt": { "type": ["string", "null"] },
+                                  "activationNumber": {
+                                    "anyOf": [
+                                      { "type": "string", "minLength": 1, "maxLength": 40 },
+                                      { "type": "null" }
+                                    ]
+                                  },
+                                  "activationAccount": {
+                                    "anyOf": [
+                                      { "type": "string", "minLength": 1, "maxLength": 80 },
+                                      { "type": "null" }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "form": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                },
+                                "additionalProperties": {
+                                  "anyOf": [
+                                    { "type": "string", "maxLength": 4000 },
+                                    { "type": "boolean" },
+                                    { "type": "number" },
+                                    { "type": "null" }
+                                  ]
+                                }
+                              },
+                              "customValues": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9_]{0,63}$"
+                                },
+                                "additionalProperties": {
+                                  "anyOf": [
+                                    { "type": "string", "maxLength": 1000 },
+                                    { "type": "number" },
+                                    { "type": "boolean" },
+                                    { "type": "null" }
+                                  ]
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": ["kind", "leadId", "changes"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "template_email" },
+                          "leadId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "template": { "type": "string", "const": "sim_number_ready" }
+                        },
+                        "required": ["kind", "leadId", "template"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "lead_archive" },
+                          "leadId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "archived": { "type": "boolean" }
+                        },
+                        "required": ["kind", "leadId", "archived"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "const": "automation_off" },
+                          "automationKey": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "order_received",
+                                  "sim_order_information_needed",
+                                  "sim_order_dispatched",
+                                  "sim_order_activated",
+                                  "sim_order_cancelled",
+                                  "mobility_activated"
+                                ]
+                              },
+                              { "type": "string", "pattern": "^flow_[a-z0-9]{16}$" }
+                            ]
+                          }
+                        },
+                        "required": ["kind", "automationKey"],
                         "additionalProperties": false
                       }
                     ]
-                  }
+                  },
+                  "wide": { "type": "boolean", "const": true }
                 },
                 "required": ["token", "draft"],
                 "additionalProperties": false
@@ -121799,7 +123098,17 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["note", "task", "email", "lead_update", "task_update"]
+                      "enum": [
+                        "note",
+                        "task",
+                        "email",
+                        "lead_update",
+                        "task_update",
+                        "lead_edit",
+                        "template_email",
+                        "lead_archive",
+                        "automation_off"
+                      ]
                     },
                     "recordId": {
                       "type": "string",
@@ -121953,6 +123262,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121987,7 +123297,10 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": { "token": { "type": "string", "minLength": 1, "maxLength": 40000 } },
+                "properties": {
+                  "token": { "type": "string", "minLength": 1, "maxLength": 40000 },
+                  "acknowledged": { "type": "boolean", "const": true }
+                },
                 "required": ["token"],
                 "additionalProperties": false
               }
@@ -122223,6 +123536,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122424,6 +123738,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122625,6 +123940,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122861,6 +124177,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -123198,6 +124515,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -123414,6 +124732,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -123690,6 +125009,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124016,6 +125336,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124355,6 +125676,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124620,6 +125942,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124845,6 +126168,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125090,6 +126414,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125358,6 +126683,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125670,6 +126996,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125905,6 +127232,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -126113,6 +127441,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -126352,6 +127681,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -126802,6 +128132,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -127075,6 +128406,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -127353,6 +128685,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -127647,6 +128980,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"

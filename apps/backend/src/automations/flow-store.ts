@@ -148,11 +148,17 @@ export interface FlowStore {
     key: AutomationKey,
     input: UpdateFlowDetailsRequest,
   ): Promise<FlowStoreOutcome<StoredFlow>>;
+  /**
+   * `ai` is an Ask AI switch-off card's confirmation: its root id and card go
+   * in the audit, and `expectedRevision` is checked for switching off too, so
+   * a flow changed since the card was prepared is refused (`revision_conflict`).
+   */
   setEnabled(
     ctx: WriteScope,
     key: AutomationKey,
     enabled: boolean,
     expectedRevision?: number,
+    ai?: { aiActionId: string; aiCardId?: string },
   ): Promise<FlowStoreOutcome<StoredFlow>>;
   archive(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>>;
   restore(ctx: WriteScope, key: AutomationKey): Promise<FlowStoreOutcome<StoredFlow>>;
@@ -1233,6 +1239,7 @@ export class DatabaseFlowStore implements FlowStore {
     key: AutomationKey,
     enabled: boolean,
     expectedRevision?: number,
+    ai?: { aiActionId: string; aiCardId?: string },
   ): Promise<FlowStoreOutcome<StoredFlow>> {
     return this.database.withTenantTx(ctx, async (tx): Promise<FlowStoreOutcome<StoredFlow>> => {
       await ensureBuiltInFlows(tx, ctx);
@@ -1243,7 +1250,11 @@ export class DatabaseFlowStore implements FlowStore {
       if (locked.enabled === enabled) return this.okFlow(tx, ctx.workspaceId, key);
       // ENG-L4: switching on checks the revision the caller saw; switching
       // off never waits on it.
-      if (enabled && expectedRevision !== undefined && locked.revision !== expectedRevision)
+      if (
+        (enabled || ai !== undefined) &&
+        expectedRevision !== undefined &&
+        locked.revision !== expectedRevision
+      )
         return { status: 'revision_conflict' };
       if (enabled && locked.archived) return { status: 'archived' };
       if (enabled && locked.activeVersionId === null) return { status: 'no_active_version' };
@@ -1256,7 +1267,12 @@ export class DatabaseFlowStore implements FlowStore {
         action: 'automation.toggled',
         entityId: locked.id,
         before: { key, enabled: locked.enabled },
-        after: { key, enabled },
+        after: {
+          key,
+          enabled,
+          ...(ai ? { aiActionId: ai.aiActionId } : {}),
+          ...(ai?.aiCardId ? { aiCardId: ai.aiCardId } : {}),
+        },
       });
       return this.okFlow(tx, ctx.workspaceId, key);
     });

@@ -31,9 +31,9 @@ import {
   BackendError,
   createBackendClient,
   type AiCapabilitiesResponse,
-  type AiActionDraft,
-  type AiActionProposal,
-  type ConfirmAiActionResponse,
+  type AiCardDraft,
+  type AiActionCard,
+  type ConfirmAiCardResponse,
   type AiChatRequest,
   type AiStreamPart,
   type AutomationKey,
@@ -933,21 +933,32 @@ export async function revealLeadIdentity(
   return client(accessToken).staff.revealLeadIdentity(workspaceId, leadId, identityId);
 }
 
+/** `acknowledged` only for a card whose mention warning the person ticked (B1). */
 export async function confirmAiAction(
   accessToken: string,
   workspaceId: string,
   token: string,
-): Promise<ConfirmAiActionResponse> {
-  return client(accessToken).staff.confirmAiAction(workspaceId, { token });
+  acknowledged = false,
+): Promise<ConfirmAiCardResponse> {
+  return client(accessToken).staff.confirmAiAction(workspaceId, {
+    token,
+    ...(acknowledged ? { acknowledged: true } : {}),
+  });
 }
 
+/** `wide` only against a backend whose capabilities list `cardActions` (an older one refuses the key). */
 export async function reviseAiAction(
   accessToken: string,
   workspaceId: string,
   token: string,
-  draft: AiActionDraft,
-): Promise<AiActionProposal> {
-  return client(accessToken).staff.reviseAiAction(workspaceId, { token, draft });
+  draft: AiCardDraft,
+  wide = false,
+): Promise<AiActionCard> {
+  return client(accessToken).staff.reviseAiAction(workspaceId, {
+    token,
+    draft,
+    ...(wide ? { wide: true } : {}),
+  });
 }
 
 export function saveAiAutomation(

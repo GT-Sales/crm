@@ -1884,3 +1884,58 @@ describe('effort levels (Normal and High)', () => {
     }
   });
 });
+
+describe('the reads a turn offers (READS)', () => {
+  const leadsMember: StaffAccessSnapshot = {
+    membershipId: MEMBERSHIP,
+    status: 'active',
+    roles: ['leads'],
+    permissions: [],
+  };
+
+  async function offered(access: StaffAccessSnapshot, flows?: FlowStore): Promise<string[]> {
+    const engine = createFakeEngine([{ chunks: ['Done.'] }]);
+    await start(
+      appWith({
+        engine,
+        loadAccess: async () => access,
+        ...(flows === undefined ? {} : { flows }),
+      }),
+    );
+    const response = await fetch(chatUrl(), {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify(body({ requestId: crypto.randomUUID() })),
+    });
+    await readParts(response);
+    return Object.keys(engine.inputs[0]?.tools ?? {}).sort();
+  }
+
+  it('offers a Leads member the small reads their routes allow, never the email settings', async () => {
+    const names = await offered(leadsMember);
+    for (const name of [
+      'getInboxCounts',
+      'getMyAccess',
+      'linkToScreen',
+      'getDocumentQueue',
+      'listSentMail',
+      'listMembers',
+    ])
+      expect(names).toContain(name);
+    expect(names).not.toContain('getEmailSettings');
+    expect(names).not.toContain('getEmailTemplate');
+  });
+
+  it('offers every AI user the automation reads but never the proposal tools off the allowlist', async () => {
+    const names = await offered(leadsMember, new DatabaseFlowStore());
+    for (const name of [
+      'listAutomations',
+      'getAutomation',
+      'getAutomationCatalog',
+      'getAutomationRuns',
+    ])
+      expect(names).toContain(name);
+    expect(names).not.toContain('proposeAutomationCreate');
+    expect(names).not.toContain('proposeAutomationEdit');
+  });
+});

@@ -36,8 +36,9 @@ function verified(key: string, scope: HistoryScope, text: string, signature: str
 
 /**
  * The history the model may see: whole turns, oldest first, each a question
- * and the server's own signed answer. Without a signing key (actions off) the
- * answers cannot be checked; turns are still kept whole and alternating.
+ * and the server's own signed answer. Without a signing key no answer can be
+ * checked, so none is trusted and nothing is replayed (audit B6: fail closed;
+ * an enabled assistant always has a key, so this is a backstop).
  */
 export function trustedHistory(
   history: readonly AiHistoryMessage[],
@@ -59,8 +60,9 @@ export function trustedHistory(
     }
     index += 1;
     const trusted =
-      key === undefined ||
-      (answer.signature !== undefined && verified(key, scope, answer.text, answer.signature));
+      key !== undefined &&
+      answer.signature !== undefined &&
+      verified(key, scope, answer.text, answer.signature);
     if (!trusted) {
       dropped += 2;
       continue;

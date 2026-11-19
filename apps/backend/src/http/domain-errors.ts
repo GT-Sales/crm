@@ -101,6 +101,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   ai_rate_limited: 'Too many Ask AI questions just now. Try again shortly.',
   conversation_not_found: 'You have no Ask AI conversation with this id on this site.',
   conversation_full: 'This Ask AI conversation holds the most messages it may. Start a new chat.',
+  conversation_limit_reached:
+    'You have as many saved Ask AI chats on this site as it keeps. Delete old chats to start a new one.',
   attachment_rejected: 'The file was not accepted; `details.reason` says why.',
   attachments_unavailable: 'Attaching files to Ask AI is not available here.',
   plain_tasks_unavailable:

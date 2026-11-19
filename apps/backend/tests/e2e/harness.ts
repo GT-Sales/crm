@@ -36,11 +36,19 @@
  * it: no object store runs here, so documents are reviewed against an
  * in-memory one.
  *
+ * Besides the verifier, one test-only route outside the app,
+ * `POST /__e2e/colleague-role` (`{ "role": "leads" | "orders" }`), changes the
+ * seeded colleague's role on CanadaWide in the database, as an owner would in
+ * the admin, so a journey can take a permission away while a card is open.
+ * It is mounted in front of the real app here and nowhere else.
+ *
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
+import express from 'express';
 import postgres from 'postgres';
 import { z } from 'zod';
 import { createAiChatDependenciesFromEnv } from '../../src/ai/chat-factory.js';
+import { DatabaseAiCardStore } from '../../src/ai/card-store.js';
 import { DatabaseAiReadService } from '../../src/ai/read-service.js';
 import { DatabaseAiSiteContextStore } from '../../src/ai/site-context.js';
 import { DatabaseAiTurnStore } from '../../src/ai/turn-store.js';
@@ -73,6 +81,7 @@ const COLLEAGUE_ID = '20000000-0000-4000-8000-0000000e2e02';
 const WEBSITE_ACTOR_ID = '20000000-0000-4000-8000-0000000e2e09';
 const PASSPORT_FILE_ID = '50000000-0000-4000-8000-0000000e2e01';
 const STAFF_BEARER = process.env['E2E_STAFF_BEARER'] ?? 'e2e-staff-session-owner';
+const COLLEAGUE_BEARER = process.env['E2E_COLLEAGUE_BEARER'] ?? 'e2e-staff-session-leads-sam';
 const ADMIN_URL = process.env['TEST_MIGRATION_DATABASE_URL'];
 const RUNTIME_URL = process.env['DATABASE_URL'];
 
@@ -461,6 +470,10 @@ async function seed(): Promise<void> {
 
 class StubStaffVerifier implements StaffSessionVerifier {
   async verify(accessToken: string): Promise<VerifiedStaffSession | undefined> {
+    // The seeded colleague (Leads role, CanadaWide only) has a token of her own, so a
+    // journey can check what a member without the owner's access is offered.
+    if (accessToken === COLLEAGUE_BEARER)
+      return { actorId: COLLEAGUE_ID, verifiedEmail: 'sam@example.test' };
     return accessToken === STAFF_BEARER
       ? { actorId: OWNER_ID, verifiedEmail: 'owner@example.test' }
       : undefined;
@@ -568,6 +581,204 @@ const assistantEngine: AssistantEngine = {
         body: question.slice('Draft an email:'.length).trim(),
       });
       yield { type: 'text', text: 'Email draft ready. Review and Send.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // Wider cards (WRITES), on the open lead: each question prepares one card.
+    const openLead = () => /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
+    const wideCard = async (
+      tool: string,
+      args: (leadId: string) => Record<string, unknown>,
+      text: string,
+    ) => {
+      const leadId = openLead();
+      if (!leadId || !input.executeTool) throw new Error('expected open lead context');
+      await input.executeTool(tool, args(leadId));
+      return text;
+    };
+    // "Mark as delivered with Canada Post TRK123": the stage move with dispatch details.
+    const delivered = /^mark as delivered with (.+?)(?: (\S+))?$/i.exec(question);
+    const wideAnswer = delivered
+      ? await wideCard(
+          'prepareLeadEdit',
+          (leadId) => ({
+            leadId,
+            stage: 'delivered',
+            order: {
+              courier: delivered[1],
+              ...(delivered[2] ? { trackingNumber: delivered[2] } : {}),
+            },
+          }),
+          'Delivery draft ready. Check the details and confirm.',
+        )
+      : question === 'Mark as delivered'
+        ? await wideCard(
+            'prepareLeadEdit',
+            (leadId) => ({ leadId, stage: 'delivered' }),
+            'Delivery draft ready. Enter the courier on the card.',
+          )
+        : question === 'Mark as activated'
+          ? await wideCard(
+              'prepareLeadEdit',
+              (leadId) => ({ leadId, stage: 'activated' }),
+              'Activation draft ready. Enter the activation number on the card.',
+            )
+          : /^set quantity to (\d+)$/i.exec(question)
+            ? await wideCard(
+                'prepareLeadEdit',
+                (leadId) => ({
+                  leadId,
+                  order: { quantity: Number(/(\d+)$/.exec(question)?.[1]), paymentStatus: 'paid' },
+                }),
+                'Order change ready for review.',
+              )
+            : question === 'Send the SIM number email'
+              ? await wideCard(
+                  'prepareTemplateEmail',
+                  (leadId) => ({ leadId, template: 'sim_number_ready' }),
+                  'Template email ready. Review and Send.',
+                )
+              : question === 'Archive this lead' || question === 'Restore this lead'
+                ? await wideCard(
+                    'prepareArchive',
+                    (leadId) => ({ leadId, archived: question.startsWith('Archive') }),
+                    'Archive draft ready for review.',
+                  )
+                : question.startsWith('Assign a task to ')
+                  ? await (async () => {
+                      const leadId = openLead();
+                      if (!leadId || !input.executeTool) throw new Error('expected context');
+                      const options = z
+                        .object({
+                          choices: z.array(z.object({ value: z.string(), label: z.string() })),
+                        })
+                        .parse(
+                          JSON.parse(
+                            await input.executeTool('getAssigneeOptions', {
+                              search: question.slice('Assign a task to '.length).trim(),
+                            }),
+                          ),
+                        );
+                      await input.executeTool('prepareTask', {
+                        leadId,
+                        title: 'Follow up for a colleague',
+                        dueDate: null,
+                        assignee: options.choices.at(-1)?.value ?? 'none',
+                      });
+                      return 'Task draft ready for review.';
+                    })()
+                  : question.startsWith('Switch off the automation ')
+                    ? await (async () => {
+                        if (!input.executeTool) throw new Error('expected executor');
+                        await input.executeTool('prepareAutomationOff', {
+                          automationKey: question.slice('Switch off the automation '.length).trim(),
+                        });
+                        return 'Switch-off draft ready for review.';
+                      })()
+                    : question.startsWith('Email mentioning another customer:')
+                      ? await wideCard(
+                          'prepareEmail',
+                          (leadId) => ({
+                            leadId,
+                            subject: 'Your order',
+                            body: question
+                              .slice('Email mentioning another customer:'.length)
+                              .trim(),
+                          }),
+                          'Email draft ready. Review and Send.',
+                        )
+                      : undefined;
+    if (wideAnswer !== undefined) {
+      yield { type: 'text', text: wideAnswer };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // More synthetic answers for the wider-cards journeys (zz-ai-wide-cards.spec.ts).
+    // `$lead` in a JSON argument stands for the open lead's id.
+    const withLead = (json: string) => JSON.parse(json.replaceAll('$lead', openLead() ?? ''));
+    // "Mark as delivered and explain": the model relays what the tool says when no card is made.
+    if (question === 'Mark as delivered and explain') {
+      if (!input.executeTool) throw new Error('expected executor');
+      const result = z
+        .object({ status: z.string(), message: z.string().optional() })
+        .parse(
+          JSON.parse(
+            await input.executeTool('prepareLeadEdit', { leadId: openLead(), stage: 'delivered' }),
+          ),
+        );
+      yield { type: 'text', text: result.message ?? 'The delivery draft is ready.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Prepare lead edit: {json}": plan, quantity, form fields, custom values, in one card.
+    if (question.startsWith('Prepare lead edit:')) {
+      if (!input.executeTool) throw new Error('expected executor');
+      await input.executeTool('prepareLeadEdit', {
+        leadId: openLead(),
+        ...withLead(question.slice('Prepare lead edit:'.length)),
+      });
+      yield { type: 'text', text: 'Lead change ready for review.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Raw read: getInboxCounts {json}": the read exactly as the model receives it.
+    const rawRead = /^raw read: (\w+)(?: (\{.*\}))?$/is.exec(question);
+    if (rawRead?.[1]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const result = await input.executeTool(rawRead[1], rawRead[2] ? withLead(rawRead[2]) : {});
+      yield { type: 'text', text: '```json\n' };
+      for (let at = 0; at < Math.min(result.length, 21_000); at += 7_000) {
+        yield { type: 'text', text: result.slice(at, at + 7_000) };
+      }
+      yield { type: 'text', text: '\n```' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Email naming a customer found by search: Priya | Hello ...": reads that customer, then drafts.
+    const naming = /^email naming a customer found by search: (.+?) \| (.+)$/is.exec(question);
+    if (naming?.[1] && naming[2]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      await input.executeTool('findLeads', { search: naming[1] });
+      await input.executeTool('prepareEmail', {
+        leadId: openLead(),
+        subject: 'Your order',
+        body: naming[2],
+      });
+      yield { type: 'text', text: 'Email draft ready. Review and Send.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // 'Change the task "Call" to "New title", due 2026-12-24, for Sam': title, date and assignee.
+    const taskEdit = /^change the task "(.+)" to "(.+)", due (\d{4}-\d{2}-\d{2}), for (.+)$/i.exec(
+      question,
+    );
+    if (taskEdit?.[1] && taskEdit[2] && taskEdit[3] && taskEdit[4]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const listed = z
+        .object({
+          data: z.object({ tasks: z.array(z.object({ taskId: z.string(), title: z.string() })) }),
+        })
+        .parse(
+          JSON.parse(await input.executeTool('listOpenTasks', { status: 'active', due: 'any' })),
+        );
+      const found = listed.data.tasks.find((task) => task.title === taskEdit[1]);
+      const options = z
+        .object({ choices: z.array(z.object({ value: z.string(), label: z.string() })) })
+        .parse(JSON.parse(await input.executeTool('getAssigneeOptions', { search: taskEdit[4] })));
+      if (!found) {
+        yield { type: 'text', text: 'No open task has that title.' };
+        yield { type: 'finish', outputTokens: 6 };
+        return;
+      }
+      await input.executeTool('prepareTaskUpdate', {
+        taskId: found.taskId,
+        title: taskEdit[2],
+        dueDate: taskEdit[3],
+        assignee: /^(me|none)$/i.test(taskEdit[4])
+          ? taskEdit[4].toLowerCase()
+          : (options.choices.at(-1)?.value ?? 'none'),
+      });
+      yield { type: 'text', text: 'Task change ready for review.' };
       yield { type: 'finish', outputTokens: 8 };
       return;
     }
@@ -683,6 +894,7 @@ const app = createApp({
       },
       reads: new DatabaseAiReadService(),
       siteContext: new DatabaseAiSiteContextStore(),
+      cards: new DatabaseAiCardStore(),
       engine: assistantEngine,
       rateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
       // Each turn's usage row, as production writes it, so Settings → AI usage
@@ -702,6 +914,27 @@ const app = createApp({
     rateLimit: undefined,
   },
 });
-app.listen(PORT, '127.0.0.1', () => {
+// Test-only: the seeded colleague's role on CanadaWide, changed as an owner would change it.
+const roles = postgres(ADMIN_URL, { max: 1, prepare: false, ssl: false });
+const harness = express();
+harness.post('/__e2e/colleague-role', express.json(), async (req, res) => {
+  const role = z.object({ role: z.enum(['leads', 'orders']) }).safeParse(req.body);
+  if (!role.success) {
+    res.status(400).json({ error: 'role must be leads or orders' });
+    return;
+  }
+  await roles`
+    update app.membership_roles mr
+    set role_id = (
+      select r.id from app.roles r where r.workspace_id = ${WORKSPACE_ID} and r.name = ${role.data.role}
+    )
+    from app.memberships m
+    where mr.membership_id = m.id and m.workspace_id = ${WORKSPACE_ID}
+      and m.user_id = ${COLLEAGUE_ID}
+  `;
+  res.json({ role: role.data.role });
+});
+harness.use(app);
+harness.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(`e2e harness listening on http://127.0.0.1:${PORT}\n`);
 });

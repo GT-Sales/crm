@@ -12,8 +12,18 @@ import {
 } from '@gt-sales/contracts';
 import type { Scope } from '../tenant-scope.js';
 import type { FlowStore } from '../automations/flow-store.js';
+import { decideAiAccess } from '../routes/ai-assistant.js';
 import { decideAccess, type StaffAccessSnapshot } from '../staff/authorization.js';
+import { canSeeLeadDetails } from '../staff/lead-visibility.js';
 import { TurnBudget } from './limits.js';
+import { NAME_MAX, REFERENCE_MAX } from './projections.js';
+import type { SourceRegistry } from './sources.js';
+import {
+  RECORD_DATA_NOTICE,
+  inertRecordLines,
+  inertRecordText,
+  neutralizeSerialized,
+} from './record-text.js';
 import { AutomationAuthoringError, type AutomationAuthoringStore } from './automation-authoring.js';
 
 function countRecords(value: unknown): number {
@@ -22,6 +32,32 @@ function countRecords(value: unknown): number {
     return Object.values(value).reduce<number>((n, item) => n + countRecords(item), 0);
   return 0;
 }
+/** The longest string an automation read hands the model (a flow's description). */
+const AUTOMATION_TEXT_MAX = 2000;
+
+/**
+ * Every string of an automation read, cleaned as record text (C12): flow
+ * names and descriptions, template, plan and property names and members'
+ * display names were typed by people. Keys and ids hold no such characters,
+ * so they come through unchanged.
+ */
+function inertDeep(value: unknown): unknown {
+  if (typeof value === 'string') return inertRecordLines(value, AUTOMATION_TEXT_MAX) ?? '';
+  if (Array.isArray(value)) return value.map(inertDeep);
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, inertDeep(item)]));
+  return value;
+}
+
+/** The read tools, offered to every Ask AI user as the staff routes allow with `workspace.read`. */
+export const AUTOMATION_READ_TOOL_NAMES = [
+  'listAutomations',
+  'getAutomation',
+  'getAutomationCatalog',
+  'getAutomationRuns',
+] as const;
+export type AutomationReadToolName = (typeof AUTOMATION_READ_TOOL_NAMES)[number];
+
 export const AUTOMATION_TOOL_NAMES = [
   'listAutomations',
   'getAutomation',
@@ -33,13 +69,36 @@ export const AUTOMATION_TOOL_NAMES = [
 export function createAutomationTools(input: {
   scope: Scope;
   site: { name: string; slug: string };
-  key: string;
+  /**
+   * False for the read-only set every Ask AI user gets (the four read tools,
+   * `decideAiAccess` at each call); true or absent for authoring, which keeps
+   * `integration.manage` on every tool as before.
+   */
+  authoring?: boolean;
+  /** The signing key and store a proposal needs; authoring only. */
+  key?: string;
   flows: FlowStore;
-  store: AutomationAuthoringStore;
+  store?: AutomationAuthoringStore;
+  /**
+   * A run's lead by its reference and name, for members who see lead
+   * details; active, unrestricted leads only, so a restricted lead's run
+   * names nobody.
+   */
+  leadLabels?: (
+    leadIds: readonly string[],
+  ) => Promise<ReadonlyMap<string, { reference: string | null; name: string | null }>>;
+  /**
+   * The turn's source cards: a run's lead that is named gets its lead card,
+   * as every other read that names a lead does, so a stored answer that
+   * names it is never replayed once the lead is restricted and is found by
+   * the erasure (docs/design/ai-chat.md, audit B2).
+   */
+  sources?: Pick<SourceRegistry, 'lead'>;
   loadAccess(): Promise<StaffAccessSnapshot | undefined>;
   now(): Date;
   budget: TurnBudget;
 }) {
+  const authoring = input.authoring !== false;
   const proposals: AiAutomationProposal[] = [];
   const prepared = new Map<string, AiAutomationProposal>();
   // Drafts being written now (AUTH-6), counted toward the three-card limit.
@@ -69,9 +128,13 @@ export function createAutomationTools(input: {
   async function execute(name: string, raw: unknown): Promise<string> {
     if (!input.budget.reserveToolCall()) return JSON.stringify({ status: 'budget_exceeded' });
     const access = await input.loadAccess();
+    const readOnly = AUTOMATION_READ_TOOL_NAMES.some((toolName) => toolName === name);
+    if (!authoring && !readOnly) return JSON.stringify({ status: 'not_available' });
     if (
-      !decideAccess(access, 'workspace.read').allowed ||
-      !decideAccess(access, 'integration.manage').allowed
+      authoring
+        ? !decideAccess(access, 'workspace.read').allowed ||
+          !decideAccess(access, 'integration.manage').allowed
+        : !decideAiAccess(access).allowed
     )
       return JSON.stringify({ status: 'not_available' });
     let result: unknown;
@@ -194,14 +257,41 @@ export function createAutomationTools(input: {
             includeLeadNames: false,
           });
           // Do not expose stored details, lead identifiers or contact fields through explanations.
+          // A run's lead by reference and name only for members who see lead
+          // details, and only while that lead is active and unrestricted.
+          const shown = runs?.runs.slice(0, 10) ?? [];
+          const labels =
+            input.leadLabels && canSeeLeadDetails(access)
+              ? await input.leadLabels(shown.map((r) => r.leadId))
+              : undefined;
+          for (const run of shown) {
+            const label = labels?.get(run.leadId);
+            if (label === undefined) continue;
+            input.sources?.lead(
+              run.leadId,
+              inertRecordText(label.reference, REFERENCE_MAX) ??
+                inertRecordText(label.name, NAME_MAX) ??
+                'Lead',
+              `${input.site.name} · automation run`,
+            );
+          }
           result = {
-            runs: runs?.runs.slice(0, 10).map((r) => ({
-              id: r.id,
-              status: r.status,
-              reason: r.reason,
-              version: r.version,
-              resumeAt: r.resumeAt,
-            })),
+            runs: runs?.runs.slice(0, 10).map((r) => {
+              const label = labels?.get(r.leadId);
+              return {
+                id: r.id,
+                status: r.status,
+                reason: r.reason,
+                version: r.version,
+                resumeAt: r.resumeAt,
+                ...(label === undefined
+                  ? {}
+                  : {
+                      leadReference: inertRecordText(label.reference, REFERENCE_MAX),
+                      leadName: inertRecordText(label.name, NAME_MAX),
+                    }),
+              };
+            }),
             nextBefore: runs && runs.runs.length > 10 ? runs.runs[9]?.id : runs?.nextBefore,
           };
           break;
@@ -235,14 +325,18 @@ export function createAutomationTools(input: {
           // so a parallel call is turned away first and no row is left orphaned.
           if (proposals.length + preparing.size >= 3)
             return JSON.stringify({ status: 'limit_reached' });
+          const authoringStore = input.store;
+          const key = input.key;
+          if (authoringStore === undefined || key === undefined)
+            return JSON.stringify({ status: 'not_available' });
           preparing.add(proposalKey);
           let proposal: AiAutomationProposal;
           try {
-            proposal = await input.store.prepare(
+            proposal = await authoringStore.prepare(
               { ...input.scope, requestId: crypto.randomUUID() },
               normalized,
               input.site.name,
-              input.key,
+              key,
               input.now(),
             );
           } finally {
@@ -276,7 +370,15 @@ export function createAutomationTools(input: {
         });
       throw error;
     }
-    const text = JSON.stringify(result);
+    // Labelled and cleaned as every other tool result is (C12).
+    const cleaned = inertDeep(result);
+    const text = neutralizeSerialized(
+      JSON.stringify(
+        cleaned !== null && typeof cleaned === 'object' && !Array.isArray(cleaned)
+          ? { ...cleaned, notice: RECORD_DATA_NOTICE }
+          : cleaned,
+      ),
+    );
     if (
       input.budget.acceptResult({ bytes: Buffer.byteLength(text), records: countRecords(result) })
         .rejected
@@ -320,15 +422,17 @@ export function createAutomationTools(input: {
     inputSchema: schemas.getAutomationRuns,
     execute: (args) => execute('getAutomationRuns', args),
   });
-  definitions.proposeAutomationCreate = tool({
-    description: descriptions.proposeAutomationCreate,
-    inputSchema: schemas.proposeAutomationCreate,
-    execute: (args) => execute('proposeAutomationCreate', args),
-  });
-  definitions.proposeAutomationEdit = tool({
-    description: descriptions.proposeAutomationEdit,
-    inputSchema: schemas.proposeAutomationEdit,
-    execute: (args) => execute('proposeAutomationEdit', args),
-  });
-  return { definitions, execute, proposals };
+  if (authoring) {
+    definitions.proposeAutomationCreate = tool({
+      description: descriptions.proposeAutomationCreate,
+      inputSchema: schemas.proposeAutomationCreate,
+      execute: (args) => execute('proposeAutomationCreate', args),
+    });
+    definitions.proposeAutomationEdit = tool({
+      description: descriptions.proposeAutomationEdit,
+      inputSchema: schemas.proposeAutomationEdit,
+      execute: (args) => execute('proposeAutomationEdit', args),
+    });
+  }
+  return { definitions, execute, proposals, authoring };
 }

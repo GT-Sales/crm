@@ -160,6 +160,15 @@ describe('a conversation and its messages', () => {
     }
   });
 
+  it('carries an erased turn as an empty row marked erased, only ever as true (audit B2)', () => {
+    const erased = { ...answer, text: '', sources: [], erased: true };
+    expect(aiStoredMessageSchema.parse(erased)).toEqual(erased);
+    expect(aiStoredMessageSchema.parse(answer).erased).toBeUndefined();
+    expect(aiStoredMessageSchema.safeParse({ ...answer, erased: false }).success).toBe(false);
+    // An older admin's schema without the key strips it.
+    expect(aiStoredMessageSchema.omit({ erased: true }).parse(erased)).not.toHaveProperty('erased');
+  });
+
   it('bounds a stored message', () => {
     expect(aiStoredMessageSchema.safeParse({ ...answer, text: '😀'.repeat(20_000) }).success).toBe(
       true,

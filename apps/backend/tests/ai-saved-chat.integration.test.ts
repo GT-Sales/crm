@@ -67,7 +67,7 @@ import { DatabaseAiUsageStore } from '../src/ai/usage-store.js';
 import type { StaffSessionVerifier } from '../src/auth/session.js';
 import type { LeadStore } from '../src/leads/store.js';
 import type { ReportStore } from '../src/reports/store.js';
-import { abortActiveAssistantTurns } from '../src/routes/ai-assistant.js';
+import { abortActiveAssistantTurns, selectedChoiceText } from '../src/routes/ai-assistant.js';
 import { aiAttachmentSweep, runDocumentCleanup } from '../src/scheduler.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import type { StaffStore } from '../src/staff/store.js';
@@ -578,11 +578,64 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       const fake = createFakeEngine([{ chunks: ['Done.'] }]);
       engine = fake;
       await chat('a', SITE, chatBody({ conversationId, message: 'This one' }));
+      // A message that is one of the offered choices reaches the model marked as
+      // a picked option (audit B8); the stored question keeps the plain text.
       expect(fake.inputs[0]?.messages).toEqual([
         { role: 'user', text: 'Second' },
         { role: 'assistant', text: 'Which site? Options: This one; Both\nLet me check.' },
-        { role: 'user', text: 'This one' },
+        { role: 'user', text: selectedChoiceText('This one') },
       ]);
+      const rows = await storedRows(conversationId);
+      expect(rows.filter((row) => row.role === 'user').map((row) => row.text)).toEqual([
+        'First, failed',
+        'Second',
+        'This one',
+      ]);
+      // Typed words that are not a choice go as typed.
+      const typed = createFakeEngine([{ chunks: ['Sure.'] }]);
+      engine = typed;
+      await chat('a', SITE, chatBody({ conversationId, message: 'This one, and email them' }));
+      expect(typed.inputs[0]?.messages.at(-1)).toEqual({
+        role: 'user',
+        text: 'This one, and email them',
+      });
+    });
+
+    it('refuses a follow-up choice past 80 characters or a sixth choice, offering none', async () => {
+      for (const choices of [
+        ['Yes', 'x'.repeat(81)],
+        ['a', 'b', 'c', 'd', 'e', 'f'],
+      ]) {
+        engine = createFakeEngine([
+          {
+            toolCalls: [{ name: 'askFollowUp', input: { question: 'Which?', choices } }],
+            chunks: ['Let me check.'],
+          },
+        ]);
+        const turn = await chat(
+          'a',
+          SITE,
+          chatBody({ conversationId: crypto.randomUUID(), message: 'Help' }),
+        );
+        expect(turn.status).toBe(200);
+        expect(turn.parts.some((part) => part.type === 'follow_up')).toBe(false);
+      }
+      engine = createFakeEngine([
+        {
+          toolCalls: [
+            {
+              name: 'askFollowUp',
+              input: { question: 'Which?', choices: ['Yes', 'y'.repeat(80)] },
+            },
+          ],
+          chunks: ['Let me check.'],
+        },
+      ]);
+      const fits = await chat('a', SITE, chatBody({ conversationId: crypto.randomUUID() }));
+      expect(fits.parts).toContainEqual({
+        type: 'follow_up',
+        followUp: { question: 'Which?', choices: ['Yes', 'y'.repeat(80)] },
+      });
     });
 
     it('stores a failed answer with its stream code and a timed-out one as failed: timeout', async () => {
@@ -1367,6 +1420,113 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         'pdf',
         'omitted',
       ]);
+    });
+
+    it('charges the files sent to the model to the member’s daily budget, and once spent sends them as not available and says so', async () => {
+      const seen: RateLimitInput[] = [];
+      const counting = countingLimiter();
+      limiter = async (input) => {
+        seen.push(input);
+        return counting(input);
+      };
+      const pdfs = [];
+      for (let index = 0; index < 2; index += 1) {
+        pdfs.push(
+          await readyFile('a', SITE, {
+            name: `budget${index}.pdf`,
+            mediaType: 'application/pdf',
+            bytes: pdfOf(1024 * 1024 + 10),
+          }),
+        );
+      }
+      const conversationId = crypto.randomUUID();
+      const sent = await chat('a', SITE, chatBody({ conversationId, attachmentIds: pdfs }));
+      // Two files of just over 1 MiB: 3 units of 1 MiB, rounded up over the turn.
+      const charges = seen.filter((input) => input.bucketKey.startsWith('ai_file_bytes:'));
+      expect(charges).toHaveLength(3);
+      expect(charges[0]).toEqual({
+        bucketKey: `ai_file_bytes:${MEMBER_A}:${SITE}`,
+        windowSeconds: 86_400,
+        maxCount:
+          AI_CHAT_LIMITS.attachmentBytesPerActorPerDay / AI_CHAT_LIMITS.attachmentBudgetUnitBytes,
+      });
+      expect(sent.parts.some((part) => part.type === 'notice')).toBe(false);
+
+      // Spent: the turn still runs, every file (the earlier ones included) is
+      // named as not available, and the stream says why.
+      limiter = async (input) =>
+        input.bucketKey.startsWith('ai_file_bytes:')
+          ? { allowed: false, retryAfterSeconds: 3_600 }
+          : { allowed: true, retryAfterSeconds: 0 };
+      const extra = await readyFile('a', SITE, {
+        name: 'more.png',
+        mediaType: 'image/png',
+        bytes: PNG,
+      });
+      const fake = createFakeEngine([{ chunks: ['Without the files.'] }]);
+      engine = fake;
+      const spent = await chat('a', SITE, chatBody({ conversationId, attachmentIds: [extra] }));
+      expect(spent.status).toBe(200);
+      expect(spent.parts).toContainEqual({ type: 'notice', code: 'attachment_budget_spent' });
+      expect(spent.parts.at(-1)?.type).toBe('done');
+      const messages = fake.inputs[0]?.messages ?? [];
+      expect(messages.flatMap((message) => message.attachments ?? [])).toEqual([
+        { kind: 'omitted', fileName: 'budget0.pdf' },
+        { kind: 'omitted', fileName: 'budget1.pdf' },
+        { kind: 'omitted', fileName: 'more.png' },
+      ]);
+
+      // A limiter that cannot be reached sends no file either, but claims no spent budget.
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      limiter = async (input) => {
+        if (input.bucketKey.startsWith('ai_file_bytes:')) throw new Error('limiter down');
+        return { allowed: true, retryAfterSeconds: 0 };
+      };
+      const down = createFakeEngine([{ chunks: ['Without the files.'] }]);
+      engine = down;
+      const unreachable = await chat('a', SITE, chatBody({ conversationId }));
+      expect(unreachable.status).toBe(200);
+      expect(unreachable.parts.some((part) => part.type === 'notice')).toBe(false);
+      expect(
+        (down.inputs[0]?.messages ?? []).flatMap((message) =>
+          (message.attachments ?? []).map((file) => file.kind),
+        ),
+      ).toEqual(['omitted', 'omitted', 'omitted']);
+      error.mockRestore();
+    });
+
+    it('refuses a new conversation past the member’s limit, keeping the ones they have', async () => {
+      const existing = crypto.randomUUID();
+      await chat('a', SITE, chatBody({ conversationId: existing }));
+      await admin`
+        insert into app.ai_conversations (id, workspace_id, actor_id, title)
+        select gen_random_uuid(), ${SITE}, ${MEMBER_A}, 'Old chat'
+        from generate_series(1, ${AI_CHAT_LIMITS.maxConversationsPerActor - 1}::int)
+      `;
+      // Another member, and the same member on another site, are not counted.
+      await admin`
+        insert into app.ai_conversations (id, workspace_id, actor_id, title)
+        values (gen_random_uuid(), ${SITE}, ${MEMBER_B}, 'Theirs'),
+          (gen_random_uuid(), ${SITE_2}, ${MEMBER_A}, 'Other site')
+      `;
+      const refusedId = crypto.randomUUID();
+      const refused = await chat('a', SITE, chatBody({ conversationId: refusedId }));
+      expect(refused.status).toBe(409);
+      expect(refused.error?.error).toMatchObject({
+        code: 'conversation_limit_reached',
+        details: { limit: AI_CHAT_LIMITS.maxConversationsPerActor },
+      });
+      const [none] = await admin<{ count: number }[]>`
+        select count(*)::int as count from app.ai_conversations where id = ${refusedId}
+      `;
+      expect(none?.count).toBe(0);
+      expect((await chat('a', SITE, chatBody({ conversationId: existing }))).status).toBe(200);
+      expect(
+        (await chat('b', SITE, chatBody({ conversationId: crypto.randomUUID() }))).status,
+      ).toBe(200);
+      expect(
+        (await chat('a', SITE_2, chatBody({ conversationId: crypto.randomUUID() }))).status,
+      ).toBe(200);
     });
 
     it('limits upload intents per member per hour, failing closed without the limiter', async () => {

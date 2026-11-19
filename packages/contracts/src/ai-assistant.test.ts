@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  aiWirePartSchema,
   AI_ASSISTANT_LIMITS,
   AI_CHAT_LIMITS,
   AI_EFFORTS,
@@ -14,6 +15,9 @@ import {
   aiSourceSchema,
   aiStreamPartSchema,
   aiActionDraftSchema,
+  aiFollowUpSchema,
+  aiFollowUpToolInputSchema,
+  AI_FOLLOW_UP_LIMITS,
   confirmAiActionRequestSchema,
 } from './ai-assistant';
 
@@ -405,6 +409,9 @@ describe('AI_CHAT_LIMITS and the attachment kinds', () => {
       maxAttachmentsPerTurnContext: 6,
       maxAttachmentBytesPerTurn: 15 * 1024 * 1024,
       uploadsPerActorPerHour: 40,
+      attachmentBytesPerActorPerDay: 300 * 1024 * 1024,
+      attachmentBudgetUnitBytes: 1024 * 1024,
+      maxConversationsPerActor: 500,
     });
   });
 
@@ -499,5 +506,58 @@ describe('effort levels: additive and optional', () => {
       maxToolResultBytes: 6 * 1024,
       maxToolDataBytes: 24 * 1024,
     });
+  });
+});
+
+describe('Ask AI guards (audit B7, B8)', () => {
+  it('bounds a follow-up the model offers tighter than the wire does', () => {
+    expect(AI_FOLLOW_UP_LIMITS).toEqual({ maxChoiceChars: 80, maxChoices: 5 });
+    const fits = { question: 'Which?', choices: ['Yes', 'y'.repeat(80)] };
+    expect(aiFollowUpToolInputSchema.parse(fits)).toEqual(fits);
+    for (const choices of [['Yes', 'y'.repeat(81)], ['a', 'b', 'c', 'd', 'e', 'f'], ['only']]) {
+      expect(aiFollowUpToolInputSchema.safeParse({ question: 'Which?', choices }).success).toBe(
+        false,
+      );
+    }
+    expect(aiFollowUpToolInputSchema.safeParse({ ...fits, extra: true }).success).toBe(false);
+    // The wire still reads what an older backend stored or streamed.
+    expect(
+      aiFollowUpSchema.safeParse({ question: 'Which?', choices: ['Yes', 'y'.repeat(200)] }).success,
+    ).toBe(true);
+  });
+
+  it('streams the spent file budget as a notice by code only', () => {
+    expect(aiStreamPartSchema.parse({ type: 'notice', code: 'attachment_budget_spent' })).toEqual({
+      type: 'notice',
+      code: 'attachment_budget_spent',
+    });
+    for (const bad of [
+      { type: 'notice', code: 'something_else' },
+      { type: 'notice', code: 'attachment_budget_spent', message: 'free text' },
+    ]) {
+      expect(aiStreamPartSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it('carries both the guards’ notice and the cards’ action_cards part on the wire', () => {
+    for (const data of [
+      { type: 'notice', code: 'attachment_budget_spent' },
+      { type: 'action_cards', cards: [] },
+    ]) {
+      expect(
+        aiWirePartSchema.safeParse({ type: 'data-assistant', data, transient: true }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('holds the daily file budget and the conversation limit beside the other chat limits', () => {
+    expect(AI_CHAT_LIMITS).toMatchObject({
+      attachmentBytesPerActorPerDay: 300 * 1024 * 1024,
+      attachmentBudgetUnitBytes: 1024 * 1024,
+      maxConversationsPerActor: 500,
+    });
+    expect(
+      AI_CHAT_LIMITS.attachmentBytesPerActorPerDay % AI_CHAT_LIMITS.attachmentBudgetUnitBytes,
+    ).toBe(0);
   });
 });
