@@ -53,7 +53,7 @@ export function EffortControl({ disabled = false }: { disabled?: boolean }) {
       aria-label="Effort"
       aria-disabled={disabled || undefined}
       className={cn(
-        'flex h-8 shrink-0 overflow-hidden rounded-full border border-input',
+        'flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-muted p-0.5',
         disabled && 'opacity-60',
       )}
     >
@@ -75,9 +75,8 @@ export function EffortControl({ disabled = false }: { disabled?: boolean }) {
             onClick={() => effort.set(level.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              'px-2.5 text-[11px] font-medium whitespace-nowrap transition-colors outline-none hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset disabled:pointer-events-none',
-              checked ? 'bg-muted text-foreground' : 'text-muted-foreground',
-              index > 0 && 'border-l border-input',
+              'h-full rounded-full px-3 text-xs font-medium whitespace-nowrap transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none',
+              checked ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground',
             )}
           >
             {level.label}

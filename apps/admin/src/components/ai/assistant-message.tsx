@@ -3,8 +3,8 @@ import { AI_CHAT_LIMITS, type AiCardDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckIcon, CopyIcon, GaugeIcon } from 'lucide-react';
-import { Button } from '@gt-sales/ui';
+import { CheckIcon, CircleAlertIcon, CopyIcon, GaugeIcon, SparklesIcon } from 'lucide-react';
+import { Button, cn } from '@gt-sales/ui';
 
 import type { AiUiError } from '../../lib/ai-transport';
 import {
@@ -100,7 +100,7 @@ function CopyAnswer({ text }: { text: string }) {
       type="button"
       variant="ghost"
       size="sm"
-      className="h-7 px-2 text-[11px] text-muted-foreground"
+      className="h-7 rounded-full px-2.5 text-xs text-muted-foreground"
       aria-label={copied ? 'Answer copied' : 'Copy answer'}
       onClick={() => void copy()}
     >
@@ -212,8 +212,10 @@ function AssistantAnswer({
   onCancelAction,
   onReviseAction,
   onAnswerChoice,
+  compact = false,
 }: {
   message: AiAssistantMessage;
+  compact?: boolean;
   onRetry?: () => void;
   retryNote?: string;
   onStartNewChat?: () => void;
@@ -227,125 +229,166 @@ function AssistantAnswer({
   const stored = useOptionalAssistant()?.conversations.enabled === true;
   const full = message.status === 'error' && message.error === 'conversation_full';
   if (message.erased) {
-    return <p className="text-sm italic text-muted-foreground">{ERASED_MESSAGE_TEXT}</p>;
+    return (
+      <p className="rounded-xl border border-dashed px-3 py-2 text-sm italic text-muted-foreground">
+        {ERASED_MESSAGE_TEXT}
+      </p>
+    );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      {message.fileLimitReached ? (
-        <p className="text-xs text-muted-foreground">{FILE_LIMIT_TEXT}</p>
-      ) : null}
-      {message.text.length > 0 ? <AssistantMarkdown text={message.text} /> : null}
-      {message.status === 'streaming' ? <StreamingState message={message} /> : null}
-      {message.status === 'complete' &&
-      message.text.length === 0 &&
-      !message.followUp &&
-      !message.actions?.length &&
-      !message.automationProposals?.length &&
-      !message.expiredDrafts ? (
-        <p className="text-sm text-muted-foreground">
-          No answer came back. Try asking in another way.
-        </p>
-      ) : null}
-      {message.status === 'stopped' && (message.text.length === 0 || stored) ? (
-        <p
-          className={
-            message.text.length === 0
-              ? 'text-sm text-muted-foreground'
-              : 'text-xs text-muted-foreground'
-          }
-        >
-          Stopped.
-        </p>
-      ) : null}
-      {message.status === 'error' ? (
-        <p className="text-sm text-muted-foreground">
-          {aiErrorText(message.error ?? 'failed', message.retryAfterSeconds)}
-        </p>
-      ) : null}
-      {message.expiredDrafts ? <ExpiredDrafts message={message} /> : null}
-      <AssistantSources sources={message.sources} />
-      {message.status === 'complete'
-        ? message.automationProposals?.map((proposal) => (
-            <AssistantAutomation
-              key={proposal.id}
-              messageId={message.id}
-              initial={proposal}
-              stored={message.automationCards?.[proposal.id]}
+    <div className={cn('flex min-w-0 items-start', compact ? 'gap-2.5' : 'gap-3')}>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'grid shrink-0 place-items-center rounded-full border bg-card text-primary shadow-xs',
+          compact ? 'size-6' : 'size-8',
+        )}
+      >
+        <SparklesIcon className={compact ? 'size-3' : 'size-4'} />
+      </span>
+      <div className={cn('flex min-w-0 flex-1 flex-col gap-3', !compact && 'pt-1')}>
+        {message.fileLimitReached ? (
+          <p className="text-xs text-muted-foreground">{FILE_LIMIT_TEXT}</p>
+        ) : null}
+        {message.text.length > 0 ? (
+          <AssistantMarkdown text={message.text} compact={compact} />
+        ) : null}
+        {message.status === 'streaming' ? <StreamingState message={message} /> : null}
+        {message.status === 'complete' &&
+        message.text.length === 0 &&
+        !message.followUp &&
+        !message.actions?.length &&
+        !message.automationProposals?.length &&
+        !message.expiredDrafts ? (
+          <p className="text-sm text-muted-foreground">
+            No answer came back. Try asking in another way.
+          </p>
+        ) : null}
+        {message.status === 'stopped' && (message.text.length === 0 || stored) ? (
+          <p
+            className={
+              message.text.length === 0
+                ? 'text-sm text-muted-foreground'
+                : 'text-xs text-muted-foreground'
+            }
+          >
+            Stopped.
+          </p>
+        ) : null}
+        {message.status === 'error' ? (
+          <p className="flex items-start gap-2 rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-foreground">
+            <CircleAlertIcon
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-destructive"
             />
-          ))
-        : null}
-      {message.status === 'complete' && message.followUp ? (
-        <section aria-label="Clarifying question" className="space-y-2">
-          <p className="text-sm">{message.followUp.question}</p>
-          <div className="flex flex-wrap gap-2">
-            {message.followUp.choices.map((choice) => (
+            <span className="min-w-0">
+              {aiErrorText(message.error ?? 'failed', message.retryAfterSeconds)}
+            </span>
+          </p>
+        ) : null}
+        {message.expiredDrafts ? <ExpiredDrafts message={message} /> : null}
+        <AssistantSources sources={message.sources} />
+        {message.status === 'complete'
+          ? message.automationProposals?.map((proposal) => (
+              <AssistantAutomation
+                key={proposal.id}
+                messageId={message.id}
+                initial={proposal}
+                stored={message.automationCards?.[proposal.id]}
+              />
+            ))
+          : null}
+        {message.status === 'complete' && message.followUp ? (
+          <section
+            aria-label="Clarifying question"
+            className="space-y-3 rounded-2xl border bg-card p-3 shadow-xs sm:p-4"
+          >
+            <p className="text-sm font-medium">{message.followUp.question}</p>
+            <div className="flex flex-col gap-2">
+              {message.followUp.choices.map((choice, index) => (
+                <Button
+                  key={choice}
+                  variant="outline"
+                  className="h-auto min-h-10 justify-start gap-3 rounded-xl px-3 py-2 text-left font-normal whitespace-normal"
+                  disabled={!onAnswerChoice}
+                  onClick={() => onAnswerChoice?.(choice)}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="grid size-5 shrink-0 place-items-center rounded-full border text-[11px] text-muted-foreground tabular-nums"
+                  >
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 break-words">{choice}</span>
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Choose an option or type your own answer.
+            </p>
+          </section>
+        ) : null}
+        {message.status === 'complete'
+          ? message.actions?.map((action) => (
+              <AssistantAction
+                key={action.proposal.id}
+                action={action}
+                onRevise={(draft) => onReviseAction?.(action.proposal.id, draft)}
+                onConfirm={(acknowledged) => onConfirmAction?.(action.proposal.id, acknowledged)}
+                onCancel={() => onCancelAction?.(action.proposal.id)}
+              />
+            ))
+          : null}
+        {retryNote !== undefined && (message.status === 'error' || message.status === 'stopped') ? (
+          <p className="text-xs text-muted-foreground">{retryNote}</p>
+        ) : null}
+        {message.status !== 'streaming' &&
+        (message.text.length > 0 ||
+          message.status === 'error' ||
+          (message.status === 'stopped' && onRetry)) ? (
+          <div className="-ml-2 flex flex-wrap items-center gap-1">
+            {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
+            {message.effort === 'high' ? (
+              <span className="inline-flex h-7 items-center gap-1 px-2 text-xs text-muted-foreground">
+                <GaugeIcon aria-hidden="true" className="size-3.5" />
+                High effort
+              </span>
+            ) : null}
+            {full && onStartNewChat ? (
               <Button
-                key={choice}
+                type="button"
                 variant="outline"
                 size="sm"
-                disabled={!onAnswerChoice}
-                onClick={() => onAnswerChoice?.(choice)}
+                className="h-7 rounded-full px-3 text-xs"
+                onClick={onStartNewChat}
               >
-                {choice}
+                Start a new chat
               </Button>
-            ))}
+            ) : null}
+            {(message.status === 'error' || message.status === 'stopped') && onRetry ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 rounded-full px-3 text-xs"
+                onClick={onRetry}
+              >
+                Retry
+              </Button>
+            ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">Choose an option or type your own answer.</p>
-        </section>
-      ) : null}
-      {message.status === 'complete'
-        ? message.actions?.map((action) => (
-            <AssistantAction
-              key={action.proposal.id}
-              action={action}
-              onRevise={(draft) => onReviseAction?.(action.proposal.id, draft)}
-              onConfirm={(acknowledged) => onConfirmAction?.(action.proposal.id, acknowledged)}
-              onCancel={() => onCancelAction?.(action.proposal.id)}
-            />
-          ))
-        : null}
-      {retryNote !== undefined && (message.status === 'error' || message.status === 'stopped') ? (
-        <p className="text-xs text-muted-foreground">{retryNote}</p>
-      ) : null}
-      {message.status !== 'streaming' &&
-      (message.text.length > 0 ||
-        message.status === 'error' ||
-        (message.status === 'stopped' && onRetry)) ? (
-        <div className="flex flex-wrap items-center gap-1">
-          {message.text.length > 0 ? <CopyAnswer text={message.text} /> : null}
-          {message.effort === 'high' ? (
-            <span className="inline-flex h-7 items-center gap-1 px-2 text-[11px] text-muted-foreground">
-              <GaugeIcon aria-hidden="true" className="size-3.5" />
-              High effort
-            </span>
-          ) : null}
-          {full && onStartNewChat ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-[11px]"
-              onClick={onStartNewChat}
-            >
-              Start a new chat
-            </Button>
-          ) : null}
-          {(message.status === 'error' || message.status === 'stopped') && onRetry ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-[11px]"
-              onClick={onRetry}
-            >
-              Retry
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }
+
+/** The member's own message: a soft rounded block on the right, as wide as the text needs. */
+const userBubble = (compact: boolean) =>
+  cn(
+    'max-w-[85%] whitespace-pre-wrap break-words rounded-3xl bg-muted px-4 text-foreground [overflow-wrap:anywhere]',
+    compact ? 'py-2 text-sm' : 'py-2.5 text-[15px] leading-6',
+  );
 
 /** One message in the conversation: the staff member's question or the answer. */
 export function AssistantMessage({
@@ -357,8 +400,11 @@ export function AssistantMessage({
   onCancelAction,
   onReviseAction,
   onAnswerChoice,
+  compact = false,
 }: {
   message: AiMessage;
+  /** The side panel's smaller type and avatar. */
+  compact?: boolean;
   onRetry?: () => void;
   /** Why the answer is not offered again (its files cannot be resent). */
   retryNote?: string;
@@ -376,17 +422,13 @@ export function AssistantMessage({
       return (
         <div className="flex flex-col items-end gap-2">
           <MessageAttachments attachments={message.attachments} />
-          <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]">
-            {message.text}
-          </p>
+          <p className={userBubble(compact)}>{message.text}</p>
         </div>
       );
     }
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]">
-          {message.text}
-        </p>
+        <p className={userBubble(compact)}>{message.text}</p>
       </div>
     );
   }
@@ -400,6 +442,7 @@ export function AssistantMessage({
       onCancelAction={onCancelAction}
       onReviseAction={onReviseAction}
       onAnswerChoice={onAnswerChoice}
+      compact={compact}
     />
   );
 }

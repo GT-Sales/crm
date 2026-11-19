@@ -32,7 +32,7 @@ export function chatIdFromPath(pathname: string | null): string | undefined | nu
 
 /** The frame both columns sit in: the page's whole height under the top bar, like Mail. */
 const FRAME =
-  'grid h-[calc(100dvh-5.5rem)] min-h-[26rem] overflow-hidden rounded-2xl border bg-card md:h-[calc(100dvh-6.5rem)] md:grid-cols-[17.5rem_minmax(0,1fr)]';
+  'grid h-[calc(100dvh-5.5rem)] min-h-[26rem] overflow-hidden rounded-2xl border bg-background shadow-xs md:h-[calc(100dvh-6.5rem)] md:grid-cols-[18rem_minmax(0,1fr)]';
 
 function ChatSkeleton() {
   return (
@@ -49,16 +49,16 @@ function ChatSkeleton() {
         </div>
       </div>
       <div aria-hidden="true" className="flex min-w-0 flex-col">
-        <div className="flex h-12 items-center gap-2 border-b px-3">
+        <div className="flex h-14 items-center gap-2 border-b px-4">
           <Skeleton className="h-4 w-32" />
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
-          <Skeleton className="size-11 rounded-2xl" />
+          <Skeleton className="size-12 rounded-full" />
           <Skeleton className="h-5 w-56 max-w-full" />
           <Skeleton className="h-3.5 w-72 max-w-full" />
         </div>
         <div className="p-3">
-          <Skeleton className="mx-auto h-24 w-full max-w-3xl rounded-2xl" />
+          <Skeleton className="mx-auto h-28 w-full max-w-3xl rounded-[1.25rem]" />
         </div>
       </div>
     </div>
@@ -69,7 +69,7 @@ function Unavailable({ title, children }: { title: string; children: ReactNode }
   return (
     <div className={cn(FRAME, 'md:grid-cols-1')}>
       <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <span className="grid size-11 place-items-center rounded-2xl bg-muted text-muted-foreground">
+        <span className="grid size-12 place-items-center rounded-full border bg-card text-muted-foreground shadow-xs">
           <SparklesIcon aria-hidden="true" className="size-5" />
         </span>
         <h2 className="text-lg font-semibold">{title}</h2>
@@ -333,12 +333,12 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
           composerRef.current?.focus();
         }}
       >
-        <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-crm-header px-2 sm:px-3">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b px-3 sm:px-4">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8 md:hidden"
+            className="size-9 rounded-full md:hidden"
             aria-label="Show conversations"
             aria-haspopup="dialog"
             aria-expanded={drawerOpen}
@@ -347,16 +347,16 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
             <PanelLeftOpenIcon aria-hidden="true" className="size-4" />
           </Button>
           <div className="min-w-0 flex-1 px-1">
-            <h2 className="truncate text-[13px] font-semibold" title={title}>
+            <h2 className="truncate text-sm font-medium" title={title}>
               {title}
             </h2>
-            <p className="truncate text-[11px] text-muted-foreground">{siteName}</p>
+            <p className="truncate text-xs text-muted-foreground">{siteName}</p>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8 md:hidden"
+            className="size-9 rounded-full md:hidden"
             aria-label="New chat"
             onClick={() => {
               startNewChat();
@@ -389,7 +389,7 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
         {dragging ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/60 bg-background/90 text-sm font-medium text-primary"
+            className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-[1.25rem] border-2 border-dashed border-primary/60 bg-background/90 text-sm font-medium text-primary"
           >
             <UploadIcon className="size-6" />
             Drop files to attach them to your question

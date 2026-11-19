@@ -143,8 +143,8 @@ function ConversationRow({
           }}
           title={conversation.title}
           className={cn(
-            'flex h-9 min-w-0 items-center rounded-lg px-2.5 pr-9 text-[13px] text-foreground outline-none hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring',
-            active && 'bg-accent font-medium text-accent-foreground hover:bg-accent',
+            'flex h-9 min-w-0 items-center rounded-lg px-2.5 pr-9 text-[13px] text-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring',
+            active && 'bg-accent text-accent-foreground hover:bg-accent',
           )}
         >
           <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
@@ -312,8 +312,12 @@ export function ConversationList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-col gap-2 border-b p-3">
-        <Button asChild className="w-full justify-start gap-2">
+      <div className="flex flex-col gap-1 p-2 pb-1">
+        <Button
+          asChild
+          variant="ghost"
+          className="h-9 w-full justify-start gap-2.5 rounded-lg px-2.5 text-[13px] font-medium"
+        >
           <Link
             ref={newChatRef}
             href={newChatHref}
@@ -323,7 +327,7 @@ export function ConversationList({
               onNewChat();
             }}
           >
-            <SquarePenIcon aria-hidden="true" className="size-4" />
+            <SquarePenIcon aria-hidden="true" className="size-4 text-muted-foreground" />
             New chat
           </Link>
         </Button>
@@ -333,7 +337,7 @@ export function ConversationList({
           </label>
           <SearchIcon
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
           />
           <Input
             id={searchId}
@@ -349,7 +353,7 @@ export function ConversationList({
                 setQuery('');
               }
             }}
-            className="h-8 rounded-lg bg-background pr-8 pl-8 text-[13px] md:text-[13px] [&::-webkit-search-cancel-button]:hidden"
+            className="h-9 rounded-lg border-transparent bg-transparent pr-8 pl-[2.375rem] text-[13px] shadow-none hover:bg-accent/50 focus-visible:bg-background md:text-[13px] [&::-webkit-search-cancel-button]:hidden"
           />
           {query.length > 0 ? (
             <button
@@ -410,10 +414,10 @@ export function ConversationList({
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-3 px-2 py-2">
+          <div className="flex flex-col gap-2 px-2 py-2">
             {groups.map((group) => (
               <section key={group.label} aria-label={group.label}>
-                <h3 className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-muted-foreground">
+                <h3 className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">
                   {group.label}
                 </h3>
                 <ul className="flex flex-col gap-px">
@@ -461,7 +465,7 @@ export function ConversationList({
           </div>
         )}
       </nav>
-      <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
+      <p className="border-t px-4 py-2.5 text-xs text-muted-foreground">
         Only you can see your conversations.
       </p>
 

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { DatabaseIcon } from 'lucide-react';
 import type { AiSource } from '@gt-sales/contracts';
 
 import { dateTimeLabel } from '../../lib/dates';
@@ -29,17 +30,18 @@ export function safeInternalHref(href: string): string | undefined {
 export function AssistantSources({ sources }: { sources: readonly AiSource[] }) {
   if (sources.length === 0) return null;
   return (
-    <section aria-label="Sources checked" className="mt-1 border-t border-border pt-2">
-      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+    <section aria-label="Sources checked" className="mt-1">
+      <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <DatabaseIcon aria-hidden="true" className="size-3.5" />
         Sources checked
       </h3>
-      <ul className="mt-1 flex flex-col gap-1">
+      <ul className="mt-2 flex flex-col gap-2">
         {sources.map((source) => {
           const href = safeInternalHref(source.href);
           return (
             <li
               key={source.id}
-              className="min-w-0 rounded-lg border border-border bg-card px-2 py-1.5"
+              className="min-w-0 rounded-xl border border-border bg-muted/30 px-3 py-2"
             >
               {href === undefined ? (
                 <p className="break-words text-xs font-medium text-foreground">{source.label}</p>

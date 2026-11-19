@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode, RefObject } from 'react';
-import { ArrowDownIcon, MessagesSquareIcon, SparklesIcon } from 'lucide-react';
+import { ArrowDownIcon, MessageSquareIcon, MessagesSquareIcon, SparklesIcon } from 'lucide-react';
 import type { LeadType } from '@gt-sales/contracts';
 import { Button, Skeleton } from '@gt-sales/ui';
 
@@ -15,7 +15,7 @@ function ThreadSkeleton() {
       <span className="sr-only">Opening the conversation…</span>
       {[0, 1].map((turn) => (
         <div key={turn} aria-hidden="true" className="flex flex-col gap-3">
-          <Skeleton className="ml-auto h-9 w-2/5 rounded-2xl" />
+          <Skeleton className="ml-auto h-10 w-2/5 rounded-3xl" />
           <Skeleton className="h-3.5 w-11/12" />
           <Skeleton className="h-3.5 w-4/5" />
           <Skeleton className="h-3.5 w-3/5" />
@@ -108,11 +108,11 @@ export function ChatThread({
   } else if (messages.length === 0) {
     content = (
       <Centered>
-        <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
+        <span className="grid size-12 place-items-center rounded-full border bg-card text-primary shadow-xs">
           <SparklesIcon aria-hidden="true" className="size-5" />
         </span>
-        <div className="flex flex-col gap-1">
-          <h2 className="text-xl font-semibold tracking-tight">What would you like to know?</h2>
+        <div className="flex flex-col gap-1.5">
+          <h2 className="text-2xl font-semibold tracking-tight">What would you like to know?</h2>
           <p className="text-sm text-muted-foreground">
             Ask about {siteName}’s leads, orders, follow-ups or sources.
           </p>
@@ -130,8 +130,8 @@ export function ChatThread({
           </p>
         ) : null}
         {suggestions.length > 0 ? (
-          <div className="mt-3 w-full max-w-xl">
-            <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          <div className="mt-4 w-full max-w-2xl text-left">
+            <p className="mb-2 px-1 text-xs font-medium text-muted-foreground">
               Suggested questions
             </p>
             <ul className="grid gap-2 sm:grid-cols-2">
@@ -139,10 +139,14 @@ export function ChatThread({
                 <li key={question}>
                   <button
                     type="button"
-                    className="h-full w-full rounded-xl border bg-card px-3 py-2.5 text-left text-[13px] text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex h-full w-full items-start gap-2.5 rounded-2xl border bg-card px-3.5 py-3 text-left text-sm text-foreground shadow-xs transition-colors outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => onAsk(question)}
                   >
-                    {question}
+                    <MessageSquareIcon
+                      aria-hidden="true"
+                      className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                    />
+                    <span className="min-w-0">{question}</span>
                   </button>
                 </li>
               ))}
@@ -153,7 +157,7 @@ export function ChatThread({
     );
   } else {
     content = (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         {messages.map((message) => (
           <AssistantMessage
             key={message.id}
@@ -184,7 +188,7 @@ export function ChatThread({
         onScroll={onScroll}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       >
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8 sm:px-6">
           {content}
         </div>
       </div>
@@ -194,7 +198,7 @@ export function ChatThread({
             type="button"
             variant="outline"
             size="sm"
-            className="pointer-events-auto rounded-full bg-background shadow-sm"
+            className="pointer-events-auto rounded-full bg-background shadow-md"
             onClick={onJumpToLatest}
           >
             <ArrowDownIcon aria-hidden="true" className="size-3.5" />

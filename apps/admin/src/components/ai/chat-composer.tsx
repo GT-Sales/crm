@@ -10,7 +10,7 @@ import {
   useState,
   type ClipboardEvent,
 } from 'react';
-import { PaperclipIcon, SendIcon, SquareIcon } from 'lucide-react';
+import { ArrowUpIcon, PlusIcon, SquareIcon } from 'lucide-react';
 import { Button, Textarea, cn } from '@gt-sales/ui';
 
 import { useAssistant } from './assistant-provider';
@@ -132,7 +132,7 @@ export const ChatComposer = forwardRef<
         : 'Enter to send · Shift+Enter for a new line';
 
   return (
-    <div className="shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+    <div className="shrink-0 px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
       <div className="mx-auto w-full max-w-3xl">
         <ComposerNotes
           clipped={clipped}
@@ -151,14 +151,14 @@ export const ChatComposer = forwardRef<
         )}
         <div
           className={cn(
-            'rounded-2xl border bg-card shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30',
+            'relative z-10 rounded-[1.25rem] border bg-card shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30',
             !ready && 'opacity-80',
           )}
         >
           {pending.length > 0 ? (
             <ul
               aria-label="Files to send"
-              className="flex gap-2 overflow-x-auto px-2.5 pt-2.5 pb-0.5 sm:flex-wrap sm:overflow-visible"
+              className="flex gap-2 overflow-x-auto px-3 pt-3 pb-0.5 sm:flex-wrap sm:overflow-visible"
             >
               {pending.map((item) => (
                 <PendingAttachmentChip
@@ -191,9 +191,9 @@ export const ChatComposer = forwardRef<
             }}
             onPaste={handlePaste}
             {...keys}
-            className="max-h-[200px] min-h-11 resize-none rounded-2xl border-0 bg-transparent! px-3.5 pt-3 pb-1 text-sm shadow-none! outline-none! focus-visible:ring-0 md:text-sm"
+            className="max-h-[200px] min-h-[3.25rem] resize-none rounded-[1.25rem] border-0 bg-transparent! px-4 pt-3.5 pb-1 text-[15px] shadow-none! outline-none! focus-visible:ring-0 md:text-[15px]"
           />
-          <div className="flex items-center gap-2 px-2 pb-2">
+          <div className="flex items-center gap-2 px-2.5 pb-2.5">
             {settings === undefined ? null : (
               <>
                 <Button
@@ -210,7 +210,7 @@ export const ChatComposer = forwardRef<
                   }
                   onClick={() => fileRef.current?.click()}
                 >
-                  <PaperclipIcon aria-hidden="true" className="size-4" />
+                  <PlusIcon aria-hidden="true" className="size-[1.125rem]" />
                 </Button>
                 <input
                   ref={fileRef}
@@ -229,17 +229,7 @@ export const ChatComposer = forwardRef<
                 />
               </>
             )}
-            <p
-              id={hintId}
-              className={cn(
-                'min-w-0 flex-1 truncate px-1 text-[11px] text-muted-foreground',
-                // A phone's keyboard has its own return key: the key hint is for desktops.
-                keyHint && 'max-sm:sr-only',
-              )}
-            >
-              {hint}
-            </p>
-            {keyHint ? <span aria-hidden="true" className="flex-1 sm:hidden" /> : null}
+            <span aria-hidden="true" className="flex-1" />
             {count > maxMessageChars * 0.8 ? (
               <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                 {count.toLocaleString()} / {maxMessageChars.toLocaleString()}
@@ -249,9 +239,11 @@ export const ChatComposer = forwardRef<
             {streaming ? (
               <Button
                 type="button"
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-8 shrink-0 rounded-full"
+                className="size-8 shrink-0 rounded-full"
+                aria-label="Stop"
+                title="Stop"
                 onClick={(event) => {
                   // The second click of a double-click on Send lands here: not a Stop.
                   if (stopGuard.ignoreStop(event)) return;
@@ -259,23 +251,33 @@ export const ChatComposer = forwardRef<
                   stop();
                 }}
               >
-                <SquareIcon aria-hidden="true" className="size-3.5" />
-                Stop
+                <SquareIcon aria-hidden="true" className="size-3.5 fill-current" />
               </Button>
             ) : (
               <Button
                 type="button"
-                size="sm"
-                className="h-8 shrink-0 rounded-full"
+                size="icon"
+                className="size-8 shrink-0 rounded-full"
+                aria-label="Send"
+                title="Send"
                 disabled={!canSend}
                 onClick={submit}
               >
-                <SendIcon aria-hidden="true" className="size-3.5" />
-                Send
+                <ArrowUpIcon aria-hidden="true" className="size-4" />
               </Button>
             )}
           </div>
         </div>
+        {/* The key hint sits in a strip under the box; a phone's keyboard has its own return key. */}
+        <p
+          id={hintId}
+          className={cn(
+            '-mt-3 mx-4 truncate rounded-b-xl bg-muted/50 px-3 pt-4 pb-1.5 text-xs text-muted-foreground',
+            keyHint && 'max-sm:sr-only',
+          )}
+        >
+          {hint}
+        </p>
       </div>
     </div>
   );

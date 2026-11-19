@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ClipboardCheckIcon } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   aiCardDraftSchema,
@@ -132,10 +133,7 @@ function Change({
 function SideEffects({ effects }: { effects: readonly string[] }) {
   const id = useId();
   return (
-    <section
-      aria-labelledby={id}
-      className="space-y-1 rounded-lg border border-border p-2.5 text-xs"
-    >
+    <section aria-labelledby={id} className="space-y-1 rounded-xl border border-border p-3 text-xs">
       <h4 id={id} className="font-medium">
         What else happens
       </h4>
@@ -292,14 +290,22 @@ export function AssistantAction({
     <section
       ref={regionRef}
       aria-label={REGION_NAMES[kind]}
-      className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-3 text-sm"
+      className="min-w-0 space-y-3 rounded-2xl border border-border bg-card p-4 text-sm shadow-xs"
     >
-      <div>
-        <h3 className="font-semibold">{titleOf(proposal)}</h3>
-        <p className="mt-1 break-words text-xs text-muted-foreground">
-          {proposal.siteName} ·{' '}
-          {kind === 'automation_off' ? 'Automation' : (proposal.leadLabel ?? 'No lead')}
-        </p>
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"
+        >
+          <ClipboardCheckIcon className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-semibold">{titleOf(proposal)}</h3>
+          <p className="mt-0.5 break-words text-xs text-muted-foreground">
+            {proposal.siteName} ·{' '}
+            {kind === 'automation_off' ? 'Automation' : (proposal.leadLabel ?? 'No lead')}
+          </p>
+        </div>
       </div>
       {isEmail && proposal.emailContext ? (
         <dl className="space-y-1 break-all text-xs">
@@ -339,7 +345,7 @@ export function AssistantAction({
               {edited.field === 'stage' || edited.field === 'assignedActorId' ? (
                 <select
                   aria-label="Proposed value"
-                  className="block w-full rounded border bg-background p-2"
+                  className="mt-1 block w-full rounded-lg border bg-background p-2"
                   value={edited.value ?? ''}
                   onChange={(event) => setEdited({ ...edited, value: event.target.value || null })}
                 >
@@ -390,7 +396,7 @@ export function AssistantAction({
                 Assigned to
                 <select
                   aria-label="Task assignee"
-                  className="block w-full rounded border bg-background p-2"
+                  className="mt-1 block w-full rounded-lg border bg-background p-2"
                   value={edited.assignee}
                   onChange={(event) => setEdited({ ...edited, assignee: event.target.value })}
                 >
@@ -408,7 +414,7 @@ export function AssistantAction({
                 New stage
                 <select
                   aria-label="New stage"
-                  className="block w-full rounded border bg-background p-2"
+                  className="mt-1 block w-full rounded-lg border bg-background p-2"
                   value={edited.status ?? taskContext?.before ?? ''}
                   onChange={(event) => {
                     const next = leadTaskStatusSchema.safeParse(event.target.value);
@@ -456,7 +462,7 @@ export function AssistantAction({
                     Assigned to
                     <select
                       aria-label="Task assignee"
-                      className="block w-full rounded border bg-background p-2"
+                      className="mt-1 block w-full rounded-lg border bg-background p-2"
                       value={edited.assignee ?? ''}
                       onChange={(event) =>
                         setEdited(
@@ -544,7 +550,7 @@ export function AssistantAction({
         <SideEffects effects={proposal.sideEffects} />
       ) : null}
       {proposal.mentions && proposal.mentions.length > 0 ? (
-        <div className="space-y-2 rounded-lg border border-amber-500/60 bg-amber-500/10 p-2.5 text-xs">
+        <div className="space-y-2 rounded-xl border border-amber-500/60 bg-amber-500/10 p-3 text-xs">
           <p className="font-medium">This names other customers: {proposal.mentions.join(', ')}.</p>
           <p>Check that it should, before it goes to this lead.</p>
           {proposal.acknowledgementRequired ? (
@@ -596,7 +602,7 @@ export function AssistantAction({
         status === 'error' ||
         status === 'saving' ||
         status === 'revising') ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 border-t pt-3">
           <Button
             ref={confirmRef}
             type="button"
@@ -682,7 +688,7 @@ function CardBody({
   switch (draft.kind) {
     case 'lead_update':
       return (
-        <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">
+        <p className="whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3">
           <span className="block text-xs text-muted-foreground">Current</span>
           <span>{proposal.leadUpdateContext?.beforeLabel}</span>
           <span className="mt-2 block text-xs text-muted-foreground">Proposed</span>
@@ -697,7 +703,7 @@ function CardBody({
     case 'task':
       return (
         <>
-          <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">
+          <p className="whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3">
             {draft.title}
           </p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
@@ -712,7 +718,7 @@ function CardBody({
       const edit = proposal.taskEditContext;
       return (
         <>
-          <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">
+          <p className="whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3">
             {taskContext?.title ?? 'Task'}
           </p>
           {edit ? (
@@ -763,7 +769,7 @@ function CardBody({
           .map((input) => `order.${input.field}`),
       );
       return (
-        <dl className="space-y-2 rounded-lg bg-muted/60 p-2.5 text-xs">
+        <dl className="space-y-2 rounded-xl bg-muted/50 p-3 text-xs">
           {context?.rows.map((row) =>
             required.has(row.key) ? (
               <Change
@@ -784,14 +790,14 @@ function CardBody({
       return (
         <>
           <p className="font-medium break-words">{proposal.templateEmailContext?.subject}</p>
-          <p className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">
+          <p className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3">
             {proposal.templateEmailContext?.text}
           </p>
         </>
       );
     case 'lead_archive':
       return (
-        <p className="rounded-lg bg-muted/60 p-2.5">
+        <p className="rounded-xl bg-muted/50 p-3">
           {draft.archived
             ? 'Archive this lead. It can be restored from the archive.'
             : 'Restore this lead to the inbox.'}
@@ -799,7 +805,7 @@ function CardBody({
       );
     case 'automation_off':
       return (
-        <p className="rounded-lg bg-muted/60 p-2.5">
+        <p className="rounded-xl bg-muted/50 p-3">
           Switch “{proposal.automationOffContext?.name}” off. Switching it on again is done on the
           Automations page.
         </p>
@@ -808,14 +814,12 @@ function CardBody({
       return (
         <>
           <p className="font-medium break-words">{draft.subject}</p>
-          <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">
-            {draft.body}
-          </p>
+          <p className="whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3">{draft.body}</p>
         </>
       );
     case 'note':
       return (
-        <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-2.5">{draft.body}</p>
+        <p className="whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3">{draft.body}</p>
       );
   }
 }
