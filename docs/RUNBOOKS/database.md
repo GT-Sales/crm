@@ -1221,6 +1221,12 @@ plain_tasks_unavailable` and writes nothing, Ask AI's task tool asks which
   (`leads/task-schema.ts` asks the catalogue, never the journal).
 - **After applying**: the backend checks the catalogue and takes plain tasks
   within 5 minutes, with no redeploy.
+- **Deploy the admin no later than the backend for this release**: an admin
+  from before it drops a stream's whole `actions` part when it holds a
+  plain-task or task-move card (with any other card of that answer). GT Sales
+  (and Canadian Plans) deploy both apps from the same merge, the admin on
+  Vercel and the backend on Railway, so the window is the minutes between the
+  two builds finishing.
 - Rollback, after reverting the code, and only once no plain task is left
   (delete them, or attach each to a lead):
   `select count(*) from app.lead_tasks where lead_id is null;` (0), then

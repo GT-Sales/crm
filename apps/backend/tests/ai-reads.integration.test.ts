@@ -912,9 +912,11 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
       'Due yesterday',
       'No due date',
     ]);
-    // Ordering: due date ascending, a task with no due date last.
-    expect(allOpen.rows[0]?.title).toBe('Due yesterday');
-    expect(allOpen.rows.at(-1)?.title).toBe('No due date');
+    // Ordering: a task with no due date first (no due window reaches it), then
+    // due date ascending.
+    expect(allOpen.rows[0]?.title).toBe('No due date');
+    expect(allOpen.rows[1]?.title).toBe('Due yesterday');
+    expect(allOpen.rows.at(-1)?.title).toBe('Due tomorrow');
 
     const mine = await reads.openTasks(tasksScope, {
       assignee: 'me',
@@ -923,7 +925,7 @@ databaseTest('the assistant’s database reads (ai/read-service)', () => {
       offset: 0,
     });
     expect(mine.total).toBe(4);
-    expect(mine.rows.at(-1)?.title).toBe('No due date');
+    expect(mine.rows[0]?.title).toBe('No due date');
 
     const unassigned = await reads.openTasks(tasksScope, {
       assignee: 'none',

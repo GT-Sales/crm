@@ -25,6 +25,7 @@ import { createCrmGuideTool, runCrmGuide } from '../ai/crm-guide.js';
 import {
   aiActionRootId,
   createActionProposalTools,
+  taskRefusalReason,
   taskToolInputOf,
   verifyAiAction,
 } from '../ai/actions.js';
@@ -609,10 +610,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         budget: new TurnBudget(),
       });
       const revised = body.data.draft;
-      if (revised.kind === 'task') await tools.execute('prepareTask', taskToolInputOf(revised));
+      let result: string;
+      if (revised.kind === 'task')
+        result = await tools.execute('prepareTask', taskToolInputOf(revised));
       else {
         const { kind, ...draft } = revised;
-        await tools.execute(
+        result = await tools.execute(
           kind === 'note'
             ? 'prepareNote'
             : kind === 'email'
@@ -625,6 +628,20 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
       const proposal = tools.proposals[0];
       if (!proposal) {
+        // A card about a task that is not a lead's follow-up (a move, a plain
+        // task) is refused for the task's own reason; a lead's card, as ever,
+        // because its lead is no longer available.
+        if (
+          revised.kind === 'task_update' ||
+          (revised.kind === 'task' && revised.leadId === undefined)
+        ) {
+          const reason = taskRefusalReason(result);
+          if (reason === 'task_not_found') sendDomainError(res, req.id, 'task_not_found', 404);
+          else if (reason === 'plain_tasks_unavailable')
+            sendDomainError(res, req.id, 'plain_tasks_unavailable', 503);
+          else sendDomainError(res, req.id, 'conflict', 409, { reason });
+          return;
+        }
         sendDomainError(res, req.id, 'lead_not_found', 404);
         return;
       }
@@ -778,7 +795,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       if (action.draft.kind === 'task_update') {
-        if (!dependencies.work.confirmAiTaskUpdate || action.taskUpdateVersion === undefined) {
+        if (
+          !dependencies.work.confirmAiTaskUpdate ||
+          action.taskUpdateVersion === undefined ||
+          action.taskUpdateBefore === undefined
+        ) {
           sendDomainError(res, req.id, 'ai_unavailable', 503);
           return;
         }
@@ -789,6 +810,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           taskId: action.draft.taskId,
           status: action.draft.status,
           version: action.taskUpdateVersion,
+          before: action.taskUpdateBefore,
           creationId: rootId,
           aiCardId: action.id,
         });

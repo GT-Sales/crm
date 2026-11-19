@@ -59,6 +59,13 @@ const ATTACHMENT_REJECTED = {
 } as const;
 const RELOAD = 'Reload the page to see the latest, then try again.';
 
+/** A refused revision of an Ask AI task card (`conflict`), by its `details.reason`. */
+const TASK_CARD_CONFLICT: Readonly<Record<string, string>> = {
+  already_in_stage: 'The task is already in that stage. Pick another stage.',
+  task_unavailable: 'This task can no longer be changed from Ask AI. Check it on the Tasks page.',
+  temporary_failure: 'The task could not be checked just now. Try again in a moment.',
+};
+
 /**
  * Words for every refusal a staff user can meet. A function gets the action
  * phrase for messages that read better with it. Codes listed here are `known`;
@@ -306,6 +313,13 @@ export function describeError(error: unknown, action: string): string {
         return ATTACHMENT_REJECTED.unknown;
     }
   }
+  if (
+    kind === 'known' &&
+    code === 'conflict' &&
+    reason !== undefined &&
+    Object.hasOwn(TASK_CARD_CONFLICT, reason)
+  )
+    return TASK_CARD_CONFLICT[reason] ?? '';
   const known = kind === 'known' && code !== undefined ? KNOWN[code] : undefined;
   if (known !== undefined) return typeof known === 'function' ? known(action) : known;
   switch (kind) {

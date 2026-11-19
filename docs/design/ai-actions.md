@@ -68,19 +68,40 @@ task, a lead's or a plain one, to `open`, `in_progress`, `done` or
 plain task, or one on an active, unrestricted lead) and refuses a move to the
 status it already has. The card shows the task's title, its current and new
 status, and its lead when it has one (`taskUpdateContext`: `version`, `title`,
-`before`, `leadId`). The task's version, its update time in microseconds, is
-signed into the card (`taskUpdateVersion`), never taken from the browser.
-Confirmation rechecks access, locks the task, returns the receipt (an
-`ai.task_updated` audit event keyed by the draft's root id) when the move was
-already saved, refuses a task on an archived lead (`409 lead_trashed`), a gone
-one (`404 task_not_found`) and a stale card (the task changed in any way since:
-`409 conflict`, as a stale lead update is), then makes the same change the
+`before`, `leadId`). The task's version, its update time in microseconds, and
+its status then are signed into the card (`taskUpdateVersion`,
+`taskUpdateBefore`), never taken from the browser. Confirmation rechecks
+access, locks the task, returns the receipt (an `ai.task_updated` audit event
+keyed by the draft's root id) when the move was already saved, refuses a task
+on an archived lead (`409 lead_trashed`), a gone one (`404 task_not_found`)
+and a stale card (`409 conflict`, as a stale lead update is): one whose task's
+update time is no longer the signed version, or whose status is no longer the
+signed one, which also catches the nightly Get Canada Sim sync
+(`manual/gcs-nightly-sync.sql`), which changes an imported task's status,
+title and completion time without touching its update time. Then it makes the
+same change the
 staff `PATCH` makes (`applyTaskUpdate`: the completion time set or cleared,
 the `lead.task_updated` audit with `aiActionId`, a lead task's overdue clock)
 and writes the receipt in the same transaction. Editing the card changes only
-the new status. `listOpenTasks` finds tasks to move: it lists plain tasks
-beside lead tasks, with each task's status, and filters by status (`active`,
-the default, or one status).
+the new status. A refused revision answers for the task, never with
+`lead_not_found`: `404 task_not_found` when the task is gone, and otherwise
+`409 conflict` with the tool's `details.reason` (`already_in_stage`,
+`task_unavailable` when its lead is archived or restricted,
+`temporary_failure`); a plain-task card's revision before 0038 answers `503
+plain_tasks_unavailable`. A lead's card (a note, an email, a lead update, a
+lead's task) keeps `404 lead_not_found`.
+
+`listOpenTasks` finds tasks to move: it lists plain tasks beside lead tasks,
+with each task's status, filters by status (`active`, the default, or one
+status) and by `titleContains` (1–100 characters, case-insensitive, `%`, `_`
+and `\` taken literally, escaped as the lead search escapes them), and orders
+so the task a person means is within its five pages of 20: done tasks most
+recently completed first, cancelled ones most recently changed first, active
+ones undated first (most recently changed first; no due window reaches them,
+and after every dated task they would sit past the last page), then soonest
+due, the task id breaking every tie. On a site with 156,000 done tasks the done
+list takes about 0.6 s (the per-statement limit is 5 s), as it did in due-date
+order.
 
 Both are additive on the wire: `actions` in capabilities keeps its four kinds
 and `taskActions` lists `plain_task` (once 0038 is applied) and

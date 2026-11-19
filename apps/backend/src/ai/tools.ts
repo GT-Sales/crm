@@ -115,6 +115,8 @@ export const toolInputSchemas = {
       due: z.enum(['any', 'overdue', 'due_today', 'due_today_or_earlier']).optional(),
       /** `active` (To do and In progress, the default) or one stage. */
       status: z.enum(['active', 'open', 'in_progress', 'done', 'cancelled']).optional(),
+      /** A few words of the task's title, to find one task (case-insensitive). */
+      titleContains: z.string().trim().min(1).max(100).optional(),
       page: z.int().min(1).max(5).optional(),
     })
     .strict(),
@@ -571,6 +573,8 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         dueLabel: due.label,
         assignee,
         status,
+        // Whether a title was given, never the words themselves (as findLeads' search).
+        ...(input.titleContains === undefined ? {} : { titleContains: 'provided' }),
       },
     });
 
@@ -580,6 +584,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
         assignee,
         due,
         status,
+        ...(input.titleContains === undefined ? {} : { titleContains: input.titleContains }),
         limit: TASKS_PAGE_SIZE,
         offset: (page - 1) * TASKS_PAGE_SIZE,
       });
@@ -804,7 +809,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     }),
     listOpenTasks: tool({
       description:
-        'List tasks with their ids, stages and due days: follow-ups on active leads and plain tasks (no lead; leadId null). Filter by status (active, the default, is To do and In progress together; or open, in_progress, done, cancelled), assignee and due date (default due today or earlier; use due any to find a task to move). "Due today or earlier" includes overdue and due today; overdue alone means before today.',
+        'List tasks with their ids, stages and due days: follow-ups on active leads and plain tasks (no lead; leadId null). Filter by status (active, the default, is To do and In progress together; or open, in_progress, done, cancelled), assignee, due date (default due today or earlier; use due any to find a task to move) and titleContains (a few words of the title, such as "supplier", to find the one task the person means; use it whenever they name the task). Done tasks come most recently completed first, cancelled ones most recently changed first, active ones undated first then soonest due. "Due today or earlier" includes overdue and due today; overdue alone means before today.',
       inputSchema: toolInputSchemas.listOpenTasks,
       execute: async (input) => run('listOpenTasks', input),
     }),

@@ -479,6 +479,72 @@ databaseTest('Ask AI: plain tasks and task moves', () => {
     expect((await tasksTitled('Changed under the card'))[0]?.status).toBe('open');
   });
 
+  it('refuses a move card whose task changed stage without its update time (the nightly sync)', async () => {
+    const id = await plainTask('Synced under the card');
+    const parts = await ask([{ tool: 'prepareTaskUpdate', input: { taskId: id, status: 'done' } }]);
+    const [card] = cardsOf(parts);
+    if (!card) throw new Error('expected a move card');
+    // As docs/RUNBOOKS/manual/gcs-nightly-sync.sql does: status changed, updated_at left as it was.
+    await admin`
+      update app.lead_tasks set status = 'cancelled', completed_at = null
+      where workspace_id = ${WORKSPACE} and id = ${id}
+    `;
+    const refused = await post('/ai/actions/confirm', { token: card.token });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error.code).toBe('conflict');
+    expect((await tasksTitled('Synced under the card'))[0]?.status).toBe('cancelled');
+  });
+
+  it('answers a refused revision of a task card with the task’s own reason', async () => {
+    const revise = async (draft: unknown, token: string, root = base) => {
+      const response = await post('/ai/actions/revise', { token, draft }, OWNER, root);
+      return { status: response.status, error: (await response.json()).error };
+    };
+    const sign = (draft: Parameters<typeof signAiAction>[0]['draft'], extra = {}) =>
+      signAiAction(
+        {
+          id: randomUUID(),
+          workspaceId: WORKSPACE,
+          actorId: OWNER,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          draft,
+          ...extra,
+        },
+        KEY,
+      );
+    const id = await plainTask('Revised move', 'in_progress');
+    const [card] = cardsOf(
+      await ask([{ tool: 'prepareTaskUpdate', input: { taskId: id, status: 'done' } }]),
+    );
+    if (!card) throw new Error('expected a move card');
+    // To the stage it is already in: a 409 that says so, never "lead not found".
+    const already = await revise(
+      { kind: 'task_update', taskId: id, status: 'in_progress' },
+      card.token,
+    );
+    expect(already).toMatchObject({
+      status: 409,
+      error: { code: 'conflict', details: { reason: 'already_in_stage' } },
+    });
+    // The task is gone: task_not_found.
+    await admin`delete from app.lead_tasks where workspace_id = ${WORKSPACE} and id = ${id}`;
+    const gone = await revise({ kind: 'task_update', taskId: id, status: 'open' }, card.token);
+    expect(gone).toMatchObject({ status: 404, error: { code: 'task_not_found' } });
+    // A plain-task card before 0038: plain_tasks_unavailable.
+    const plainDraft = {
+      kind: 'task' as const,
+      title: 'Early',
+      dueDate: null,
+      assignee: 'me' as const,
+    };
+    const early = await revise(plainDraft, sign(plainDraft), pre0038Base);
+    expect(early).toMatchObject({ status: 503, error: { code: 'plain_tasks_unavailable' } });
+    // A note's card whose lead is gone keeps lead_not_found.
+    const noteDraft = { kind: 'note' as const, leadId: randomUUID(), body: 'Note' };
+    const note = await revise(noteDraft, sign(noteDraft));
+    expect(note).toMatchObject({ status: 404, error: { code: 'lead_not_found' } });
+  });
+
   it('prepares no move to the stage a task is already in', async () => {
     const id = await plainTask('Already open');
     const parts = await ask([{ tool: 'prepareTaskUpdate', input: { taskId: id, status: 'open' } }]);

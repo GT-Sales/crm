@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   aiActionDraftSchema,
   aiActionProposalSchema,
+  leadTaskStatusSchema,
   leadTypeLabel,
   type AiActionDraft,
   type AiActionProposal,
@@ -45,6 +46,12 @@ const signedActionSchema = z
      * refuses the card if the task changed since, never moving it over a change.
      */
     taskUpdateVersion: z.string().min(1).max(100).optional(),
+    /**
+     * The task's status when the move was prepared: confirmation refuses the
+     * card if it differs, even when the update time did not move (the nightly
+     * Get Canada Sim sync changes imported tasks without touching it).
+     */
+    taskUpdateBefore: leadTaskStatusSchema.optional(),
   })
   .strict();
 export type SignedAiAction = z.infer<typeof signedActionSchema>;
@@ -182,19 +189,23 @@ export function createActionProposalTools(input: {
       const task = input.taskUpdatePreview
         ? await input.taskUpdatePreview(draft.taskId).catch(() => null)
         : undefined;
+      // Each refusal names its `reason`, which a revision answers by (TASK_REFUSALS).
       if (task === null)
         return JSON.stringify({
           status: 'temporary_failure',
+          reason: 'temporary_failure',
           message: 'The task could not be checked.',
         });
       if (!task)
         return JSON.stringify({
           status: 'not_available',
+          reason: 'task_not_found',
           message: 'No task with that id is available in this site.',
         });
       if (task.status === draft.status)
         return JSON.stringify({
           status: 'not_available',
+          reason: 'already_in_stage',
           message: 'No card was prepared. The task is already in that stage.',
         });
       if (task.leadId !== null) {
@@ -202,9 +213,15 @@ export function createActionProposalTools(input: {
         if (found === 'failed')
           return JSON.stringify({
             status: 'temporary_failure',
+            reason: 'temporary_failure',
             message: 'The task’s lead could not be checked.',
           });
-        if (!found) return JSON.stringify({ status: 'not_available' });
+        if (!found)
+          return JSON.stringify({
+            status: 'not_available',
+            reason: 'task_unavailable',
+            message: 'No card was prepared. The task’s lead is archived or not available.',
+          });
         lead = found;
       }
       taskUpdateContext = {
@@ -215,7 +232,11 @@ export function createActionProposalTools(input: {
       };
     } else if (draft.kind === 'task' && draft.leadId === undefined) {
       if (input.plainTasks !== true)
-        return JSON.stringify({ status: 'not_available', message: PLAIN_TASKS_UNAVAILABLE });
+        return JSON.stringify({
+          status: 'not_available',
+          reason: 'plain_tasks_unavailable',
+          message: PLAIN_TASKS_UNAVAILABLE,
+        });
     } else {
       const found = await readLead(draft.leadId ?? '');
       if (found === 'failed')
@@ -283,7 +304,12 @@ export function createActionProposalTools(input: {
         ...(leadUpdateContext
           ? { leadUpdateBefore: aiLeadValueDigest(leadUpdateContext.before) }
           : {}),
-        ...(taskUpdateContext ? { taskUpdateVersion: taskUpdateContext.version } : {}),
+        ...(taskUpdateContext
+          ? {
+              taskUpdateVersion: taskUpdateContext.version,
+              taskUpdateBefore: taskUpdateContext.before,
+            }
+          : {}),
       },
       input.key,
     );
@@ -452,6 +478,27 @@ export function taskToolInputOf(
 ): z.infer<typeof taskToolInputSchema> {
   const { kind: _kind, leadId, ...rest } = draft;
   return { ...rest, leadId: leadId ?? null };
+}
+
+/**
+ * Why a task tool made no card, from its result: the `reason` a move or a plain
+ * task's refusal names (`task_not_found`, `already_in_stage`,
+ * `task_unavailable`, `plain_tasks_unavailable`, `temporary_failure`), or
+ * `not_available` for any other.
+ */
+export function taskRefusalReason(result: string): string {
+  try {
+    const parsed = z
+      .object({ status: z.string(), reason: z.string().max(40).optional() })
+      .safeParse(JSON.parse(result));
+    if (!parsed.success) return 'not_available';
+    return (
+      parsed.data.reason ??
+      (parsed.data.status === 'temporary_failure' ? 'temporary_failure' : 'not_available')
+    );
+  } catch {
+    return 'not_available';
+  }
 }
 
 /** The id a confirmation saves under: the draft's first card (`rootId`), else the card's own. */

@@ -329,12 +329,16 @@ export interface LeadWorkStore {
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
   /** A task an AI move card may name: a plain task, or one on an active, unrestricted lead. */
   previewAiTaskUpdate?(input: Scope & { taskId: string }): Promise<AiTaskUpdatePreview | undefined>;
-  /** Moves a task as a staff `PATCH` does, unless it changed since the card's `version`. */
+  /**
+   * Moves a task as a staff `PATCH` does, unless it changed since the card:
+   * its update time is not the card's `version`, or its status not `before`.
+   */
   confirmAiTaskUpdate?(
     input: WriteScope & {
       taskId: string;
       status: LeadTaskStatus;
       version: string;
+      before: LeadTaskStatus;
       creationId: string;
       aiCardId?: string;
     },
@@ -2022,6 +2026,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       taskId: string;
       status: LeadTaskStatus;
       version: string;
+      before: LeadTaskStatus;
       creationId: string;
       aiCardId?: string;
     },
@@ -2044,8 +2049,11 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         );
       if (receipt) return { status: 'saved', recordId: input.taskId };
       if (current.trashed) return { status: 'trashed' };
-      // Any change to the task since the card was prepared makes the card stale.
-      if (current.version !== input.version) return { status: 'conflict' };
+      // Any change to the task since the card was prepared makes the card stale:
+      // its update time, or its status alone, which the nightly Get Canada Sim
+      // sync changes on imported tasks without touching the update time.
+      if (current.version !== input.version || current.status !== input.before)
+        return { status: 'conflict' };
       const outcome = await applyTaskUpdate(
         tx,
         {
