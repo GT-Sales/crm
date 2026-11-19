@@ -159,15 +159,18 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `src/email/settings-store.ts` and `src/routes/email-settings.ts`; contracts
   in `packages/contracts/src/{automation-keys,automation-flows,automation-api}.ts`
   (the built-ins' labels and phase 4 triggers stay in `automations.ts`).
-- Admin pages: `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,documents,mail,chat,analytics,automations,automations/[key],settings}`
-  (Settings → Properties at `settings/properties`, Settings → Email at
+- Admin pages: `apps/admin/src/app/w/[workspace]/{dashboard,leads,leads/[leadId],tasks,mail,chat,analytics,automations,automations/[key],settings}`
+  (Settings → Fields and layouts at `settings/properties`, Settings → Email at
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
   dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus and side panel
-  in `src/components/crm/` (tokens in `src/app/crm-theme.css`);
+  in `src/components/crm/` (tokens in `src/app/crm-theme.css`); adding a task is
+  one composer, `src/components/tasks/task-composer.tsx` (name, due date,
+  assignee and optional lead chips, used by My tasks, each board column and the
+  lead page), with `Calendar` and `Command` in `packages/ui`;
   the Shadcnblocks-inspired admin shell (docs/PLAN.md §1, reuse note) supports
   light/dark mode via `theme-toggle.tsx`, Ctrl/Cmd K navigation via
   `quick-navigation.tsx`, and contextual settings links via
-  `settings-navigation.tsx`;
+  `settings-navigation.tsx`. The menus are data in `nav-items.ts` (main sidebar groups: Dashboard and Ask AI, Work, Insights, Setup; the top bar and Ctrl/Cmd K read them too) and `settings-nav-items.ts` (Settings groups: Workspace, Sales, Communication, AI, System; each item keeps its own visibility rule and an empty group is not drawn). Documents are reviewed on each lead's page; there is no Documents page or review-queue route (Ask AI reads the queue store directly);
   property rendering, editing and the settings screens in
   `src/components/properties/`; Settings → Plans in `src/components/plans/`
   (`settings/plans`, with plan properties at `settings/plans/properties`);
@@ -253,7 +256,7 @@ list in `leadTypeProperties`), and `leadFieldCatalog` in
 A **property** is one field of a lead, built-in or custom. Built-in properties
 are the form fields defined in code (`leadPropertyCatalog`); a site may
 relabel or hide one through a row in `app.properties`. A **custom property** is
-a property staff of one site add under Settings → Properties (owner only): its
+a property staff of one site add under Settings → Fields and layouts (owner only): its
 key is generated from the label as `custom_<snake>`, its kind is one of
 `text`, `longText`, `number`, `money` (integer cents, CAD), `date`, `yesNo`,
 `choice`, `email`, `phone` or `url`, and its values live in

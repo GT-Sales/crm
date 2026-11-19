@@ -159,3 +159,50 @@ export function dueSentence(iso: string, now: Date = new Date()): string {
     ? `Due ${label.toLowerCase()}`
     : `Due ${label}`;
 }
+
+/** `YYYY-MM-DD` plus `days` calendar days. */
+export function addDays(day: string, days: number): string {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/** A calendar day in words: `Fri 21 Nov`, with the year when it is not this year's. */
+export function shortDay(day: string, now: Date = new Date()): string {
+  const date = new Date(`${day}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return day;
+  const year = date.getUTCFullYear() === now.getFullYear() ? '' : ` ${date.getUTCFullYear()}`;
+  return `${WEEKDAY_NAMES[date.getUTCDay()]} ${date.getUTCDate()} ${MONTH_NAMES[date.getUTCMonth()]}${year}`;
+}
+
+/** What a due-date chip says: `Today`, `Tomorrow`, `Yesterday` or `Fri 21 Nov`; `Due date` for none. */
+export function dueChipLabel(day: string, now: Date = new Date()): string {
+  if (!day) return 'Due date';
+  const offset = daysFromToday(day, now);
+  if (offset === 0) return 'Today';
+  if (offset === 1) return 'Tomorrow';
+  if (offset === -1) return 'Yesterday';
+  return shortDay(day, now);
+}
+
+/** The Monday after `day` (a Monday gives the next week's). */
+export function nextMonday(day: string): string {
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  return addDays(day, (8 - weekday) % 7 || 7);
+}

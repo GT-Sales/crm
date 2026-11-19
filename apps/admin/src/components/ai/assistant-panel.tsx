@@ -4,8 +4,9 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
 import {
   ArrowDownIcon,
+  ArrowUpIcon,
+  MessageSquareIcon,
   Maximize2Icon,
-  SendIcon,
   SparklesIcon,
   SquareIcon,
   XIcon,
@@ -155,23 +156,28 @@ export function AssistantPanel() {
   if (!isOpen) return null;
 
   const header = (
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-crm-header px-3">
-      <SparklesIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+    <div className="flex h-14 shrink-0 items-center gap-1.5 border-b border-border px-3">
+      <span
+        aria-hidden="true"
+        className="grid size-8 shrink-0 place-items-center rounded-full border bg-card text-primary shadow-xs"
+      >
+        <SparklesIcon className="size-4" />
+      </span>
       <div className="min-w-0 flex-1">
-        <h2 className="truncate text-[13px] font-semibold">Ask AI</h2>
-        <p className="truncate text-[11px] text-muted-foreground">{siteName}</p>
+        <h2 className="truncate text-sm font-medium">Ask AI</h2>
+        <p className="truncate text-xs text-muted-foreground">{siteName}</p>
       </div>
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="h-7 px-2 text-[12px]"
+        className="h-8 rounded-full px-3 text-xs"
         onClick={startNewChat}
       >
         New chat
       </Button>
       {conversations.enabled ? (
-        <Button asChild variant="ghost" size="icon" className="size-7">
+        <Button asChild variant="ghost" size="icon" className="size-8 rounded-full">
           <Link
             href={fullPageHref}
             aria-label="Open chat in full page"
@@ -186,7 +192,7 @@ export function AssistantPanel() {
         type="button"
         variant="ghost"
         size="icon"
-        className="size-7"
+        className="size-8 rounded-full"
         aria-label="Close Ask AI"
         onClick={close}
       >
@@ -204,7 +210,7 @@ export function AssistantPanel() {
       // below is what a screen reader hears change.
       aria-live="off"
       aria-relevant="additions"
-      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
+      className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-4"
       onScroll={onScroll}
     >
       {capabilities.status === 'failed' ? (
@@ -233,7 +239,13 @@ export function AssistantPanel() {
           </Button>
         </div>
       ) : messages.length === 0 ? (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 pt-2">
+          <span
+            aria-hidden="true"
+            className="grid size-10 place-items-center rounded-full border bg-card text-primary shadow-xs"
+          >
+            <SparklesIcon className="size-4" />
+          </span>
           <p className="text-sm text-muted-foreground">
             {available
               ? 'Ask about this site’s leads, orders, follow-ups or sources.'
@@ -253,18 +265,20 @@ export function AssistantPanel() {
           ) : null}
           {available && suggestions.length > 0 ? (
             <div>
-              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                Suggested questions
-              </p>
-              <ul className="mt-1 flex flex-col gap-1">
+              <p className="text-xs font-medium text-muted-foreground">Suggested questions</p>
+              <ul className="mt-2 flex flex-col gap-2">
                 {suggestions.map((question) => (
                   <li key={question}>
                     <button
                       type="button"
-                      className="w-full rounded-lg border border-border bg-card px-2.5 py-2 text-left text-xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex w-full items-start gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-[13px] text-foreground shadow-xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => ask(question)}
                     >
-                      {question}
+                      <MessageSquareIcon
+                        aria-hidden="true"
+                        className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+                      />
+                      <span className="min-w-0">{question}</span>
                     </button>
                   </li>
                 ))}
@@ -277,6 +291,7 @@ export function AssistantPanel() {
           <AssistantMessage
             key={message.id}
             message={message}
+            compact
             onReviseAction={(id, draft) => reviseAction(message.id, id, draft)}
             onAnswerChoice={message.id === last?.id && !streaming ? send : undefined}
             onConfirmAction={(id, acknowledged) => confirmAction(message.id, id, acknowledged)}
@@ -290,9 +305,9 @@ export function AssistantPanel() {
   );
 
   const footer = (
-    <div className="shrink-0 border-t border-border bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="shrink-0 bg-background px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {activeLeadId === undefined ? null : (
-        <p className="mb-2 inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+        <p className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground">
           <SparklesIcon aria-hidden="true" className="size-3" />
           Asking about the open lead
           <button type="button" aria-label="Remove lead context" onClick={removeLeadContext}>
@@ -311,54 +326,60 @@ export function AssistantPanel() {
         full={conversationFull}
         onNewChat={startNewChat}
       />
-      <label htmlFor={composerId} className="sr-only">
-        Ask a question
-      </label>
-      <Textarea
-        id={composerId}
-        ref={composerRef}
-        value={draft}
-        rows={3}
-        maxLength={maxMessageChars * 2}
-        placeholder="Ask about this site’s leads..."
-        disabled={!ready || streaming}
-        className="max-h-40 min-h-16 resize-none"
-        onChange={(event) => {
-          const kept = keptDraft(event.target.value, maxMessageChars);
-          setDraft(kept.text);
-          setClipped(kept.clipped);
-        }}
-        {...composerKeys}
-      />
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <p className="min-w-0 text-[11px] text-muted-foreground">
-          {effort.offered && effort.value === 'high'
-            ? `High effort. ${HIGH_EFFORT_HINT}`
-            : 'Enter to send · Shift+Enter for a new line'}
-        </p>
-        {effort.offered ? (
-          <span className="ml-auto">
-            <EffortControl disabled={!ready} />
-          </span>
-        ) : null}
-        {streaming ? (
-          <Button type="button" size="sm" variant="outline" className="h-8" onClick={stopStreaming}>
-            <SquareIcon aria-hidden="true" className="size-3.5" />
-            Stop
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            className="h-8"
-            disabled={!ready || draft.trim().length === 0}
-            onClick={submit}
-          >
-            <SendIcon aria-hidden="true" className="size-3.5" />
-            Send
-          </Button>
-        )}
+      <div className="rounded-[1.25rem] border bg-card shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
+        <label htmlFor={composerId} className="sr-only">
+          Ask a question
+        </label>
+        <Textarea
+          id={composerId}
+          ref={composerRef}
+          value={draft}
+          rows={2}
+          maxLength={maxMessageChars * 2}
+          placeholder="Ask about this site’s leads..."
+          disabled={!ready || streaming}
+          className="max-h-40 min-h-16 resize-none rounded-[1.25rem] border-0 bg-transparent! px-3.5 pt-3 pb-1 text-sm shadow-none! outline-none! focus-visible:ring-0"
+          onChange={(event) => {
+            const kept = keptDraft(event.target.value, maxMessageChars);
+            setDraft(kept.text);
+            setClipped(kept.clipped);
+          }}
+          {...composerKeys}
+        />
+        <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5">
+          {effort.offered ? <EffortControl disabled={!ready} /> : null}
+          {streaming ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-8 rounded-full"
+              aria-label="Stop"
+              title="Stop"
+              onClick={stopStreaming}
+            >
+              <SquareIcon aria-hidden="true" className="size-3.5 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon"
+              className="size-8 rounded-full"
+              aria-label="Send"
+              title="Send"
+              disabled={!ready || draft.trim().length === 0}
+              onClick={submit}
+            >
+              <ArrowUpIcon aria-hidden="true" className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
+      <p className="-mt-3 mx-4 rounded-b-xl bg-muted/50 px-3 pt-4 pb-1.5 text-xs text-muted-foreground">
+        {effort.offered && effort.value === 'high'
+          ? `High effort. ${HIGH_EFFORT_HINT}`
+          : 'Enter to send · Shift+Enter for a new line'}
+      </p>
     </div>
   );
 
@@ -419,7 +440,7 @@ export function AssistantPanel() {
       aria-modal={false}
       aria-label="Ask AI"
       onKeyDown={handlePanelKeyDown}
-      className="fixed top-3 right-3 bottom-3 z-40 flex w-[min(440px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-lg"
+      className="fixed top-3 right-3 bottom-3 z-40 flex w-[min(440px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[1.25rem] border border-border bg-background shadow-xl"
     >
       {body}
     </aside>

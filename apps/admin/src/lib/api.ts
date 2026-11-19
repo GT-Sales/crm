@@ -1,8 +1,6 @@
 import type {
   AnalyticsQueryInput,
   AnalyticsResponse,
-  DocumentReviewQueueQuery,
-  DocumentReviewQueueResponse,
   MailboxQuery,
   MailboxResponse,
   WebAnalyticsQuery,
@@ -872,15 +870,6 @@ export async function listMailbox(
   query?: MailboxQuery,
 ): Promise<MailboxResponse> {
   return client(accessToken).staff.listMailbox(workspaceId, query);
-}
-
-/** Documents → the site's review queue (contact access; review and download recheck their own). */
-export async function listDocumentReviewQueue(
-  accessToken: string,
-  workspaceId: string,
-  query?: DocumentReviewQueueQuery,
-): Promise<DocumentReviewQueueResponse> {
-  return client(accessToken).staff.listDocumentReviewQueue(workspaceId, query);
 }
 
 /** A download link, or with `inline` one that opens the file in a tab of its own. */

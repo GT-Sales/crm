@@ -116,3 +116,13 @@ it('explains when the role cannot see customer details, and when the search fail
     "couldn't search the leads",
   );
 });
+
+it('lists the pages in the sidebar’s order, without a Documents page', async () => {
+  const { dialog } = await openPalette();
+  const pages = within(dialog).getByRole('navigation', { name: 'Page results' });
+  expect(
+    within(pages)
+      .getAllByRole('link')
+      .map((link) => link.textContent),
+  ).toEqual(['Dashboard', 'Leads', 'My tasks', 'Mail', 'Analytics', 'Automations', 'Settings']);
+});

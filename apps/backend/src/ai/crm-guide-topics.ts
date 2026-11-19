@@ -24,8 +24,8 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     id: 'navigation',
     summary: 'Finding your way: the sidebar pages, top bar search, switching site, signing out',
     body: text(
-      'The sidebar lists the pages: Dashboard, Leads, My tasks, Documents, Mail, Analytics (website visitors from Umami), then under Manage: Automations and Settings.',
-      'Leads shows a count of new leads not opened yet; Documents shows how many documents wait for review.',
+      'The sidebar lists the pages: Dashboard (and Ask AI under it, when available), then under Work: Leads, My tasks, Mail; under Insights: Analytics (website visitors from Umami); under Setup: Automations and Settings.',
+      'Leads shows a count of new leads not opened yet.',
       'Top bar:',
       '1. "Search leads, pages…" (or Ctrl+K / Cmd+K) finds a lead by name, order number, email or phone, or jumps to a page. Press Enter to open the first result.',
       '2. "Ask AI" opens the assistant (shown only when it is available for you on this site).',
@@ -42,7 +42,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
       '1. Click the date button to pick a period (Today, Last 7 days, Last 30 days, This month, Last month, This quarter, This year, or Custom range) and "Compare with" (Previous period, Same period last year, No comparison).',
       '2. "Filters" narrows by Lead type, Source, Partner, Assigned to, Payment status, Plan and Delivery. Remove a filter from its chip, or "Clear filters".',
       '3. Day / Week / Month sets how the charts group time.',
-      'Key figures include New leads (or New orders), Won, Conversion rate, Paid, Open follow-ups, Carrier commission and Documents to review. Commission earned and Expected commission are shown to the owner only.',
+      'Key figures include New leads (or New orders), Won, Conversion rate, Paid, Open follow-ups and Carrier commission. Commission earned and Expected commission are shown to the owner only.',
       'Charts: New leads over time, Funnel by stage (choose a lead type to see it), Sources and partners, plans, and Payment and commission status.',
       'The "Follow-ups due" card lists open tasks due today or earlier across the team; "Open the follow-ups in Leads" shows them all.',
     ),
@@ -161,13 +161,11 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
   },
   {
     id: 'documents-review',
-    summary: 'Reviewing customer documents: the Documents page, approve, reject, view, download',
+    summary: 'Reviewing customer documents on the lead: approve, reject, view, download',
     body: text(
-      'Documents (sidebar) is the review queue. Tabs: "To review" and "Rejected".',
-      'Each row shows the document and its lead, with buttons:',
+      'Documents are reviewed on the lead: open the lead and use its Documents card (Files tab in the side panel). Each document has buttons:',
       '1. "Approve" or "Reject" — needs the Orders role (or owner).',
       '2. "View" or "Download" — needs the document download permission, which the owner can grant.',
-      'The same buttons appear on a lead’s Documents card (Files tab in the side panel).',
       'Approved documents let an order move to stages that require them (see lead-stage).',
     ),
   },
@@ -179,7 +177,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
       '1. Open the lead (Home tab in the side panel).',
       '2. Press "Approve changes" or "Reject".',
       'Deciding needs the Leads role (or owner). An archived lead must be restored first. When the request was changed or decided by someone else, use "Reload".',
-      'The customer is emailed about the decision. Approved documents then wait for an Orders review on the Documents page.',
+      'The customer is emailed about the decision. Approved documents then wait for an Orders review on the lead’s Documents card.',
     ),
   },
   {
@@ -272,9 +270,9 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
   },
   {
     id: 'settings-properties',
-    summary: 'Settings → Properties and record layouts: custom properties and lead page sections',
+    summary: 'Settings → Fields and layouts: custom properties and lead page sections',
     body: text(
-      'Settings → Properties and record layouts. Changing anything is owner only.',
+      'Settings → Fields and layouts. Changing anything is owner only.',
       'Properties tab:',
       '1. Built-in properties can be renamed or hidden.',
       '2. Custom properties: press "Add property", enter a Label, pick the kind (text, number, money, date, yes or no, choice, email, phone…) and the lead types, then "Save property". Options: Show on website, Staff only, Sensitive.',

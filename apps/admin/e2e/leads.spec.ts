@@ -64,21 +64,22 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   expect(errors).toEqual([]);
 });
 
-test('Documents lists the files waiting on staff, and the lead flags them', async ({ page }) => {
+test('documents are reviewed on the lead, which flags them; there is no Documents page', async ({
+  page,
+}) => {
   const errors = trackErrors(page);
-  await page.goto('/w/getcanadasim/documents');
-  // Nadia Khan's passport is attached and not reviewed; Rogers 60GB requires it.
-  const queue = page.getByRole('list', { name: 'To review documents' });
-  const row = queue.getByRole('listitem').filter({ hasText: 'Nadia Khan' }).first();
-  await expect(row.getByText('Required by plan')).toBeVisible();
-  await expect(row.getByRole('button', { name: 'Approve Passport for Nadia Khan' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /^Documents, \d+ to review$/ })).toBeVisible();
-  // Her lead says what waits on staff and takes them to it.
-  await row.getByRole('link', { name: 'Nadia Khan' }).click();
+  await page.goto('/w/getcanadasim/leads');
+  const menu = page.getByRole('navigation', { name: 'Site navigation' });
+  await expect(menu.getByRole('link', { name: 'Leads' })).toBeVisible();
+  await expect(menu.getByRole('link', { name: /^Documents/ })).toHaveCount(0);
+  // Nadia Khan's passport is attached and not reviewed; her lead says what waits on staff.
+  await page.getByRole('link', { name: 'Nadia Khan' }).first().click();
   const attention = page.getByRole('region', { name: 'Needs attention' });
   await expect(attention.getByRole('button', { name: 'Change request #1 waiting' })).toBeVisible();
   await expect(attention.getByRole('button', { name: 'Passport not reviewed' })).toBeVisible();
   expect(errors).toEqual([]);
+  const gone = await page.goto('/w/getcanadasim/documents');
+  expect(gone?.status()).toBe(404);
 });
 
 test('the dashboard lists the follow-ups due, and Leads filters to them', async ({ page }) => {
@@ -199,16 +200,19 @@ test('a lead is assigned, noted and given a task, which then shows in My tasks',
   const timeline = page.getByRole('region', { name: 'Timeline' });
   await expect(timeline).toContainText('moved this from New to Qualified');
 
-  await page.getByLabel('Assignee').selectOption({ label: 'Sam' });
+  await page.getByRole('combobox', { name: /^Assignee/ }).selectOption({ label: 'Sam' });
   await expect(timeline).toContainText('assigned this to Sam');
 
   await page.getByLabel('Add a note').fill('Called, wants the install next week.');
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(timeline.getByText('Called, wants the install next week.')).toBeVisible();
 
-  await page.getByRole('textbox', { name: 'New task' }).fill('Book the installer');
-  await page.getByLabel('Due date').fill('2026-11-02');
-  await page.getByRole('button', { name: 'Add task' }).click();
+  const leadComposer = page.getByRole('form', { name: 'New task' });
+  await leadComposer.getByRole('textbox', { name: 'Task name' }).fill('Book the installer');
+  await leadComposer.getByRole('button', { name: 'Due date: none' }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
+  await expect(leadComposer.getByRole('button', { name: 'Due date: Tomorrow' })).toBeVisible();
+  await leadComposer.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByRole('region', { name: /Tasks/ })).toContainText('Book the installer');
 
   await page.getByRole('link', { name: 'My tasks' }).click();
@@ -285,9 +289,10 @@ test('a plain task is made on the Tasks page and moved across the board', async 
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/tasks');
   await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add task', exact: true }).click();
   const form = page.getByRole('form', { name: 'New task' });
   const title = 'Order SIM stock for the shop';
-  await form.getByPlaceholder('Add a task: what needs to be done?').fill(title);
+  await form.getByRole('textbox', { name: 'Task name' }).fill(title);
   await form.getByRole('button', { name: 'Add task' }).click();
   // In the list, with no lead: "No lead" and no link to a lead page.
   const row = page.getByRole('listitem').filter({ hasText: title });
@@ -310,6 +315,70 @@ test('a plain task is made on the Tasks page and moved across the board', async 
   await page.reload();
   await expect(statusColumn('Done')).toContainText(title);
   await page.getByRole('button', { name: 'List', exact: true }).click();
+  expect(errors).toEqual([]);
+});
+
+test('the composer adds a plain task and a lead task, one after another', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/tasks');
+  await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
+  // The C key opens the composer, with the cursor in the task name (once the page may add).
+  await expect(page.getByRole('button', { name: 'Add task', exact: true })).toBeVisible();
+  await page.keyboard.press('c');
+  const form = page.getByRole('form', { name: 'New task' });
+  const name = form.getByRole('textbox', { name: 'Task name' });
+  await expect(name).toBeFocused();
+  await form.getByRole('button', { name: 'Due date: none' }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
+  await expect(form.getByRole('button', { name: 'Due date: Tomorrow' })).toBeVisible();
+  await expect(name).toBeFocused();
+
+  // Enter adds a plain task; the composer stays open, empty, with the date kept.
+  await name.fill('Composer plain task');
+  await name.press('Enter');
+  const row = page.getByRole('listitem').filter({ hasText: 'Composer plain task' });
+  await expect(row.getByText('No lead', { exact: true })).toBeVisible();
+  await expect(name).toHaveValue('');
+  await expect(name).toBeFocused();
+  await expect(form.getByRole('button', { name: 'Due date: Tomorrow' })).toBeVisible();
+
+  // The same composer adds a task on a lead, found by name.
+  await form.getByRole('button', { name: 'Lead: No lead' }).click();
+  await page.getByRole('combobox', { name: 'Find a lead' }).fill('blake');
+  await page.getByRole('option', { name: /Blake Sample/ }).click();
+  await expect(form.getByRole('button', { name: 'Lead: Blake Sample' })).toBeVisible();
+  await name.fill('Composer lead task');
+  await name.press('Enter');
+  const leadRow = page.getByRole('listitem').filter({ hasText: 'Composer lead task' });
+  await expect(leadRow.getByRole('link', { name: /Blake Sample/ })).toBeVisible();
+  await name.press('Escape');
+  await expect(form).toBeHidden();
+
+  // On the board, a column's own add row presets its date.
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  await page.getByRole('button', { name: 'Date', exact: true }).click();
+  const byDate = page.getByRole('region', { name: 'Tasks board by date' });
+  const upcoming = byDate.getByRole('region', { name: /^Upcoming,/ });
+  await expect(upcoming).toContainText('Composer plain task');
+  await upcoming.getByRole('button', { name: 'Add task to Upcoming' }).click();
+  await expect(upcoming.getByRole('button', { name: 'Due date: Tomorrow' })).toBeVisible();
+  await upcoming.getByRole('textbox', { name: 'Task name' }).fill('Column task');
+  await upcoming.getByRole('textbox', { name: 'Task name' }).press('Enter');
+  await expect(upcoming.getByRole('listitem').filter({ hasText: 'Column task' })).toBeVisible();
+
+  // Saved, not only shown: the lead's own page lists the lead task.
+  await page.goto('/w/canadawide/leads?type=internet');
+  await page.getByRole('link', { name: 'Blake Sample' }).click();
+  await page.getByRole('link', { name: 'Open full page' }).click();
+  await expect(page.getByRole('region', { name: /Tasks/ })).toContainText('Composer lead task');
+
+  // Put the board back as the seed had it for the journeys after this one.
+  await page.goto('/w/canadawide/tasks');
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  for (const task of ['Composer plain task', 'Composer lead task', 'Column task']) {
+    await page.getByRole('checkbox', { name: `Complete “${task}”` }).check();
+    await expect(page.getByRole('checkbox', { name: `Reopen “${task}”` })).toBeChecked();
+  }
   expect(errors).toEqual([]);
 });
 
@@ -460,10 +529,10 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
 }) => {
   const errors = trackErrors(page);
 
-  // Settings → Properties: the owner adds a text property for every lead type.
+  // Settings → Fields and layouts: the owner adds a text property for every lead type.
   await page.goto('/w/canadawide/settings');
-  await page.getByRole('link', { name: 'Properties and record layouts' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Properties' })).toBeVisible();
+  await page.getByRole('link', { name: 'Fields and layouts' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Fields and layouts' })).toBeVisible();
   await page.getByRole('button', { name: 'Add property' }).click();
   const addDialog = page.getByRole('dialog', { name: 'Add property' });
   await addDialog.getByLabel('Label').fill('Referral code');
@@ -1130,7 +1199,6 @@ test('the redesigned workspace supports page finding, persistent themes and narr
     { route: 'leads?type=sim_order', title: 'Leads' },
     { route: 'tasks', title: 'My tasks' },
     { route: 'settings', title: 'General settings' },
-    { route: 'documents', title: 'Documents' },
   ];
   for (const { route, title } of pages) {
     await page.goto(`/w/getcanadasim/${route}`);
@@ -1259,7 +1327,7 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
     expect(dimensions.width).toBeGreaterThan(dimensions.height);
     expect(dimensions.radius).toBeGreaterThanOrEqual(dimensions.height / 2);
   }
-  await expect(page.getByLabel('Assignee', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: /^Assignee/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Switch to dark mode' }).click();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await checkDropdownContrast();
@@ -1308,14 +1376,14 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
   await panel.getByRole('tab', { name: 'Notes', exact: true }).click();
   await panel.getByRole('textbox', { name: 'Add a note' }).fill('Call about the installation date');
   await panel.getByRole('tab', { name: 'Tasks', exact: true }).click();
-  await panel.getByRole('textbox', { name: 'New task' }).fill('Confirm installation date');
+  await panel.getByRole('textbox', { name: 'Task name' }).fill('Confirm installation date');
   await panel.getByRole('tab', { name: 'Files', exact: true }).click();
   await expect(panel.getByRole('heading', { name: 'No files yet' })).toBeVisible();
   await panel.getByRole('tab', { name: 'Tasks', exact: true }).click();
-  await expect(panel.getByRole('textbox', { name: 'New task' })).toHaveValue(
+  await expect(panel.getByRole('textbox', { name: 'Task name' })).toHaveValue(
     'Confirm installation date',
   );
-  await panel.getByRole('textbox', { name: 'New task' }).fill('');
+  await panel.getByRole('textbox', { name: 'Task name' }).fill('');
   await panel.getByRole('tab', { name: 'Notes', exact: true }).click();
   await expect(panel.getByRole('textbox', { name: 'Add a note' })).toHaveValue(
     'Call about the installation date',
@@ -1389,7 +1457,7 @@ test('lead panel tabs preserve drafts and work on desktop and mobile', async ({
     animations: 'disabled',
   });
   await sheet.getByRole('tab', { name: 'Tasks', exact: true }).click();
-  await expect(sheet.getByRole('textbox', { name: 'New task' })).toBeVisible();
+  await expect(sheet.getByRole('textbox', { name: 'Task name' })).toBeVisible();
   const mobileTasks = sheet
     .getByRole('region', { name: 'Tasks', exact: true })
     .locator('..')
@@ -1734,7 +1802,13 @@ test('settings separates profile, team invitations and website integrations', as
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(391);
-  await navigation.getByRole('link', { name: 'Team', exact: true }).click();
+  // A phone has no room for the column: the same sections are a select there.
+  await expect(navigation.getByRole('link', { name: 'Team', exact: true })).toBeHidden();
+  const sections = navigation.getByRole('combobox', { name: 'Settings section' });
+  await expect(sections).toHaveValue('/w/getcanadasim/settings/integrations');
+  await sections.selectOption({ label: 'Team' });
+  await expect(page).toHaveURL('/w/getcanadasim/settings/team');
+  await expect(sections).toHaveValue('/w/getcanadasim/settings/team');
   await expect(page.getByLabel('Staff email')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))

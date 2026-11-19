@@ -2,7 +2,13 @@
 
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { PanelLeftOpenIcon, SparklesIcon, SquarePenIcon, UploadIcon } from 'lucide-react';
+import {
+  PanelLeftIcon,
+  PanelLeftOpenIcon,
+  SparklesIcon,
+  SquarePenIcon,
+  UploadIcon,
+} from 'lucide-react';
 import {
   Button,
   Sheet,
@@ -30,9 +36,14 @@ export function chatIdFromPath(pathname: string | null): string | undefined | nu
   return UUID.test(id) ? id.toLowerCase() : null;
 }
 
-/** The frame both columns sit in: the page's whole height under the top bar, like Mail. */
+/**
+ * Both columns, edge to edge: the page's whole height under the top bar, with
+ * the shell's padding taken back (negative margins and an important width, as
+ * the shell gives its direct children a plain 100%), so the list sits flush
+ * against the app sidebar.
+ */
 const FRAME =
-  'grid h-[calc(100dvh-5.5rem)] min-h-[26rem] overflow-hidden rounded-2xl border bg-card md:h-[calc(100dvh-6.5rem)] md:grid-cols-[17.5rem_minmax(0,1fr)]';
+  '-m-4 grid h-[calc(100dvh-3.5rem)] min-h-[26rem] w-[calc(100%+2rem)]! overflow-hidden bg-background md:-m-6 md:w-[calc(100%+3rem)]! md:grid-cols-[18rem_minmax(0,1fr)]';
 
 function ChatSkeleton() {
   return (
@@ -49,16 +60,16 @@ function ChatSkeleton() {
         </div>
       </div>
       <div aria-hidden="true" className="flex min-w-0 flex-col">
-        <div className="flex h-12 items-center gap-2 border-b px-3">
+        <div className="flex h-14 items-center gap-2 border-b px-4">
           <Skeleton className="h-4 w-32" />
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
-          <Skeleton className="size-11 rounded-2xl" />
+          <Skeleton className="size-12 rounded-full" />
           <Skeleton className="h-5 w-56 max-w-full" />
           <Skeleton className="h-3.5 w-72 max-w-full" />
         </div>
         <div className="p-3">
-          <Skeleton className="mx-auto h-24 w-full max-w-3xl rounded-2xl" />
+          <Skeleton className="mx-auto h-28 w-full max-w-3xl rounded-[1.25rem]" />
         </div>
       </div>
     </div>
@@ -69,7 +80,7 @@ function Unavailable({ title, children }: { title: string; children: ReactNode }
   return (
     <div className={cn(FRAME, 'md:grid-cols-1')}>
       <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <span className="grid size-11 place-items-center rounded-2xl bg-muted text-muted-foreground">
+        <span className="grid size-12 place-items-center rounded-full border bg-card text-muted-foreground shadow-xs">
           <SparklesIcon aria-hidden="true" className="size-5" />
         </span>
         <h2 className="text-lg font-semibold">{title}</h2>
@@ -128,6 +139,8 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
   const enabled = conversations.enabled;
   const activeId = conversations.activeId;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Desktop only: the list can be tucked away to give the thread the whole page.
+  const [listHidden, setListHidden] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const composerRef = useRef<ChatComposerHandle>(null);
@@ -295,15 +308,17 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
   const canDrop = attachments.settings !== undefined && conversations.load.status === 'idle';
 
   return (
-    <div className={FRAME}>
+    <div className={cn(FRAME, listHidden && 'md:grid-cols-1')}>
       <h1 className="sr-only">Ask AI</h1>
-      <aside
-        aria-label="Your conversations"
-        className="hidden min-h-0 flex-col border-r bg-sidebar/60 md:flex"
-      >
-        {/* Exactly one list at a time: while the phone's drawer shows it, this one is gone. */}
-        {drawerOpen ? null : list()}
-      </aside>
+      {listHidden ? null : (
+        <aside
+          aria-label="Your conversations"
+          className="hidden min-h-0 flex-col border-r bg-sidebar/60 md:flex"
+        >
+          {/* Exactly one list at a time: while the phone's drawer shows it, this one is gone. */}
+          {drawerOpen ? null : list()}
+        </aside>
+      )}
 
       <section
         aria-label={title}
@@ -333,12 +348,23 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
           composerRef.current?.focus();
         }}
       >
-        <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-crm-header px-2 sm:px-3">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b px-3 sm:px-4">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8 md:hidden"
+            className="hidden size-8 md:inline-flex"
+            aria-label={listHidden ? 'Show conversation list' : 'Hide conversation list'}
+            aria-pressed={!listHidden}
+            onClick={() => setListHidden((hidden) => !hidden)}
+          >
+            <PanelLeftIcon aria-hidden="true" className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-9 rounded-full md:hidden"
             aria-label="Show conversations"
             aria-haspopup="dialog"
             aria-expanded={drawerOpen}
@@ -346,17 +372,19 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
           >
             <PanelLeftOpenIcon aria-hidden="true" className="size-4" />
           </Button>
-          <div className="min-w-0 flex-1 px-1">
-            <h2 className="truncate text-[13px] font-semibold" title={title}>
+          <div className="flex min-w-0 flex-1 items-baseline gap-2 px-1">
+            <h2 className="truncate text-sm font-medium" title={title}>
               {title}
             </h2>
-            <p className="truncate text-[11px] text-muted-foreground">{siteName}</p>
+            <p className="hidden shrink-0 truncate text-xs text-muted-foreground sm:block">
+              {siteName}
+            </p>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8 md:hidden"
+            className={cn('size-9 rounded-full', !listHidden && 'md:hidden')}
             aria-label="New chat"
             onClick={() => {
               startNewChat();
@@ -389,7 +417,7 @@ export function ChatScreen({ workspaceSlug }: { workspaceSlug: string }) {
         {dragging ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/60 bg-background/90 text-sm font-medium text-primary"
+            className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-[1.25rem] border-2 border-dashed border-primary/60 bg-background/90 text-sm font-medium text-primary"
           >
             <UploadIcon className="size-6" />
             Drop files to attach them to your question

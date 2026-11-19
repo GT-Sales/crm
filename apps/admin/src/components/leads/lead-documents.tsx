@@ -19,7 +19,6 @@ import {
 import { createFileDownloadLink, reviewFile } from '../../lib/api';
 import { dateTimeLabel, relativeTime } from '../../lib/dates';
 import { downloadNavigation } from '../../lib/file-links';
-import { notifyDocumentsReviewed } from '../../lib/lead-work-events';
 import { describeError } from '../../lib/error-text';
 import { errorReason } from '../../lib/use-resource';
 
@@ -211,7 +210,6 @@ export function DocumentRow({
     setMessage(undefined);
     try {
       await reviewFile(accessToken, workspaceId, document.id, { decision });
-      notifyDocumentsReviewed(workspaceId);
     } catch (error) {
       setMessage(describeError(error, 'save the review'));
       setBusy(false);

@@ -19,12 +19,11 @@ import {
   useSidebar,
 } from '@gt-sales/ui';
 
-import { getLeadsSummary, listDocumentReviewQueue } from '../lib/api';
-import { DOCUMENTS_REVIEWED } from '../lib/lead-work-events';
+import { getLeadsSummary } from '../lib/api';
 import { STAFF_DISPLAY_NAME_CHANGED, initials } from '../lib/people';
 import { useLeadWorkspace } from './leads/use-lead-workspace';
-import { useAskAiPageAvailable, withAskAi } from './ai/chat-nav';
-import { NAV_ITEMS } from './nav-items';
+import { useAskAiPageAvailable } from './ai/chat-nav';
+import { mainNavGroups } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
 import { WorkspaceSwitcher } from './workspace-switcher';
 
@@ -54,38 +53,6 @@ function useUnopenedLeads(workspace: string, pathname: string): number | undefin
   return count;
 }
 
-/**
- * Documents waiting for a first review, refreshed on navigation and after any
- * review. Undefined for a role that cannot see customer documents (the queue
- * answers 403) or while unknown: no count rather than a wrong one.
- */
-function useDocumentsToReview(workspace: string, pathname: string): number | undefined {
-  const { accessToken, workspaces } = useStaffSession();
-  const workspaceId = workspaces.find((entry) => entry.slug === workspace)?.id;
-  const [count, setCount] = useState<number>();
-  const [reviewed, setReviewed] = useState(0);
-  useEffect(() => {
-    const onReviewed = () => setReviewed((value) => value + 1);
-    window.addEventListener(DOCUMENTS_REVIEWED, onReviewed);
-    return () => window.removeEventListener(DOCUMENTS_REVIEWED, onReviewed);
-  }, []);
-  useEffect(() => {
-    if (!accessToken || !workspaceId) return;
-    let live = true;
-    listDocumentReviewQueue(accessToken, workspaceId, { status: 'to_review' })
-      .then((queue) => {
-        if (live) setCount(queue.counts.toReview);
-      })
-      .catch(() => {
-        if (live) setCount(undefined);
-      });
-    return () => {
-      live = false;
-    };
-  }, [accessToken, workspaceId, pathname, reviewed]);
-  return count;
-}
-
 export function AppSidebar({ workspace }: { workspace: string }) {
   const pathname = usePathname();
   const { workspaces, email, signOut } = useStaffSession();
@@ -100,10 +67,9 @@ export function AppSidebar({ workspace }: { workspace: string }) {
   }, [reloadMembers]);
   const { isMobile, setOpenMobile } = useSidebar();
   const askAi = useAskAiPageAvailable();
-  // Ask AI's page sits with the daily work, after Mail, once it is available.
-  const navItems = withAskAi(NAV_ITEMS, askAi);
+  // Ask AI sits under Dashboard, outside the headed groups, once it is available.
+  const groups = mainNavGroups(askAi);
   const unopened = useUnopenedLeads(workspace, pathname);
-  const toReview = useDocumentsToReview(workspace, pathname);
   // What a menu entry is waiting on, said beside it and to screen readers.
   const badgeOf = (section: string) =>
     section === 'leads' && unopened
@@ -112,13 +78,7 @@ export function AppSidebar({ workspace }: { workspace: string }) {
           words: `${unopened} new`,
           title: `${unopened} new ${unopened === 1 ? 'lead' : 'leads'} not opened yet`,
         }
-      : section === 'documents' && toReview
-        ? {
-            count: toReview,
-            words: `${toReview} to review`,
-            title: `${toReview} ${toReview === 1 ? 'document' : 'documents'} to review`,
-          }
-        : undefined;
+      : undefined;
 
   return (
     <Sidebar collapsible="icon" className="crm-sidebar">
@@ -135,61 +95,64 @@ export function AppSidebar({ workspace }: { workspace: string }) {
         ) : null}
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <nav aria-label="Site navigation">
-              <SidebarMenu>
-                {navItems.map(({ section, label, icon: Icon }) => {
-                  const href = `/w/${workspace}/${section}`;
-                  const isActive = pathname === href || pathname.startsWith(`${href}/`);
+        <nav aria-label="Site navigation" className="flex flex-col gap-0">
+          {groups.map((group) => {
+            const headingId = `sidebar-group-${group.id}`;
+            return (
+              <SidebarGroup
+                key={group.id}
+                role="group"
+                aria-labelledby={group.label ? headingId : undefined}
+                className={group.label ? undefined : 'pb-0'}
+              >
+                {group.label ? (
+                  <SidebarGroupLabel id={headingId}>{group.label}</SidebarGroupLabel>
+                ) : null}
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {group.items.map(({ section, label, icon: Icon }) => {
+                      const href = `/w/${workspace}/${section}`;
+                      const isActive = pathname === href || pathname.startsWith(`${href}/`);
+                      const badge = badgeOf(section);
 
-                  return (
-                    <SidebarMenuItem
-                      key={section}
-                      className={section === 'automations' ? 'mt-6' : undefined}
-                    >
-                      {section === 'automations' ? (
-                        <p className="mb-2 px-2 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden">
-                          Manage
-                        </p>
-                      ) : null}
-                      <SidebarMenuButton
-                        className="h-8"
-                        asChild
-                        isActive={isActive}
-                        tooltip={label}
-                      >
-                        <Link
-                          href={href}
-                          aria-label={
-                            badgeOf(section) ? `${label}, ${badgeOf(section)?.words}` : label
-                          }
-                          aria-current={isActive ? 'page' : undefined}
-                          onClick={() => {
-                            if (isMobile) setOpenMobile(false);
-                          }}
-                        >
-                          <Icon />
-                          <span>{label}</span>
-                          {badgeOf(section) ? (
-                            <span
-                              className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground group-data-[collapsible=icon]:hidden"
-                              aria-hidden="true"
-                              title={badgeOf(section)?.title}
+                      return (
+                        <SidebarMenuItem key={section}>
+                          <SidebarMenuButton
+                            className="h-8"
+                            asChild
+                            isActive={isActive}
+                            tooltip={label}
+                          >
+                            <Link
+                              href={href}
+                              aria-label={badge ? `${label}, ${badge.words}` : label}
+                              aria-current={isActive ? 'page' : undefined}
+                              onClick={() => {
+                                if (isMobile) setOpenMobile(false);
+                              }}
                             >
-                              {badgeOf(section)?.count}
-                            </span>
-                          ) : null}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </nav>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                              <Icon />
+                              <span>{label}</span>
+                              {badge ? (
+                                <span
+                                  className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground group-data-[collapsible=icon]:hidden"
+                                  aria-hidden="true"
+                                  title={badge.title}
+                                >
+                                  {badge.count}
+                                </span>
+                              ) : null}
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            );
+          })}
+        </nav>
       </SidebarContent>
       <SidebarFooter className="p-3 group-data-[collapsible=icon]:p-2">
         <div className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">

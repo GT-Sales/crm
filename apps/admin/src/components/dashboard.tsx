@@ -28,7 +28,6 @@ import {
   BellRingIcon,
   CircleCheckIcon,
   CoinsIcon,
-  FileCheckIcon,
   InboxIcon,
   PercentIcon,
   WalletIcon,
@@ -76,9 +75,6 @@ import { useStaffSession } from './staff-session-provider';
 
 /** As many follow-ups as the card lists before "Open the follow-ups in Leads". */
 const SHOWN = 6;
-
-/** The lead types whose leads carry documents to review. */
-const DOCUMENT_TYPES = new Set(['sim_order', 'mobility']);
 
 const STATUS_LABELS: Record<string, string> = {
   not_needed: 'Not needed',
@@ -248,7 +244,6 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
           </Charts>
           <OperationalKpis
             data={data}
-            leadType={leadType}
             workspaceSlug={workspaceSlug}
             compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
           />
@@ -421,12 +416,10 @@ function Kpis({
 
 function OperationalKpis({
   data,
-  leadType,
   workspaceSlug,
   compareLabel,
 }: {
   data: AnalyticsResponse;
-  leadType: string | undefined;
   workspaceSlug: string;
   compareLabel: string;
 }) {
@@ -435,16 +428,15 @@ function OperationalKpis({
   const outstanding = data.statuses.commission
     .filter((entry) => !['received', 'clawback', '(not set)'].includes(entry.key))
     .reduce((sum, entry) => sum + entry.total, 0);
-  const showDocuments = leadType === undefined || DOCUMENT_TYPES.has(leadType);
   // Money figures appear once the site records them: a card of zeros says nothing.
   const showPaid = kpis.paid.current > 0 || hasRecorded(data.statuses.payment);
   const showCarrier = hasRecorded(data.statuses.commission);
 
-  if (!showPaid && !showCarrier && !showDocuments && !commission) return null;
+  if (!showPaid && !showCarrier && !commission) return null;
 
   return (
     <section aria-label="Additional figures" className="flex flex-col gap-4">
-      {showPaid || showCarrier || showDocuments ? (
+      {showPaid || showCarrier ? (
         <div className="crm-kpi-strip crm-kpi-strip-secondary grid rounded-xl border bg-card sm:grid-cols-3">
           {showPaid ? (
             <Kpi
@@ -462,15 +454,6 @@ function OperationalKpis({
               label="Carrier commission"
               value={`${numberFormat.format(received)} received`}
               hint={`${numberFormat.format(outstanding)} outstanding, orders created in the period`}
-            />
-          ) : null}
-          {showDocuments ? (
-            <Kpi
-              icon={FileCheckIcon}
-              label="Documents to review"
-              value={numberFormat.format(kpis.documentsToReview)}
-              hint="Across the site, never reviewed"
-              href={`/w/${workspaceSlug}/documents`}
             />
           ) : null}
         </div>

@@ -125,7 +125,7 @@ function leadTypesText(property: SiteProperty): string {
 }
 
 /**
- * Settings → Properties: the site's built-in and custom properties, and the
+ * Settings → Fields and layouts: the site's built-in and custom properties, and the
  * record layout per lead type. Every member can read it; the write controls
  * show only when the backend says this member can manage properties.
  *

@@ -10,7 +10,7 @@ export default async function SettingsLayout({
 }) {
   const { workspace } = await params;
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
       <SettingsNavigation workspaceSlug={workspace} />
       <div className="crm-settings-content min-w-0 flex-1">{children}</div>
     </div>

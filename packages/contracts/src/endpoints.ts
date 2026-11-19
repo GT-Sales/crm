@@ -92,10 +92,7 @@ import {
   resolveChangeRequestRequestSchema,
   resolveChangeRequestResponseSchema,
 } from './lead-work';
-import {
-  documentReviewQueueQuerySchema,
-  documentReviewQueueResponseSchema,
-} from './document-review';
+import {} from './document-review';
 import { mailboxQuerySchema, mailboxResponseSchema } from './mailbox';
 import { webAnalyticsQuerySchema, webAnalyticsResponseSchema } from './web-analytics';
 import {
@@ -610,17 +607,6 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: listWorkspaceTasksQuerySchema,
     response: listWorkspaceTasksResponseSchema,
-  },
-  {
-    operationId: 'listDocumentReviewQueue',
-    method: 'GET',
-    path: '/api/v1/staff/workspaces/{workspaceId}/documents/review-queue',
-    summary:
-      "The site's current documents on active leads that are not yet reviewed (`to_review`, the default) or were rejected, required-by-plan first then oldest first, with both totals. Needs contact access; the review and download routes recheck their own permissions.",
-    auth: 'staff',
-    successStatus: 200,
-    query: documentReviewQueueQuerySchema,
-    response: documentReviewQueueResponseSchema,
   },
   {
     operationId: 'listMailbox',
