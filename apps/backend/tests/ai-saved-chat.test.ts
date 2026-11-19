@@ -28,7 +28,11 @@ import {
   extractAttachmentText,
   sanitizeAttachmentFileName,
 } from '../src/ai/attachments.js';
-import { fixedAiChatSchema, DatabaseAiChatSchemaProbe } from '../src/ai/chat-schema.js';
+import {
+  AI_CHAT_SCHEMA_RECHECK_MS,
+  fixedAiChatSchema,
+  DatabaseAiChatSchemaProbe,
+} from '../src/ai/chat-schema.js';
 import { loadAiAssistantConfig, parseAttachmentKinds } from '../src/ai/config.js';
 import {
   clipCharacters,
@@ -388,6 +392,7 @@ describe('the schema check', () => {
       inputTokens: false,
       attachmentSweep: false,
       effort: false,
+      chatErasure: false,
     };
     let asked = 0;
     let fail = false;
@@ -405,7 +410,13 @@ describe('the schema check', () => {
     const probe = new DatabaseAiChatSchemaProbe(database, { recheckMs: 1000, now: () => now });
     const scope = { workspaceId: WORKSPACE, actorId: ACTOR };
     expect(await probe.state(scope)).toEqual(answer);
-    answer = { conversations: true, inputTokens: true, attachmentSweep: true, effort: true };
+    answer = {
+      conversations: true,
+      inputTokens: true,
+      attachmentSweep: true,
+      effort: true,
+      chatErasure: true,
+    };
     expect((await probe.state(scope)).conversations).toBe(false);
     expect(asked).toBe(1);
     now = 1500;
@@ -446,6 +457,49 @@ describe('the schema check’s privileges', () => {
         expect(statement).toContain(`has_table_privilege('app.${table}', '${privilege}')`);
       }
     }
+    // 0039: the column and every function, each asked on its own.
+    expect(statement).toContain("a.attname = 'erased_at'");
+    for (const signature of [
+      'app.erase_restricted_lead_ai_turns(uuid,uuid[])',
+      'app.erased_ai_attachments(uuid,integer)',
+      'app.delete_erased_ai_attachments(uuid,uuid[])',
+      'app.departed_ai_conversations(uuid,timestamptz,integer)',
+      'app.delete_departed_ai_conversations(uuid,timestamptz,uuid[])',
+    ]) {
+      expect(statement).toContain(`has_function_privilege('${signature}', 'EXECUTE')`);
+    }
+  });
+
+  it('keeps asking every 5 minutes while only 0039 is missing', async () => {
+    let asked = 0;
+    let now = 0;
+    const tx: TenantTransaction = Object.assign(Object.create(null), {
+      execute: async () => {
+        asked += 1;
+        return [
+          {
+            conversations: true,
+            inputTokens: true,
+            attachmentSweep: true,
+            effort: true,
+            chatErasure: asked > 1,
+          },
+        ];
+      },
+    });
+    const probe = new DatabaseAiChatSchemaProbe(
+      { withTenantTx: async (_scope, work) => work(tx) },
+      { now: () => now },
+    );
+    const scope = { workspaceId: WORKSPACE, actorId: ACTOR };
+    expect((await probe.state(scope)).chatErasure).toBe(false);
+    now = AI_CHAT_SCHEMA_RECHECK_MS - 1;
+    expect((await probe.state(scope)).chatErasure).toBe(false);
+    now = AI_CHAT_SCHEMA_RECHECK_MS;
+    expect((await probe.state(scope)).chatErasure).toBe(true);
+    now = AI_CHAT_SCHEMA_RECHECK_MS * 100;
+    expect((await probe.state(scope)).chatErasure).toBe(true);
+    expect(asked).toBe(2);
   });
 });
 

@@ -36,10 +36,13 @@ export interface AiAssistantConfig {
    * `AI_ACTION_SIGNING_SECRET` when set (32+ characters), else, so a deploy
    * before the secret is configured keeps working, the Gateway key as before
    * (`signingKeySource: 'gateway'`, reported at startup). A secret that is
-   * set but too short leaves it unset: no card can be signed or confirmed.
+   * set but too short switches Ask AI off (`not_configured`), so an enabled
+   * assistant always has a key (audit B6).
    */
   readonly signingKey?: string;
   readonly signingKeySource?: 'dedicated' | 'gateway';
+  /** Set when Ask AI is off because `AI_ACTION_SIGNING_SECRET` is shorter than 32; logged at startup. */
+  readonly signingSecretInvalid?: true;
   /** Sites the owner has enabled by id. Empty means none. */
   readonly workspaceIds: ReadonlySet<string>;
   /**
@@ -182,12 +185,22 @@ export function loadAiAssistantConfig(
     return { enabled: false, reason: 'not_configured', workspaceIds, ...attachments };
   }
   const secret = env['AI_ACTION_SIGNING_SECRET']?.trim();
+  // Audit B6: a secret that is set but too short is a mistake, not a choice.
+  // Without a key no answer can be checked, so the browser's history would be
+  // taken on trust; Ask AI is off instead, as for any missing setting.
+  if (secret !== undefined && secret !== '' && secret.length < AI_SIGNING_SECRET_MIN) {
+    return {
+      enabled: false,
+      reason: 'not_configured',
+      signingSecretInvalid: true,
+      workspaceIds,
+      ...attachments,
+    };
+  }
   const signing =
     secret === undefined || secret === ''
       ? { signingKey: apiKey, signingKeySource: 'gateway' as const }
-      : secret.length >= AI_SIGNING_SECRET_MIN
-        ? { signingKey: secret, signingKeySource: 'dedicated' as const }
-        : {};
+      : { signingKey: secret, signingKeySource: 'dedicated' as const };
   const providers = parseProviders(env['AI_GATEWAY_PROVIDERS']);
   const highEffort = parseHighEffort(env, modelId.data);
   return {

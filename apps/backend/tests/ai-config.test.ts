@@ -27,11 +27,38 @@ describe('the AI signing key', () => {
     });
   });
 
-  it('signs nothing with a secret that is set but too short', () => {
-    const config = loadAiAssistantConfig({ ...ON, AI_ACTION_SIGNING_SECRET: 'short' });
-    expect(config.enabled).toBe(true);
-    expect(config.signingKey).toBeUndefined();
-    expect(config.signingKeySource).toBeUndefined();
+  it('switches Ask AI off with a secret that is set but too short (audit B6)', () => {
+    for (const secret of ['short', 's'.repeat(31), ` ${'s'.repeat(31)} `]) {
+      const config = loadAiAssistantConfig({ ...ON, AI_ACTION_SIGNING_SECRET: secret });
+      expect(config, secret).toMatchObject({
+        enabled: false,
+        reason: 'not_configured',
+        signingSecretInvalid: true,
+      });
+      expect(config.signingKey).toBeUndefined();
+      expect(config.signingKeySource).toBeUndefined();
+      expect(config.apiKey).toBeUndefined();
+      expect(config.modelId).toBeUndefined();
+      expect(config.highEffort).toBeUndefined();
+    }
+    // Exactly the minimum is accepted; blank is unset (the Gateway key).
+    expect(
+      loadAiAssistantConfig({ ...ON, AI_ACTION_SIGNING_SECRET: 's'.repeat(32) }),
+    ).toMatchObject({ enabled: true, signingKeySource: 'dedicated' });
+    expect(loadAiAssistantConfig({ ...ON, AI_ACTION_SIGNING_SECRET: '  ' })).toMatchObject({
+      enabled: true,
+      signingKeySource: 'gateway',
+    });
+  });
+
+  it('never leaves an enabled assistant without a signing key', () => {
+    for (const secret of [undefined, '', 'x', 'y'.repeat(31), 'z'.repeat(32), 'w'.repeat(80)]) {
+      const config = loadAiAssistantConfig({
+        ...ON,
+        ...(secret === undefined ? {} : { AI_ACTION_SIGNING_SECRET: secret }),
+      });
+      if (config.enabled) expect(config.signingKey, String(secret)).toBeTruthy();
+    }
   });
 
   it('never exposes a key while the assistant is off', () => {

@@ -63,6 +63,8 @@ export interface AiReplayMessage {
   readonly text: string;
   /** The files of a member's message, newest message's last; none for an answer. */
   readonly attachments: readonly AiTurnAttachment[];
+  /** An answer's follow-up choices as stored, so a clicked one can be told from typed words (B8). */
+  readonly followUpChoices?: readonly string[];
 }
 
 export interface BeginAiTurnInput {
@@ -99,6 +101,8 @@ export type BeginAiTurnOutcome =
   | { readonly status: 'not_found' }
   /** The two rows of this turn would pass `maxConversationMessages`. */
   | { readonly status: 'full' }
+  /** A new conversation would pass the member's `maxConversationsPerActor` on this site. */
+  | { readonly status: 'too_many_conversations' }
   /** A file that is not this member's, not ready, or already sent. */
   | { readonly status: 'invalid_attachments' }
   /** This request id already stored its question in this conversation. */
@@ -172,6 +176,11 @@ export interface AiConversationStore {
   /** Stores the answer once, however the turn ended. */
   appendAnswer(scope: TenantContext, input: AppendAiAnswerInput): Promise<void>;
 }
+
+/** A uuid, as the pattern of a lead's source card id or href (`SourceRegistry.lead`). */
+const UUID_PATTERN = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}';
+const LEAD_CARD_ID = `^lead-(${UUID_PATTERN})$`;
+const LEAD_CARD_HREF = `/leads/(${UUID_PATTERN})$`;
 
 /** Completed turns read back to build the replayed history (the newest are kept within the limits). */
 export const AI_HISTORY_SCAN_MESSAGES = 48;
@@ -308,7 +317,10 @@ function storedFollowUp(value: unknown): AiFollowUp | undefined {
 
 /** A refusal raised inside the turn's transaction so nothing of it is kept. */
 class TurnRefused extends Error {
-  constructor(readonly outcome: 'not_found' | 'full' | 'invalid_attachments' | 'duplicate') {
+  constructor(
+    readonly outcome:
+      'not_found' | 'full' | 'too_many_conversations' | 'invalid_attachments' | 'duplicate',
+  ) {
     super(outcome);
     this.name = 'TurnRefused';
   }
@@ -417,7 +429,9 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           m.follow_up as "followUp", m.expired_drafts as "expiredDrafts",
           ${iso(sql`m.created_at`)} as "createdAt",
           -- 0037's column, read through the row so the query also runs before it exists.
-          to_jsonb(m)->>'effort' as effort
+          to_jsonb(m)->>'effort' as effort,
+          -- 0039's, the same way: the turn was emptied by a customer's erasure.
+          (to_jsonb(m)->>'erased_at') is not null as erased
         from app.ai_messages m
         where m.workspace_id = ${scope.workspaceId} and m.actor_id = ${scope.actorId}
           and m.conversation_id = ${conversationId}
@@ -448,6 +462,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
             createdAt: isoText(row['createdAt']),
             attachments: (files.get(String(row['id'])) ?? []).map(summaryOf),
             ...(effort.success ? { effort: effort.data } : {}),
+            ...(row['erased'] === true ? { erased: true as const } : {}),
           });
         }),
       };
@@ -536,6 +551,19 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           for update
         `);
         if (!conversation) throw new TurnRefused('not_found');
+
+        // Audit B7: a member keeps at most `maxConversationsPerActor` chats
+        // on a site. Asked only when this message created one, which the
+        // refusal then takes back with the rest of the transaction.
+        if (inserted.length > 0) {
+          const [kept] = await tx.execute<{ count: number }>(sql`
+            select count(*)::int as count from app.ai_conversations c
+            where c.workspace_id = ${scope.workspaceId} and c.actor_id = ${scope.actorId}
+          `);
+          if ((kept?.count ?? 0) > AI_CHAT_LIMITS.maxConversationsPerActor) {
+            throw new TurnRefused('too_many_conversations');
+          }
+        }
 
         const [count] = await tx.execute<{ count: number }>(sql`
           select count(*)::int as count from app.ai_messages m
@@ -632,6 +660,12 @@ export class DatabaseAiConversationStore implements AiConversationStore {
       // is dropped with its question, so the model sees question, answer,
       // question, answer. The join uses the partial unique index on
       // (workspace_id, conversation_id, request_id, role).
+      //
+      // Audit B2: a turn whose answer links a lead that is now restricted, or
+      // no longer exists, is never replayed, whether or not the erasure has
+      // emptied it yet (it runs in the restriction's own transaction once
+      // 0039 is applied; this check needs no migration). An emptied turn has
+      // no text and is skipped below as well.
       const rows = await tx.execute<Record<string, unknown>>(sql`
         select q.id, q.text as question, a.text as answer, a.follow_up as "followUp"
         from app.ai_messages q
@@ -642,6 +676,25 @@ export class DatabaseAiConversationStore implements AiConversationStore {
          and a.role = 'assistant'
          and a.actor_id = ${scope.actorId}
          and a.outcome = 'completed'
+         and not exists (
+           select 1
+           from jsonb_array_elements(
+             case when jsonb_typeof(a.sources) = 'array' then a.sources else '[]'::jsonb end
+           ) s
+           cross join lateral (
+             select coalesce(
+               substring(s->>'id' from ${LEAD_CARD_ID}),
+               substring(s->>'href' from ${LEAD_CARD_HREF})
+             ) as lead_id
+           ) card
+           where jsonb_typeof(s) = 'object'
+             and card.lead_id is not null
+             and not exists (
+               select 1 from app.leads l
+               where l.workspace_id = q.workspace_id and l.id = card.lead_id::uuid
+                 and l.customer_data_restricted_at is null
+             )
+         )
         where q.workspace_id = ${scope.workspaceId} and q.actor_id = ${scope.actorId}
           and q.conversation_id = ${input.conversationId}
           and q.role = 'user' and q.request_id is not null
@@ -649,18 +702,24 @@ export class DatabaseAiConversationStore implements AiConversationStore {
         order by q.created_at desc, q.id desc
         limit ${AI_HISTORY_SCAN_MESSAGES}
       `);
-      const turns: { question: Record<string, unknown>; answer: string }[] = [];
+      const turns: {
+        question: Record<string, unknown>;
+        answer: string;
+        choices?: readonly string[];
+      }[] = [];
       for (const row of [...rows].reverse()) {
         // The text a browser would have replayed (and the server signed).
-        const answer = aiAssistantHistoryText({
-          text: String(row['answer']),
-          followUp: storedFollowUp(row['followUp']),
-        });
+        const followUp = storedFollowUp(row['followUp']);
+        const answer = aiAssistantHistoryText({ text: String(row['answer']), followUp });
         const question = String(row['question']);
         // As the browser's history does: a side without text (an answer that
         // was only a card) is no turn to replay; a provider may refuse it.
         if (answer.trim().length === 0 || question.trim().length === 0) continue;
-        turns.push({ question: { id: row['id'], text: question }, answer });
+        turns.push({
+          question: { id: row['id'], text: question },
+          answer,
+          ...(followUp ? { choices: followUp.choices } : {}),
+        });
       }
       // Newest kept, within the same limits a browser's history obeys.
       const kept: typeof turns = [];
@@ -674,7 +733,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
         if (kept.length * 2 + 2 > AI_ASSISTANT_LIMITS.maxHistoryMessages) break;
         if (characters + size > AI_ASSISTANT_LIMITS.maxConversationChars) break;
         characters += size;
-        kept.unshift({ question: { ...turn.question, text: question }, answer: turn.answer });
+        kept.unshift({ ...turn, question: { ...turn.question, text: question } });
       }
       const files = await attachmentsOf(
         tx,
@@ -688,7 +747,12 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           text: String(turn.question['text']),
           attachments: files.get(String(turn.question['id'])) ?? [],
         },
-        { role: 'assistant', text: turn.answer, attachments: [] },
+        {
+          role: 'assistant',
+          text: turn.answer,
+          attachments: [],
+          ...(turn.choices ? { followUpChoices: turn.choices } : {}),
+        },
       ]);
     });
   }

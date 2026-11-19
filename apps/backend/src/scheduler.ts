@@ -338,9 +338,9 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
   const alerts = createOwnerAlertChannelFromEnv();
   const documents = createDocumentServiceFromEnv();
   const aiAttachments = createAiAttachmentServiceFromEnv();
-  const aiSweep = aiAttachments
-    ? aiAttachmentSweep(aiAttachments, new DatabaseAiChatSchemaProbe())
-    : undefined;
+  const aiSchema = new DatabaseAiChatSchemaProbe();
+  const aiSweep = aiAttachments ? aiAttachmentSweep(aiAttachments, aiSchema) : undefined;
+  const aiChats = aiAttachments ? aiChatCleanup(aiAttachments, aiSchema) : undefined;
   // Restricting a draft also deletes its documents' objects (audit M-2).
   let objects: Pick<R2DocumentStore, 'deleteObject'> | undefined;
   try {
@@ -368,7 +368,7 @@ export function createDefaultSchedulerDependencies(): BackendSchedulerDependenci
         (state) => (queueHealth = state),
         () => queueHealth,
       ),
-    runDocumentCleanup: (input) => runDocumentCleanup(documents, input, aiSweep),
+    runDocumentCleanup: (input) => runDocumentCleanup(documents, input, aiSweep, aiChats),
     runDataRetention: (input) =>
       runDataRetention({ abandonedLeads, operational }, input, new Date()),
     runIntakeCheck: (input) =>
@@ -460,16 +460,55 @@ export function aiAttachmentSweep(
       : { skipped: true as const };
 }
 
+/** One site's cleanup of erased turns' files and departed members' chats; `skipped` until 0039. */
+export type AiChatCleanup = (scope: { workspaceId: string; actorId: string }) => Promise<
+  | {
+      erasedFiles: number;
+      departedConversations: number;
+      deletedObjects: number;
+      failedDeletes: number;
+    }
+  | { skipped: true }
+>;
+
+/**
+ * Audit B2 and C13, run inside `document_cleanup` beside the unsent-file
+ * sweep: the files of turns a customer's erasure emptied, then the
+ * conversations of people who left the site `AI_DEPARTED_MEMBER_CHAT_DAYS`
+ * ago, objects first each time. The rows are owner-only, so the machine actor
+ * reaches them only through the 0039 functions; until 0039 is applied it is
+ * skipped, never failed.
+ */
+export function aiChatCleanup(
+  service: Pick<AiAttachmentService, 'sweepErased' | 'sweepDepartedMembers'>,
+  schema: AiChatSchemaProbe,
+): AiChatCleanup {
+  return async (scope) => {
+    if (!(await schema.state(scope)).chatErasure) return { skipped: true as const };
+    const erased = await service.sweepErased(scope);
+    const departed = await service.sweepDepartedMembers(scope);
+    return {
+      erasedFiles: erased.removed,
+      departedConversations: departed.conversations,
+      deletedObjects: erased.deletedObjects + departed.deletedObjects,
+      failedDeletes: erased.failedDeletes + departed.failedDeletes,
+    };
+  };
+}
+
 /**
  * One sweep per authorized workspace. Without object storage configured there
  * are no uploads to clean, so the task reports that and does nothing. With an
  * Ask AI attachment sweep, its counts are added under `aiAttachments`; one
  * site's AI sweep failing is counted there and never stops the documents'.
+ * With the Ask AI chat cleanup, its counts are added under `aiChats` the same
+ * way.
  */
 export async function runDocumentCleanup(
   documents: Pick<DocumentService, 'sweepExpired'> | undefined,
   input: SchedulerRunInput,
   aiSweep?: AiAttachmentSweep,
+  aiChats?: AiChatCleanup,
 ): Promise<
   | { skipped: 'feature_not_ready' }
   | {
@@ -483,16 +522,54 @@ export async function runDocumentCleanup(
         skippedSites: number;
         failedSites: number;
       };
+      aiChats?: {
+        erasedFiles: number;
+        departedConversations: number;
+        deletedObjects: number;
+        failedDeletes: number;
+        skippedSites: number;
+        failedSites: number;
+      };
     }
 > {
   if (!documents) return { skipped: 'feature_not_ready' };
   const totals = { expiredIntents: 0, deletedObjects: 0, failedDeletes: 0 };
   const ai = { removed: 0, deletedObjects: 0, failedDeletes: 0, skippedSites: 0, failedSites: 0 };
+  const chats = {
+    erasedFiles: 0,
+    departedConversations: 0,
+    deletedObjects: 0,
+    failedDeletes: 0,
+    skippedSites: 0,
+    failedSites: 0,
+  };
   for (const workspaceId of new Set(input.authorizedWorkspaceIds)) {
     const result = await documents.sweepExpired({ workspaceId, actorId: input.actorId });
     totals.expiredIntents += result.expiredIntents;
     totals.deletedObjects += result.deletedObjects;
     totals.failedDeletes += result.failedDeletes;
+    if (aiChats) {
+      try {
+        const cleaned = await aiChats({ workspaceId, actorId: input.actorId });
+        if ('skipped' in cleaned) {
+          chats.skippedSites += 1;
+        } else {
+          chats.erasedFiles += cleaned.erasedFiles;
+          chats.departedConversations += cleaned.departedConversations;
+          chats.deletedObjects += cleaned.deletedObjects;
+          chats.failedDeletes += cleaned.failedDeletes;
+        }
+      } catch (error) {
+        chats.failedSites += 1;
+        logRequestError({
+          requestId: DOCUMENT_CLEANUP_PREFIX,
+          workspaceId,
+          route: SCHEDULER_ROUTE,
+          code: 'ai_chat_cleanup_failed',
+          flag: isConnectionLevelError(error) ? 'retryable' : 'not_retryable',
+        });
+      }
+    }
     if (!aiSweep) continue;
     try {
       const swept = await aiSweep({ workspaceId, actorId: input.actorId });
@@ -514,7 +591,11 @@ export async function runDocumentCleanup(
       });
     }
   }
-  return aiSweep ? { ...totals, aiAttachments: ai } : totals;
+  return {
+    ...totals,
+    ...(aiSweep ? { aiAttachments: ai } : {}),
+    ...(aiChats ? { aiChats: chats } : {}),
+  };
 }
 
 /**

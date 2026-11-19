@@ -35,7 +35,7 @@ import type { AiTurnStore } from '../ai/turn-store.js';
 import { Router, type Request, type Response } from 'express';
 import {
   reviseAiActionRequestSchema,
-  aiFollowUpSchema,
+  aiFollowUpToolInputSchema,
   aiAutomationProposalSchema,
   aiActionProposalSchema,
   aiAssistantHistoryText,
@@ -74,7 +74,7 @@ import type { VerifiedStaffSession } from '../auth/session.js';
 import type { AiAssistantConfig } from '../ai/config.js';
 import type { AssistantEngine } from '../ai/engine.js';
 import { logAiTurn, type AiTurnLog } from '../ai/logging.js';
-import { TurnBudget, turnLimits } from '../ai/limits.js';
+import { chargeDailyAttachmentBytes, TurnBudget, turnLimits } from '../ai/limits.js';
 import { buildSystemPrompt, openLeadDataBlock, AI_PROMPT_VERSION } from '../ai/prompt.js';
 import { serializedBytes } from '../ai/projections.js';
 import type { AiReadService } from '../ai/read-service.js';
@@ -218,6 +218,15 @@ export async function aiChatAvailability(
     conversations,
     attachments: conversations && (chat.attachments?.kinds.length ?? 0) > 0,
   };
+}
+
+/**
+ * Audit B8: how a clicked follow-up choice reaches the model, so it is never
+ * mistaken for words the person typed. The choice is the model's own text,
+ * bounded by `AI_FOLLOW_UP_LIMITS`.
+ */
+export function selectedChoiceText(choice: string): string {
+  return `[The person picked this option from the choices you offered earlier in this chat; it is your wording, not a new request from them]\n${choice}`;
 }
 
 /**
@@ -1244,6 +1253,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           case 'full':
             sendDomainError(res, req.id, 'conversation_full', 409);
             return;
+          case 'too_many_conversations':
+            sendDomainError(res, req.id, 'conversation_limit_reached', 409, {
+              limit: AI_CHAT_LIMITS.maxConversationsPerActor,
+            });
+            return;
           case 'invalid_attachments':
             sendStaffAuthError(res, req.id, 'invalid_request', 400);
             return;
@@ -1265,6 +1279,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const storedTurn = stored;
       const memoryBudget = chat?.memoryBudget ?? sharedAttachmentByteBudget;
       let attachmentLease: AttachmentBudgetLease | undefined;
+      /** The member's daily attachment budget refused this turn's files (audit B7). */
+      let attachmentBudgetSpent = false;
 
       /**
        * The model's messages for a stored turn: the replayed history, then the
@@ -1276,8 +1292,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
        */
       const storedTurnMessages = async (
         turn: StoredTurn,
-        text: string,
+        message: string,
       ): Promise<EngineMessage[]> => {
+        let text = message;
         const conversations = chat?.conversations;
         if (!conversations) throw new Error('conversation store missing');
         const history: readonly AiReplayMessage[] = await wait(
@@ -1287,6 +1304,19 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             reservedChars: Array.from(body.message).length,
           }),
         );
+        // Audit B8: a message that is exactly one of the choices an earlier
+        // answer offered reached here by a click (or reads the same): the
+        // model is told it is an option it offered, not new words from the
+        // person. The stored question keeps the plain text.
+        const chosen = body.message.trim();
+        if (
+          text.endsWith(body.message) &&
+          history.some(
+            (message) => message.role === 'assistant' && message.followUpChoices?.includes(chosen),
+          )
+        ) {
+          text = `${text.slice(0, text.length - body.message.length)}${selectedChoiceText(chosen)}`;
+        }
         const service = chat?.attachments;
         const kinds = service?.kinds ?? [];
         const candidates = [
@@ -1305,6 +1335,18 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             break;
           included.add(file.id);
           bytes += file.byteSize;
+        }
+        // Audit B7: the files chosen above are charged to the member's daily
+        // budget on bytes sent to the model. Spent, or a limiter that cannot
+        // be reached, sends every file of the turn as not available: the turn
+        // still runs, and the stream says why (`notice`) when it was spent.
+        if (bytes > 0) {
+          const charged = await chargeDailyAttachmentBytes(dependencies.rateLimit, scope, bytes);
+          if (charged !== 'allowed') {
+            included.clear();
+            if (charged === 'spent') attachmentBudgetSpent = true;
+            else dependencies.reportFailure(req, new Error('ai_attachment_budget_unavailable'));
+          }
         }
         // The process-wide bound on bytes held for the model: this turn takes
         // its share at once or sends its images and PDFs as not available,
@@ -1450,7 +1492,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           let followUp: AiFollowUp | undefined;
           const guide = async (raw: unknown) => {
             if (!budget.reserveToolCall()) return 'Question limit reached';
-            const question = aiFollowUpSchema.parse(raw);
+            const question = aiFollowUpToolInputSchema.parse(raw);
             if (
               automationTools &&
               /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\buuid\b|staff id/i.test(
@@ -1463,8 +1505,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           };
           const guidedTool = tool({
             description:
-              'Ask one short clarification with 2-5 meaningful choices when the lead, action content, due date or email intent is missing or ambiguous. Never invent an answer. The person can also type freely.',
-            inputSchema: aiFollowUpSchema,
+              'Ask one short clarification with 2-5 meaningful choices when the lead, action content, due date or email intent is missing or ambiguous. Each choice is a short answer of at most 80 characters, never a new request. Never invent an answer. The person can also type freely.',
+            // Audit B8: choices within AI_FOLLOW_UP_LIMITS; a longer one is refused here.
+            inputSchema: aiFollowUpToolInputSchema,
             execute: guide,
           });
           const system = buildSystemPrompt({
@@ -1505,7 +1548,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             // this server, no signature needed); otherwise CHAT-2: only whole
             // turns whose answer this server signed are replayed.
             const messages: EngineMessage[] = storedTurn
-              ? await storedTurnMessages(storedTurn, userText)
+              ? await storedTurnMessages(storedTurn, userText).then((built) => {
+                  if (attachmentBudgetSpent)
+                    writePart({ type: 'notice', code: 'attachment_budget_spent' });
+                  return built;
+                })
               : [
                   ...trustedHistory(body.history, dependencies.config.signingKey, scope).messages,
                   { role: 'user' as const, text: userText },

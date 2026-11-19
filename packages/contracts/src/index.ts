@@ -768,6 +768,8 @@ export {
   reviseAiActionRequestSchema,
   type ReviseAiActionRequest,
   aiFollowUpSchema,
+  AI_FOLLOW_UP_LIMITS,
+  aiFollowUpToolInputSchema,
   aiLeadUpdateContextSchema,
   aiTaskUpdateContextSchema,
   type AiTaskUpdateContext,

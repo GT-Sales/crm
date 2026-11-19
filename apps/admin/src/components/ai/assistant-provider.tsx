@@ -115,6 +115,8 @@ export interface AiUserMessage {
   attachments?: readonly AiAttachmentSummary[];
   /** Asked at High effort (the request carried it); a retry asks at the same level. */
   effort?: 'high';
+  /** Emptied by a customer's erasure (stored conversations only); its answer says so. */
+  erased?: true;
 }
 
 /**
@@ -162,6 +164,10 @@ export interface AiAssistantMessage {
   effort?: 'high';
   /** High's own limit refused this turn: seconds until it may be asked at High again. */
   retryAfterSeconds?: number;
+  /** Emptied by a customer's erasure: shown as one plain line, nothing else. */
+  erased?: true;
+  /** The member's daily file budget was spent: this answer was made without the files. */
+  fileLimitReached?: true;
   /**
    * The server took this turn: a part of its stream arrived (the member's
    * message, and any files with it, are then stored), or it was loaded from
@@ -423,6 +429,7 @@ function turnTaken(answer: AiAssistantMessage): boolean {
 /** Errors after which asking the same question again can only fail again. */
 const NOT_RETRYABLE: readonly (AiUiError | undefined)[] = [
   'conversation_full',
+  'conversation_limit',
   'conversation_missing',
 ];
 
@@ -529,6 +536,7 @@ export function storedToMessage(row: AiStoredMessage): AiMessage {
       text: row.text,
       ...(row.attachments.length > 0 ? { attachments: row.attachments } : {}),
       ...high,
+      ...(row.erased ? { erased: true as const } : {}),
     };
   }
   const status: AiAssistantMessage['status'] =
@@ -551,6 +559,7 @@ export function storedToMessage(row: AiStoredMessage): AiMessage {
       : {}),
     ...(row.expiredDrafts > 0 ? { expiredDrafts: row.expiredDrafts } : {}),
     ...high,
+    ...(row.erased ? { erased: true as const } : {}),
   };
 }
 
@@ -913,6 +922,9 @@ export function AssistantProvider({
           return { ...message, automationProposals: [...byId.values()] };
         }
         if (part.type === 'follow_up') return { ...message, followUp: part.followUp };
+        if (part.type === 'notice' && part.code === 'attachment_budget_spent') {
+          return { ...message, fileLimitReached: true };
+        }
         if (part.type === 'done') {
           return {
             ...message,

@@ -190,6 +190,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -384,6 +385,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -613,6 +615,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -807,6 +810,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1064,6 +1068,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1264,6 +1269,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1501,6 +1507,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1737,6 +1744,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -1968,6 +1976,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -2195,6 +2204,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -2422,6 +2432,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -2907,6 +2918,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -3100,6 +3112,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -3491,6 +3504,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -3770,6 +3784,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -4498,6 +4513,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -4807,6 +4823,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -5256,6 +5273,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -6686,6 +6704,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -7802,6 +7821,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -8991,6 +9011,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -10081,6 +10102,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -11128,6 +11150,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -12156,6 +12179,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -12353,6 +12377,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -12992,6 +13017,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -14020,6 +14046,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -14620,6 +14647,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -15246,6 +15274,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -15537,6 +15566,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -15849,6 +15879,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -16312,6 +16343,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -16590,6 +16622,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -16985,6 +17018,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -17321,6 +17355,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -17725,6 +17760,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -18111,6 +18147,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -18400,6 +18437,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -18751,6 +18789,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19000,6 +19039,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19253,6 +19293,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19642,6 +19683,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -19971,6 +20013,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -20410,6 +20453,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -20719,6 +20763,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -21043,6 +21088,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -21345,6 +21391,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -21729,6 +21776,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22076,6 +22124,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22346,6 +22395,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22713,6 +22763,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -22994,6 +23045,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -23295,6 +23347,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -23514,6 +23567,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -23726,6 +23780,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -24010,6 +24065,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -24294,6 +24350,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -26646,6 +26703,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -34262,6 +34320,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -36461,6 +36520,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -44098,6 +44158,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -51715,6 +51776,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -52182,6 +52244,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -52590,6 +52653,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -60209,6 +60273,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -70329,6 +70394,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -77948,6 +78014,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -85586,6 +85653,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -93205,6 +93273,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -100824,6 +100893,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -101057,6 +101127,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -101478,6 +101549,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -101817,6 +101889,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -104484,6 +104557,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -109937,6 +110011,15 @@
                         {
                           "type": "object",
                           "properties": {
+                            "type": { "type": "string", "const": "notice" },
+                            "code": { "type": "string", "enum": ["attachment_budget_spent"] }
+                          },
+                          "required": ["type", "code"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
                             "type": { "type": "string", "const": "conversation" },
                             "conversationId": {
                               "type": "string",
@@ -110675,6 +110758,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -110990,6 +111074,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111178,7 +111263,8 @@
                               "additionalProperties": false
                             }
                           },
-                          "effort": { "type": "string", "enum": ["normal", "high"] }
+                          "effort": { "type": "string", "enum": ["normal", "high"] },
+                          "erased": { "type": "boolean", "const": true }
                         },
                         "required": [
                           "id",
@@ -111340,6 +111426,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111566,6 +111653,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111782,6 +111870,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -111993,6 +112082,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -112247,6 +112337,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -112462,6 +112553,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -112663,6 +112755,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -113109,6 +113202,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -113316,6 +113410,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -118390,6 +118485,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121180,6 +121276,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121631,6 +121728,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -121953,6 +122051,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122223,6 +122322,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122424,6 +122524,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122625,6 +122726,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -122861,6 +122963,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -123198,6 +123301,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -123414,6 +123518,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -123690,6 +123795,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124016,6 +124122,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124355,6 +124462,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124620,6 +124728,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -124845,6 +124954,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125090,6 +125200,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125358,6 +125469,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125670,6 +125782,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -125905,6 +126018,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -126113,6 +126227,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -126352,6 +126467,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -126802,6 +126918,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -127075,6 +127192,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -127353,6 +127471,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"
@@ -127647,6 +127766,7 @@
                             "ai_rate_limited",
                             "conversation_not_found",
                             "conversation_full",
+                            "conversation_limit_reached",
                             "attachment_rejected",
                             "attachments_unavailable",
                             "plain_tasks_unavailable"

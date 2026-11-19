@@ -192,16 +192,12 @@ export interface StaffRouteDependencies {
 
 export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
   const aiConfig = loadAiAssistantConfig();
-  // The deploy keeps working without the dedicated secret, but says so once.
-  if (aiConfig.enabled && aiConfig.signingKeySource !== 'dedicated') {
-    console.warn(
-      JSON.stringify({
-        event:
-          aiConfig.signingKey === undefined
-            ? 'ai_signing_secret_invalid'
-            : 'ai_signing_secret_missing',
-      }),
-    );
+  // The deploy keeps working without the dedicated secret, but says so once;
+  // a secret that is too short has switched Ask AI off, and says so too.
+  if (aiConfig.signingSecretInvalid) {
+    console.warn(JSON.stringify({ event: 'ai_signing_secret_invalid' }));
+  } else if (aiConfig.enabled && aiConfig.signingKeySource !== 'dedicated') {
+    console.warn(JSON.stringify({ event: 'ai_signing_secret_missing' }));
   }
   // One catalogue check shared by the saved chat and the turn records.
   const aiSchema = new DatabaseAiChatSchemaProbe();

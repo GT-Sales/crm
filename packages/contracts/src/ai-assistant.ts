@@ -132,6 +132,21 @@ export const AI_CHAT_LIMITS = {
   maxAttachmentBytesPerTurn: 15 * 1024 * 1024,
   /** Upload intents per actor per site in a fixed one-hour window. */
   uploadsPerActorPerHour: 40,
+  /**
+   * Attachment bytes sent to the model per actor per site in a UTC day,
+   * earlier messages' files resent with each turn included (audit B7). Past
+   * it a turn still runs, its files named to the model as not available, and
+   * the stream's `notice` part says so. Charged in whole
+   * `attachmentBudgetUnitBytes`, through the shared limiter.
+   */
+  attachmentBytesPerActorPerDay: 300 * 1024 * 1024,
+  /** The step the daily attachment budget is charged in: a turn's file bytes, rounded up. */
+  attachmentBudgetUnitBytes: 1024 * 1024,
+  /**
+   * Stored conversations per actor per site (audit B7). A new chat past it is
+   * refused with `409 conversation_limit_reached` until the member deletes old ones.
+   */
+  maxConversationsPerActor: 500,
 } as const;
 
 export type AiChatLimits = typeof AI_CHAT_LIMITS;
@@ -586,6 +601,31 @@ export const aiFollowUpSchema = z
   .strict();
 export type AiFollowUp = z.infer<typeof aiFollowUpSchema>;
 
+/**
+ * Audit B8: the follow-up choices the model may offer, which the person can
+ * send with one click. Shorter than the wire's own bound (`aiFollowUpSchema`,
+ * kept as it was so an older backend's stored choices still read): the
+ * backend refuses a longer choice or more choices at the tool's input, so the
+ * model must ask again within them.
+ */
+export const AI_FOLLOW_UP_LIMITS = {
+  /** One choice, in characters. */
+  maxChoiceChars: 80,
+  /** Choices in one question. */
+  maxChoices: 5,
+} as const;
+
+/** The model's `askFollowUp` input: `aiFollowUpSchema` within `AI_FOLLOW_UP_LIMITS`. */
+export const aiFollowUpToolInputSchema = z
+  .object({
+    question: aiFollowUpSchema.shape.question,
+    choices: z
+      .array(z.string().trim().min(1).max(AI_FOLLOW_UP_LIMITS.maxChoiceChars))
+      .min(2)
+      .max(AI_FOLLOW_UP_LIMITS.maxChoices),
+  })
+  .strict();
+
 export const confirmAiActionRequestSchema = z
   .object({ token: z.string().min(1).max(40000) })
   .strict();
@@ -639,6 +679,13 @@ export const aiStreamPartSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('follow_up'), followUp: aiFollowUpSchema }).strict(),
+  /**
+   * Something the person should know about how this answer was made, by a
+   * fixed code the admin words itself. `attachment_budget_spent`: the
+   * member's daily attachment budget is used up, so this turn's files were
+   * not sent (audit B7). An older admin drops the part.
+   */
+  z.object({ type: z.literal('notice'), code: z.enum(['attachment_budget_spent']) }).strict(),
   /**
    * Stored conversations only, sent once right after the member's message is
    * saved and before any answer: the conversation it belongs to, the saved

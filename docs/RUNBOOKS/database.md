@@ -1244,6 +1244,101 @@ select pg_get_constraintdef(oid) from pg_constraint
   -- FOREIGN KEY (workspace_id, lead_id) REFERENCES app.leads(workspace_id, id) ON DELETE CASCADE
 ```
 
+## 0039_ai_chat_erasure (2026-11-19, prepared, not applied)
+
+Audit B2 and C13 (docs/design/ai-chat.md §12): a customer's data
+restriction reaches Ask AI's saved chats, and the chats of someone who left a
+site are deleted. Not applied by the deploy; the owner applies it through the
+SQL editor after 0034–0037 (it holds `ALTER` and creates functions), then
+inserts the Drizzle tracker row. The deploy and the migration may go in either
+order: an older backend never names the column or the functions, and this
+backend runs before 0039 (below).
+
+**0039 (generated, with a hand-written part).** `app.ai_messages` gets
+`erased_at timestamptz` (null; metadata-only, no rewrite). Then five SECURITY
+DEFINER functions with an empty `search_path`, `EXECUTE` revoked from
+`PUBLIC` and granted to `app_runtime` only, each refusing a site other than
+the transaction's own (`workspace_context_mismatch`) and more than 1000 ids
+or rows (`too_many_ids`, `limit_out_of_range`). They run as the migration
+role, which bypasses row security; FORCE RLS on the three chat tables (0035)
+is unchanged, and the runtime role still holds no `UPDATE` or `DELETE` on
+`app.ai_messages`:
+
+- `app.erase_restricted_lead_ai_turns(site, lead_ids)`: for leads of the site
+  that are already restricted, every member's turns that name them lose their
+  text. A turn is named when its answer's source cards link the lead
+  (`lead-<id>`, or an href ending in `/leads/<id>`) or when either row's text
+  holds the lead's `MS-<n>` order number as a whole word (case-insensitive).
+  Both rows of the turn (paired by request id) keep their place with `text =
+''`, `sources = []`, `follow_up = null` and `erased_at` set; the question's
+  text files lose their `extracted_text`; a conversation whose first question
+  was erased, or whose title holds the number, is retitled "Chat with a
+  removed message". Called by the abandoned-lead restriction
+  (`retention/abandoned-leads.ts`) in its own transaction.
+- `app.erased_ai_attachments(site, limit)` and
+  `app.delete_erased_ai_attachments(site, ids)`: the files of erased turns,
+  listed for the backend to delete their objects first, then those rows only
+  (the delete re-checks that the turn is erased). Needs an actor.
+- `app.departed_ai_conversations(site, before, limit)` and
+  `app.delete_departed_ai_conversations(site, before, ids)`: conversations,
+  untouched since `before`, of an actor with no active membership on the site
+  and a revocation older than `before` (or no membership row), with their
+  files' objects; the delete re-checks the same rule under a row lock. A
+  cutoff less than a day ago is moved back to a day ago. Needs an actor.
+
+At the end a `DO` block runs the erasure once, a thousand leads at a time,
+for every site that has a conversation, over every lead already restricted
+(it sets `app.workspace_id` for its own transaction and clears it after).
+On the current data that is a few hundred rows at most; it reads each site's
+messages once per thousand restricted leads.
+
+- **To apply** (owner): run the file, then the tracker row (hash,
+  `created_at`): `0039_ai_chat_erasure`
+  `0f3cb50e066d069905a56038a29af01dd32fa20f1ea933747812292ee0209b43`,
+  `1795070872298`.
+- **Before it is applied**: a turn whose answer links a restricted (or
+  deleted) lead is never replayed to the model, whatever its state
+  (`ai/conversation-store.ts` reads the lead itself); the stored text stays
+  and the member still sees it. Each restriction run logs
+  `ai_chat_erasure_function_missing` with the site id. `document_cleanup`
+  reports the chat cleanup as skipped (`aiChats.skippedSites`), so erased
+  files and departed members' chats stay.
+- **After applying**: the catch-up has emptied the turns of every lead
+  restricted so far; later restrictions empty theirs in the same transaction.
+  The backend's catalogue check (`ai/chat-schema.ts`, `chatErasure`) sees the
+  column and the five functions within 5 minutes, with no redeploy, and the
+  next hourly `document_cleanup` deletes erased turns' files and the chats of
+  people gone from a site for 30 days (`AI_DEPARTED_MEMBER_CHAT_DAYS`),
+  objects first.
+- Rollback, after reverting the code: `DROP FUNCTION
+app.erase_restricted_lead_ai_turns(uuid, uuid[]); DROP FUNCTION
+app.erased_ai_attachments(uuid, integer); DROP FUNCTION
+app.delete_erased_ai_attachments(uuid, uuid[]); DROP FUNCTION
+app.departed_ai_conversations(uuid, timestamptz, integer); DROP FUNCTION
+app.delete_departed_ai_conversations(uuid, timestamptz, uuid[]); ALTER TABLE
+app.ai_messages DROP COLUMN erased_at;`. Text already erased is not brought
+  back (it is gone); dropping the column makes those rows read as ordinary
+  empty answers. A backend that has seen the functions keeps calling them
+  from the cleanup until it restarts, which then fails per site
+  (`ai_chat_cleanup_failed`); a restriction asks the catalogue each run and
+  logs `ai_chat_erasure_function_missing` instead.
+- Verify against the schema:
+
+```sql
+select is_nullable from information_schema.columns
+ where table_schema = 'app' and table_name = 'ai_messages' and column_name = 'erased_at';  -- YES
+select p.proname, p.prosecdef, p.proconfig,
+       has_function_privilege('app_runtime', p.oid, 'EXECUTE') as runtime,
+       has_function_privilege('public', p.oid, 'EXECUTE') as public
+  from pg_proc p
+ where p.pronamespace = 'app'::regnamespace
+   and p.proname in ('erase_restricted_lead_ai_turns', 'erased_ai_attachments',
+     'delete_erased_ai_attachments', 'departed_ai_conversations',
+     'delete_departed_ai_conversations')
+ order by p.proname;              -- 5 rows: t, {search_path=""}, t, f
+select has_table_privilege('app_runtime', 'app.ai_messages', 'UPDATE');      -- f
+```
+
 ## Historical CanadaWide import (2026-10-27)
 
 Not a migration: a re-runnable data script, `packages/db/sql/canadawide-legacy-import.sql`,

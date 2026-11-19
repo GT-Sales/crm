@@ -603,6 +603,7 @@ tool holds the statement), add the tracker rows, verify against the catalog.
 | 13  | Ask AI's saved chat and effort levels after migrations 0034 to 0037                                                    | Applied (2026-11-19). The backend sees the tables within 5 minutes and switches the saved chat on by itself (the full page and the Ask AI menu entry); effort levels are recorded and unsent files are swept. The check in RUNBOOKS/ai-assistant.md §12 is not recorded in the repository.                                                                                                                                                  | RUNBOOKS/ai-assistant.md §12.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | 14  | Ask AI attachments (`AI_ATTACHMENT_KINDS`)                                                                             | Off until `AI_ATTACHMENT_KINDS` is set on Railway; not recorded as set. Needs the saved chat (item 13) and the documents storage (`R2_*`).                                                                                                                                                                                                                                                                                                  | RUNBOOKS/ai-assistant.md §12, "Switching uploads on and off": check in the Gateway catalogue that the model in `AI_GATEWAY_MODEL` accepts image and PDF input (else offer `text` only); check that the storage endpoint allows a cross-origin `PUT` from `https://gt-sales-crm-admin.vercel.app` (the browser uploads straight to storage); review that uploaded files go to the AI provider; set the variable (docs/ENV.md). |
 | 15  | High effort (`AI_HIGH_EFFORT_ENABLED`)                                                                                 | Off until `AI_HIGH_EFFORT_ENABLED=true` is set on Railway, with `AI_GATEWAY_MODEL_HIGH` and `AI_HIGH_EFFORT_REASONING` if wanted (docs/ENV.md); not recorded as set. Until then the composer shows no effort control and Ask AI answers at Normal only. 0037, which records the level, is applied.                                                                                                                                          | RUNBOOKS/ai-assistant.md §13: choose the High model and reasoning word in the Gateway catalogue, set the variables, restart, check capabilities and Settings → AI usage.                                                                                                                                                                                                                                                      |
+| 16  | Migration `0039_ai_chat_erasure` (a customer's erasure reaches saved chats; departed members' chats are deleted)       | Prepared, not applied. Until it is, a turn about a restricted lead is never replayed to the model but its text stays stored and shown, each restriction run logs `ai_chat_erasure_function_missing`, and `document_cleanup` skips the cleanup of erased turns' files and of the chats of people gone from a site for 30 days. Applying it empties the turns of every lead restricted so far (RUNBOOKS/database.md, 0039).                   |
 
 ## 4. What is verified, and how
 
@@ -888,11 +889,10 @@ submission so a retry never makes a second order (§2.6 item 9).
 - **Ask AI's saved chat** (docs/design/ai-chat.md §12): attachment objects
   are in no backup (the nightly backup copies what `files` and
   `file_revisions` reference), so a restore brings back conversations without
-  their files; a customer's data erasure does not rewrite stored
-  conversations, so an answer or a file that names a customer stays until the
-  member deletes the conversation; a removed member's conversations stay
-  stored with nothing that deletes them; a finalize cut short by a process
-  exit can leave one unreferenced copy of an upload in storage.
+  their files; a customer's data erasure empties only the turns that link the
+  lead or hold its order number, so an answer that named a customer in other
+  words stays until the member deletes the conversation; a finalize cut short
+  by a process exit can leave one unreferenced copy of an upload in storage.
 - **Umami**: the Analytics page's endpoint shapes were read from Umami's own
   source at tag v3.4.1; recheck them after an Umami upgrade.
 

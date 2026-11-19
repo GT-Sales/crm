@@ -140,6 +140,13 @@ export const aiStoredMessageSchema = z.object({
    * row written before effort levels were stored (and from an older backend).
    */
   effort: aiEffortSchema.optional(),
+  /**
+   * True when the turn's text was removed because a customer it named had
+   * their data restricted or erased (audit B2): the row keeps its place with
+   * empty text, no sources and no follow-up. Absent otherwise, and from an
+   * older backend; an older admin strips it and shows the empty row.
+   */
+  erased: z.literal(true).optional(),
 });
 export type AiStoredMessage = z.infer<typeof aiStoredMessageSchema>;
 

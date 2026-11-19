@@ -76,19 +76,19 @@ describe('trusted Ask AI history (CHAT-2, UI-7)', () => {
     ]);
   });
 
-  it('without a signing key keeps whole, alternating turns', () => {
+  it('without a signing key trusts no answer and replays nothing (audit B6)', () => {
+    const signed = signAssistantTurn(KEY, SCOPE, 'A1');
     const result = trustedHistory(
       [
         { role: 'user', text: 'Q1' },
         { role: 'assistant', text: 'A1' },
         { role: 'user', text: 'Q2' },
+        { role: 'assistant', text: 'A1', signature: signed },
       ],
       undefined,
       SCOPE,
     );
-    expect(result.messages).toEqual([
-      { role: 'user', text: 'Q1' },
-      { role: 'assistant', text: 'A1' },
-    ]);
+    expect(result.messages).toEqual([]);
+    expect(result.dropped).toBe(4);
   });
 });
