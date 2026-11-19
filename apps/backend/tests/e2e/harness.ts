@@ -74,6 +74,7 @@ const COLLEAGUE_ID = '20000000-0000-4000-8000-0000000e2e02';
 const WEBSITE_ACTOR_ID = '20000000-0000-4000-8000-0000000e2e09';
 const PASSPORT_FILE_ID = '50000000-0000-4000-8000-0000000e2e01';
 const STAFF_BEARER = process.env['E2E_STAFF_BEARER'] ?? 'e2e-staff-session-owner';
+const COLLEAGUE_BEARER = process.env['E2E_COLLEAGUE_BEARER'] ?? 'e2e-staff-session-leads-sam';
 const ADMIN_URL = process.env['TEST_MIGRATION_DATABASE_URL'];
 const RUNTIME_URL = process.env['DATABASE_URL'];
 
@@ -462,6 +463,10 @@ async function seed(): Promise<void> {
 
 class StubStaffVerifier implements StaffSessionVerifier {
   async verify(accessToken: string): Promise<VerifiedStaffSession | undefined> {
+    // The seeded colleague (Leads role, CanadaWide only) has a token of her own, so a
+    // journey can check what a member without the owner's access is offered.
+    if (accessToken === COLLEAGUE_BEARER)
+      return { actorId: COLLEAGUE_ID, verifiedEmail: 'sam@example.test' };
     return accessToken === STAFF_BEARER
       ? { actorId: OWNER_ID, verifiedEmail: 'owner@example.test' }
       : undefined;
@@ -678,6 +683,104 @@ const assistantEngine: AssistantEngine = {
                       : undefined;
     if (wideAnswer !== undefined) {
       yield { type: 'text', text: wideAnswer };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // More synthetic answers for the wider-cards journeys (zz-ai-wide-cards.spec.ts).
+    // `$lead` in a JSON argument stands for the open lead's id.
+    const withLead = (json: string) => JSON.parse(json.replaceAll('$lead', openLead() ?? ''));
+    // "Mark as delivered and explain": the model relays what the tool says when no card is made.
+    if (question === 'Mark as delivered and explain') {
+      if (!input.executeTool) throw new Error('expected executor');
+      const result = z
+        .object({ status: z.string(), message: z.string().optional() })
+        .parse(
+          JSON.parse(
+            await input.executeTool('prepareLeadEdit', { leadId: openLead(), stage: 'delivered' }),
+          ),
+        );
+      yield { type: 'text', text: result.message ?? 'The delivery draft is ready.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Restore the archived lead <id>": an archived lead is not the open record, so it is named.
+    const restore = /^restore the archived lead ([a-f0-9-]{36})$/i.exec(question);
+    if (restore?.[1]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      await input.executeTool('prepareArchive', { leadId: restore[1], archived: false });
+      yield { type: 'text', text: 'Restore draft ready for review.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Prepare lead edit: {json}": plan, quantity, form fields, custom values, in one card.
+    if (question.startsWith('Prepare lead edit:')) {
+      if (!input.executeTool) throw new Error('expected executor');
+      await input.executeTool('prepareLeadEdit', {
+        leadId: openLead(),
+        ...withLead(question.slice('Prepare lead edit:'.length)),
+      });
+      yield { type: 'text', text: 'Lead change ready for review.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Raw read: getInboxCounts {json}": the read exactly as the model receives it.
+    const rawRead = /^raw read: (\w+)(?: (\{.*\}))?$/is.exec(question);
+    if (rawRead?.[1]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const result = await input.executeTool(rawRead[1], rawRead[2] ? withLead(rawRead[2]) : {});
+      yield { type: 'text', text: '```json\n' };
+      for (let at = 0; at < Math.min(result.length, 21_000); at += 7_000) {
+        yield { type: 'text', text: result.slice(at, at + 7_000) };
+      }
+      yield { type: 'text', text: '\n```' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // "Email naming a customer found by search: Priya | Hello ...": reads that customer, then drafts.
+    const naming = /^email naming a customer found by search: (.+?) \| (.+)$/is.exec(question);
+    if (naming?.[1] && naming[2]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      await input.executeTool('findLeads', { search: naming[1] });
+      await input.executeTool('prepareEmail', {
+        leadId: openLead(),
+        subject: 'Your order',
+        body: naming[2],
+      });
+      yield { type: 'text', text: 'Email draft ready. Review and Send.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
+    // 'Change the task "Call" to "New title", due 2026-12-24, for Sam': title, date and assignee.
+    const taskEdit = /^change the task "(.+)" to "(.+)", due (\d{4}-\d{2}-\d{2}), for (.+)$/i.exec(
+      question,
+    );
+    if (taskEdit?.[1] && taskEdit[2] && taskEdit[3] && taskEdit[4]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const listed = z
+        .object({
+          data: z.object({ tasks: z.array(z.object({ taskId: z.string(), title: z.string() })) }),
+        })
+        .parse(
+          JSON.parse(await input.executeTool('listOpenTasks', { status: 'active', due: 'any' })),
+        );
+      const found = listed.data.tasks.find((task) => task.title === taskEdit[1]);
+      const options = z
+        .object({ choices: z.array(z.object({ value: z.string(), label: z.string() })) })
+        .parse(JSON.parse(await input.executeTool('getAssigneeOptions', { search: taskEdit[4] })));
+      if (!found) {
+        yield { type: 'text', text: 'No open task has that title.' };
+        yield { type: 'finish', outputTokens: 6 };
+        return;
+      }
+      await input.executeTool('prepareTaskUpdate', {
+        taskId: found.taskId,
+        title: taskEdit[2],
+        dueDate: taskEdit[3],
+        assignee: /^(me|none)$/i.test(taskEdit[4])
+          ? taskEdit[4].toLowerCase()
+          : (options.choices.at(-1)?.value ?? 'none'),
+      });
+      yield { type: 'text', text: 'Task change ready for review.' };
       yield { type: 'finish', outputTokens: 8 };
       return;
     }
