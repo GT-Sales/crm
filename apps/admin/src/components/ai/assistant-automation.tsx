@@ -173,7 +173,7 @@ export function AssistantAutomation({
   return (
     <section
       aria-label="Review automation draft"
-      className="min-w-0 space-y-3 rounded-xl border bg-card p-3 text-sm"
+      className="min-w-0 space-y-3 rounded-2xl border bg-card p-4 text-sm shadow-xs"
     >
       <div>
         <h3 className="font-semibold">
@@ -323,7 +323,7 @@ export function AssistantAutomation({
               Sample lead type
               <select
                 aria-label="Sample lead type"
-                className="block w-full rounded border bg-background p-2"
+                className="mt-1 block w-full rounded-lg border bg-background p-2"
                 value={scenario.leadType}
                 onChange={(e) => {
                   const leadType = e.target.value;
@@ -349,7 +349,7 @@ export function AssistantAutomation({
               Sample stage
               <select
                 aria-label="Sample stage"
-                className="block w-full rounded border bg-background p-2"
+                className="mt-1 block w-full rounded-lg border bg-background p-2"
                 value={scenario.stage}
                 onChange={(e) => setScenario({ ...scenario, stage: e.target.value })}
               >
@@ -366,7 +366,7 @@ export function AssistantAutomation({
               Sample plan
               <select
                 aria-label="Sample plan"
-                className="block w-full rounded border bg-background p-2"
+                className="mt-1 block w-full rounded-lg border bg-background p-2"
                 value={scenario.planId}
                 onChange={(e) => setScenario({ ...scenario, planId: e.target.value })}
               >
@@ -384,7 +384,7 @@ export function AssistantAutomation({
               Sample assignee
               <select
                 aria-label="Sample assignee"
-                className="block w-full rounded border bg-background p-2"
+                className="mt-1 block w-full rounded-lg border bg-background p-2"
                 value={scenario.assignedActorId}
                 onChange={(e) => setScenario({ ...scenario, assignedActorId: e.target.value })}
               >
@@ -405,7 +405,7 @@ export function AssistantAutomation({
                     {property.label}
                     {property.kind === 'yesNo' ? (
                       <select
-                        className="block w-full rounded border bg-background p-2"
+                        className="mt-1 block w-full rounded-lg border bg-background p-2"
                         value={String(scenario.properties[property.key] ?? '')}
                         onChange={(e) =>
                           setScenario({
