@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 import {
   isActiveTaskStatus,
@@ -8,31 +8,40 @@ import {
   type ListWorkspaceTasksResponse,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
-import { cn } from '@gt-sales/ui';
+import { Button, cn } from '@gt-sales/ui';
 import {
   CalendarClockIcon,
   CalendarDaysIcon,
   CalendarOffIcon,
   CalendarPlusIcon,
   ChevronDownIcon,
+  PlusIcon,
 } from 'lucide-react';
 
-import { createPlainTask, listStaffTasks, updateLeadTask } from '../../lib/api';
-import { todayDay } from '../../lib/dates';
+import {
+  createLeadTask,
+  createPlainTask,
+  getStaffLeads,
+  listStaffTasks,
+  updateLeadTask,
+} from '../../lib/api';
+import { addDays, todayDay } from '../../lib/dates';
 import { describeError } from '../../lib/error-text';
 import { useResource, type Resource } from '../../lib/use-resource';
-import { TaskForm, TaskRow, type NewTask } from './lead-tasks';
+import { TaskComposer, type NewTask, type TaskLeadRef } from '../tasks/task-composer';
+import { TaskRow } from './lead-tasks';
 import {
-  addDays,
   changeWords,
   DATE_GROUPS,
   dateGroupOf,
   DONE_WINDOW_DAYS,
   TaskLead,
   TasksBoard,
+  type BoardColumnKey,
   type BoardGroupBy,
   type TaskChange,
 } from './tasks-board';
+import { assigneeName } from '../../lib/people';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { useStoredChoice } from './view-preferences';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
@@ -162,6 +171,11 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [message, setMessage] = useState<string>();
   const [announcement, setAnnouncement] = useState<string>();
+  // Where the composer is open: the top of the page or one board column. One at a time.
+  const [composer, setComposer] = useState<'top' | BoardColumnKey>();
+  const [focusSignal, setFocusSignal] = useState(0);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const pending = useRef(0);
 
   function patch(id: string, update: (task: WorkspaceTask) => WorkspaceTask) {
     patchList(tasks, id, update);
@@ -209,14 +223,108 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
     void change(task, { status }, 'update the task');
   }
 
-  /** A plain task from the New task form; the lists reload to show it where it belongs. */
-  async function addPlainTask(next: NewTask) {
+  const self = members.find((member) => member.isSelf);
+
+  /**
+   * A task from the composer, in its place at once: a pending card that takes
+   * no moves, replaced by the saved task when the backend answers and taken
+   * away again (with the composer's message) if it refuses. A task for
+   * someone the list does not show is only announced.
+   */
+  async function addTask(next: NewTask) {
     if (!accessToken || !workspaceId) return;
     setAnnouncement(undefined);
-    const result = await createPlainTask(accessToken, workspaceId, next);
-    setAnnouncement(`“${result.task.title}” added.`);
-    void reload();
-    void reloadDone();
+    const tempId = `pending-${++pending.current}`;
+    const now = new Date().toISOString();
+    const shown =
+      scope === 'all' ||
+      (scope === 'none' ? next.assignedActorId === null : next.assignedActorId === self?.actorId);
+    const draft: WorkspaceTask = {
+      id: tempId,
+      leadId: next.lead?.id ?? null,
+      title: next.title,
+      dueAt: next.dueAt,
+      assignedActorId: next.assignedActorId,
+      status: 'open',
+      completedAt: null,
+      createdBy: self?.actorId ?? '00000000-0000-4000-8000-000000000000',
+      createdAt: now,
+      updatedAt: now,
+      lead: next.lead ?? null,
+    };
+    const without = (current: ListWorkspaceTasksResponse, ...ids: string[]) =>
+      current.tasks.filter((task) => !ids.includes(task.id));
+    if (shown) {
+      tasks.mutate((current) => ({ ...current, tasks: [...current.tasks, draft] }));
+      setBusyIds((current) => new Set(current).add(tempId));
+    }
+    const body = {
+      title: next.title,
+      dueAt: next.dueAt,
+      assignedActorId: next.assignedActorId,
+    };
+    try {
+      const result = next.lead
+        ? await createLeadTask(accessToken, workspaceId, next.lead.id, body)
+        : await createPlainTask(accessToken, workspaceId, body);
+      const saved: WorkspaceTask = { ...result.task, lead: next.lead ?? null };
+      if (shown) {
+        tasks.mutate((current) => ({
+          ...current,
+          tasks: [...without(current, tempId, saved.id), saved],
+        }));
+      }
+      const who =
+        shown || next.assignedActorId === null
+          ? ''
+          : ` for ${assigneeName(next.assignedActorId, members) ?? 'a teammate'}`;
+      setAnnouncement(`“${saved.title}” added${who}.`);
+    } catch (error) {
+      if (shown) tasks.mutate((current) => ({ ...current, tasks: without(current, tempId) }));
+      throw error;
+    } finally {
+      setBusyIds((current) => {
+        const rest = new Set(current);
+        rest.delete(tempId);
+        return rest;
+      });
+    }
+  }
+
+  const searchLeads = useCallback(
+    async (query: string): Promise<TaskLeadRef[]> => {
+      if (!accessToken || !workspaceId) return [];
+      const result = await getStaffLeads(accessToken, workspaceId, {
+        ...(query ? { q: query } : {}),
+        pageSize: 8,
+      });
+      return result.leads.map((lead) => ({
+        id: lead.id,
+        leadType: lead.leadType,
+        stage: lead.stage,
+        contact: lead.contact,
+        externalRef: lead.externalRef,
+      }));
+    },
+    [accessToken, workspaceId],
+  );
+
+  function openComposer(where: 'top' | BoardColumnKey) {
+    if (composer === where) setFocusSignal((n) => n + 1);
+    setComposer(where);
+  }
+
+  /** Close the composer and put focus back on the control that opens it. */
+  function closeComposer() {
+    const where = composer;
+    setComposer(undefined);
+    setTimeout(() => {
+      const target =
+        where && where !== 'top'
+          ? document.querySelector<HTMLElement>(`[data-add-row="${where}"]`)
+          : addButton.current;
+      (target ?? addButton.current)?.focus();
+    }, 0);
   }
 
   const list = tasks.data?.tasks ?? [];
@@ -233,6 +341,41 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
   }, [tasks.data, done.data]);
   const canWrite = tasks.data?.access.manage ?? false;
 
+  // "C" opens the composer, as in Linear, unless the person is typing or in a menu or dialog.
+  useEffect(() => {
+    if (!canWrite) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'c' || event.defaultPrevented || event.repeat) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"]',
+        )
+      )
+        return;
+      event.preventDefault();
+      setComposer('top');
+      setFocusSignal((n) => n + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canWrite]);
+
+  const composerFor = (where: 'top' | BoardColumnKey) => (
+    <TaskComposer
+      members={members}
+      initialDay={where === 'today' ? today : where === 'upcoming' ? addDays(today, 1) : ''}
+      searchLeads={searchLeads}
+      onAdd={addTask}
+      onError={setMessage}
+      onCancel={closeComposer}
+      autoFocus
+      focusSignal={focusSignal}
+      className={where === 'top' ? 'max-w-2xl' : undefined}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -243,6 +386,24 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canWrite ? (
+            <Button
+              ref={addButton}
+              type="button"
+              size="sm"
+              aria-keyshortcuts="C"
+              onClick={() => openComposer('top')}
+            >
+              <PlusIcon className="size-4" aria-hidden="true" />
+              Add task
+              <kbd
+                aria-hidden="true"
+                className="hidden rounded border border-primary-foreground/40 px-1 font-sans text-[10px] sm:inline"
+              >
+                C
+              </kbd>
+            </Button>
+          ) : null}
           <Segmented<Scope>
             label="Whose tasks"
             value={scope}
@@ -276,11 +437,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       </div>
 
-      {canWrite ? (
-        <div className="max-w-2xl">
-          <TaskForm members={members} onAdd={addPlainTask} onError={setMessage} />
-        </div>
-      ) : null}
+      {canWrite && composer === 'top' ? composerFor('top') : null}
 
       {message ? (
         <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
@@ -301,13 +458,15 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
         <LoadingSkeleton label="Loading tasks…" variant={view === 'board' ? 'board' : 'tasks'} />
       ) : view === 'board' ? (
         <>
-          <p className="text-sm text-muted-foreground">
-            {canWrite
-              ? groupBy === 'status'
-                ? 'Drag a card, or use its menu, to change its status.'
-                : 'Drag a card to Today, Upcoming (tomorrow) or No due date, or use its menu to pick another day.'
-              : 'Your role can read these tasks but not change them.'}
-          </p>
+          {!canWrite ? (
+            <p className="text-sm text-muted-foreground">
+              Your role can read these tasks but not change them.
+            </p>
+          ) : boardTasks.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Drag cards to move them, or use a card’s menu.
+            </p>
+          ) : null}
           <TasksBoard
             tasks={boardTasks}
             groupBy={groupBy}
@@ -318,6 +477,9 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             busyIds={busyIds}
             doneState={{ loading: done.loading, error: done.error, failure: done.failure }}
             onMove={(task, next) => void change(task, next, `move “${task.title}”`)}
+            addColumn={composer && composer !== 'top' ? composer : undefined}
+            onAddColumn={openComposer}
+            renderComposer={composerFor}
           />
         </>
       ) : list.length === 0 ? (

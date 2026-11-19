@@ -119,52 +119,48 @@ describe('plain tasks on the Tasks page', () => {
     expect(within(leadRow).getByRole('link', { name: 'Blake Sample · Internet' })).toBeTruthy();
   });
 
-  it('creates a plain task from the New task form with a due day and an assignee', async () => {
+  it('creates a plain task from the composer with a due day, assigned to the viewer, and shows it at once', async () => {
     const created = plain('Order more SIM cards', {
       id: '50000000-0000-4000-8000-000000000103',
-      dueAt: `${addDays(TODAY, 2)}T12:00:00.000Z`,
-      assignedActorId: SAM,
+      dueAt: `${addDays(TODAY, 1)}T12:00:00.000Z`,
+      assignedActorId: SELF,
     });
-    mocks.createPlainTask.mockResolvedValue({ task: created, requestId: REQUEST });
+    let finish: (value: unknown) => void = () => {};
+    mocks.createPlainTask.mockReturnValue(new Promise((resolve) => (finish = resolve)));
     render(<MyTasks workspaceSlug="canadawide" />);
     await screen.findByText('Call the supplier');
+    expect(screen.queryByRole('form', { name: 'New task' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
     const form = screen.getByRole('form', { name: 'New task' });
-    const title = within(form).getByPlaceholderText('Add a task: what needs to be done?');
-    fireEvent.focus(title);
+    const title = within(form).getByRole('textbox', { name: 'Task name' });
+    expect(document.activeElement).toBe(title);
     fireEvent.change(title, { target: { value: '  Order more SIM cards ' } });
-    fireEvent.change(within(form).getByLabelText(/Due date/), {
-      target: { value: addDays(TODAY, 2) },
-    });
-    fireEvent.change(within(form).getByLabelText('Assign the task to'), {
-      target: { value: SAM },
-    });
-    serve([supplier, onLead, created]);
+    fireEvent.click(within(form).getByRole('button', { name: 'Due date: none' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Tomorrow/ }));
     fireEvent.click(within(form).getByRole('button', { name: 'Add task' }));
-    await waitFor(() =>
-      expect(mocks.createPlainTask).toHaveBeenCalledWith('staff-token', WORKSPACE, {
-        title: 'Order more SIM cards',
-        dueAt: `${addDays(TODAY, 2)}T12:00:00.000Z`,
-        assignedActorId: SAM,
-      }),
-    );
-    // The page reloads its lists and announces the new task.
+    // Shown before the backend answers, as a pending card.
+    expect(await screen.findByText('Order more SIM cards')).toBeTruthy();
+    expect(within(form).getByRole('textbox', { name: 'Task name' })).toHaveProperty('value', '');
+    expect(mocks.createPlainTask).toHaveBeenCalledWith('staff-token', WORKSPACE, {
+      title: 'Order more SIM cards',
+      dueAt: `${addDays(TODAY, 1)}T12:00:00.000Z`,
+      assignedActorId: SELF,
+    });
+    finish({ task: created, requestId: REQUEST });
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toContain('Order more SIM cards'),
     );
-    expect(within(form).getByPlaceholderText('Add a task: what needs to be done?')).toHaveProperty(
-      'value',
-      '',
-    );
   });
 
-  it('assigns a new task to the viewer by default and says why one was refused', async () => {
+  it('takes a refused task back off the list and says why in plain words', async () => {
     mocks.createPlainTask.mockRejectedValue(
       new backend.BackendError('plain_tasks_unavailable', 503),
     );
     render(<MyTasks workspaceSlug="canadawide" />);
     await screen.findByText('Call the supplier');
+    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
     const form = screen.getByRole('form', { name: 'New task' });
-    fireEvent.change(within(form).getByPlaceholderText('Add a task: what needs to be done?'), {
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Task name' }), {
       target: { value: 'Too early' },
     });
     fireEvent.click(within(form).getByRole('button', { name: 'Add task' }));
@@ -178,6 +174,12 @@ describe('plain tasks on the Tasks page', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(
       'Tasks without a lead are not switched on for this site yet.',
     );
+    // Rolled back: no card, and the name is back in the composer.
+    expect(screen.queryByText('Too early', { selector: 'p' })).toBeNull();
+    expect(within(form).getByRole('textbox', { name: 'Task name' })).toHaveProperty(
+      'value',
+      'Too early',
+    );
   });
 
   it('offers no New task form to a role that cannot change tasks', async () => {
@@ -185,6 +187,7 @@ describe('plain tasks on the Tasks page', () => {
     render(<MyTasks workspaceSlug="canadawide" />);
     await screen.findByText('Call the supplier');
     expect(screen.queryByRole('form', { name: 'New task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull();
   });
 
   it('shows a plain task’s board card with “No lead” and moves it to In progress', async () => {

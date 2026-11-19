@@ -16,7 +16,9 @@ export {
   CardDescription,
   CardContent,
 } from './components/card';
+export { Calendar, type CalendarProps } from './components/calendar';
 export { Checkbox } from './components/checkbox';
+export { Command, type CommandOption, type CommandProps } from './components/command';
 export { Switch } from './components/switch';
 export {
   Dialog,

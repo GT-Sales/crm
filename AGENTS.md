@@ -163,7 +163,10 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   (Settings → Fields and layouts at `settings/properties`, Settings → Email at
   `settings/email`); lead screens in `src/components/leads/` (the stage-move
   dialog is `stage-move-dialog.tsx`); the CRM filter chip, menus and side panel
-  in `src/components/crm/` (tokens in `src/app/crm-theme.css`);
+  in `src/components/crm/` (tokens in `src/app/crm-theme.css`); adding a task is
+  one composer, `src/components/tasks/task-composer.tsx` (name, due date,
+  assignee and optional lead chips, used by My tasks, each board column and the
+  lead page), with `Calendar` and `Command` in `packages/ui`;
   the Shadcnblocks-inspired admin shell (docs/PLAN.md §1, reuse note) supports
   light/dark mode via `theme-toggle.tsx`, Ctrl/Cmd K navigation via
   `quick-navigation.tsx`, and contextual settings links via
