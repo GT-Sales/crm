@@ -392,7 +392,24 @@ for (const width of [375, 1440]) {
       .getByRole('dialog', { name: `Archive AI browser flow ${width} edited?` })
       .getByRole('button', { name: 'Archive', exact: true })
       .click();
-    await expect(page.getByText('Archived', { exact: true })).toBeVisible();
+    // An archived flow is done with: the page goes back to the list, where it
+    // is no longer active and is listed under Archived flows instead.
+    await expect(page).toHaveURL('/w/getcanadasim/automations');
+    const archivedName = `AI browser flow ${width} edited`;
+    const activeFlows = page.getByRole('table', { name: 'Automation flows' });
+    await expect(activeFlows.getByRole('link', { name: 'Verified follow-up' })).toBeVisible();
+    await expect(
+      activeFlows.getByRole('link', {
+        name: archivedName,
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Archived flows', exact: true }).click();
+    await expect(
+      page.getByRole('list', { name: 'Archived flows' }).getByRole('listitem').filter({
+        hasText: archivedName,
+      }),
+    ).toBeVisible();
   });
 }
 

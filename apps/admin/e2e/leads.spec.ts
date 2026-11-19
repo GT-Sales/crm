@@ -1802,7 +1802,13 @@ test('settings separates profile, team invitations and website integrations', as
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(391);
-  await navigation.getByRole('link', { name: 'Team', exact: true }).click();
+  // A phone has no room for the column: the same sections are a select there.
+  await expect(navigation.getByRole('link', { name: 'Team', exact: true })).toBeHidden();
+  const sections = navigation.getByRole('combobox', { name: 'Settings section' });
+  await expect(sections).toHaveValue('/w/getcanadasim/settings/integrations');
+  await sections.selectOption({ label: 'Team' });
+  await expect(page).toHaveURL('/w/getcanadasim/settings/team');
+  await expect(sections).toHaveValue('/w/getcanadasim/settings/team');
   await expect(page.getByLabel('Staff email')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
