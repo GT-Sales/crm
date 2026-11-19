@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, type DragEvent, type FormEvent } from 'react';
+import { useState, type DragEvent, type FormEvent, type ReactNode } from 'react';
 import {
   isActiveTaskStatus,
   leadTypeLabel,
@@ -20,9 +20,9 @@ import {
   DropdownMenuTrigger,
   Input,
 } from '@gt-sales/ui';
-import { AlertCircleIcon, CheckIcon, EllipsisIcon } from 'lucide-react';
+import { AlertCircleIcon, CheckIcon, EllipsisIcon, PlusIcon } from 'lucide-react';
 
-import { dueAtFromDay, dueDay, dueLabel, relativeTime } from '../../lib/dates';
+import { addDays, dueAtFromDay, dueDay, dueLabel, relativeTime } from '../../lib/dates';
 import { describeError } from '../../lib/error-text';
 import { assigneeName } from '../../lib/people';
 import { leadDisplayName, PersonChip } from './lead-display';
@@ -60,6 +60,12 @@ export interface TaskChange {
   dueAt?: string | null;
 }
 
+/** The columns a task can be added in, with the due date each one presets. */
+export const ADDABLE_COLUMNS: Record<BoardGroupBy, readonly BoardColumnKey[]> = {
+  status: ['open'],
+  date: ['today', 'upcoming', 'undated'],
+};
+
 export const DATE_GROUPS: readonly { key: DateGroup; label: string }[] = [
   { key: 'overdue', label: 'Overdue' },
   { key: 'today', label: 'Today' },
@@ -91,12 +97,7 @@ export function dateGroupOf(task: Pick<WorkspaceTask, 'dueAt'>, today: string): 
   return 'upcoming';
 }
 
-/** `YYYY-MM-DD` plus `days` calendar days. */
-export function addDays(day: string, days: number): string {
-  const date = new Date(`${day}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
+export { addDays };
 
 const byDue = (a: WorkspaceTask, b: WorkspaceTask) =>
   (a.dueAt ?? '￿').localeCompare(b.dueAt ?? '￿') ||
@@ -199,6 +200,9 @@ export function TasksBoard({
   busyIds,
   doneState,
   onMove,
+  addColumn,
+  onAddColumn,
+  renderComposer,
 }: {
   /** The active tasks and the recently done ones, together. */
   tasks: readonly WorkspaceTask[];
@@ -212,6 +216,11 @@ export function TasksBoard({
   /** The Done column's own load. */
   doneState: { loading: boolean; error?: string; failure?: unknown };
   onMove(task: WorkspaceTask, change: TaskChange): void;
+  /** The column whose composer is open, if any. */
+  addColumn?: BoardColumnKey;
+  onAddColumn?(column: BoardColumnKey): void;
+  /** The composer for a column, which presets the due date to match it. */
+  renderComposer?(column: BoardColumnKey): ReactNode;
 }) {
   const [dragging, setDragging] = useState<string>();
   const [dropTarget, setDropTarget] = useState<BoardColumnKey>();
@@ -451,7 +460,9 @@ export function TasksBoard({
             ) : isDone && doneState.loading && entries.length === 0 ? (
               <p className="px-1 py-4 text-center text-xs text-muted-foreground">Loading…</p>
             ) : entries.length === 0 ? (
-              <p className="px-1 py-4 text-center text-xs text-muted-foreground">No tasks</p>
+              addColumn === column ? null : (
+                <p className="px-1 py-4 text-center text-xs text-muted-foreground">No tasks</p>
+              )
             ) : groupBy === 'status' && !isDone ? (
               DATE_GROUPS.map((group) => {
                 const inGroup = shown.filter((task) => dateGroupOf(task, today) === group.key);
@@ -474,6 +485,23 @@ export function TasksBoard({
             ) : (
               <ol className="flex flex-col gap-2">{shown.map((task) => card(task))}</ol>
             )}
+
+            {canWrite && ADDABLE_COLUMNS[groupBy].includes(column) && renderComposer ? (
+              addColumn === column ? (
+                renderComposer(column)
+              ) : (
+                <button
+                  type="button"
+                  data-add-row={column}
+                  aria-label={`Add task to ${label}`}
+                  onClick={() => onAddColumn?.(column)}
+                  className="flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-muted/60 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  <PlusIcon className="size-4" aria-hidden="true" />
+                  Add task
+                </button>
+              )
+            ) : null}
 
             {isDone && entries.length > shown.length ? (
               <Button
