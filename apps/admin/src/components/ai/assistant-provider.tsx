@@ -23,14 +23,15 @@ import {
 } from 'react';
 import {
   AI_ASSISTANT_LIMITS,
+  AI_CARD_LIMITS,
   AI_CHAT_LIMITS,
   aiAssistantHistoryText,
   type AiCapabilitiesResponse,
   type AiEffort,
   type AiSource,
   type AiStreamPart,
-  type AiActionProposal,
-  type AiActionDraft,
+  type AiActionCard,
+  type AiCardDraft,
   type AiFollowUp,
 } from '@gt-sales/contracts';
 
@@ -89,6 +90,30 @@ export function leadUpdateRefusalText(error: BackendError): string | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * Words for a refusal only the wider cards get (docs/design/ai-actions.md,
+ * "Wider cards"): the mention tick missing, the daily caps, something the card
+ * names changed since it was prepared, or fill-ins a template lacks.
+ * Undefined for any other error. Nothing was saved in any of these cases.
+ */
+export function cardRefusalText(error: BackendError): string | undefined {
+  const reason = error.details?.['reason'];
+  if (error.code === 'conflict' && reason === 'acknowledgement_required')
+    return 'Not saved. Tick that you checked the other customers it names, then try again.';
+  if (error.code === 'conflict' && reason === 'changed')
+    return 'Not saved: this changed since the card was prepared. Check it and ask for a fresh draft.';
+  if (error.code === 'ai_rate_limited' && reason === 'daily_changes')
+    return `Not saved. You have reached today’s limit of ${AI_CARD_LIMITS.changesPerMemberPerDay} changes made with Ask AI on this site. Make the change on its page, or try again tomorrow.`;
+  if (error.code === 'ai_rate_limited' && reason === 'daily_mail')
+    return `Not sent. You have reached today’s limit of ${AI_CARD_LIMITS.mailPerMemberPerDay} emails sent with Ask AI on this site. Send it from the lead’s Mail tab, or try again tomorrow.`;
+  const missing = error.details?.['missing'];
+  if (error.code === 'conflict' && Array.isArray(missing) && missing.length > 0)
+    return `Not sent. The lead lacks what the template fills in: ${missing
+      .filter((entry): entry is string => typeof entry === 'string')
+      .join(', ')}. Add it on the lead page first.`;
+  return undefined;
 }
 
 /**
@@ -179,7 +204,8 @@ export interface AiAssistantMessage {
 export type AiMessage = AiUserMessage | AiAssistantMessage;
 
 export interface AiActionView {
-  proposal: AiActionProposal;
+  /** The card in full when the backend sends `action_cards`, else the older proposal (which parses as one). */
+  proposal: AiActionCard;
   status: 'pending' | 'revising' | 'saving' | 'saved' | 'cancelled' | 'error';
   error?: string;
 }
@@ -361,8 +387,9 @@ export interface AssistantContextValue {
     proposalId: string,
     change: Partial<AutomationCardState>,
   ): void;
-  reviseAction(messageId: string, actionId: string, draft: AiActionDraft): void;
-  confirmAction(messageId: string, actionId: string): void;
+  reviseAction(messageId: string, actionId: string, draft: AiCardDraft): void;
+  /** `acknowledged`: the person ticked the card's mention warning (B1). */
+  confirmAction(messageId: string, actionId: string, acknowledged?: boolean): void;
   cancelAction(messageId: string, actionId: string): void;
   capabilities: AssistantCapabilities;
   messages: readonly AiMessage[];
@@ -932,12 +959,17 @@ export function AssistantProvider({
             ...(part.messageId === undefined ? {} : { storedId: part.messageId }),
           };
         }
-        if (part.type === 'actions') {
+        if (part.type === 'actions' || part.type === 'action_cards') {
+          // `action_cards` carries every card in full and comes first; the
+          // older `actions` part repeats some of them, which are skipped here.
           const byId = new Map<string, AiActionView>();
           for (const action of message.actions ?? []) byId.set(action.proposal.id, action);
-          for (const proposal of part.actions) {
+          for (const proposal of part.type === 'actions' ? part.actions : part.cards) {
+            const known = byId.get(proposal.id);
             // A card already being worked on keeps its state.
-            if (!byId.has(proposal.id)) byId.set(proposal.id, { proposal, status: 'pending' });
+            if (!known) byId.set(proposal.id, { proposal, status: 'pending' });
+            else if (part.type === 'action_cards' && known.status === 'pending')
+              byId.set(proposal.id, { ...known, proposal });
           }
           return { ...message, actions: [...byId.values()] };
         }
@@ -1971,7 +2003,7 @@ export function AssistantProvider({
   );
 
   const reviseAction = useCallback(
-    (messageId: string, actionId: string, draft: AiActionDraft) => {
+    (messageId: string, actionId: string, draft: AiCardDraft) => {
       const current = sessionRef.current;
       if (current.streaming) return;
       const message = current.messages.find((m) => m.id === messageId);
@@ -1982,7 +2014,13 @@ export function AssistantProvider({
       if (!action || action.status !== 'pending') return;
       const activeKey = sessionKey;
       updateAction(messageId, actionId, { status: 'revising', error: undefined });
-      void reviseAiAction(accessToken, workspace.id, action.proposal.token, draft).then(
+      // A backend that lists `cardActions` answers a revision in full when asked.
+      const wide = capabilities.status === 'ready' && capabilities.data.cardActions !== undefined;
+      // The flag goes only to a backend that takes it, so an older one is asked as before.
+      const revision = wide
+        ? reviseAiAction(accessToken, workspace.id, action.proposal.token, draft, true)
+        : reviseAiAction(accessToken, workspace.id, action.proposal.token, draft);
+      void revision.then(
         (proposal) => {
           if (sessionRef.current.key !== activeKey) return;
           updateAction(messageId, actionId, { proposal, status: 'pending', error: undefined });
@@ -2005,11 +2043,11 @@ export function AssistantProvider({
         },
       );
     },
-    [accessToken, workspace.id, sessionKey, updateAction],
+    [accessToken, workspace.id, sessionKey, updateAction, capabilities],
   );
 
   const confirmAction = useCallback(
-    (messageId: string, actionId: string) => {
+    (messageId: string, actionId: string, acknowledged = false) => {
       const current = sessionRef.current;
       if (current.streaming) return;
       const message = current.messages.find((m) => m.id === messageId);
@@ -2020,7 +2058,10 @@ export function AssistantProvider({
       if (!action || !['pending', 'error'].includes(action.status)) return;
       const activeKey = sessionKey;
       updateAction(messageId, actionId, { status: 'saving', error: undefined });
-      void confirmAiAction(accessToken, workspace.id, action.proposal.token).then(
+      const confirmation = acknowledged
+        ? confirmAiAction(accessToken, workspace.id, action.proposal.token, true)
+        : confirmAiAction(accessToken, workspace.id, action.proposal.token);
+      void confirmation.then(
         (receipt) => {
           if (sessionRef.current.key !== activeKey) return;
           if (receipt.actionId !== actionId || receipt.kind !== action.proposal.draft.kind) {
@@ -2036,7 +2077,9 @@ export function AssistantProvider({
             workspace.id,
             draft.kind === 'task_update'
               ? (action.proposal.taskUpdateContext?.leadId ?? null)
-              : (draft.leadId ?? null),
+              : draft.kind === 'automation_off'
+                ? null
+                : (draft.leadId ?? null),
           );
           if (sessionRef.current.messages.some((m) => m.id === messageId))
             updateAction(messageId, actionId, { status: 'saved' });
@@ -2056,7 +2099,7 @@ export function AssistantProvider({
             error instanceof BackendError
               ? error.code === 'conflict' && error.details?.['reason'] === 'superseded'
                 ? 'Not saved: another version of this draft was already saved. Check the lead.'
-                : leadUpdateRefusalText(error)
+                : (cardRefusalText(error) ?? leadUpdateRefusalText(error))
               : undefined;
           updateAction(messageId, actionId, {
             status: 'error',

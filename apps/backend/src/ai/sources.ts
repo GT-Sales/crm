@@ -15,6 +15,11 @@ export interface SourceContext {
   readonly workspaceSlug: string;
   /** The instant every card reports as its as-of time. */
   readonly asOf: Date;
+  /**
+   * Told of every lead a card is made for, past the card cap too: the turn
+   * keeps them for the mention check of email and note cards (B1).
+   */
+  readonly onLead?: (leadId: string) => void;
 }
 
 export class SourceRegistry {
@@ -47,6 +52,7 @@ export class SourceRegistry {
 
   /** The lead page, from a lead id the query just returned. */
   lead(leadId: string, label: string, scope: string): AiSource {
+    this.context.onLead?.(leadId);
     return this.add({
       id: `lead-${leadId}`,
       kind: 'lead',

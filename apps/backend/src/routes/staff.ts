@@ -110,6 +110,7 @@ import { loadWebAnalyticsReader, type WebAnalyticsReader } from '../analytics/we
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
 import { canSeeLeadDetails, moneyVisibilityOf } from '../staff/lead-visibility.js';
+import { DatabaseAiCardStore, type AiCardStore } from '../ai/card-store.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
@@ -188,6 +189,8 @@ export interface StaffRouteDependencies {
      * most route tests) the assistant is memory-only, exactly as before.
      */
     chat?: AiChatDependencies;
+    /** The wider cards' reads and the lead edit's write; absent, those kinds are not offered. */
+    cards?: AiCardStore;
     now?: () => Date;
     /** The site's delivery counters for Ask AI's sent-mail read (the email route's own store). */
     deliverySummary?: (scope: { workspaceId: string; actorId: string }) => Promise<DeliverySummary>;
@@ -230,6 +233,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
       siteContext: new DatabaseAiSiteContextStore(),
       reads: new DatabaseAiReadService(),
       deliverySummary: (scope) => deliveryStore.deliverySummary(scope.workspaceId, scope.actorId),
+      cards: new DatabaseAiCardStore(),
       // Only a fully configured deployment builds a provider; otherwise the
       // chat route reports the feature unavailable and never calls a model.
       ...(aiConfig.enabled && aiConfig.apiKey !== undefined && aiConfig.modelId !== undefined
@@ -1942,6 +1946,14 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       ...(ai.turns === undefined ? {} : { turns: ai.turns }),
       ...(ai.chat === undefined ? {} : { chat: ai.chat }),
       ...(ai.now === undefined ? {} : { now: ai.now }),
+      ...(ai.cards === undefined ? {} : { cards: ai.cards }),
+      // C2: a lead edit is checked and saved against the site's own catalogue.
+      ...(dependencies.propertyStore === undefined
+        ? {}
+        : {
+            loadCatalog: (ctx: import('../tenant-scope.js').WriteScope) =>
+              propertyStore.catalog(ctx),
+          }),
       reportFailure,
     }),
   );

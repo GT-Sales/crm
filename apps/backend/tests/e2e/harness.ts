@@ -41,6 +41,7 @@
 import postgres from 'postgres';
 import { z } from 'zod';
 import { createAiChatDependenciesFromEnv } from '../../src/ai/chat-factory.js';
+import { DatabaseAiCardStore } from '../../src/ai/card-store.js';
 import { DatabaseAiReadService } from '../../src/ai/read-service.js';
 import { DatabaseAiSiteContextStore } from '../../src/ai/site-context.js';
 import { DatabaseAiTurnStore } from '../../src/ai/turn-store.js';
@@ -571,6 +572,115 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 8 };
       return;
     }
+    // Wider cards (WRITES), on the open lead: each question prepares one card.
+    const openLead = () => /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
+    const wideCard = async (
+      tool: string,
+      args: (leadId: string) => Record<string, unknown>,
+      text: string,
+    ) => {
+      const leadId = openLead();
+      if (!leadId || !input.executeTool) throw new Error('expected open lead context');
+      await input.executeTool(tool, args(leadId));
+      return text;
+    };
+    // "Mark as delivered with Canada Post TRK123": the stage move with dispatch details.
+    const delivered = /^mark as delivered with (.+?)(?: (\S+))?$/i.exec(question);
+    const wideAnswer = delivered
+      ? await wideCard(
+          'prepareLeadEdit',
+          (leadId) => ({
+            leadId,
+            stage: 'delivered',
+            order: {
+              courier: delivered[1],
+              ...(delivered[2] ? { trackingNumber: delivered[2] } : {}),
+            },
+          }),
+          'Delivery draft ready. Check the details and confirm.',
+        )
+      : question === 'Mark as delivered'
+        ? await wideCard(
+            'prepareLeadEdit',
+            (leadId) => ({ leadId, stage: 'delivered' }),
+            'Delivery draft ready. Enter the courier on the card.',
+          )
+        : question === 'Mark as activated'
+          ? await wideCard(
+              'prepareLeadEdit',
+              (leadId) => ({ leadId, stage: 'activated' }),
+              'Activation draft ready. Enter the activation number on the card.',
+            )
+          : /^set quantity to (\d+)$/i.exec(question)
+            ? await wideCard(
+                'prepareLeadEdit',
+                (leadId) => ({
+                  leadId,
+                  order: { quantity: Number(/(\d+)$/.exec(question)?.[1]), paymentStatus: 'paid' },
+                }),
+                'Order change ready for review.',
+              )
+            : question === 'Send the SIM number email'
+              ? await wideCard(
+                  'prepareTemplateEmail',
+                  (leadId) => ({ leadId, template: 'sim_number_ready' }),
+                  'Template email ready. Review and Send.',
+                )
+              : question === 'Archive this lead' || question === 'Restore this lead'
+                ? await wideCard(
+                    'prepareArchive',
+                    (leadId) => ({ leadId, archived: question.startsWith('Archive') }),
+                    'Archive draft ready for review.',
+                  )
+                : question.startsWith('Assign a task to ')
+                  ? await (async () => {
+                      const leadId = openLead();
+                      if (!leadId || !input.executeTool) throw new Error('expected context');
+                      const options = z
+                        .object({
+                          choices: z.array(z.object({ value: z.string(), label: z.string() })),
+                        })
+                        .parse(
+                          JSON.parse(
+                            await input.executeTool('getAssigneeOptions', {
+                              search: question.slice('Assign a task to '.length).trim(),
+                            }),
+                          ),
+                        );
+                      await input.executeTool('prepareTask', {
+                        leadId,
+                        title: 'Follow up for a colleague',
+                        dueDate: null,
+                        assignee: options.choices.at(-1)?.value ?? 'none',
+                      });
+                      return 'Task draft ready for review.';
+                    })()
+                  : question.startsWith('Switch off the automation ')
+                    ? await (async () => {
+                        if (!input.executeTool) throw new Error('expected executor');
+                        await input.executeTool('prepareAutomationOff', {
+                          automationKey: question.slice('Switch off the automation '.length).trim(),
+                        });
+                        return 'Switch-off draft ready for review.';
+                      })()
+                    : question.startsWith('Email mentioning another customer:')
+                      ? await wideCard(
+                          'prepareEmail',
+                          (leadId) => ({
+                            leadId,
+                            subject: 'Your order',
+                            body: question
+                              .slice('Email mentioning another customer:'.length)
+                              .trim(),
+                          }),
+                          'Email draft ready. Review and Send.',
+                        )
+                      : undefined;
+    if (wideAnswer !== undefined) {
+      yield { type: 'text', text: wideAnswer };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
     // A plain task: "Create a task to call the supplier tomorrow" names no lead.
     const plainTask = /^create a task to (.+) tomorrow$/i.exec(question);
     if (plainTask?.[1]) {
@@ -683,6 +793,7 @@ const app = createApp({
       },
       reads: new DatabaseAiReadService(),
       siteContext: new DatabaseAiSiteContextStore(),
+      cards: new DatabaseAiCardStore(),
       engine: assistantEngine,
       rateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
       // Each turn's usage row, as production writes it, so Settings → AI usage

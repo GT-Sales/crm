@@ -15,6 +15,7 @@ import {
 import {
   customerEmailJobPayloadSchema,
   codePropertyCatalog,
+  emailTemplateLabel,
   allowedStageMoves,
   leadStageLabel,
   type AiActionDraft,
@@ -126,7 +127,13 @@ export type UpdateLeadWorkOutcome =
   | { status: 'document_override_reason_required' };
 
 export type ArchiveLeadOutcome =
-  | { status: 'changed' | 'unchanged'; lead: LeadDetail; activity: LeadActivity | null }
+  | {
+      status: 'changed' | 'unchanged';
+      lead: LeadDetail;
+      activity: LeadActivity | null;
+      /** An AI card's confirmation that had already been saved (its receipt found under the lock). */
+      replayed?: true;
+    }
   | { status: 'not_found' };
 
 export type NoteOutcome =
@@ -146,6 +153,33 @@ export interface QueueCustomerEmailInput extends WriteScope {
   template: Extract<QueueCustomerEmailRequest, { template: unknown }>['template'];
 }
 
+/** A template mail as an AI card shows it before Send: rendered here, from the site's current template. */
+export type AiTemplateEmailPreview =
+  | {
+      status: 'ready';
+      templateName: string;
+      version: number;
+      subject: string;
+      text: string;
+      toAddress: string;
+      fromAddress: string;
+      /** The digest of the rendered mail; Send refuses a mail that would differ from the one shown. */
+      renderedDigest: string;
+    }
+  | { status: 'missing'; missing: Array<EmailFillInName | 'customer email'> }
+  | { status: 'unavailable' };
+
+/** A rendered mail's digest: subject, text and HTML, as the outbox would send them. */
+export function renderedMailDigest(rendered: {
+  subject: string;
+  text: string;
+  html: string;
+}): string {
+  return createHash('sha256')
+    .update(JSON.stringify([rendered.subject, rendered.text, rendered.html]))
+    .digest('hex');
+}
+
 export type TaskOutcome =
   { status: 'saved'; task: LeadTask } | { status: 'not_found' | 'trashed' | 'assignee_not_found' };
 
@@ -161,11 +195,15 @@ export interface AiTaskUpdatePreview {
   status: LeadTaskStatus;
   /** Null for a plain task. */
   leadId: string | null;
+  /** The due day (`YYYY-MM-DD`, as it is stored at noon UTC), or null. */
+  dueDate?: string | null;
+  assignedActorId?: string | null;
 }
 
 /** A confirmed AI task move: saved, or why not. */
 export type AiTaskUpdateConfirmOutcome =
-  { status: 'saved'; recordId: string } | { status: 'not_found' | 'trashed' | 'conflict' };
+  | { status: 'saved'; recordId: string }
+  | { status: 'not_found' | 'trashed' | 'conflict' | 'assignee_not_found' };
 
 export interface UpdateLeadWorkInput extends WriteScope {
   leadId: string;
@@ -277,6 +315,8 @@ export interface LeadWorkStore {
       /** The digest of the field's value the card was prepared against (ACT-3, ACT-5). */
       before: string;
       aiCardId?: string;
+      /** The site's property catalogue (C2); the code catalogue when absent. */
+      catalog?: PropertyCatalog;
     },
   ): Promise<AiLeadUpdateConfirmOutcome>;
   /**
@@ -286,9 +326,19 @@ export interface LeadWorkStore {
    */
   aiCardOf?(input: Scope & { rootId: string }): Promise<string | null>;
   updateLead(input: UpdateLeadWorkInput): Promise<UpdateLeadWorkOutcome>;
-  /** Archives a lead (or restores one); the timeline and audit keep the `trashed`/`restored` names. */
+  /**
+   * Archives a lead (or restores one); the timeline and audit keep the
+   * `trashed`/`restored` names. An AI card's confirmation passes its root id
+   * (`creationId`): the audit keeps it, the entry is marked `viaAi`, and a
+   * retry finds that audit under the lead lock and answers `replayed`.
+   */
   setArchived(
-    input: WriteScope & { leadId: string; archived: boolean },
+    input: WriteScope & {
+      leadId: string;
+      archived: boolean;
+      creationId?: string;
+      aiCardId?: string;
+    },
   ): Promise<ArchiveLeadOutcome>;
   /** The first open by someone who works leads; null activity when it was already opened. */
   markOpened(
@@ -314,6 +364,27 @@ export interface LeadWorkStore {
     | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' }
   >;
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome>;
+  /** Renders a template for an AI card's preview (M1); writes nothing. */
+  previewAiTemplateEmail?(input: QueueCustomerEmailInput): Promise<AiTemplateEmailPreview>;
+  /**
+   * Queues a template mail an AI card prepared, as `queueCustomerEmail` does,
+   * under its own key (`ai_template_email:<root id>`, so a retry finds the
+   * first job), and only when the mail is still the one the card showed: the
+   * template's version, the rendered text, the recipient and the sender.
+   */
+  queueAiTemplateEmail?(
+    input: QueueCustomerEmailInput & {
+      creationId: string;
+      aiCardId?: string;
+      version: number;
+      renderedDigest: string;
+      emailContext: { toAddress: string; fromAddress: string };
+    },
+  ): Promise<
+    | { status: 'queued'; recordId: string }
+    | { status: 'not_found' | 'trashed' | 'no_sender' | 'changed' }
+    | { status: 'missing'; missing: Array<EmailFillInName | 'customer email'> }
+  >;
   /** Queues a message staff wrote themselves to the lead's own address. */
   queueWrittenEmail(
     input: WriteScope & { leadId: string; subject: string; body: string },
@@ -336,7 +407,12 @@ export interface LeadWorkStore {
   confirmAiTaskUpdate?(
     input: WriteScope & {
       taskId: string;
-      status: LeadTaskStatus;
+      /** Absent: the status stays (a card that edits only the title, due date or assignee). */
+      status?: LeadTaskStatus;
+      title?: string;
+      dueAt?: string | null;
+      /** An active member of the site, or null to unassign; checked as the staff `PATCH` checks it. */
+      assignedActorId?: string | null;
       version: string;
       before: LeadTaskStatus;
       creationId: string;
@@ -1416,11 +1492,34 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
   }
 
   setArchived(
-    input: WriteScope & { leadId: string; archived: boolean },
+    input: WriteScope & {
+      leadId: string;
+      archived: boolean;
+      creationId?: string;
+      aiCardId?: string;
+    },
   ): Promise<ArchiveLeadOutcome> {
-    return this.database.withTenantTx(input, async (tx) => {
+    return this.database.withTenantTx(input, async (tx): Promise<ArchiveLeadOutcome> => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
       if (!lead) return { status: 'not_found' };
+      if (input.creationId !== undefined) {
+        const [receipt] = await tx.execute<{ id: string }>(sql`
+          select a.id from app.audit_events a
+          where a.workspace_id = ${input.workspaceId}
+            and a.entity_id = ${input.leadId}
+            and a.actor_id = ${input.actorId}
+            and a.action in ('lead.trashed', 'lead.restored')
+            and a.after ->> 'aiActionId' = ${input.creationId}
+          limit 1
+        `);
+        if (receipt)
+          return {
+            status: 'unchanged',
+            lead: await requireDetail(tx, input.workspaceId, input.leadId),
+            activity: null,
+            replayed: true,
+          };
+      }
       if (lead.trashed === input.archived) {
         return {
           status: 'unchanged',
@@ -1445,7 +1544,10 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           leadId: input.leadId,
           actorId: input.actorId,
           kind: 'system',
-          data: { event: input.archived ? 'trashed' : 'restored' },
+          data: {
+            event: input.archived ? 'trashed' : 'restored',
+            ...(input.creationId === undefined ? {} : { viaAi: true }),
+          },
         })
         .returning(ACTIVITY_RETURNING);
       if (!entry) throw new Error('activity insert did not return a row');
@@ -1458,7 +1560,11 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         entityId: input.leadId,
         requestId: input.requestId,
         before: { trashed: lead.trashed },
-        after: { trashed: input.archived },
+        after: {
+          trashed: input.archived,
+          ...(input.creationId === undefined ? {} : { aiActionId: input.creationId }),
+          ...(input.aiCardId === undefined ? {} : { aiCardId: input.aiCardId }),
+        },
       });
 
       const [activity] = insertedActivities([entry]);
@@ -1554,9 +1660,11 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       creationId: string;
       before: string;
       aiCardId?: string;
+      catalog?: PropertyCatalog;
     },
   ): Promise<AiLeadUpdateConfirmOutcome> {
     const queued: string[] = [];
+    const { catalog = codePropertyCatalog, ...scope } = input;
     return this.database
       .withTenantTx(input, async (tx): Promise<AiLeadUpdateConfirmOutcome> => {
         const lead = await lockLead(tx, input.workspaceId, input.draft.leadId);
@@ -1600,9 +1708,9 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           tx,
           { emailEnvironment: this.emailEnvironment, aiActionId: input.creationId, queued },
           {
-            ...input,
+            ...scope,
             leadId: input.draft.leadId,
-            catalog: codePropertyCatalog,
+            catalog,
             ...(field === 'stage' && value !== null ? { stage: value } : {}),
             ...(field === 'assignedActorId' ? { assignedActorId: value } : {}),
             ...(field === 'fullName' && value !== null ? { contact: { fullName: value } } : {}),
@@ -1635,7 +1743,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
               actorId: input.actorId,
               requestId: input.requestId,
               environment: this.emailEnvironment,
-              catalog: codePropertyCatalog,
+              catalog,
             },
             queued,
           );
@@ -1654,7 +1762,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       const [row] = await tx.execute<{ card: string | null }>(sql`
         select after ->> 'aiCardId' as card from app.audit_events
         where workspace_id = ${input.workspaceId}
-          and action in ('ai.lead_updated', 'ai.task_updated', 'lead.note_added', 'lead.task_created', 'lead.customer_emailed')
+          and action in ('ai.lead_updated', 'ai.task_updated', 'ai.lead_edited', 'lead.note_added', 'lead.task_created', 'lead.customer_emailed', 'lead.trashed', 'lead.restored', 'automation.toggled')
           and (id::text = ${input.rootId} or after ->> 'aiActionId' = ${input.rootId})
         order by created_at
         limit 1
@@ -1840,6 +1948,104 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     });
   }
 
+  previewAiTemplateEmail(input: QueueCustomerEmailInput): Promise<AiTemplateEmailPreview> {
+    return this.database.withTenantTx(input, async (tx): Promise<AiTemplateEmailPreview> => {
+      await tx.execute(sql`set local statement_timeout = '5s'`);
+      const lead = await lockLead(tx, input.workspaceId, input.leadId);
+      if (!lead || lead.trashed) return { status: 'unavailable' };
+      const composed = await composeCustomerEmail(tx, this.emailEnvironment, {
+        workspaceId: input.workspaceId,
+        template: input.template,
+        recipient: { kind: 'lead', lead: automationLeadOf(lead) },
+      });
+      if (composed.kind === 'skipped') {
+        if (composed.reason === 'no_customer_email')
+          return { status: 'missing', missing: ['customer email'] };
+        if (composed.reason === 'missing_fill_in')
+          return { status: 'missing', missing: composed.missing ?? [] };
+        return { status: 'unavailable' };
+      }
+      const { payload } = composed;
+      return {
+        status: 'ready',
+        templateName: emailTemplateLabel(payload.template).slice(0, 80),
+        version: payload.templateVersion,
+        subject: payload.rendered.subject,
+        text: payload.rendered.text,
+        toAddress: payload.toAddress,
+        fromAddress: payload.sender.fromAddress,
+        renderedDigest: renderedMailDigest(payload.rendered),
+      };
+    });
+  }
+
+  queueAiTemplateEmail(
+    input: QueueCustomerEmailInput & {
+      creationId: string;
+      aiCardId?: string;
+      version: number;
+      renderedDigest: string;
+      emailContext: { toAddress: string; fromAddress: string };
+    },
+  ): Promise<
+    | { status: 'queued'; recordId: string }
+    | { status: 'not_found' | 'trashed' | 'no_sender' | 'changed' }
+    | { status: 'missing'; missing: Array<EmailFillInName | 'customer email'> }
+  > {
+    return this.database.withTenantTx(input, async (tx) => {
+      const lead = await lockLead(tx, input.workspaceId, input.leadId);
+      if (!lead) return { status: 'not_found' as const };
+      if (lead.trashed) return { status: 'trashed' as const };
+      // C5: its own key on the card's root id, never the request's.
+      const dedupeKey = `ai_template_email:${input.creationId}`;
+      const [existing] = await tx
+        .select({ id: outboxJobs.id })
+        .from(outboxJobs)
+        .where(
+          and(
+            eq(outboxJobs.workspaceId, input.workspaceId),
+            eq(outboxJobs.jobType, 'lead_customer_email'),
+            eq(outboxJobs.dedupeKey, dedupeKey),
+          ),
+        );
+      if (existing) return { status: 'queued' as const, recordId: existing.id };
+      const composed = await composeCustomerEmail(tx, this.emailEnvironment, {
+        workspaceId: input.workspaceId,
+        template: input.template,
+        recipient: { kind: 'lead', lead: automationLeadOf(lead) },
+      });
+      if (composed.kind === 'skipped') {
+        if (composed.reason === 'no_sender') return { status: 'no_sender' as const };
+        if (composed.reason === 'no_customer_email')
+          return { status: 'missing' as const, missing: ['customer email' as const] };
+        if (composed.reason === 'missing_fill_in')
+          return { status: 'missing' as const, missing: composed.missing ?? [] };
+        return { status: 'changed' as const };
+      }
+      const { payload } = composed;
+      if (
+        payload.templateVersion !== input.version ||
+        renderedMailDigest(payload.rendered) !== input.renderedDigest ||
+        payload.toAddress !== input.emailContext.toAddress ||
+        payload.sender.fromAddress !== input.emailContext.fromAddress
+      )
+        return { status: 'changed' as const };
+      const queued = await queueComposedEmail(tx, {
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        requestId: input.requestId,
+        leadId: input.leadId,
+        dedupeKey,
+        payload,
+        automation: null,
+        aiActionId: input.creationId,
+        ...(input.aiCardId ? { aiCardId: input.aiCardId } : {}),
+      });
+      if (!queued.jobId) throw new Error('AI template email queue did not return a job');
+      return { status: 'queued' as const, recordId: queued.jobId };
+    });
+  }
+
   addNote(
     input: WriteScope & { leadId: string; body: string; creationId?: string; aiCardId?: string },
   ): Promise<NoteOutcome> {
@@ -2008,8 +2214,12 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         title: string;
         status: string;
         leadId: string | null;
+        dueDate: string | null;
+        assignedActorId: string | null;
       }>(sql`
-        select ${TASK_VERSION} as version, k.title, k.status, k.lead_id as "leadId"
+        select ${TASK_VERSION} as version, k.title, k.status, k.lead_id as "leadId",
+          to_char(k.due_at at time zone 'UTC', 'YYYY-MM-DD') as "dueDate",
+          k.assigned_actor_id as "assignedActorId"
         from app.lead_tasks k
         left join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
         where k.workspace_id = ${input.workspaceId}
@@ -2017,14 +2227,24 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           and (k.lead_id is null or (l.deleted_at is null and l.customer_data_restricted_at is null))
       `);
       if (!row || !isLeadTaskStatus(row.status)) return undefined;
-      return { version: row.version, title: row.title, status: row.status, leadId: row.leadId };
+      return {
+        version: row.version,
+        title: row.title,
+        status: row.status,
+        leadId: row.leadId,
+        dueDate: row.dueDate,
+        assignedActorId: row.assignedActorId,
+      };
     });
   }
 
   confirmAiTaskUpdate(
     input: WriteScope & {
       taskId: string;
-      status: LeadTaskStatus;
+      status?: LeadTaskStatus;
+      title?: string;
+      dueAt?: string | null;
+      assignedActorId?: string | null;
       version: string;
       before: LeadTaskStatus;
       creationId: string;
@@ -2061,12 +2281,19 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           actorId: input.actorId,
           requestId: input.requestId,
           taskId: input.taskId,
-          status: input.status,
+          ...(input.status === undefined ? {} : { status: input.status }),
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.dueAt === undefined ? {} : { dueAt: input.dueAt }),
+          ...(input.assignedActorId === undefined
+            ? {}
+            : { assignedActorId: input.assignedActorId }),
           aiActionId: input.creationId,
         },
         current,
       );
-      if (outcome.status !== 'saved') throw new Error('a locked task refused a status change');
+      // The one refusal a locked task can give: the assignee is not an active member.
+      if (outcome.status === 'assignee_not_found') return { status: 'assignee_not_found' };
+      if (outcome.status !== 'saved') throw new Error('a locked task refused a change');
       // The move's receipt, keyed by the draft's root id: a retry returns it.
       await tx.insert(auditEvents).values({
         id: input.creationId,
@@ -2079,7 +2306,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         requestId: input.requestId,
         before: { status: current.status },
         after: {
-          status: input.status,
+          status: input.status ?? current.status,
           ...(input.aiCardId ? { aiCardId: input.aiCardId } : {}),
         },
       });

@@ -30,26 +30,40 @@ import {
   aiActionRootId,
   createActionProposalTools,
   taskRefusalReason,
-  taskToolInputOf,
   verifyAiAction,
+  type SignedAiAction,
 } from '../ai/actions.js';
+import {
+  cardAllowed,
+  cardKindsFor,
+  dailyCapRefusal,
+  legacyProposalOf,
+  sideEffectsDigest,
+  SeenLeads,
+  type CardSite,
+  type SeenLead,
+} from '../ai/card-safeguards.js';
+import type { AiCardStore } from '../ai/card-store.js';
 import { signAssistantTurn, trustedHistory } from '../ai/history.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import type { AiTurnStore } from '../ai/turn-store.js';
 import { Router, type Request, type Response } from 'express';
 import {
-  reviseAiActionRequestSchema,
+  reviseAiCardRequestSchema,
   aiFollowUpToolInputSchema,
   aiAutomationProposalSchema,
-  aiActionProposalSchema,
+  aiActionCardSchema,
   aiAssistantHistoryText,
   type AiFollowUp,
-  type AiActionDraft,
+  type AiActionCard,
+  type AiActionProposal,
+  type AiCardDraft,
+  type PropertyCatalog,
   AI_ASSISTANT_LIMITS,
   AI_EFFORTS,
   aiCapabilitiesResponseSchema,
-  confirmAiActionRequestSchema,
-  confirmAiActionResponseSchema,
+  confirmAiCardRequestSchema,
+  confirmAiCardResponseSchema,
   aiChatRequestSchema,
   aiStreamPartSchema,
   AI_CHAT_LIMITS,
@@ -61,6 +75,7 @@ import {
   type AiStreamPart,
   leadStageLabel,
   leadTypeLabel,
+  automationKeySchema,
 } from '@gt-sales/contracts';
 import type { RateLimitInput, RateLimitResult } from '@gt-sales/db';
 import { z } from 'zod';
@@ -176,7 +191,14 @@ export interface AiAssistantRouteDependencies {
     | 'previewAiLeadUpdate'
     | 'confirmAiLeadUpdate'
     | 'aiCardOf'
+    | 'previewAiTemplateEmail'
+    | 'queueAiTemplateEmail'
+    | 'setArchived'
   >;
+  /** The wider cards' reads and the lead edit's write (docs/design/ai-actions.md, "Wider cards"). */
+  cards?: AiCardStore;
+  /** The site's property catalogue: a lead edit is checked and saved against it (C2). */
+  loadCatalog?: (scope: import('../tenant-scope.js').WriteScope) => Promise<PropertyCatalog>;
   listAssignees?: (scope: Scope) => Promise<{ actorId: string; displayName: string | null }[]>;
   config: AiAssistantConfig;
   /** The actor's live membership in the site; the same read the staff router uses. */
@@ -299,6 +321,7 @@ function capabilityDocument(
   chat?: { availability: AiChatAvailability; kinds: readonly AiAttachmentKind[] },
   highEffort = false,
   plainTasks = false,
+  cardActions: readonly string[] = [],
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
@@ -323,6 +346,10 @@ function capabilityDocument(
     // Beside `actions`, never in it: an older admin's enum there knows four kinds.
     ...(canAct && unavailable === undefined
       ? { taskActions: plainTasks ? ['plain_task', 'task_update'] : ['task_update'] }
+      : {}),
+    // Every kind from the one table (C1); an older admin strips the field.
+    ...(unavailable === undefined && cardActions.length > 0
+      ? { cardActions: [...cardActions] }
       : {}),
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
@@ -379,6 +406,11 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   }
 }
 
+/** A task card's assignee as a member id: the asking member, nobody, or the id given. */
+function assigneeOf(assignee: string, actorId: string): string | null {
+  return assignee === 'me' ? actorId : assignee === 'none' ? null : assignee;
+}
+
 /** Members a lead-update preview may list: the contract's 100 choices, Unassigned included. */
 const AI_ASSIGNEE_CHOICES_MAX = 99;
 
@@ -393,6 +425,12 @@ const CARD_PROGRESS_LABELS: Readonly<Record<string, string>> = {
   prepareEmail: 'Preparing an email for review',
   getLeadUpdateOptions: 'Checking the lead’s choices',
   prepareLeadUpdate: 'Preparing a lead change for review',
+  getAssigneeOptions: 'Checking the team',
+  getLeadEditOptions: 'Checking what the lead can change',
+  prepareLeadEdit: 'Preparing a lead change for review',
+  prepareTemplateEmail: 'Preparing an email for review',
+  prepareArchive: 'Preparing an archive change for review',
+  prepareAutomationOff: 'Preparing to switch an automation off',
   listAutomations: 'Reading the automations',
   getAutomation: 'Reading the automation',
   getAutomationCatalog: 'Checking what automations can use',
@@ -489,6 +527,120 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     return preview;
   };
   const now = () => (dependencies.now ?? (() => new Date()))();
+
+  /** C1: a kind is offered only where this deployment has its store, and its site allows it. */
+  const cardSiteOf = (workspaceId: string): CardSite => ({
+    automations: Boolean(
+      dependencies.flows && dependencies.config.automationWorkspaceIds?.has(workspaceId),
+    ),
+  });
+  const kindWired = (kind: AiCardDraft['kind']): boolean => {
+    const work = dependencies.work;
+    if (!work || !dependencies.config.signingKey) return false;
+    switch (kind) {
+      case 'task_update':
+        return work.previewAiTaskUpdate !== undefined && work.confirmAiTaskUpdate !== undefined;
+      case 'lead_update':
+        return work.previewAiLeadUpdate !== undefined && work.confirmAiLeadUpdate !== undefined;
+      case 'email':
+        return work.previewAiEmail !== undefined && work.queueAiEmail !== undefined;
+      case 'lead_edit':
+        return dependencies.cards !== undefined && dependencies.loadCatalog !== undefined;
+      case 'template_email':
+        return work.previewAiTemplateEmail !== undefined && work.queueAiTemplateEmail !== undefined;
+      case 'lead_archive':
+        return dependencies.cards !== undefined;
+      case 'automation_off':
+        return dependencies.flows !== undefined;
+      default:
+        return true;
+    }
+  };
+  /** Every kind this member may use here now: the C1 table, narrowed to what is wired. */
+  const cardKindsHere = (access: StaffAccessSnapshot | undefined, workspaceId: string) =>
+    cardKindsFor(access, cardSiteOf(workspaceId)).filter(kindWired);
+
+  /**
+   * What the card tools read, for one member on one site: the chat's turn and
+   * a revision build their tools from the same reads. `wait` ends a read when
+   * the turn is stopped.
+   */
+  function cardToolReads(
+    scope: Scope,
+    requestId: string,
+    wait: <T>(work: Promise<T>) => Promise<T>,
+  ) {
+    const work = dependencies.work;
+    const cards = dependencies.cards;
+    const flows = dependencies.flows;
+    const loadCatalog = dependencies.loadCatalog;
+    let catalog: Promise<PropertyCatalog> | undefined;
+    const siteCatalog = () => {
+      if (!loadCatalog) return Promise.reject(new Error('no catalogue'));
+      catalog ??= loadCatalog({ ...scope, requestId });
+      return wait(catalog);
+    };
+    const listAssignees = dependencies.listAssignees;
+    const previewTemplate = work?.previewAiTemplateEmail?.bind(work);
+    return {
+      cardSite: cardSiteOf(scope.workspaceId),
+      ...(listAssignees ? { members: () => wait(listAssignees(scope)) } : {}),
+      ...(cards
+        ? {
+            stageEffects: (leadId: string, stage: string) =>
+              wait(cards.stageEffects({ ...scope, leadId, stage })),
+            archiveLead: (leadId: string) => wait(cards.archiveLead({ ...scope, leadId })),
+            planChoices: (leadType: string) => wait(cards.planChoices({ ...scope, leadType })),
+          }
+        : {}),
+      ...(cards && loadCatalog
+        ? {
+            catalog: siteCatalog,
+            leadEditPreview: async (
+              leadId: string,
+              changes: import('@gt-sales/contracts').AiLeadEditChanges,
+            ) =>
+              wait(
+                cards.previewLeadEdit({ ...scope, leadId, changes, catalog: await siteCatalog() }),
+              ),
+          }
+        : {}),
+      ...(previewTemplate && work?.queueAiTemplateEmail
+        ? {
+            templateEmailPreview: (leadId: string, template: 'sim_number_ready') =>
+              wait(previewTemplate({ ...scope, requestId, leadId, template })),
+          }
+        : {}),
+      ...(flows
+        ? {
+            automationPreview: async (key: string) => {
+              const parsed = automationKeySchema.safeParse(key);
+              if (!parsed.success) return undefined;
+              const flow = await wait(flows.get(scope, parsed.data));
+              return flow
+                ? {
+                    name: flow.name,
+                    revision: flow.revision,
+                    enabled: flow.enabled,
+                    archived: flow.archived,
+                  }
+                : undefined;
+            },
+          }
+        : {}),
+    };
+  }
+
+  /** B1: the leads a revision's first card was checked against, read again by id. */
+  async function leadsOfCard(scope: Scope, action: SignedAiAction): Promise<SeenLead[]> {
+    const ids = action.mentionLeadIds ?? [];
+    const hints = await Promise.all(
+      ids.map((leadId) => dependencies.reads.leadHint(scope, leadId).catch(() => undefined)),
+    );
+    return hints.flatMap((hint) =>
+      hint ? [{ leadId: hint.leadId, name: hint.name, reference: hint.reference }] : [],
+    );
+  }
   // One guard per router (one per process): a duplicate request id inside a
   // minute is refused rather than spending a second turn's budget.
 
@@ -569,6 +721,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           { availability, kinds: dependencies.chat?.attachments?.kinds ?? [] },
           dependencies.config.highEffort !== undefined,
           plainTasks,
+          cardKindsHere(access, workspaceId.data),
         ),
       );
     } catch (error) {
@@ -580,16 +733,17 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
   router.post('/workspaces/:workspaceId/ai/actions/revise', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const actor = session(req);
-    const body = reviseAiActionRequestSchema.safeParse(req.body);
+    const body = reviseAiCardRequestSchema.safeParse(req.body);
     if (!workspaceId.success || !actor || !body.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
     try {
       const access = await dependencies.loadAccess(actor.actorId, workspaceId.data);
+      // C1: a member who may use no card kind here is refused before the token is read.
       if (
         !decideAccess(access, 'workspace.read').allowed ||
-        !decideAccess(access, 'lead.manage').allowed
+        cardKindsHere(access, workspaceId.data).length === 0
       ) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
@@ -603,18 +757,34 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const original = verifyAiAction(body.data.token, config.signingKey, scope, now());
       // A revision keeps the card's kind and what it is about: the same lead
-      // (none for a plain task, which stays plain), the same task, the same field.
-      const subject = (draft: AiActionDraft) =>
-        draft.kind === 'task_update' ? `task:${draft.taskId}` : `lead:${draft.leadId ?? ''}`;
+      // (none for a plain task, which stays plain), the same task, the same
+      // field, the same flow, the same archive direction and template.
+      const subject = (draft: AiCardDraft) => {
+        switch (draft.kind) {
+          case 'task_update':
+            return `task:${draft.taskId}`;
+          case 'automation_off':
+            return `automation:${draft.automationKey}`;
+          case 'lead_update':
+            return `lead:${draft.leadId}:${draft.field}`;
+          case 'lead_archive':
+            return `lead:${draft.leadId}:${String(draft.archived)}`;
+          case 'template_email':
+            return `lead:${draft.leadId}:${draft.template}`;
+          default:
+            return `lead:${draft.leadId ?? ''}`;
+        }
+      };
       if (
         !original ||
         original.draft.kind !== body.data.draft.kind ||
-        subject(original.draft) !== subject(body.data.draft) ||
-        (original.draft.kind === 'lead_update' &&
-          body.data.draft.kind === 'lead_update' &&
-          original.draft.field !== body.data.draft.field)
+        subject(original.draft) !== subject(body.data.draft)
       ) {
         sendStaffAuthError(res, req.id, 'invalid_request', 400);
+        return;
+      }
+      if (!cardAllowed(access, original.draft.kind, cardSiteOf(scope.workspaceId))) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
       const site = await dependencies.siteContext.siteContext(scope);
@@ -622,6 +792,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'lead_not_found', 404);
         return;
       }
+      const identity = <T>(work: Promise<T>) => work;
+      const others = await leadsOfCard(scope, original);
       const tools = createActionProposalTools({
         scope,
         site,
@@ -637,41 +809,44 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         emailPreview: previewEmail
           ? (leadId) => previewEmail({ ...scope, leadId, requestId: req.id })
           : undefined,
+        ...cardToolReads(scope, req.id, identity),
+        // B1: the new text is checked against the leads the first card was.
+        seenLeads: () => others,
         loadAccess: () => dependencies.loadAccess(actor.actorId, scope.workspaceId),
         now,
         budget: new TurnBudget(),
       });
       const revised = body.data.draft;
-      let result: string;
-      if (revised.kind === 'task')
-        result = await tools.execute('prepareTask', taskToolInputOf(revised));
-      else {
-        const { kind, ...draft } = revised;
-        result = await tools.execute(
-          kind === 'note'
-            ? 'prepareNote'
-            : kind === 'email'
-              ? 'prepareEmail'
-              : kind === 'task_update'
-                ? 'prepareTaskUpdate'
-                : 'prepareLeadUpdate',
-          draft,
-        );
-      }
+      const result = await tools.prepareCard(revised);
       const proposal = tools.proposals[0];
       if (!proposal) {
         // A card about a task that is not a lead's follow-up (a move, a plain
         // task) is refused for the task's own reason; a lead's card, as ever,
-        // because its lead is no longer available.
+        // because its lead is no longer available, unless its tool named why.
+        const reason = taskRefusalReason(result);
         if (
           revised.kind === 'task_update' ||
           (revised.kind === 'task' && revised.leadId === undefined)
         ) {
-          const reason = taskRefusalReason(result);
           if (reason === 'task_not_found') sendDomainError(res, req.id, 'task_not_found', 404);
           else if (reason === 'plain_tasks_unavailable')
             sendDomainError(res, req.id, 'plain_tasks_unavailable', 503);
           else sendDomainError(res, req.id, 'conflict', 409, { reason });
+          return;
+        }
+        if (revised.kind === 'automation_off') {
+          if (reason === 'not_available') sendDomainError(res, req.id, 'not_found', 404);
+          else sendDomainError(res, req.id, 'conflict', 409, { reason });
+          return;
+        }
+        if (
+          (revised.kind === 'lead_edit' ||
+            revised.kind === 'template_email' ||
+            revised.kind === 'lead_archive') &&
+          reason !== 'not_available' &&
+          reason !== 'temporary_failure'
+        ) {
+          sendDomainError(res, req.id, 'conflict', 409, { reason });
           return;
         }
         sendDomainError(res, req.id, 'lead_not_found', 404);
@@ -680,12 +855,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const finalAccess = await dependencies.loadAccess(actor.actorId, scope.workspaceId);
       if (
         !decideAccess(finalAccess, 'workspace.read').allowed ||
-        !decideAccess(finalAccess, 'lead.manage').allowed
+        !cardAllowed(finalAccess, proposal.draft.kind, cardSiteOf(scope.workspaceId))
       ) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
       }
-      res.json(proposal);
+      // An older admin parses the older proposal strictly; a newer one asks for the card in full.
+      res.json(body.data.wide ? proposal : (legacyProposalOf(proposal) ?? proposal));
     } catch (error) {
       dependencies.reportFailure(req, reportableAssistantError(error, 'assistant_revision_failed'));
       sendStaffAuthError(res, req.id, 'internal_error', 500);
@@ -695,16 +871,17 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
   router.post('/workspaces/:workspaceId/ai/actions/confirm', async (req, res) => {
     const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
     const actor = session(req);
-    const body = confirmAiActionRequestSchema.safeParse(req.body);
+    const body = confirmAiCardRequestSchema.safeParse(req.body);
     if (!workspaceId.success || !actor || !body.success) {
       sendStaffAuthError(res, req.id, 'invalid_request', 400);
       return;
     }
     try {
       const access = await dependencies.loadAccess(actor.actorId, workspaceId.data);
+      // C1: a member who may use no card kind here is refused before the token is read.
       if (
         !decideAccess(access, 'workspace.read').allowed ||
-        !decideAccess(access, 'lead.manage').allowed
+        cardKindsHere(access, workspaceId.data).length === 0
       ) {
         sendStaffAuthError(res, req.id, 'permission_denied', 403);
         return;
@@ -726,6 +903,34 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'invalid_request', 400);
         return;
       }
+      // C1: the actions this kind's staff route checks, decided now.
+      if (!cardAllowed(access, action.draft.kind, cardSiteOf(scope.workspaceId))) {
+        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        return;
+      }
+      if (!kindWired(action.draft.kind)) {
+        sendDomainError(res, req.id, 'ai_unavailable', 503);
+        return;
+      }
+      // B1: a card that names other customers is saved only after the person's tick.
+      if (action.acknowledgementRequired === true && body.data.acknowledged !== true) {
+        sendDomainError(res, req.id, 'conflict', 409, { reason: 'acknowledgement_required' });
+        return;
+      }
+      // C7: the member's daily caps on AI changes and AI mail, failing closed.
+      let cap: Awaited<ReturnType<typeof dailyCapRefusal>>;
+      try {
+        cap = await dailyCapRefusal(dependencies.rateLimit, scope, action.draft.kind);
+      } catch (error) {
+        dependencies.reportFailure(req, error);
+        sendDomainError(res, req.id, 'ai_unavailable', 503);
+        return;
+      }
+      if (cap) {
+        res.setHeader('retry-after', String(cap.retryAfterSeconds));
+        sendDomainError(res, req.id, 'ai_rate_limited', 429, { reason: cap.reason });
+        return;
+      }
       // Every version of one draft saves under its first card's id, so the
       // draft saves once; the saved record says which card did it.
       const rootId = aiActionRootId(action);
@@ -737,18 +942,48 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'conflict', 409, { reason: 'superseded' });
         return true;
       };
-      if (action.draft.kind === 'lead_update') {
-        if (!dependencies.work.confirmAiLeadUpdate || action.leadUpdateBefore === undefined) {
+      const saved = async (kind: AiCardDraft['kind'], recordId: string) => {
+        if (await superseded()) return;
+        res.json(
+          confirmAiCardResponseSchema.parse({
+            status: 'saved',
+            actionId: action.id,
+            kind,
+            recordId,
+            requestId: req.id,
+          }),
+        );
+      };
+      const changed = () => sendDomainError(res, req.id, 'conflict', 409, { reason: 'changed' });
+      const writeScope = { ...scope, requestId: req.id };
+      const draft = action.draft;
+      if (draft.kind === 'lead_update') {
+        if (!work.confirmAiLeadUpdate || action.leadUpdateBefore === undefined) {
           sendDomainError(res, req.id, 'ai_unavailable', 503);
           return;
         }
-        const outcome = await dependencies.work.confirmAiLeadUpdate({
-          ...scope,
-          requestId: req.id,
-          draft: action.draft,
+        // C3: a stage card whose move would now set off something else is stale.
+        if (action.sideEffects !== undefined && draft.field === 'stage' && draft.value !== null) {
+          const effects = await dependencies.cards?.stageEffects({
+            ...scope,
+            leadId: draft.leadId,
+            stage: draft.value,
+          });
+          if (effects !== undefined && sideEffectsDigest(effects) !== action.sideEffects) {
+            changed();
+            return;
+          }
+        }
+        const catalog = dependencies.loadCatalog
+          ? await dependencies.loadCatalog(writeScope)
+          : undefined;
+        const outcome = await work.confirmAiLeadUpdate({
+          ...writeScope,
+          draft,
           creationId: rootId,
           aiCardId: action.id,
           before: action.leadUpdateBefore,
+          ...(catalog ? { catalog } : {}),
         });
         if (outcome.status === 'refused') {
           // The same answer a staff edit gets: which detail or documents the
@@ -757,7 +992,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           return;
         }
         if (outcome.status === 'invalid') {
-          sendDomainError(res, req.id, 'validation_error', 400, { field: action.draft.field });
+          sendDomainError(res, req.id, 'validation_error', 400, { field: draft.field });
           return;
         }
         if (outcome.status !== 'saved') {
@@ -773,32 +1008,90 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           );
           return;
         }
-        if (await superseded()) return;
-        res.json(
-          confirmAiActionResponseSchema.parse({
-            status: 'saved',
-            actionId: action.id,
-            kind: 'lead_update',
-            recordId: outcome.recordId,
-            requestId: req.id,
-          }),
-        );
+        await saved('lead_update', outcome.recordId);
         return;
       }
-      if (action.draft.kind === 'email') {
-        if (!dependencies.work.queueAiEmail || !action.emailContext) {
+      if (draft.kind === 'lead_edit') {
+        const cards = dependencies.cards;
+        const loadCatalog = dependencies.loadCatalog;
+        if (!cards || !loadCatalog || action.leadEditVersion === undefined) {
           sendDomainError(res, req.id, 'ai_unavailable', 503);
           return;
         }
-        const outcome = await dependencies.work.queueAiEmail({
-          ...scope,
-          requestId: req.id,
-          leadId: action.draft.leadId,
+        const outcome = await cards.confirmLeadEdit({
+          ...writeScope,
+          leadId: draft.leadId,
+          changes: draft.changes,
+          // C2: the site's catalogue, as the staff PATCH passes it.
+          catalog: await loadCatalog(writeScope),
           creationId: rootId,
           aiCardId: action.id,
-          draft: action.draft,
-          emailContext: action.emailContext,
+          version: action.leadEditVersion,
+          ...(action.sideEffects === undefined ? {} : { sideEffects: action.sideEffects }),
         });
+        switch (outcome.status) {
+          case 'saved':
+            await saved('lead_edit', outcome.recordId);
+            return;
+          case 'refused':
+            sendLeadUpdateRefusal(res, req.id, outcome.refusal);
+            return;
+          case 'invalid':
+            sendDomainError(res, req.id, 'validation_error', 400, { field: outcome.field });
+            return;
+          case 'not_found':
+            sendDomainError(res, req.id, 'lead_not_found', 404);
+            return;
+          case 'trashed':
+            sendDomainError(res, req.id, 'lead_trashed', 409);
+            return;
+          case 'conflict':
+            changed();
+            return;
+        }
+      }
+      if (draft.kind === 'email' || draft.kind === 'template_email') {
+        if (!action.emailContext) {
+          sendDomainError(res, req.id, 'ai_unavailable', 503);
+          return;
+        }
+        let outcome:
+          | { status: 'queued'; recordId: string }
+          | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' };
+        if (draft.kind === 'email') {
+          if (!work.queueAiEmail) {
+            sendDomainError(res, req.id, 'ai_unavailable', 503);
+            return;
+          }
+          outcome = await work.queueAiEmail({
+            ...writeScope,
+            leadId: draft.leadId,
+            creationId: rootId,
+            aiCardId: action.id,
+            draft,
+            emailContext: action.emailContext,
+          });
+        } else {
+          if (!work.queueAiTemplateEmail || !action.template) {
+            sendDomainError(res, req.id, 'ai_unavailable', 503);
+            return;
+          }
+          const queued = await work.queueAiTemplateEmail({
+            ...writeScope,
+            leadId: draft.leadId,
+            template: draft.template,
+            creationId: rootId,
+            aiCardId: action.id,
+            version: action.template.version,
+            renderedDigest: action.template.rendered,
+            emailContext: action.emailContext,
+          });
+          if (queued.status === 'missing') {
+            sendDomainError(res, req.id, 'conflict', 409, { missing: queued.missing });
+            return;
+          }
+          outcome = queued;
+        }
         if (outcome.status !== 'queued') {
           sendDomainError(
             res,
@@ -814,21 +1107,61 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           );
           return;
         }
-        if (await superseded()) return;
-        res.json(
-          confirmAiActionResponseSchema.parse({
-            status: 'saved',
-            actionId: action.id,
-            kind: 'email',
-            recordId: outcome.recordId,
-            requestId: req.id,
-          }),
-        );
+        await saved(draft.kind, outcome.recordId);
         return;
       }
-      if (action.draft.kind === 'task_update') {
+      if (draft.kind === 'lead_archive') {
+        const outcome = await work.setArchived({
+          ...writeScope,
+          leadId: draft.leadId,
+          archived: draft.archived,
+          creationId: rootId,
+          aiCardId: action.id,
+        });
+        if (outcome.status === 'not_found') {
+          sendDomainError(res, req.id, 'lead_not_found', 404);
+          return;
+        }
+        // Already where the card would put it, by someone else's hand: stale.
+        if (outcome.status === 'unchanged' && outcome.replayed !== true) {
+          changed();
+          return;
+        }
+        await saved('lead_archive', draft.leadId);
+        return;
+      }
+      if (draft.kind === 'automation_off') {
+        const flows = dependencies.flows;
+        if (!flows || action.automationRevision === undefined) {
+          sendDomainError(res, req.id, 'ai_unavailable', 503);
+          return;
+        }
+        const outcome = await flows.setEnabled(
+          writeScope,
+          draft.automationKey,
+          false,
+          action.automationRevision,
+          { aiActionId: rootId, aiCardId: action.id },
+        );
+        if (outcome.status === 'not_found') {
+          sendDomainError(res, req.id, 'not_found', 404);
+          return;
+        }
+        if (outcome.status !== 'ok') {
+          changed();
+          return;
+        }
+        // Off already, by someone else's hand (no receipt of this draft): stale.
+        if ((await work.aiCardOf?.({ ...scope, rootId })) == null) {
+          changed();
+          return;
+        }
+        await saved('automation_off', outcome.value.id);
+        return;
+      }
+      if (draft.kind === 'task_update') {
         if (
-          !dependencies.work.confirmAiTaskUpdate ||
+          !work.confirmAiTaskUpdate ||
           action.taskUpdateVersion === undefined ||
           action.taskUpdateBefore === undefined
         ) {
@@ -836,11 +1169,17 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           return;
         }
         // The same change a staff PATCH makes, unless the task changed since the card.
-        const outcome = await dependencies.work.confirmAiTaskUpdate({
-          ...scope,
-          requestId: req.id,
-          taskId: action.draft.taskId,
-          status: action.draft.status,
+        const outcome = await work.confirmAiTaskUpdate({
+          ...writeScope,
+          taskId: draft.taskId,
+          ...(draft.status === undefined ? {} : { status: draft.status }),
+          ...(draft.title === undefined ? {} : { title: draft.title }),
+          ...(draft.dueDate === undefined
+            ? {}
+            : { dueAt: draft.dueDate === null ? null : `${draft.dueDate}T12:00:00.000Z` }),
+          ...(draft.assignee === undefined
+            ? {}
+            : { assignedActorId: assigneeOf(draft.assignee, actor.actorId) }),
           version: action.taskUpdateVersion,
           before: action.taskUpdateBefore,
           creationId: rootId,
@@ -854,37 +1193,30 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               ? 'task_not_found'
               : outcome.status === 'trashed'
                 ? 'lead_trashed'
-                : 'conflict',
+                : outcome.status === 'assignee_not_found'
+                  ? 'assignee_not_found'
+                  : 'conflict',
             outcome.status === 'not_found' ? 404 : 409,
           );
           return;
         }
-        if (await superseded()) return;
-        res.json(
-          confirmAiActionResponseSchema.parse({
-            status: 'saved',
-            actionId: action.id,
-            kind: 'task_update',
-            recordId: outcome.recordId,
-            requestId: req.id,
-          }),
-        );
+        await saved('task_update', outcome.recordId);
         return;
       }
-      const taskFields = (draft: Extract<AiActionDraft, { kind: 'task' }>) => ({
-        title: draft.title,
-        dueAt: draft.dueDate === null ? null : `${draft.dueDate}T12:00:00.000Z`,
-        assignedActorId: draft.assignee === 'me' ? actor.actorId : null,
+      const taskFields = (task: Extract<AiCardDraft, { kind: 'task' }>) => ({
+        title: task.title,
+        dueAt: task.dueDate === null ? null : `${task.dueDate}T12:00:00.000Z`,
+        // T1, T2: any active member; the store checks the membership.
+        assignedActorId: assigneeOf(task.assignee, actor.actorId),
       });
-      if (action.draft.kind === 'task' && action.draft.leadId === undefined) {
+      if (draft.kind === 'task' && draft.leadId === undefined) {
         // A plain task, through the staff route's own store path.
-        const outcome = dependencies.work.createPlainTask
-          ? await dependencies.work.createPlainTask({
-              ...scope,
-              requestId: req.id,
+        const outcome = work.createPlainTask
+          ? await work.createPlainTask({
+              ...writeScope,
               creationId: rootId,
               aiCardId: action.id,
-              ...taskFields(action.draft),
+              ...taskFields(draft),
             })
           : ({ status: 'unavailable' } as const);
         if (outcome.status !== 'saved') {
@@ -893,29 +1225,23 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           else sendDomainError(res, req.id, 'assignee_not_found', 409);
           return;
         }
-        if (await superseded()) return;
-        res.json(
-          confirmAiActionResponseSchema.parse({
-            status: 'saved',
-            actionId: action.id,
-            kind: 'task',
-            recordId: outcome.task.id,
-            requestId: req.id,
-          }),
-        );
+        await saved('task', outcome.task.id);
+        return;
+      }
+      if (draft.kind !== 'note' && draft.kind !== 'task') {
+        sendDomainError(res, req.id, 'ai_unavailable', 503);
         return;
       }
       const input = {
-        ...scope,
-        requestId: req.id,
-        leadId: action.draft.leadId ?? '',
+        ...writeScope,
+        leadId: draft.leadId ?? '',
         creationId: rootId,
         aiCardId: action.id,
       };
       const outcome =
-        action.draft.kind === 'note'
-          ? await dependencies.work.addNote({ ...input, body: action.draft.body })
-          : await dependencies.work.createTask({ ...input, ...taskFields(action.draft) });
+        draft.kind === 'note'
+          ? await work.addNote({ ...input, body: draft.body })
+          : await work.createTask({ ...input, ...taskFields(draft) });
       if (outcome.status === 'not_found') {
         sendDomainError(res, req.id, 'lead_not_found', 404);
         return;
@@ -928,21 +1254,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'assignee_not_found', 409);
         return;
       }
-      if (await superseded()) return;
-      res.json(
-        confirmAiActionResponseSchema.parse({
-          status: 'saved',
-          actionId: action.id,
-          kind: action.draft.kind,
-          recordId:
-            outcome.status === 'created'
-              ? outcome.activity.id
-              : outcome.status === 'saved'
-                ? outcome.task.id
-                : undefined,
-          requestId: req.id,
-        }),
-      );
+      if (outcome.status !== 'created' && outcome.status !== 'saved') return;
+      await saved(draft.kind, outcome.status === 'created' ? outcome.activity.id : outcome.task.id);
     } catch (error) {
       dependencies.reportFailure(req, reportableAssistantError(error, 'assistant_action_failed'));
       sendStaffAuthError(res, req.id, 'internal_error', 500);
@@ -1129,10 +1442,36 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const scope: Scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const budget = new TurnBudget(effort);
       const plainTasks = await wait(plainTasksReady(scope));
+      // B1: every lead the model reads in this turn, for the email and note cards' check.
+      const seenLeads = new SeenLeads();
+      const sources = new SourceRegistry({
+        workspaceSlug: site.slug,
+        asOf: turnStarted,
+        // A read that names a lead without its id in the result (an
+        // automation run) still gives it a card: the check sees it too.
+        onLead: (leadId) => seenLeads.addId(leadId),
+      });
+      // A run's lead by reference and name (active, unrestricted leads only).
+      const leadLabels = dependencies.reads.leadLabels?.bind(dependencies.reads);
+      /**
+       * B1: the leads seen this turn under every name a read gave and under
+       * their real name and reference (`leadLabels`), so a read's cleaned or
+       * shortened text never hides a mention. A lookup that fails refuses
+       * the card (`temporary_failure`), as before.
+       */
+      const seenLeadsOfTurn = async (): Promise<readonly SeenLead[]> => {
+        if (leadLabels) {
+          const ids = seenLeads.ids();
+          for (let start = 0; start < ids.length; start += 100)
+            seenLeads.addLabels(await wait(leadLabels(scope, ids.slice(start, start + 100))));
+        }
+        return seenLeads.list();
+      };
+      // C1: the card tools exist when the member may use at least one kind here.
       const actionTools =
         dependencies.work &&
         dependencies.config.signingKey &&
-        decideAccess(access, 'lead.manage').allowed
+        cardKindsHere(access, scope.workspaceId).length > 0
           ? createActionProposalTools({
               scope,
               site,
@@ -1150,17 +1489,20 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               emailPreview: previewEmail
                 ? (leadId) => wait(previewEmail({ ...scope, leadId, requestId: req.id }))
                 : undefined,
+              ...cardToolReads(scope, req.id, wait),
+              seenLeads: seenLeadsOfTurn,
+              onLeadPage: (lead) =>
+                sources.lead(
+                  lead.leadId,
+                  lead.reference ?? lead.name ?? 'Lead',
+                  `${site.name} · ${leadTypeLabel(lead.leadType)} · ${leadStageLabel(lead.leadType, lead.stage)}`,
+                ),
               loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
               now,
               budget,
             })
           : undefined;
-      const sources = new SourceRegistry({
-        workspaceSlug: site.slug,
-        asOf: turnStarted,
-      });
-      // A run's lead by reference and name (active, unrestricted leads only).
-      const leadLabels = dependencies.reads.leadLabels?.bind(dependencies.reads);
+      const actionDefinitions = actionTools ? await wait(actionTools.offered()) : {};
       const automationTools =
         dependencies.automationAuthoring &&
         dependencies.flows &&
@@ -1505,7 +1847,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           const writePart = (part: AiStreamPart) => {
             if (part.type === 'sources') sentSources = part.sources;
             if (part.type === 'follow_up') sentFollowUp = part.followUp;
-            if (part.type === 'actions') releasedDrafts += part.actions.length;
+            // Every card goes out in `action_cards`; `actions` repeats some for older admins.
+            if (part.type === 'action_cards') releasedDrafts += part.cards.length;
             if (part.type === 'automation_proposals') releasedDrafts += part.proposals.length;
             if (part.type === 'error') sentErrorCode = part.code;
             if (part.type === 'text') {
@@ -1529,6 +1872,26 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               data: aiStreamPartSchema.parse(part),
               transient: true,
             });
+          };
+          /**
+           * The turn's cards, each only if the member may still use its kind:
+           * all of them in full (`action_cards`), then the ones an older admin
+           * can show in their older shape (`actions`), which a newer admin skips.
+           */
+          const writeCards = (
+            cards: readonly AiActionCard[],
+            finalAccess: StaffAccessSnapshot | undefined,
+          ) => {
+            const released = cards.filter((card) =>
+              cardAllowed(finalAccess, card.draft.kind, cardSiteOf(scope.workspaceId)),
+            );
+            if (released.length === 0) return;
+            writePart({ type: 'action_cards', cards: released });
+            const legacy = released.flatMap((card): AiActionProposal[] => {
+              const proposal = legacyProposalOf(card);
+              return proposal ? [proposal] : [];
+            });
+            if (legacy.length > 0) writePart({ type: 'actions', actions: legacy });
           };
           // CHAT-2: the finished answer is signed so the next turn can replay it.
           const writeDone = () => {
@@ -1566,6 +1929,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               : await wait(dependencies.reads.leadHint(scope, body.context.leadId)).catch(
                   () => undefined,
                 );
+          if (leadHint)
+            seenLeads.add({
+              leadId: leadHint.leadId,
+              name: leadHint.name,
+              reference: leadHint.reference,
+            });
           let followUp: AiFollowUp | undefined;
           const guide = async (raw: unknown) => {
             if (!budget.reserveToolCall()) return 'Question limit reached';
@@ -1597,6 +1966,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             actionsAvailable:
               actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
             plainTasksAvailable: plainTasks,
+            cardKinds: actionTools ? cardKindsHere(access, scope.workspaceId) : [],
             // Only the verified id and the catalogue's labels reach the system
             // prompt; the customer-typed name and reference travel as data in
             // the person's own message below.
@@ -1647,7 +2017,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 ...toolset.definitions,
                 ...wideReadTools.definitions,
                 ...automationReads?.definitions,
-                ...actionTools?.definitions,
+                ...actionDefinitions,
                 ...automationTools?.definitions,
                 askFollowUp: guidedTool,
                 getCrmGuide: createCrmGuideTool(budget),
@@ -1657,14 +2027,14 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               ...(high ? { effort } : {}),
               executeTool: (name, input) =>
                 isToolName(name) || isWideReadName(name) || isAutomationRead(name)
-                  ? executeRead(name, input)
+                  ? executeRead(name, input).then((result) => {
+                      // B1: what the model was told about leads, kept for the card check.
+                      seenLeads.record(result);
+                      return result;
+                    })
                   : actionTools &&
-                      (name === 'prepareNote' ||
-                        name === 'prepareTask' ||
-                        name === 'prepareTaskUpdate' ||
-                        name === 'prepareEmail' ||
-                        name === 'prepareLeadUpdate' ||
-                        name === 'getLeadUpdateOptions')
+                      actionTools.handles(name) &&
+                      Object.hasOwn(actionDefinitions, name)
                     ? actionTools.execute(name, input)
                     : automationTools && AUTOMATION_TOOL_NAMES.some((toolName) => toolName === name)
                       ? automationTools.execute(name, input)
@@ -1749,12 +2119,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             }
             const cards = sources.list();
             if (cards.length > 0) writePart({ type: 'sources', sources: cards });
-            if (
-              actionTools &&
-              actionTools.proposals.length > 0 &&
-              decideAccess(finalAccess, 'lead.manage').allowed
-            )
-              writePart({ type: 'actions', actions: actionTools.proposals });
+            if (actionTools) writeCards(actionTools.proposals, finalAccess);
             if (
               automationTools?.proposals.length &&
               decideAccess(finalAccess, 'integration.manage').allowed
@@ -1787,7 +2152,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 .array()
                 .max(3)
                 .safeParse(automationTools?.proposals ?? []);
-              const readyActions = aiActionProposalSchema
+              const readyActions = aiActionCardSchema
                 .array()
                 .max(3)
                 .safeParse(actionTools?.proposals ?? []);
@@ -1807,8 +2172,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                     });
                     return;
                   }
-                  const releaseActions =
-                    actions.length > 0 && decideAccess(finalAccess, 'lead.manage').allowed;
+                  const releaseActions = actions.some((card) =>
+                    cardAllowed(finalAccess, card.draft.kind, cardSiteOf(scope.workspaceId)),
+                  );
                   const releaseAutomations =
                     automations.length > 0 &&
                     decideAccess(finalAccess, 'integration.manage').allowed;
@@ -1817,7 +2183,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                       type: 'text',
                       text: '\n\nThe explanation could not finish, but a draft is ready for your review. Nothing has been saved.',
                     });
-                    if (releaseActions) writePart({ type: 'actions', actions });
+                    if (releaseActions) writeCards(actions, finalAccess);
                     if (releaseAutomations)
                       writePart({ type: 'automation_proposals', proposals: automations });
                     writeDone();

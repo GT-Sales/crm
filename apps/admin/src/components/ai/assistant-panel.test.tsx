@@ -15,7 +15,7 @@ import type {
 import { BackendError } from '../../lib/api';
 
 import { AssistantPanel } from './assistant-panel';
-import { AssistantProvider } from './assistant-provider';
+import { AssistantProvider, cardRefusalText } from './assistant-provider';
 import { AssistantTrigger } from './assistant-trigger';
 
 const WORKSPACE_ID = '10000000-0000-4000-8000-000000000001';
@@ -480,6 +480,44 @@ describe('Ask AI panel', () => {
     expect(screen.queryByRole('button', { name: 'Ask AI' })).toBeNull();
   });
 
+  it('shows a card from the full action_cards part, skips its older copy, and sends the tick', async () => {
+    const full = {
+      ...proposal,
+      mentions: ['Zara Quill'],
+      acknowledgementRequired: true,
+      sideEffects: ['Nothing else happens.'],
+    };
+    mocks.askAiAssistant.mockImplementation(() =>
+      streamOf([
+        { type: 'action_cards', cards: [full] },
+        { type: 'actions', actions: [proposal] },
+        { type: 'done' },
+      ]),
+    );
+    mocks.confirmAiAction.mockResolvedValue({
+      status: 'saved',
+      actionId: proposal.id,
+      recordId: proposal.id,
+      kind: 'note',
+      requestId: proposal.id,
+    });
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    const regions = await screen.findAllByRole('region', { name: 'Confirm note' });
+    expect(regions).toHaveLength(1);
+    expect(screen.getByText('This names other customers: Zara Quill.')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('I checked it, and it may name them.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    await screen.findByText('Note added.');
+    expect(mocks.confirmAiAction).toHaveBeenCalledWith(
+      'staff-token',
+      WORKSPACE_ID,
+      proposal.token,
+      true,
+    );
+  });
+
   it('keeps an in-flight save receipt when the person asks a follow-up question', async () => {
     mocks.askAiAssistant
       .mockImplementationOnce(() =>
@@ -924,5 +962,20 @@ describe('Ask AI automation proposal cards', () => {
     expect(await screen.findByText(/Draft saved\./)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Save draft' })).toBeNull();
     expect(mocks.saveAiAutomation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the wider cards’ refusals in words', () => {
+  it('says what to do for the tick, a change, the daily caps and missing fill-ins', () => {
+    const text = (code: 'conflict' | 'ai_rate_limited', details: Record<string, unknown>) =>
+      cardRefusalText(new BackendError(code, 409, 'req_card', details));
+    expect(text('conflict', { reason: 'acknowledgement_required' })).toMatch(
+      /Tick that you checked/,
+    );
+    expect(text('conflict', { reason: 'changed' })).toMatch(/changed since the card was prepared/);
+    expect(text('ai_rate_limited', { reason: 'daily_changes' })).toMatch(/limit of 200 changes/);
+    expect(text('ai_rate_limited', { reason: 'daily_mail' })).toMatch(/limit of 50 emails/);
+    expect(text('conflict', { missing: ['SIM number'] })).toMatch(/SIM number/);
+    expect(text('conflict', { reason: 'superseded' })).toBeUndefined();
   });
 });

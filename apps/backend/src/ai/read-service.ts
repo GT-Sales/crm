@@ -179,6 +179,8 @@ export interface LeadHint {
   readonly stage: string;
   readonly reference: string | null;
   readonly name: string | null;
+  /** When the lead was received: a card's label names it (B5). */
+  readonly createdAt?: Date;
 }
 
 const leadHintRowSchema = z.object({
@@ -187,6 +189,7 @@ const leadHintRowSchema = z.object({
   stage: z.string().min(1),
   external_ref: z.string().nullable(),
   full_name: z.string().nullable(),
+  created_at: z.coerce.date().optional(),
 });
 
 type ReadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
@@ -650,7 +653,7 @@ export class DatabaseAiReadService implements AiReadService {
   leadHint(scope: Scope, leadId: string): Promise<LeadHint | undefined> {
     return this.read(scope, async (tx) => {
       const [row] = await tx.execute<{ [key: string]: unknown }>(sql`
-        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name
+        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name, l.created_at
         from app.leads l
         where l.workspace_id = ${contextWorkspaceId}
           and l.id = ${leadId}
@@ -666,6 +669,7 @@ export class DatabaseAiReadService implements AiReadService {
         stage: parsed.data.stage,
         reference: parsed.data.external_ref,
         name: parsed.data.full_name,
+        ...(parsed.data.created_at ? { createdAt: parsed.data.created_at } : {}),
       };
     });
   }

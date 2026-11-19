@@ -30,15 +30,22 @@ same lead, kind and field, takes a fresh preview and signs a new ID; it performs
 no business write. The user reviews the replacement before confirming.
 
 No migration, new secret or mailbox integration is required. Existing AI and
-outbox configuration applies. Payment, email address, plan/order, custom/form
-fields, archive and bulk edits are outside this version. Those changes continue
-through the manual CRM controls.
+outbox configuration applies. A stage move with its dispatch or activation
+details, the plan, quantity, payment and commission state, form fields and
+custom values are the `lead_edit` card, and archiving is the `lead_archive`
+card ([ai-actions.md](ai-actions.md), "Wider cards"). The customer's email
+address, the documents override and bulk edits stay with the manual CRM
+controls. Confirmation passes the site's property catalogue to
+`applyLeadUpdate`, as the staff edit does.
 
 Gates before Confirm (5 Nov 2026): the stage preview plans each move as the
 confirmation will, without an order edit or an override, and marks a choice
 that still needs dispatch details, an activation date or approved documents
 (`needs`, with `missingDocuments`). `getLeadUpdateOptions` returns those marks,
 `prepareLeadUpdate` answers `needs_lead_page` instead of making a card for such
-a move, and the card shows those stages disabled. If a gate still refuses at
+a move (a move that needs details can be prepared as a `lead_edit` card, which
+carries them), and the card shows those stages disabled. A stage card shows
+the flows the move fires and a checkout it submits (`sideEffects`), signed and
+recomputed at Confirm. If a gate still refuses at
 Confirm (the lead changed since the preview), the answer is the same error a
 staff edit gets, mapped by `http/lead-update-errors.ts`, never `conflict`.

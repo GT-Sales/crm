@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  aiWirePartSchema,
   AI_ASSISTANT_LIMITS,
   AI_CHAT_LIMITS,
   AI_EFFORTS,
@@ -535,6 +536,17 @@ describe('Ask AI guards (audit B7, B8)', () => {
       { type: 'notice', code: 'attachment_budget_spent', message: 'free text' },
     ]) {
       expect(aiStreamPartSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it('carries both the guards’ notice and the cards’ action_cards part on the wire', () => {
+    for (const data of [
+      { type: 'notice', code: 'attachment_budget_spent' },
+      { type: 'action_cards', cards: [] },
+    ]) {
+      expect(
+        aiWirePartSchema.safeParse({ type: 'data-assistant', data, transient: true }).success,
+      ).toBe(true);
     }
   });
 

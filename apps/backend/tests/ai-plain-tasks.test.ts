@@ -52,7 +52,7 @@ function tools(plainTasks: boolean) {
 
 describe('Ask AI no longer insists that a task has a lead', () => {
   it('drops the instruction that made it ask which lead a task is for', () => {
-    expect(AI_PROMPT_VERSION).toBe(14);
+    expect(AI_PROMPT_VERSION).toBe(15);
     const system = prompt(true);
     // The old rule sent every task through "resolve the exact lead" first.
     expect(system).not.toContain(

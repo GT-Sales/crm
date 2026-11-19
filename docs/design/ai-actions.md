@@ -10,7 +10,8 @@ no write-store reference and cannot confirm a card, including when chat text or
 a record says "confirm". All other writes remain outside the assistant.
 
 Each card names the Site and lead, shows the exact note text or task title,
-calendar due date and assignee (the asking member or unassigned), and offers
+calendar due date and assignee (any active member or unassigned, "Wider
+cards" below), and offers
 Confirm and Cancel. Note text is limited to 4,000 characters and task titles to
 200, matching the existing forms. Ambiguous targets or dates must be clarified.
 The server resolves the lead through the existing active/unrestricted Site read;
@@ -110,6 +111,107 @@ the whole document. An older admin given a stream `actions` part that holds a
 plain-task or `task_update` card fails to parse that one part and skips it,
 with every card it carried; the rest of the stream reads as before.
 
+## Wider cards
+
+Every card kind needs the staff actions its staff route checks, read from
+one table (`AI_CARD_ACTIONS` in `apps/backend/src/ai/card-safeguards.ts`):
+`workspace.read` and `lead.manage` for every lead and task card,
+`workspace.read` and `integration.manage` for an automation's switch, which
+is offered only on a site in `AI_AUTOMATION_WORKSPACE_IDS`. The same table
+decides the capabilities' `cardActions`, which tools the model is offered (a
+member without the actions is not offered the tool), and whether revise and
+confirm accept the card, each decided again at the moment of the call with
+`decideAccess`, so an individual deny applies.
+
+The kinds beyond note, task, email, lead update and task move:
+
+- **`lead_edit`**: one lead's stage, order details (plan, quantity, payment
+  status, carrier commission, courier, tracking number, dispatch and
+  activation dates and the activation number and account), form fields and
+  custom values in one signed diff, at most 12 fields. Its `changes` are a
+  subset of the staff `PATCH` body; confirmation parses them again with that
+  route's own schema (`updateWorkspaceLeadRequestSchema`) and saves through
+  `applyLeadUpdate` with the site's property catalogue, so custom keys and
+  hidden properties are refused exactly as on the lead page. A move whose
+  gate needs a courier or an activation date carries those fields on the card
+  (`leadEditContext.inputs`): the model may pass a courier, tracking number
+  and dates the person gave; the activation number and account are typed by
+  the person on the card and never accepted from the model. The documents
+  check stays: a move whose required documents are not approved makes no
+  card, and the tool answers which documents and leaves a link to the lead
+  page. A card can never carry a documents override or a contact change.
+  A sensitive property is neither listed nor accepted (the lead page masks
+  its value), so its edit stays on the lead page. `getLeadEditOptions` lists
+  the moves, the active plans of the lead's type and the editable fields by
+  key and label, never a value; its labels and names are cleaned like every
+  read's text (`ai/record-text.ts`) and it carries the same data notice, as
+  does `getAssigneeOptions`. Current values are shown on the card only, and
+  only those the lead page shows the member (every Ask AI user is a contacts
+  role, `staff/lead-visibility.ts`); commission amounts are never on a card.
+- **`task`** takes any active member as assignee (`getAssigneeOptions` lists
+  them); **`task_update`** changes any of status, title, due date and
+  assignee, with the same signed version and status check as a move.
+- **`template_email`**: one of the templates the staff route sends by hand
+  (`queueCustomerEmailRequestSchema`; today `sim_number_ready`), rendered on
+  the server and shown in full. The card signs the template's version, the
+  digest of the rendered mail, the recipient and the sender; Send is refused
+  as changed when any differs. A lead that lacks a fill-in gets no card, and
+  the tool names what is missing. It queues under `ai_template_email:<root
+id>`, so a retry finds the first job.
+- **`lead_archive`**: archive or restore one lead through `setArchived`, whose
+  audit keeps the card's root id so a retry answers with the first receipt. A
+  lead someone else already archived (or restored) is refused as changed.
+- **`automation_off`**: switches one flow off through `setEnabled(false)`
+  with the revision the card was prepared against. There is no card that
+  switches a flow on or activates one.
+
+Each card that moves a stage, archives, sends mail or switches a flow off
+shows what else happens (`sideEffects`), computed on the server: the flows
+that fire for the stage entered and what their steps do ("sends the
+Cancelled email to the customer"), a checkout the move submits, the runs and
+timers an archive cancels. Its digest is signed and recomputed at Confirm; a
+difference is `409 conflict` with `details.reason: 'changed'`, as is any
+change to what the card touches (`leadEditVersion`: stage, status, order
+and the named fields).
+
+An email or note whose text names another lead read in the same turn (its
+name or reference, as whole words) carries `mentions` and
+`acknowledgementRequired`; Confirm without `acknowledged: true` is `409
+conflict` with `details.reason: 'acknowledgement_required'`. The turn's leads
+are every lead any read named: those in a tool result (`leadId` beside
+`name`/`reference` or `leadName`/`leadReference`), every lead a read gave a
+source card (an automation run's lead has no id in its result, only its
+card), and the open lead; each is compared under what the result said and
+under its real name and reference, looked up at prepare time with
+`leadLabels` (a lookup that fails refuses the card). Both sides are
+normalised as the reads clean text: control, format and bidi characters
+count as spaces and, a second time, as nothing, so a hidden character
+inside a name or reference never hides it. The other leads' ids are signed,
+so a revision checks its new text against the same leads.
+
+Every card about a lead gives the answer that lead's source card, so a
+stored answer that prepared one is not replayed once the lead is restricted
+and is found by the 0039 erasure ([ai-chat.md](ai-chat.md) §6 and §13).
+
+A card's lead label is "‹reference› · ‹name› (‹type›, created ‹day›)"; the
+reference is set by the site's own server, never typed by the customer.
+
+Each member has two daily caps per site, counted at Confirm through
+`app.rate_limit_hit` in UTC days: `AI_CARD_LIMITS.changesPerMemberPerDay`
+(200) confirmed changes of any kind, and `mailPerMemberPerDay` (50) emails
+(written or template). Past either, Confirm answers `429 ai_rate_limited`
+with `details.reason` `daily_changes` or `daily_mail`; a limiter that cannot
+be reached refuses with `503 ai_unavailable`. A retry of a saved card counts
+again.
+
+On the wire every addition is optional. The stream sends every card in full
+in the `action_cards` part, then the cards an older admin can show in their
+older shape in `actions`; a card with a new kind, a widened draft or a
+required tick is only in `action_cards`, which an older admin ignores. A
+revision answers in the older shape unless the request has `wide: true`,
+which a newer admin sends only when the capabilities list `cardActions`.
+AI-made changes read "via Ask AI" on the lead's timeline.
+
 ## Browser behavior
 
 Cards are released only after a successful model turn and final permission
@@ -136,7 +238,6 @@ for automated writes. Deploy backend and admin together; old clients ignore the
 new stream part while builds roll. Staff should refresh before using the cards.
 
 The existing `AI_ASSISTANT_ENABLED` switch disables reads, preparation and
-confirmation. No API key goes to the browser. There is no new direct write tool,
-bulk operation, email operation or autonomous action; lead edits and stage
-changes are the reviewed cards of [ai-lead-updates.md](ai-lead-updates.md),
-task moves the `task_update` card above.
+confirmation. No API key goes to the browser. There is no direct write tool,
+bulk operation or autonomous action; every change is one of the reviewed
+cards above or of [ai-lead-updates.md](ai-lead-updates.md).

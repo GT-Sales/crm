@@ -1,5 +1,5 @@
 'use client';
-import { AI_CHAT_LIMITS, type AiActionDraft } from '@gt-sales/contracts';
+import { AI_CHAT_LIMITS, type AiCardDraft } from '@gt-sales/contracts';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -217,9 +217,9 @@ function AssistantAnswer({
   onRetry?: () => void;
   retryNote?: string;
   onStartNewChat?: () => void;
-  onConfirmAction?: (id: string) => void;
+  onConfirmAction?: (id: string, acknowledged?: boolean) => void;
   onCancelAction?: (id: string) => void;
-  onReviseAction?: (id: string, draft: AiActionDraft) => void;
+  onReviseAction?: (id: string, draft: AiCardDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
   // A stored conversation says "Stopped." under a partial answer too, so a
@@ -299,7 +299,7 @@ function AssistantAnswer({
               key={action.proposal.id}
               action={action}
               onRevise={(draft) => onReviseAction?.(action.proposal.id, draft)}
-              onConfirm={() => onConfirmAction?.(action.proposal.id)}
+              onConfirm={(acknowledged) => onConfirmAction?.(action.proposal.id, acknowledged)}
               onCancel={() => onCancelAction?.(action.proposal.id)}
             />
           ))
@@ -364,9 +364,9 @@ export function AssistantMessage({
   retryNote?: string;
   /** Offered when the conversation is full. */
   onStartNewChat?: () => void;
-  onConfirmAction?: (id: string) => void;
+  onConfirmAction?: (id: string, acknowledged?: boolean) => void;
   onCancelAction?: (id: string) => void;
-  onReviseAction?: (id: string, draft: AiActionDraft) => void;
+  onReviseAction?: (id: string, draft: AiCardDraft) => void;
   onAnswerChoice?: (choice: string) => void;
 }) {
   if (message.role === 'user') {

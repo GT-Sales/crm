@@ -203,6 +203,14 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `apps/admin/src/components/dashboard.tsx` with its filter bar, URL state and
   charts in `src/components/analytics/`. Money figures need `revenue.view`
   (owner only) and are left out of responses for everyone else.
+- Ask AI's reads and cards (docs/design/ai-assistant.md, ai-actions.md):
+  `apps/backend/src/ai/` (`tools.ts` the core reads, `read-tools.ts` the
+  smaller reads, `lead-record.ts` a lead's values, `record-text.ts` the
+  cleaning of every record string the model is given, `actions.ts` the card
+  tools, `card-safeguards.ts` the card table, mention check and daily caps,
+  `card-store.ts` the wider cards' previews and the lead edit's write),
+  `src/staff/lead-visibility.ts` the one rule for details and money, and
+  the chat, revise and confirm routes in `src/routes/ai-assistant.ts`.
 - Ask AI's saved chat (docs/design/ai-chat.md): `apps/backend/src/ai/`
   (`conversation-store.ts` a member's conversations and messages,
   `attachment-store.ts` and `attachments.ts` the files' rows, upload,
@@ -476,16 +484,19 @@ lead (`leadId` null), made with the Tasks page's New task or an Ask AI card
 on the Tasks board and in My tasks (listed only with `plain=include`), says
 "No lead" where a lead would be and links nowhere; it is never a lead's
 follow-up, so it starts no flow and no lead count includes it. A
-**`task_update` card** is Ask AI's signed proposal to move one task (a lead's
-or a plain one) to another status, confirmed through the staff `PATCH`'s own
-change and refused as stale (`409 conflict`) when the task changed since the
-card was prepared.
+**`task_update` card** is Ask AI's signed proposal to change one task (a lead's
+or a plain one): its status, title, due date or assignee, confirmed through the
+staff `PATCH`'s own change and refused as stale (`409 conflict`) when the task
+changed since the card was prepared. The other card kinds and what stays with a
+person are in `docs/design/ai-actions.md` ("Wider cards").
 
 A **conversation** is one member's saved Ask AI chat on one site
 (`app.ai_conversations`, its messages in `app.ai_messages`, written once and
 never edited): private to that member under an owner policy, the site's owner
 included (anyone else gets `404 conversation_not_found`), and kept until the
-member deletes it. An **attachment** is a file a member adds to a message
+member deletes it, with two exceptions from migration 0039: a customer's
+erasure empties the turns about that lead, and a member gone from the site
+for 30 days loses their chats there (docs/design/ai-chat.md §13). An **attachment** is a file a member adds to a message
 (`app.ai_attachments`): `image`, `pdf` or `text`, of the kinds
 `AI_ATTACHMENT_KINDS` enables (none when unset), its type decided by its
 bytes. It is never a lead's document and never in `app.files`; it goes with

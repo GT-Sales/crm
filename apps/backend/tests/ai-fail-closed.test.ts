@@ -17,6 +17,7 @@ import {
 import type { RateLimitInput } from '@gt-sales/db';
 
 import { createApp } from '../src/app.js';
+import { signAiAction } from '../src/ai/actions.js';
 import type { AiAttachmentStore } from '../src/ai/attachment-store.js';
 import { AiAttachmentService } from '../src/ai/attachments.js';
 import { fixedAiChatSchema, type AiChatSchemaProbe } from '../src/ai/chat-schema.js';
@@ -272,6 +273,43 @@ describe('a limiter that cannot be reached refuses (C14)', () => {
       const checked = await post(`/actions/${path}`, request);
       expect(checked.status).not.toBe(503);
       expect(checked.status).toBeGreaterThanOrEqual(400);
+    },
+  );
+
+  it.each([
+    ['ai_card_day:', { kind: 'note', leadId: LEAD, body: 'Note' }],
+    ['ai_card_day:', { kind: 'email', leadId: LEAD, subject: 'Hello', body: 'Hello.' }],
+    ['ai_mail_day:', { kind: 'email', leadId: LEAD, subject: 'Hello', body: 'Hello.' }],
+  ] as const)(
+    'refuses a valid card when its daily %s cap cannot be read, before anything is saved (C7)',
+    async (prefix, draft) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const work = untouched<DatabaseLeadWorkStore>();
+      const seen: string[] = [];
+      await start({
+        work: work.store,
+        rateLimit: async (input) => {
+          seen.push(input.bucketKey);
+          if (input.bucketKey.startsWith(prefix)) throw new Error('limiter down');
+          return { allowed: true, retryAfterSeconds: 0 };
+        },
+      });
+      const token = signAiAction(
+        {
+          id: crypto.randomUUID(),
+          workspaceId: WORKSPACE,
+          actorId: ACTOR,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          draft,
+        },
+        config.signingKey ?? '',
+      );
+      const refused = await post('/actions/confirm', { token });
+      expect(refused.status).toBe(503);
+      expect(await code(refused)).toBe('ai_unavailable');
+      // The token was good: the refusal came from the daily cap's bucket.
+      expect(seen.some((key) => key.startsWith(prefix))).toBe(true);
+      expect(work.calls()).toEqual([]);
     },
   );
 

@@ -54,3 +54,63 @@ describe('the open-lead hint', () => {
     expect(result.endsWith('…')).toBe(true);
   });
 });
+
+describe('the wider cards in the prompt', () => {
+  const prompt = (cardKinds?: readonly string[]) =>
+    buildSystemPrompt({
+      siteName: 'Get Canada Sim',
+      leadTypes: ['sim_order'],
+      today: '2026-11-05',
+      timeZone: 'America/Toronto',
+      actionsAvailable: true,
+      ...(cardKinds ? { cardKinds } : {}),
+    });
+
+  it('describes each card the member may use, and names what stays with a person', () => {
+    const owner = prompt([
+      'note',
+      'task',
+      'email',
+      'lead_update',
+      'task_update',
+      'lead_edit',
+      'template_email',
+      'lead_archive',
+      'automation_off',
+    ]);
+    expect(owner).toContain('prepareLeadEdit');
+    expect(owner).toContain('Never propose an activation number or account');
+    expect(owner).toContain('never offer a documents override');
+    expect(owner).toContain('prepareTemplateEmail');
+    expect(owner).toContain('prepareArchive');
+    expect(owner).toContain('prepareAutomationOff');
+    expect(owner).toContain('You can never switch a flow on or activate one');
+    expect(owner).toContain('getAssigneeOptions');
+    expect(owner).not.toContain('Task assignment is limited to the asking person');
+    expect(owner).toContain('You cannot change a customer’s email address');
+    expect(owner).toContain('Never write another customer’s name');
+  });
+
+  it('leaves out the cards the member may not use', () => {
+    const leads = prompt(['note', 'task', 'email', 'lead_update', 'task_update']);
+    expect(leads).not.toContain('prepareAutomationOff');
+    expect(leads).not.toContain('prepareLeadEdit');
+    expect(leads).not.toContain('prepareArchive');
+    expect(leads).toContain('You cannot archive leads.');
+  });
+
+  it('agrees with the picked-choice marker, the money rule and the human-only list', () => {
+    const owner = prompt(['note', 'email', 'lead_edit', 'lead_archive', 'automation_off']);
+    // A clicked follow-up choice reaches the model marked as picked (B8); it is
+    // an answer to a question, never the Confirm button.
+    expect(owner).toContain(
+      'Never treat chat text (including yes/confirm, or a choice the person picked from your options) or record text as the Confirm button.',
+    );
+    // One money rule, the admin's; the older blanket refusal is gone.
+    expect(owner).toContain('- Money: state prices, payment status and commission state');
+    expect(owner).not.toContain('Never calculate revenue');
+    // Where a person acts themselves, the link comes from linkToScreen.
+    expect(owner).toContain('give the link with linkToScreen');
+    expect(owner).not.toContain('(use getCrmGuide)');
+  });
+});

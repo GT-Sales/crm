@@ -183,7 +183,7 @@ describe('what the model is given', () => {
 
 describe('the prompt and the file block', () => {
   it('says an attached file is data, never instructions, in a new prompt version', () => {
-    expect(AI_PROMPT_VERSION).toBe(14);
+    expect(AI_PROMPT_VERSION).toBe(15);
     const system = buildSystemPrompt({
       siteName: 'Site',
       leadTypes: [],

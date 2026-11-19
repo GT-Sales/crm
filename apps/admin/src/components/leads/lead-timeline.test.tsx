@@ -162,8 +162,8 @@ describe('LeadTimeline', () => {
       />,
     );
     const items = screen.getByRole('region', { name: 'Timeline' }).querySelectorAll('li');
-    expect(items[0]?.textContent).toContain('Takib · via AI');
-    expect(items[1]?.textContent).toContain('Sam · via AI');
+    expect(items[0]?.textContent).toContain('Takib · via Ask AI');
+    expect(items[1]?.textContent).toContain('Sam · via Ask AI');
   });
 
   it('keeps ordinary and automation-written changes separate from AI assistance', () => {
@@ -178,7 +178,7 @@ describe('LeadTimeline', () => {
         }),
       ),
     ]);
-    expect(within(region).queryByText(/via AI/)).toBeNull();
+    expect(within(region).queryByText(/via Ask AI/)).toBeNull();
     expect(within(region).getByText('Follow-up flow')).toBeTruthy();
   });
 
