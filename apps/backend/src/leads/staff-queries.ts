@@ -1185,7 +1185,8 @@ export function toLeadActivity(row: ActivityRow): LeadActivity {
 interface TaskRow {
   [key: string]: unknown;
   id: string;
-  leadId: string;
+  /** Null for a plain task. */
+  leadId: string | null;
   title: string;
   dueAt: string | null;
   assignedActorId: string | null;
@@ -1425,9 +1426,17 @@ export interface TaskFilters {
   dueBy?: string;
   /** Only tasks completed on or after this calendar day, from 00:00 UTC. */
   completedSince?: string;
+  /** The site's plain tasks (no lead) too; without it only lead tasks are listed. */
+  includePlain?: boolean;
 }
 
-/** Tasks on the workspace's active leads, soonest due first (undated last), with each lead's summary. */
+/**
+ * Tasks on the workspace's active leads (and, with `includePlain`, its plain
+ * tasks), soonest due first (undated last), with each lead's summary (null for
+ * a plain task). A left join, so a plain task is a deliberate choice of this
+ * filter, never one an inner join drops; the filter still reads the task
+ * indexes by site, status, assignee and due time.
+ */
 export async function selectWorkspaceTasks(
   tx: TenantTransaction,
   filters: TaskFilters,
@@ -1456,11 +1465,13 @@ export async function selectWorkspaceTasks(
     filters.status === 'done'
       ? sql`k.completed_at desc nulls last, k.id`
       : sql`k.due_at asc nulls last, k.created_at asc, k.id`;
+  // A lead's task only while its lead is active and unrestricted; a plain task when asked for.
+  const visible = sql`(${filters.includePlain ? sql`k.lead_id is null` : sql`false`} or (l.id is not null and l.deleted_at is null and l.customer_data_restricted_at is null))`;
   const rows = await tx.execute<
     TaskRow & {
       total: number;
-      leadType: string;
-      stage: string;
+      leadType: string | null;
+      stage: string | null;
       fullName: string | null;
       email: string | null;
       phone: string | null;
@@ -1479,32 +1490,34 @@ export async function selectWorkspaceTasks(
       l.country_code as "countryCode",
       l.external_ref as "externalRef"
     from app.lead_tasks k
-    inner join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
+    left join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
     where k.workspace_id = ${filters.workspaceId}
       and ${status}
       and ${assignee}
       and ${due}
       and ${completed}
-      and l.deleted_at is null
-      and l.customer_data_restricted_at is null
+      and ${visible}
     order by ${order}
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `);
   return {
     tasks: rows.map((row) => ({
       ...toLeadTask(row),
-      lead: {
-        id: row.leadId,
-        leadType: leadTypeSchema.parse(row.leadType),
-        stage: leadStageSchema.parse(row.stage),
-        contact: leadContactSchema.parse({
-          fullName: row.fullName ?? undefined,
-          email: row.email ?? undefined,
-          phone: row.phone ?? undefined,
-          countryCode: row.countryCode ?? undefined,
-        }),
-        externalRef: row.externalRef,
-      },
+      lead:
+        row.leadId === null
+          ? null
+          : {
+              id: row.leadId,
+              leadType: leadTypeSchema.parse(row.leadType),
+              stage: leadStageSchema.parse(row.stage),
+              contact: leadContactSchema.parse({
+                fullName: row.fullName ?? undefined,
+                email: row.email ?? undefined,
+                phone: row.phone ?? undefined,
+                countryCode: row.countryCode ?? undefined,
+              }),
+              externalRef: row.externalRef,
+            },
     })),
     total: rows[0]?.total ?? 0,
   };

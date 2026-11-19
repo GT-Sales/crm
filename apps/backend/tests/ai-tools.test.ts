@@ -62,6 +62,7 @@ function taskRow(overrides: Partial<TaskRow> = {}): TaskRow {
     lead_ref: 'MS-TEST-101',
     lead_name: 'Ada Lovelace',
     title: 'Call about permit',
+    status: 'open',
     assignee_name: 'Owner',
     due_at: new Date('2026-11-01T12:00:00.000Z'),
     ...overrides,

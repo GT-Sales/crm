@@ -281,6 +281,38 @@ test('the Tasks board moves tasks by status and by date, and remembers the layou
   expect(errors).toEqual([]);
 });
 
+test('a plain task is made on the Tasks page and moved across the board', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/w/canadawide/tasks');
+  await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
+  const form = page.getByRole('form', { name: 'New task' });
+  const title = 'Order SIM stock for the shop';
+  await form.getByPlaceholder('Add a task: what needs to be done?').fill(title);
+  await form.getByRole('button', { name: 'Add task' }).click();
+  // In the list, with no lead: "No lead" and no link to a lead page.
+  const row = page.getByRole('listitem').filter({ hasText: title });
+  await expect(row).toBeVisible();
+  await expect(row.getByText('No lead', { exact: true })).toBeVisible();
+  await expect(row.getByRole('link')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  const byStatus = page.getByRole('region', { name: 'Tasks board by status' });
+  const statusColumn = (name: string) =>
+    byStatus.getByRole('region', { name: new RegExp(`^${name},`) });
+  await expect(statusColumn('To do')).toContainText(title);
+  await page.getByRole('button', { name: `Move “${title}”` }).click();
+  await page.getByRole('menuitem', { name: 'In progress' }).click();
+  await expect(statusColumn('In progress')).toContainText(title);
+  await page.getByRole('button', { name: `Move “${title}”` }).click();
+  await page.getByRole('menuitem', { name: 'Done' }).click();
+  await expect(statusColumn('Done')).toContainText(title);
+  // Saved, not only shown: a reload reads it back from the backend.
+  await page.reload();
+  await expect(statusColumn('Done')).toContainText(title);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  expect(errors).toEqual([]);
+});
+
 test('the archive hides a lead and restores it', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/w/canadawide/leads?type=internet');

@@ -97,7 +97,9 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   number), routes in `src/routes/website.ts`.
 - Staff lead work (detail, stage, assignee, notes, tasks, board, archive):
   `src/leads/work-store.ts` for writes, `src/leads/staff-queries.ts` for reads
-  (plain SQL with explicit aliases; see the comment at its top).
+  (plain SQL with explicit aliases; see the comment at its top);
+  `src/leads/task-schema.ts` says whether the database takes plain tasks
+  (migration 0038).
 - Leads export to Excel: `apps/backend/src/leads/export/` (`store.ts` the
   read, the row cap and the audit event, `cells.ts` each value's type and the
   formula-injection guard, `workbook.ts` the `.xlsx`) with the route in
@@ -466,6 +468,18 @@ leads `GET /leads/stats` counts (the site and type, not archived, not
 restricted, the window); at most `SOURCE_REPORT_MAX_SOURCES` (50) sources and
 `SOURCE_REPORT_MAX_CAMPAIGNS` (20) campaigns per source, the rest summed into
 one "Other" row. Attribution is customer-influenced text, shown as text only.
+
+A **task** is a row of `app.lead_tasks` (`open` To do, `in_progress`,
+`done`, `cancelled`): a lead's follow-up, or a **plain task**, a task with no
+lead (`leadId` null), made with the Tasks page's New task or an Ask AI card
+(`POST /workspaces/:id/tasks`, `lead.manage`, migration 0038). A plain task is
+on the Tasks board and in My tasks (listed only with `plain=include`), says
+"No lead" where a lead would be and links nowhere; it is never a lead's
+follow-up, so it starts no flow and no lead count includes it. A
+**`task_update` card** is Ask AI's signed proposal to move one task (a lead's
+or a plain one) to another status, confirmed through the staff `PATCH`'s own
+change and refused as stale (`409 conflict`) when the task changed since the
+card was prepared.
 
 A **conversation** is one member's saved Ask AI chat on one site
 (`app.ai_conversations`, its messages in `app.ai_messages`, written once and

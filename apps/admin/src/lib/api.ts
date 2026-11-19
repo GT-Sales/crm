@@ -84,6 +84,7 @@ import {
   type UpdateSavedViewRequest,
   type CreateLeadNoteResponse,
   type CreateLeadTaskRequest,
+  type CreatePlainTaskRequest,
   type GetWorkspaceLeadResponse,
   type ExportLeadsRequest,
   type LeadExportFile,
@@ -443,6 +444,15 @@ export async function createLeadTask(
   body: CreateLeadTaskRequest,
 ): Promise<LeadTaskResponse> {
   return client(accessToken).staff.createLeadTask(workspaceId, leadId, body);
+}
+
+/** A plain task: a task with no lead. */
+export async function createPlainTask(
+  accessToken: string,
+  workspaceId: string,
+  body: CreatePlainTaskRequest,
+): Promise<LeadTaskResponse> {
+  return client(accessToken).staff.createPlainTask(workspaceId, body);
 }
 
 export async function updateLeadTask(

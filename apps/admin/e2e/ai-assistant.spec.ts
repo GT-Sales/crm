@@ -163,6 +163,59 @@ for (const width of [375, 1440]) {
   });
 }
 
+test('Ask AI makes a plain task and moves it to Done, each confirmed on its card', async ({
+  page,
+}) => {
+  await page.goto('/w/canadawide/tasks');
+  await expect(page.getByRole('heading', { level: 1, name: 'My tasks' })).toBeVisible();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  const byStatus = page.getByRole('region', { name: 'Tasks board by status' });
+  const statusColumn = (name: string) =>
+    byStatus.getByRole('region', { name: new RegExp(`^${name},`) });
+  await expect(byStatus).toBeVisible();
+  await expect(byStatus).not.toContainText('Call the supplier');
+
+  await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Ask a question' })
+    .fill('Create a task to call the supplier tomorrow');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const card = page.getByRole('region', { name: 'Confirm task' });
+  await expect(card.getByRole('heading', { name: 'Create a task' })).toBeVisible();
+  await expect(card.getByText('CanadaWide · No lead', { exact: true })).toBeVisible();
+  await expect(card.getByText('Call the supplier', { exact: true })).toBeVisible();
+  await expect(card.getByRole('link', { name: 'View lead' })).toHaveCount(0);
+  // Nothing is saved before Confirm.
+  await expect(byStatus).not.toContainText('Call the supplier');
+  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByText('Task created.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close Ask AI' }).click();
+  // The page refreshes from the saved card: the task waits in To do, with no lead.
+  await expect(statusColumn('To do')).toContainText('Call the supplier');
+  const created = statusColumn('To do')
+    .getByRole('listitem')
+    .filter({ hasText: 'Call the supplier' });
+  await expect(created.getByText('No lead', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await page
+    .getByRole('textbox', { name: 'Ask a question' })
+    .fill('Move the task "Call the supplier" to done');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const move = page.getByRole('region', { name: 'Confirm task move' });
+  await expect(move.getByRole('heading', { name: 'Move a task' })).toBeVisible();
+  await expect(move.getByText('Call the supplier', { exact: true })).toBeVisible();
+  await expect(move.getByText('To do', { exact: true })).toBeVisible();
+  await expect(move.getByText('Done', { exact: true })).toBeVisible();
+  await move.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByText('Task moved.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close Ask AI' }).click();
+  await expect(statusColumn('Done')).toContainText('Call the supplier');
+  await page.reload();
+  await expect(statusColumn('Done')).toContainText('Call the supplier');
+});
+
 for (const width of [375, 1440]) {
   test(`interactive drafts and email queue at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

@@ -43,7 +43,11 @@ const TRY_AGAIN = 'Try again in a minute; if it keeps happening, tell your admin
  * is unreachable: read as `known` before the status is, so they keep their own
  * sentence. An edge's 503 carries no such code.
  */
-const SWITCHED_OFF_CODES = new Set(['ai_unavailable', 'attachments_unavailable']);
+const SWITCHED_OFF_CODES = new Set([
+  'ai_unavailable',
+  'attachments_unavailable',
+  'plain_tasks_unavailable',
+]);
 
 /** An `attachment_rejected` refusal by its `details.reason`. */
 const ATTACHMENT_REJECTED = {
@@ -98,6 +102,8 @@ const KNOWN: Record<string, string | ((action: string) => string)> = {
   export_too_large:
     'Too many leads to export at once. Narrow the list with filters, or pick fewer leads, and try again.',
   task_not_found: `This task no longer exists. ${RELOAD}`,
+  plain_tasks_unavailable:
+    'Tasks without a lead are not switched on for this site yet. Add the task on a lead for now, or ask the owner.',
   assignee_not_found:
     'That person is no longer on this site team. Pick someone else from the list.',
   reminder_not_found: `This reminder no longer exists. ${RELOAD}`,

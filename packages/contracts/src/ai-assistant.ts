@@ -4,12 +4,13 @@ import { z } from 'zod';
 import { isoDateTimeSchema, requestIdSchema } from './common';
 import { leadTypeSchema } from './leads';
 import { documentChecklistKeySchema } from './domain';
+import { leadTaskStatusSchema } from './lead-work';
 
 /**
  * The staff AI assistant ("Ask AI"): its capability document, the one chat
  * request the admin may send, and the typed parts of the streamed answer.
  *
- * Reads and signed task, note, email and lead-update proposals. Nothing in this module grants access: every route
+ * Reads and signed task, note, email, lead-update and task-move proposals. Nothing in this module grants access: every route
  * re-derives the caller's membership, every tool re-reads authorization, and
  * this file only fixes the wire shapes so the admin, the backend and the
  * generated OpenAPI document cannot drift apart.
@@ -228,6 +229,17 @@ export const aiCapabilitiesResponseSchema = z.object({
   actions: z
     .array(z.enum(['task', 'note', 'email', 'lead_update']))
     .max(4)
+    .optional(),
+  /**
+   * The task cards beyond a lead's follow-up, beside `actions` rather than in
+   * it because an older admin's `actions` enum would refuse the whole
+   * document: `plain_task` (a task with no lead; once migration 0038 is
+   * applied) and `task_update` (a task moved between its stages). Absent from
+   * an older backend.
+   */
+  taskActions: z
+    .array(z.enum(['plain_task', 'task_update']))
+    .max(2)
     .optional(),
   reason: aiUnavailableReasonSchema.optional(),
   site: z.object({
@@ -479,6 +491,22 @@ export const aiLeadUpdateContextSchema = z
   })
   .strict();
 
+/**
+ * A task move's context, read when the card is prepared: the task's title, its
+ * stage then (`before`), its lead (null for a plain task) and `version`, the
+ * task's update time, which confirmation compares so a task changed since is
+ * refused as stale (409 `conflict`) rather than moved over someone's change.
+ */
+export const aiTaskUpdateContextSchema = z
+  .object({
+    version: z.string().min(1).max(100),
+    title: z.string().min(1).max(200),
+    before: leadTaskStatusSchema,
+    leadId: z.uuid().nullable(),
+  })
+  .strict();
+export type AiTaskUpdateContext = z.infer<typeof aiTaskUpdateContextSchema>;
+
 export const aiActionDraftSchema = z.discriminatedUnion('kind', [
   z
     .object({
@@ -490,7 +518,8 @@ export const aiActionDraftSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('task'),
-      leadId: z.uuid(),
+      /** The lead the task follows up; absent for a plain task (no lead). */
+      leadId: z.uuid().optional(),
       title: z.string().trim().min(1).max(200),
       dueDate: z.iso.date().nullable(),
       assignee: z.enum(['me', 'none']),
@@ -517,6 +546,14 @@ export const aiActionDraftSchema = z.discriminatedUnion('kind', [
       value: z.string().trim().min(1).max(160).nullable(),
     })
     .strict(),
+  /** Moves one task, a lead's or a plain one, to one of its stages (the Tasks board's columns). */
+  z
+    .object({
+      kind: z.literal('task_update'),
+      taskId: z.uuid(),
+      status: leadTaskStatusSchema,
+    })
+    .strict(),
 ]);
 export type AiActionDraft = z.infer<typeof aiActionDraftSchema>;
 
@@ -526,10 +563,12 @@ export const aiActionProposalSchema = z
     token: z.string().min(1).max(40000),
     expiresAt: isoDateTimeSchema,
     leadUpdateContext: aiLeadUpdateContextSchema.optional(),
+    taskUpdateContext: aiTaskUpdateContextSchema.optional(),
     emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
     siteName: z.string().min(1).max(160),
-    leadLabel: z.string().min(1).max(160),
-    leadHref: aiSourceSchema.shape.href,
+    /** The card's lead, as a label and a link; both absent for a card about no lead (a plain task). */
+    leadLabel: z.string().min(1).max(160).optional(),
+    leadHref: aiSourceSchema.shape.href.optional(),
     draft: aiActionDraftSchema,
   })
   .strict();
@@ -554,7 +593,7 @@ export type ConfirmAiActionRequest = z.infer<typeof confirmAiActionRequestSchema
 export const confirmAiActionResponseSchema = z.object({
   status: z.literal('saved'),
   actionId: z.uuid(),
-  kind: z.enum(['note', 'task', 'email', 'lead_update']),
+  kind: z.enum(['note', 'task', 'email', 'lead_update', 'task_update']),
   recordId: z.uuid(),
   requestId: requestIdSchema,
 });

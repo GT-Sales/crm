@@ -220,9 +220,13 @@ export function isActiveTaskStatus(status: string): boolean {
 
 export const leadTaskTitleSchema = z.string().trim().min(1).max(200);
 
+/**
+ * A task: a follow-up on a lead, or a **plain task** (`leadId` null), work
+ * that belongs to no lead, made from the Tasks page or by Ask AI.
+ */
 export const leadTaskSchema = z.object({
   id: z.uuid(),
-  leadId: z.uuid(),
+  leadId: z.uuid().nullable(),
   title: z.string().min(1).max(200),
   /** A due date is stored as noon UTC, which is the same calendar day from UTC−11 to UTC+11. */
   dueAt: isoDateTimeSchema.nullable(),
@@ -421,6 +425,15 @@ export const createLeadTaskRequestSchema = z
   .strict();
 export type CreateLeadTaskRequest = z.infer<typeof createLeadTaskRequestSchema>;
 
+/**
+ * `POST /workspaces/:id/tasks`: a plain task, with the same fields and checks
+ * as a lead's task (a title of 1–200 characters, a due date sent as its day at
+ * noon UTC or null, an active member or null). `503 plain_tasks_unavailable`
+ * until migration 0038 is applied.
+ */
+export const createPlainTaskRequestSchema = createLeadTaskRequestSchema;
+export type CreatePlainTaskRequest = CreateLeadTaskRequest;
+
 /** `PATCH /workspaces/:id/tasks/:taskId`: completing sets `completedAt`; reopening clears it. */
 export const updateLeadTaskRequestSchema = z
   .object({
@@ -503,9 +516,9 @@ export type MarkLeadOpenedResponse = z.infer<typeof markLeadOpenedResponseSchema
 
 /**
  * `GET /workspaces/:id/tasks` — tasks across the workspace's active leads,
- * soonest due first (undated last); `done` tasks come most recently completed
- * first instead. Defaults to the caller's active tasks (`open` and
- * `in_progress`).
+ * and with `plain=include` its plain tasks too, soonest due first (undated
+ * last); `done` tasks come most recently completed first instead. Defaults to
+ * the caller's active tasks (`open` and `in_progress`).
  */
 /** Whose tasks: `me`, `none` (unassigned), `all` (the whole team) or one member's actor id. */
 export const taskAssigneeFilterSchema = z.union([z.enum(['me', 'none', 'all']), z.uuid()]);
@@ -522,20 +535,29 @@ export const listWorkspaceTasksQuerySchema = z.object({
   completedSince: z.iso.date().optional(),
   /** Only tasks due on or before this day: the follow-ups due (undated tasks never are). */
   dueBy: leadDueBySchema.optional(),
+  /**
+   * `include` lists plain tasks (no lead) beside the lead tasks. Without it
+   * they are left out, so an admin from before plain tasks, whose list schema
+   * requires every item's lead, still reads the page.
+   */
+  plain: z.literal('include').optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(200).optional(),
 });
 export type ListWorkspaceTasksQuery = z.infer<typeof listWorkspaceTasksQuerySchema>;
 
 export const workspaceTaskSchema = leadTaskSchema.extend({
-  lead: z.object({
-    id: z.uuid(),
-    leadType: leadTypeSchema,
-    stage: leadStageSchema,
-    contact: leadContactSchema,
-    /** The website's own number for it (`MS-101`), which staff know it by. */
-    externalRef: leadExternalRefSchema.nullable().optional(),
-  }),
+  /** The task's lead; null for a plain task. */
+  lead: z
+    .object({
+      id: z.uuid(),
+      leadType: leadTypeSchema,
+      stage: leadStageSchema,
+      contact: leadContactSchema,
+      /** The website's own number for it (`MS-101`), which staff know it by. */
+      externalRef: leadExternalRefSchema.nullable().optional(),
+    })
+    .nullable(),
 });
 export type WorkspaceTask = z.infer<typeof workspaceTaskSchema>;
 

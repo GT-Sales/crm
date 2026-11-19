@@ -14,6 +14,7 @@ import {
   parseLeadSort,
   createLeadNoteRequestSchema,
   createLeadTaskRequestSchema,
+  createPlainTaskRequestSchema,
   createServiceCredentialRequestSchema,
   inviteStaffRequestSchema,
   leadBoardQuerySchema,
@@ -1196,6 +1197,48 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
     }
   });
 
+  // A plain task: work that belongs to no lead, with the lead task form's
+  // checks and its permission (tasks are lead work, shown only to the roles
+  // that see it). Audited like a lead's task; no lead, so no timeline entry.
+  router.post('/workspaces/:workspaceId/tasks', async (req, res) => {
+    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
+    const body = createPlainTaskRequestSchema.safeParse(req.body);
+    if (!workspaceId.success || !body.success) {
+      sendStaffAuthError(res, req.id, 'invalid_request', 400);
+      return;
+    }
+    try {
+      const { actor, decision } = await decide(req, workspaceId.data, 'lead.manage');
+      if (!decision.allowed) {
+        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
+        return;
+      }
+      const store = leadWork(req, res);
+      if (!store) return;
+      const outcome = store.createPlainTask
+        ? await store.createPlainTask({
+            workspaceId: workspaceId.data,
+            actorId: actor.actorId,
+            requestId: req.id,
+            title: body.data.title,
+            dueAt: body.data.dueAt,
+            assignedActorId: body.data.assignedActorId,
+          })
+        : ({ status: 'unavailable' } as const);
+      if (outcome.status !== 'saved') {
+        if (outcome.status === 'unavailable')
+          // Migration 0038 is not applied yet: a clean refusal, never a 500.
+          sendDomainError(res, req.id, 'plain_tasks_unavailable', 503);
+        else sendDomainError(res, req.id, 'assignee_not_found', 422);
+        return;
+      }
+      res.status(201).json({ task: outcome.task, requestId: req.id });
+    } catch (error) {
+      reportFailure(req, error);
+      sendStaffAuthError(res, req.id, 'internal_error', 500);
+    }
+  });
+
   router.patch('/workspaces/:workspaceId/tasks/:taskId', async (req, res) => {
     const params = uuidParams(req, res, 'taskId');
     if (!params) return;
@@ -1257,6 +1300,8 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
           status: query.data.status ?? 'active',
           dueBy: query.data.dueBy,
           completedSince: query.data.completedSince,
+          // Only a caller that asked: an older admin's list cannot read a plain task.
+          includePlain: query.data.plain === 'include',
         },
         page,
         pageSize,

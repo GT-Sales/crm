@@ -11,6 +11,7 @@ const ALLOWED_TOOLS = new Set([
   'prepareLeadUpdate',
   'prepareNote',
   'prepareTask',
+  'prepareTaskUpdate',
   'prepareEmail',
   'listAutomations',
   'getAutomation',

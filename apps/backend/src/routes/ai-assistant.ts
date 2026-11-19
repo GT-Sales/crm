@@ -22,7 +22,12 @@ import {
 import type { AiUsageStore } from '../ai/usage-store.js';
 import { createAiConversationRoutes } from './ai-conversations.js';
 import { createCrmGuideTool, runCrmGuide } from '../ai/crm-guide.js';
-import { aiActionRootId, createActionProposalTools, verifyAiAction } from '../ai/actions.js';
+import {
+  aiActionRootId,
+  createActionProposalTools,
+  taskToolInputOf,
+  verifyAiAction,
+} from '../ai/actions.js';
 import { signAssistantTurn, trustedHistory } from '../ai/history.js';
 import type { LeadWorkStore } from '../leads/work-store.js';
 import type { AiTurnStore } from '../ai/turn-store.js';
@@ -34,6 +39,7 @@ import {
   aiActionProposalSchema,
   aiAssistantHistoryText,
   type AiFollowUp,
+  type AiActionDraft,
   AI_ASSISTANT_LIMITS,
   AI_EFFORTS,
   aiCapabilitiesResponseSchema,
@@ -143,6 +149,10 @@ export interface AiAssistantRouteDependencies {
     LeadWorkStore,
     | 'addNote'
     | 'createTask'
+    | 'createPlainTask'
+    | 'plainTasksReady'
+    | 'previewAiTaskUpdate'
+    | 'confirmAiTaskUpdate'
     | 'queueAiEmail'
     | 'previewAiEmail'
     | 'previewAiLeadUpdate'
@@ -255,6 +265,7 @@ function capabilityDocument(
   automationAuthoring = false,
   chat?: { availability: AiChatAvailability; kinds: readonly AiAttachmentKind[] },
   highEffort = false,
+  plainTasks = false,
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
@@ -276,6 +287,10 @@ function capabilityDocument(
         }
       : {}),
     actions: canAct && unavailable === undefined ? ['task', 'note', 'email', 'lead_update'] : [],
+    // Beside `actions`, never in it: an older admin's enum there knows four kinds.
+    ...(canAct && unavailable === undefined
+      ? { taskActions: plainTasks ? ['plain_task', 'task_update'] : ['task_update'] }
+      : {}),
     ...(unavailable === undefined ? {} : { reason: unavailable }),
     site: { id: site.siteId, slug: site.slug, name: site.name },
     leadTypes: [...site.leadTypes],
@@ -341,6 +356,7 @@ const AI_CARD_REQUESTS_PER_MINUTE = 30;
 const CARD_PROGRESS_LABELS: Readonly<Record<string, string>> = {
   prepareNote: 'Preparing a note for review',
   prepareTask: 'Preparing a task for review',
+  prepareTaskUpdate: 'Preparing a task move for review',
   prepareEmail: 'Preparing an email for review',
   getLeadUpdateOptions: 'Checking the lead’s choices',
   prepareLeadUpdate: 'Preparing a lead change for review',
@@ -405,6 +421,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     return true;
   }
   const previewEmail = dependencies.work?.previewAiEmail?.bind(dependencies.work);
+  const previewTaskUpdate = dependencies.work?.previewAiTaskUpdate?.bind(dependencies.work);
+  /** Whether a task may have no lead here yet (migration 0038); a failed check is "no". */
+  const plainTasksReady = async (scope: Scope): Promise<boolean> =>
+    dependencies.work?.createPlainTask !== undefined &&
+    (await dependencies.work.plainTasksReady?.(scope).catch(() => false)) === true;
   const leadUpdatePreview = async (
     scope: Scope,
     leadId: string,
@@ -491,17 +512,21 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         workspaceId: workspaceId.data,
         actorId: actor.actorId,
       });
+      const canAct = Boolean(
+        dependencies.work &&
+        dependencies.config.signingKey &&
+        decideAccess(access, 'lead.manage').allowed,
+      );
+      const plainTasks =
+        canAct &&
+        (await plainTasksReady({ workspaceId: workspaceId.data, actorId: actor.actorId }));
       res.setHeader('cache-control', 'no-store');
       res.json(
         capabilityDocument(
           site,
           req.id,
           undefined,
-          Boolean(
-            dependencies.work &&
-            dependencies.config.signingKey &&
-            decideAccess(access, 'lead.manage').allowed,
-          ),
+          canAct,
           Boolean(
             dependencies.automationAuthoring &&
             dependencies.flows &&
@@ -510,6 +535,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           ),
           { availability, kinds: dependencies.chat?.attachments?.kinds ?? [] },
           dependencies.config.highEffort !== undefined,
+          plainTasks,
         ),
       );
     } catch (error) {
@@ -543,10 +569,14 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       if (await cardLimitRefused(req, res, workspaceId.data, actor.actorId)) return;
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const original = verifyAiAction(body.data.token, config.signingKey, scope, now());
+      // A revision keeps the card's kind and what it is about: the same lead
+      // (none for a plain task, which stays plain), the same task, the same field.
+      const subject = (draft: AiActionDraft) =>
+        draft.kind === 'task_update' ? `task:${draft.taskId}` : `lead:${draft.leadId ?? ''}`;
       if (
         !original ||
         original.draft.kind !== body.data.draft.kind ||
-        original.draft.leadId !== body.data.draft.leadId ||
+        subject(original.draft) !== subject(body.data.draft) ||
         (original.draft.kind === 'lead_update' &&
           body.data.draft.kind === 'lead_update' &&
           original.draft.field !== body.data.draft.field)
@@ -566,6 +596,10 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         // The new card is a version of the same draft: it saves under one id.
         rootId: aiActionRootId(original),
         leadUpdatePreview: (leadId, field) => leadUpdatePreview(scope, leadId, field),
+        ...(previewTaskUpdate
+          ? { taskUpdatePreview: (taskId: string) => previewTaskUpdate({ ...scope, taskId }) }
+          : {}),
+        plainTasks: await plainTasksReady(scope),
         reads: dependencies.reads,
         emailPreview: previewEmail
           ? (leadId) => previewEmail({ ...scope, leadId, requestId: req.id })
@@ -574,17 +608,21 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         now,
         budget: new TurnBudget(),
       });
-      const { kind, ...draft } = body.data.draft;
-      await tools.execute(
-        kind === 'note'
-          ? 'prepareNote'
-          : kind === 'task'
-            ? 'prepareTask'
+      const revised = body.data.draft;
+      if (revised.kind === 'task') await tools.execute('prepareTask', taskToolInputOf(revised));
+      else {
+        const { kind, ...draft } = revised;
+        await tools.execute(
+          kind === 'note'
+            ? 'prepareNote'
             : kind === 'email'
               ? 'prepareEmail'
-              : 'prepareLeadUpdate',
-        draft,
-      );
+              : kind === 'task_update'
+                ? 'prepareTaskUpdate'
+                : 'prepareLeadUpdate',
+          draft,
+        );
+      }
       const proposal = tools.proposals[0];
       if (!proposal) {
         sendDomainError(res, req.id, 'lead_not_found', 404);
@@ -739,22 +777,91 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         );
         return;
       }
+      if (action.draft.kind === 'task_update') {
+        if (!dependencies.work.confirmAiTaskUpdate || action.taskUpdateVersion === undefined) {
+          sendDomainError(res, req.id, 'ai_unavailable', 503);
+          return;
+        }
+        // The same change a staff PATCH makes, unless the task changed since the card.
+        const outcome = await dependencies.work.confirmAiTaskUpdate({
+          ...scope,
+          requestId: req.id,
+          taskId: action.draft.taskId,
+          status: action.draft.status,
+          version: action.taskUpdateVersion,
+          creationId: rootId,
+          aiCardId: action.id,
+        });
+        if (outcome.status !== 'saved') {
+          sendDomainError(
+            res,
+            req.id,
+            outcome.status === 'not_found'
+              ? 'task_not_found'
+              : outcome.status === 'trashed'
+                ? 'lead_trashed'
+                : 'conflict',
+            outcome.status === 'not_found' ? 404 : 409,
+          );
+          return;
+        }
+        if (await superseded()) return;
+        res.json(
+          confirmAiActionResponseSchema.parse({
+            status: 'saved',
+            actionId: action.id,
+            kind: 'task_update',
+            recordId: outcome.recordId,
+            requestId: req.id,
+          }),
+        );
+        return;
+      }
+      const taskFields = (draft: Extract<AiActionDraft, { kind: 'task' }>) => ({
+        title: draft.title,
+        dueAt: draft.dueDate === null ? null : `${draft.dueDate}T12:00:00.000Z`,
+        assignedActorId: draft.assignee === 'me' ? actor.actorId : null,
+      });
+      if (action.draft.kind === 'task' && action.draft.leadId === undefined) {
+        // A plain task, through the staff route's own store path.
+        const outcome = dependencies.work.createPlainTask
+          ? await dependencies.work.createPlainTask({
+              ...scope,
+              requestId: req.id,
+              creationId: rootId,
+              aiCardId: action.id,
+              ...taskFields(action.draft),
+            })
+          : ({ status: 'unavailable' } as const);
+        if (outcome.status !== 'saved') {
+          if (outcome.status === 'unavailable')
+            sendDomainError(res, req.id, 'plain_tasks_unavailable', 503);
+          else sendDomainError(res, req.id, 'assignee_not_found', 409);
+          return;
+        }
+        if (await superseded()) return;
+        res.json(
+          confirmAiActionResponseSchema.parse({
+            status: 'saved',
+            actionId: action.id,
+            kind: 'task',
+            recordId: outcome.task.id,
+            requestId: req.id,
+          }),
+        );
+        return;
+      }
       const input = {
         ...scope,
         requestId: req.id,
-        leadId: action.draft.leadId,
+        leadId: action.draft.leadId ?? '',
         creationId: rootId,
         aiCardId: action.id,
       };
       const outcome =
         action.draft.kind === 'note'
           ? await dependencies.work.addNote({ ...input, body: action.draft.body })
-          : await dependencies.work.createTask({
-              ...input,
-              title: action.draft.title,
-              dueAt: action.draft.dueDate === null ? null : `${action.draft.dueDate}T12:00:00.000Z`,
-              assignedActorId: action.draft.assignee === 'me' ? actor.actorId : null,
-            });
+          : await dependencies.work.createTask({ ...input, ...taskFields(action.draft) });
       if (outcome.status === 'not_found') {
         sendDomainError(res, req.id, 'lead_not_found', 404);
         return;
@@ -967,6 +1074,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const turnStarted = now();
       const scope: Scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
       const budget = new TurnBudget(effort);
+      const plainTasks = await wait(plainTasksReady(scope));
       const actionTools =
         dependencies.work &&
         dependencies.config.signingKey &&
@@ -977,6 +1085,13 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               key: dependencies.config.signingKey,
               leadUpdatePreview: (leadId, field, options) =>
                 wait(leadUpdatePreview(scope, leadId, field, options)),
+              ...(previewTaskUpdate
+                ? {
+                    taskUpdatePreview: (taskId: string) =>
+                      wait(previewTaskUpdate({ ...scope, taskId })),
+                  }
+                : {}),
+              plainTasks,
               reads: dependencies.reads,
               emailPreview: previewEmail
                 ? (leadId) => wait(previewEmail({ ...scope, leadId, requestId: req.id }))
@@ -1338,6 +1453,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             automationsAvailable: automationTools !== undefined,
             actionsAvailable:
               actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
+            plainTasksAvailable: plainTasks,
             // Only the verified id and the catalogue's labels reach the system
             // prompt; the customer-typed name and reference travel as data in
             // the person's own message below.
@@ -1396,6 +1512,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                   : actionTools &&
                       (name === 'prepareNote' ||
                         name === 'prepareTask' ||
+                        name === 'prepareTaskUpdate' ||
                         name === 'prepareEmail' ||
                         name === 'prepareLeadUpdate' ||
                         name === 'getLeadUpdateOptions')

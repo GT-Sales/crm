@@ -1045,7 +1045,7 @@ databaseTest('DatabaseLeadWorkStore', () => {
       'Send the welcome pack',
     ]);
 
-    const here = (tasks: readonly { leadId: string; title: string }[]) =>
+    const here = (tasks: readonly { leadId: string | null; title: string }[]) =>
       tasks.filter((task) => task.leadId === leadId).map((task) => task.title);
     const active = await work.listTasks({ ...scope, assignee: 'me', status: 'active' }, 1, 200);
     expect(here(active.tasks)).toEqual([

@@ -103,6 +103,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   conversation_full: 'This Ask AI conversation holds the most messages it may. Start a new chat.',
   attachment_rejected: 'The file was not accepted; `details.reason` says why.',
   attachments_unavailable: 'Attaching files to Ask AI is not available here.',
+  plain_tasks_unavailable:
+    'Tasks without a lead are not available on this site yet. Add the task on a lead.',
   rate_limited: 'Too many requests just now. Try again shortly.',
   export_too_large:
     'Too many leads for one export; `details` gives the count and the most one export holds. Narrow the filters.',

@@ -571,6 +571,49 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 8 };
       return;
     }
+    // A plain task: "Create a task to call the supplier tomorrow" names no lead.
+    const plainTask = /^create a task to (.+) tomorrow$/i.exec(question);
+    if (plainTask?.[1]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const words = plainTask[1];
+      yield { type: 'tool-start', toolName: 'prepareTask' };
+      await input.executeTool('prepareTask', {
+        leadId: null,
+        title: `${words.charAt(0).toUpperCase()}${words.slice(1)}`,
+        dueDate: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+        assignee: 'me',
+      });
+      yield { type: 'tool-end', toolName: 'prepareTask', ok: true };
+      yield { type: 'text', text: 'Task draft ready, with no lead. Nothing has been saved.' };
+      yield { type: 'finish', outputTokens: 10 };
+      return;
+    }
+    // A task move: 'Move the task "Call the supplier" to done' finds it, then prepares the card.
+    const taskMove = /^move the task "(.+)" to (to do|in progress|done|cancelled)$/i.exec(question);
+    if (taskMove?.[1] && taskMove[2]) {
+      if (!input.executeTool) throw new Error('expected executor');
+      const listed = z
+        .object({
+          data: z.object({ tasks: z.array(z.object({ taskId: z.string(), title: z.string() })) }),
+        })
+        .parse(
+          JSON.parse(await input.executeTool('listOpenTasks', { status: 'active', due: 'any' })),
+        );
+      const found = listed.data.tasks.find((task) => task.title === taskMove[1]);
+      if (!found) {
+        yield { type: 'text', text: 'No open task has that title.' };
+        yield { type: 'finish', outputTokens: 6 };
+        return;
+      }
+      const stage = taskMove[2].toLowerCase();
+      await input.executeTool('prepareTaskUpdate', {
+        taskId: found.taskId,
+        status: stage === 'to do' ? 'open' : stage === 'in progress' ? 'in_progress' : stage,
+      });
+      yield { type: 'text', text: 'Task move ready for review.' };
+      yield { type: 'finish', outputTokens: 8 };
+      return;
+    }
     if (question.startsWith('Add a note:') || question.startsWith('Create a task:')) {
       const leadId = /ID ([a-f0-9-]{36})/.exec(input.system)?.[1];
       if (!leadId || !input.executeTool) throw new Error('expected open lead context');

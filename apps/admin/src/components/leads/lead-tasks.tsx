@@ -166,6 +166,111 @@ export function TaskRow({
   );
 }
 
+/** What the one-line task form saves: a title, a due day at noon UTC or null, an assignee or null. */
+export interface NewTask {
+  title: string;
+  dueAt: string | null;
+  assignedActorId: string | null;
+}
+
+/**
+ * The one-line "Add a task" form, shared by a lead's Tasks card and the Tasks
+ * page (where it makes a plain task, with no lead). It is one line until
+ * someone starts a task: the due date and the assignee (Me, Unassigned or a
+ * teammate) come with the words. `onAdd` saves it; a refusal becomes
+ * `onError`'s sentence and the form keeps what was typed.
+ */
+export function TaskForm({
+  members,
+  onAdd,
+  onError,
+}: {
+  members: readonly AssignableMember[];
+  onAdd(task: NewTask): Promise<void>;
+  onError(message: string | undefined): void;
+}) {
+  const self = members.find((member) => member.isSelf);
+  const [title, setTitle] = useState('');
+  const [day, setDay] = useState('');
+  const [assignee, setAssignee] = useState<string>('self');
+  const [saving, setSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const expanded = formOpen || title !== '' || day !== '';
+
+  async function add(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = title.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    onError(undefined);
+    try {
+      const assignedActorId =
+        assignee === 'self' ? (self?.actorId ?? null) : assignee === 'none' ? null : assignee;
+      await onAdd({ title: trimmed, dueAt: day ? dueAtFromDay(day) : null, assignedActorId });
+      setTitle('');
+      setDay('');
+    } catch (error) {
+      onError(describeError(error, 'add the task'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void add(event)} aria-label="New task" className="grid gap-3">
+      <div className="flex items-end gap-2">
+        <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs font-medium">
+          <span className="sr-only">New task</span>
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            onFocus={() => setFormOpen(true)}
+            placeholder="Add a task: what needs to be done?"
+            className="h-9"
+            maxLength={200}
+          />
+        </label>
+        <Button
+          type="submit"
+          size="sm"
+          className="h-9 shrink-0"
+          disabled={saving || title.trim() === ''}
+        >
+          <PlusIcon className="size-4" aria-hidden="true" />
+          {saving ? 'Adding…' : 'Add task'}
+        </Button>
+      </div>
+      {expanded ? (
+        <div className="grid min-w-0 grid-cols-2 gap-3">
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+            <span className="flex flex-wrap items-center gap-x-1.5">
+              Due date{' '}
+              <span aria-hidden="true" className="font-normal text-muted-foreground">
+                Optional
+              </span>
+            </span>
+            <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
+            <span>Assign the task to</span>
+            <NativeSelect value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+              <option value="self">Me</option>
+              <option value="none">Unassigned</option>
+              {members
+                .filter((member) => !member.isSelf)
+                .map((member) => (
+                  <option key={member.actorId} value={member.actorId}>
+                    {memberName(member)}
+                  </option>
+                ))}
+            </NativeSelect>
+          </label>
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
 /** The lead's follow-ups: open ones first, a form to add one, and the closed ones folded away. */
 export function LeadTasks({
   workspaceId,
@@ -185,43 +290,16 @@ export function LeadTasks({
   /** A created or changed task, as the backend now has it. */
   onChange(task: LeadTask): void;
 }) {
-  const self = members.find((member) => member.isSelf);
-  const [title, setTitle] = useState('');
-  const [day, setDay] = useState('');
-  const [assignee, setAssignee] = useState<string>('self');
   const [busyId, setBusyId] = useState<string>();
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string>();
   const [showClosed, setShowClosed] = useState(false);
-  // The form is one line until someone starts a task: the date and assignee come with the words.
-  const [formOpen, setFormOpen] = useState(false);
-  const expanded = formOpen || title !== '' || day !== '';
 
   const open = tasks.filter((task) => isActiveTaskStatus(task.status));
   const closed = tasks.filter((task) => !isActiveTaskStatus(task.status));
 
-  async function add(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = title.trim();
-    if (!trimmed || saving) return;
-    setSaving(true);
-    setMessage(undefined);
-    try {
-      const assignedActorId =
-        assignee === 'self' ? (self?.actorId ?? null) : assignee === 'none' ? null : assignee;
-      const result = await createLeadTask(accessToken, workspaceId, leadId, {
-        title: trimmed,
-        dueAt: day ? dueAtFromDay(day) : null,
-        assignedActorId,
-      });
-      onChange(result.task);
-      setTitle('');
-      setDay('');
-    } catch (error) {
-      setMessage(describeError(error, 'add the task'));
-    } finally {
-      setSaving(false);
-    }
+  async function add(task: NewTask) {
+    const result = await createLeadTask(accessToken, workspaceId, leadId, task);
+    onChange(result.task);
   }
 
   async function setStatus(task: LeadTask, status: LeadTaskStatus) {
@@ -263,62 +341,7 @@ export function LeadTasks({
         </ul>
       ) : null}
 
-      {canWrite ? (
-        <form onSubmit={(event) => void add(event)} className="grid gap-3">
-          <div className="flex items-end gap-2">
-            <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs font-medium">
-              <span className="sr-only">New task</span>
-              <Input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                onFocus={() => setFormOpen(true)}
-                placeholder="Add a task: what needs to be done?"
-                className="h-9"
-                maxLength={200}
-              />
-            </label>
-            <Button
-              type="submit"
-              size="sm"
-              className="h-9 shrink-0"
-              disabled={saving || title.trim() === ''}
-            >
-              <PlusIcon className="size-4" aria-hidden="true" />
-              {saving ? 'Adding…' : 'Add task'}
-            </Button>
-          </div>
-          {expanded ? (
-            <div className="grid min-w-0 grid-cols-2 gap-3">
-              <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
-                <span className="flex flex-wrap items-center gap-x-1.5">
-                  Due date{' '}
-                  <span aria-hidden="true" className="font-normal text-muted-foreground">
-                    Optional
-                  </span>
-                </span>
-                <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
-              </label>
-              <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium">
-                <span>Assign the task to</span>
-                <NativeSelect
-                  value={assignee}
-                  onChange={(event) => setAssignee(event.target.value)}
-                >
-                  <option value="self">Me</option>
-                  <option value="none">Unassigned</option>
-                  {members
-                    .filter((member) => !member.isSelf)
-                    .map((member) => (
-                      <option key={member.actorId} value={member.actorId}>
-                        {memberName(member)}
-                      </option>
-                    ))}
-                </NativeSelect>
-              </label>
-            </div>
-          ) : null}
-        </form>
-      ) : null}
+      {canWrite ? <TaskForm members={members} onAdd={add} onError={setMessage} /> : null}
 
       {message ? (
         <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">

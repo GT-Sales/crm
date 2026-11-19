@@ -184,6 +184,7 @@ import {
   createLeadNoteRequestSchema,
   createLeadNoteResponseSchema,
   createLeadTaskRequestSchema,
+  createPlainTaskRequestSchema,
   getWorkspaceLeadResponseSchema,
   leadTaskResponseSchema,
   leadTrashResponseSchema,
@@ -201,6 +202,7 @@ import {
   type CreateLeadNoteRequest,
   type CreateLeadNoteResponse,
   type CreateLeadTaskRequest,
+  type CreatePlainTaskRequest,
   type GetWorkspaceLeadResponse,
   type LeadTaskResponse,
   type LeadTrashResponse,
@@ -666,6 +668,8 @@ export interface BackendClient {
       leadId: string,
       body: CreateLeadTaskRequest,
     ): Promise<LeadTaskResponse>;
+    /** A plain task: no lead. */
+    createPlainTask(workspaceId: string, body: CreatePlainTaskRequest): Promise<LeadTaskResponse>;
     updateTask(
       workspaceId: string,
       taskId: string,
@@ -1511,6 +1515,13 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           body: createLeadTaskRequestSchema.parse(body),
           responseSchema: leadTaskResponseSchema,
         }),
+      createPlainTask: (workspaceId, body) =>
+        call({
+          method: 'POST',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/tasks`,
+          body: createPlainTaskRequestSchema.parse(body),
+          responseSchema: leadTaskResponseSchema,
+        }),
       updateTask: (workspaceId, taskId, body) =>
         call({
           method: 'PATCH',
@@ -1526,6 +1537,7 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             assignee: query?.assignee,
             status: query?.status,
             dueBy: query?.dueBy,
+            plain: query?.plain,
             page: query?.page,
             pageSize: query?.pageSize,
           },

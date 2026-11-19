@@ -77,6 +77,7 @@ import {
   createLeadNoteRequestSchema,
   createLeadNoteResponseSchema,
   createLeadTaskRequestSchema,
+  createPlainTaskRequestSchema,
   getWorkspaceLeadResponseSchema,
   leadTaskResponseSchema,
   leadTrashResponseSchema,
@@ -579,6 +580,17 @@ export const endpoints: readonly EndpointDef[] = [
     response: leadTaskResponseSchema,
   },
   {
+    operationId: 'createPlainTask',
+    method: 'POST',
+    path: '/api/v1/staff/workspaces/{workspaceId}/tasks',
+    summary:
+      'Add a plain task, a task with no lead (lead management); 503 `plain_tasks_unavailable` until migration 0038 is applied.',
+    auth: 'staff',
+    successStatus: 201,
+    request: createPlainTaskRequestSchema,
+    response: leadTaskResponseSchema,
+  },
+  {
     operationId: 'updateLeadTask',
     method: 'PATCH',
     path: '/api/v1/staff/workspaces/{workspaceId}/tasks/{taskId}',
@@ -593,7 +605,7 @@ export const endpoints: readonly EndpointDef[] = [
     method: 'GET',
     path: '/api/v1/staff/workspaces/{workspaceId}/tasks',
     summary:
-      "List tasks across the workspace's active leads: the caller's, unassigned, everyone's or one member's, optionally only those due by a day; defaults to the caller's open ones.",
+      "List tasks across the workspace's active leads, and with `plain=include` its plain tasks (no lead): the caller's, unassigned, everyone's or one member's, optionally only those due by a day; defaults to the caller's open ones.",
     auth: 'staff',
     successStatus: 200,
     query: listWorkspaceTasksQuerySchema,

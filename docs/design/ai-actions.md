@@ -44,6 +44,51 @@ opaque `aiActionId` to audit metadata; note text and task titles are not copied
 into the audit. Due dates remain calendar days stored at noon UTC. A confirmed
 task participates in existing task automations just like a manually made task.
 
+## Plain tasks and task moves
+
+A task card may name no lead: a **plain task** (`AGENTS.md`, vocabulary). The
+`task` draft's `leadId` is then absent, and the card's `leadLabel` and
+`leadHref` are too; the card reads "No lead" and links nowhere. The
+`prepareTask` tool takes `leadId` as a required, nullable field, so the model
+says "no lead" with `null` rather than leaving the id out by accident; a given
+id is still checked through the same active, unrestricted Site read. Until
+migration 0038 is applied the tool answers `not_available` for `null`, its
+description and the system prompt say every task needs a lead, and
+capabilities list `taskActions: ['task_update']` only. Confirmation rechecks
+`workspace.read` and `lead.manage` and calls `createPlainTask`, the store
+function the staff `POST /workspaces/:id/tasks` route calls, with the signed
+root id as the task's id (an advisory lock on that id stands in for the lead
+lock, so concurrent retries find one task); before 0038 it answers `503
+plain_tasks_unavailable`. A revision keeps the card plain: an edited draft that
+names a lead is refused as `invalid_request`.
+
+A **`task_update` card** (`{ kind: 'task_update', taskId, status }`) moves one
+task, a lead's or a plain one, to `open`, `in_progress`, `done` or
+`cancelled`. `prepareTaskUpdate` reads the task as the card is prepared (a
+plain task, or one on an active, unrestricted lead) and refuses a move to the
+status it already has. The card shows the task's title, its current and new
+status, and its lead when it has one (`taskUpdateContext`: `version`, `title`,
+`before`, `leadId`). The task's version, its update time in microseconds, is
+signed into the card (`taskUpdateVersion`), never taken from the browser.
+Confirmation rechecks access, locks the task, returns the receipt (an
+`ai.task_updated` audit event keyed by the draft's root id) when the move was
+already saved, refuses a task on an archived lead (`409 lead_trashed`), a gone
+one (`404 task_not_found`) and a stale card (the task changed in any way since:
+`409 conflict`, as a stale lead update is), then makes the same change the
+staff `PATCH` makes (`applyTaskUpdate`: the completion time set or cleared,
+the `lead.task_updated` audit with `aiActionId`, a lead task's overdue clock)
+and writes the receipt in the same transaction. Editing the card changes only
+the new status. `listOpenTasks` finds tasks to move: it lists plain tasks
+beside lead tasks, with each task's status, and filters by status (`active`,
+the default, or one status).
+
+Both are additive on the wire: `actions` in capabilities keeps its four kinds
+and `taskActions` lists `plain_task` (once 0038 is applied) and
+`task_update` beside it, because an older admin's `actions` enum would refuse
+the whole document. An older admin given a stream `actions` part that holds a
+plain-task or `task_update` card fails to parse that one part and skips it,
+with every card it carried; the rest of the stream reads as before.
+
 ## Browser behavior
 
 Cards are released only after a successful model turn and final permission
@@ -71,4 +116,6 @@ new stream part while builds roll. Staff should refresh before using the cards.
 
 The existing `AI_ASSISTANT_ENABLED` switch disables reads, preparation and
 confirmation. No API key goes to the browser. There is no new direct write tool,
-bulk operation, email operation, lead edit, stage change or autonomous action.
+bulk operation, email operation or autonomous action; lead edits and stage
+changes are the reviewed cards of [ai-lead-updates.md](ai-lead-updates.md),
+task moves the `task_update` card above.

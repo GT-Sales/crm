@@ -68,10 +68,13 @@ export interface LeadProjection {
 
 export interface TaskProjection {
   readonly taskId: string;
-  readonly leadId: string;
+  /** Null for a plain task (no lead); its reference and name are null too. */
+  readonly leadId: string | null;
   readonly leadReference: string | null;
   readonly leadName: string | null;
   readonly title: string;
+  /** Its stage: `open` (To do), `in_progress`, `done` or `cancelled`. */
+  readonly status: string;
   readonly assignee: string | null;
   readonly dueAt: string | null;
   /** The calendar day the due date names, `YYYY-MM-DD`, read in UTC. */
@@ -166,10 +169,11 @@ export type LeadRow = z.infer<typeof leadRowSchema>;
 
 export const taskRowSchema = z.object({
   id: z.uuid(),
-  lead_id: z.uuid(),
+  lead_id: z.uuid().nullable(),
   lead_ref: z.string().nullable(),
   lead_name: z.string().nullable(),
   title: z.string().min(1),
+  status: z.string().min(1),
   assignee_name: z.string().nullable(),
   due_at: z.coerce.date().nullable(),
 });
@@ -209,6 +213,7 @@ export function projectTask(row: TaskRow): TaskProjection {
     leadReference: row.lead_ref,
     leadName: row.lead_name,
     title: row.title,
+    status: row.status,
     assignee: row.assignee_name,
     dueAt: row.due_at === null ? null : row.due_at.toISOString(),
     dueDay: dueDayOf(row.due_at),
@@ -273,10 +278,11 @@ const leadProjectionSchema = z
 const taskProjectionSchema = z
   .object({
     taskId: z.uuid(),
-    leadId: z.uuid(),
+    leadId: z.uuid().nullable(),
     leadReference: z.string().nullable(),
     leadName: z.string().nullable(),
     title: z.string(),
+    status: z.string(),
     assignee: z.string().nullable(),
     dueAt: z.iso.datetime().nullable(),
     dueDay: z.string().nullable(),

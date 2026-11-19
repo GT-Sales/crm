@@ -60,13 +60,13 @@ on `access_lost` and says the member's access changed.
 
 ## 3. Reused reads, new queries, and side effects
 
-| Tool                   | Source                                                                                                                                                      | Side effects                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `getSiteOverview`      | New narrow parameterized counts in `ai/read-service.ts` over `app.leads` (type, window, `deleted_at is null`, `customer_data_restricted_at is null`)        | none                                                                             |
-| `findLeads`            | New narrow list in `ai/read-service.ts` (name/reference/email/phone ILIKE, type, stage, assignee, archive, page) with `count(*) over ()` as the exact total | none                                                                             |
-| `getLeadSummary`       | New narrow read of one lead + up to 10 open tasks + up to 10 activity rows                                                                                  | none — deliberately **not** the staff lead page's getters, which record "opened" |
-| `listOpenTasks`        | New narrow list in `ai/read-service.ts`; due-day filters reuse the `dueCutoff` rule from `leads/staff-queries.ts`                                           | none                                                                             |
-| `getSourcePerformance` | The existing `DatabaseReportStore.sourceReport` (`reports/store.ts`), unchanged                                                                             | none                                                                             |
+| Tool                   | Source                                                                                                                                                                                                                      | Side effects                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `getSiteOverview`      | New narrow parameterized counts in `ai/read-service.ts` over `app.leads` (type, window, `deleted_at is null`, `customer_data_restricted_at is null`)                                                                        | none                                                                             |
+| `findLeads`            | New narrow list in `ai/read-service.ts` (name/reference/email/phone ILIKE, type, stage, assignee, archive, page) with `count(*) over ()` as the exact total                                                                 | none                                                                             |
+| `getLeadSummary`       | New narrow read of one lead + up to 10 open tasks + up to 10 activity rows                                                                                                                                                  | none — deliberately **not** the staff lead page's getters, which record "opened" |
+| `listOpenTasks`        | New narrow list in `ai/read-service.ts` of lead tasks on active, unrestricted leads and plain tasks (no lead), by status (`active` or one status); due-day filters reuse the `dueCutoff` rule from `leads/staff-queries.ts` | none                                                                             |
+| `getSourcePerformance` | The existing `DatabaseReportStore.sourceReport` (`reports/store.ts`), unchanged                                                                                                                                             | none                                                                             |
 
 No getter that marks a lead opened, seeds automations, writes a timeline entry or
 queues a job is called. The only writes a turn makes are the
@@ -132,8 +132,9 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
 ## 6. Fields the model may see
 
 Leads: id, type and stage labels, reference, name, staff display name of the
-assignee, created/updated dates, archive state. Tasks: id, lead id/reference/name,
-title, assignee display name, due instant and due day. Activity: kind and time;
+assignee, created/updated dates, archive state. Tasks: id, lead id/reference/name
+(all three null for a plain task), title, status, assignee display name, due
+instant and due day. Activity: kind and time;
 a note excerpt (≤500 characters, at most 5) **only** when the caller asked for
 notes.
 

@@ -2,8 +2,14 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { aiActionDraftSchema, type AiActionDraft, type AiStageMoveNeed } from '@gt-sales/contracts';
+import {
+  aiActionDraftSchema,
+  leadTaskStatusSchema,
+  type AiActionDraft,
+  type AiStageMoveNeed,
+} from '@gt-sales/contracts';
 import { Button, Input, Textarea } from '@gt-sales/ui';
+import { TASK_STATUS_LABELS } from '../leads/lead-tasks';
 import { useOptionalAssistant, type AiActionView } from './assistant-provider';
 import { safeInternalHref } from './assistant-sources';
 import { dateTimeLabel } from '../../lib/dates';
@@ -44,10 +50,14 @@ export function AssistantAction({
         }[draft.field]
       : '';
   const isEmail = draft.kind === 'email';
+  const isTaskUpdate = draft.kind === 'task_update';
+  // A task with no lead: a plain task, whose card names no lead and links nowhere.
+  const isPlainTask = draft.kind === 'task' && draft.leadId === undefined;
+  const taskContext = proposal.taskUpdateContext;
   const [editing, setEditing] = useState(false);
   const [edited, setEdited] = useState<AiActionDraft>(draft);
   const [editError, setEditError] = useState('');
-  const href = safeInternalHref(proposal.leadHref);
+  const href = proposal.leadHref === undefined ? undefined : safeInternalHref(proposal.leadHref);
   const due =
     draft.kind === 'task' && draft.dueDate
       ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(
@@ -63,7 +73,9 @@ export function AssistantAction({
             ? 'Confirm note'
             : isEmail
               ? 'Review email'
-              : 'Confirm task'
+              : isTaskUpdate
+                ? 'Confirm task move'
+                : 'Confirm task'
       }
       className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-3 text-sm"
     >
@@ -75,10 +87,14 @@ export function AssistantAction({
               ? 'Add a note'
               : isEmail
                 ? 'Email the lead’s customer'
-                : 'Create a follow-up task'}
+                : isTaskUpdate
+                  ? 'Move a task'
+                  : isPlainTask
+                    ? 'Create a task'
+                    : 'Create a follow-up task'}
         </h3>
         <p className="mt-1 break-words text-xs text-muted-foreground">
-          {proposal.siteName} · {proposal.leadLabel}
+          {proposal.siteName} · {proposal.leadLabel ?? 'No lead'}
         </p>
       </div>
       {isEmail && proposal.emailContext ? (
@@ -108,6 +124,7 @@ export function AssistantAction({
                   dueDate: 'The due date',
                   assignee: 'The assignee',
                   value: 'The proposed value',
+                  status: 'The new stage',
                 }),
               );
               return;
@@ -196,6 +213,27 @@ export function AssistantAction({
                 </select>
               </label>
             </>
+          ) : edited.kind === 'task_update' ? (
+            <label className="block text-xs">
+              New stage
+              <select
+                aria-label="New stage"
+                className="block w-full rounded border bg-background p-2"
+                value={edited.status}
+                onChange={(event) => {
+                  const status = leadTaskStatusSchema.safeParse(event.target.value);
+                  if (status.success) setEdited({ ...edited, status: status.data });
+                }}
+              >
+                {leadTaskStatusSchema.options
+                  .filter((status) => status !== taskContext?.before)
+                  .map((status) => (
+                    <option key={status} value={status}>
+                      {TASK_STATUS_LABELS[status]}
+                    </option>
+                  ))}
+              </select>
+            </label>
           ) : (
             <label className="block text-xs">
               {edited.kind === 'email' ? 'Message' : 'Note'}
@@ -247,10 +285,20 @@ export function AssistantAction({
               </>
             ) : draft.kind === 'task' ? (
               draft.title
+            ) : draft.kind === 'task_update' ? (
+              (taskContext?.title ?? 'Task')
             ) : (
               draft.body
             )}
           </p>
+          {draft.kind === 'task_update' ? (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              <dt className="text-muted-foreground">Current stage</dt>
+              <dd>{taskContext ? TASK_STATUS_LABELS[taskContext.before] : 'Unknown'}</dd>
+              <dt className="text-muted-foreground">New stage</dt>
+              <dd>{TASK_STATUS_LABELS[draft.status]}</dd>
+            </dl>
+          ) : null}
           {draft.kind === 'task' ? (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               <dt className="text-muted-foreground">Due</dt>
@@ -269,7 +317,9 @@ export function AssistantAction({
               ? 'Note added.'
               : isEmail
                 ? 'Email queued for delivery.'
-                : 'Task created.'
+                : isTaskUpdate
+                  ? 'Task moved.'
+                  : 'Task created.'
           : status === 'cancelled'
             ? (action.error ?? 'Cancelled. Nothing was saved.')
             : status === 'revising'
@@ -328,6 +378,12 @@ export function AssistantAction({
         <p className="text-xs text-muted-foreground">
           Confirm applies this change using the CRM’s rules and may trigger enabled automations. If
           the lead changes, request a fresh draft.
+        </p>
+      ) : null}
+      {isTaskUpdate ? (
+        <p className="text-xs text-muted-foreground">
+          Confirm moves the task as the Tasks page does. If the task changes first, request a fresh
+          draft.
         </p>
       ) : null}
       {isEmail ? (
