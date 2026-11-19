@@ -164,6 +164,9 @@ export const domainErrorCodeSchema = z.enum([
   'conversation_full',
   'attachment_rejected',
   'attachments_unavailable',
+  // A plain task (a task with no lead) asked of a database without migration
+  // 0038 (503): the backend is deployed before the owner applies it.
+  'plain_tasks_unavailable',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

@@ -1,11 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 import {
   isActiveTaskStatus,
-  leadTypeLabel,
   type LeadTaskStatus,
   type ListWorkspaceTasksResponse,
   type WorkspaceTask,
@@ -19,18 +17,18 @@ import {
   ChevronDownIcon,
 } from 'lucide-react';
 
-import { listStaffTasks, updateLeadTask } from '../../lib/api';
+import { createPlainTask, listStaffTasks, updateLeadTask } from '../../lib/api';
 import { todayDay } from '../../lib/dates';
 import { describeError } from '../../lib/error-text';
 import { useResource, type Resource } from '../../lib/use-resource';
-import { leadDisplayName } from './lead-display';
-import { TaskRow } from './lead-tasks';
+import { TaskForm, TaskRow, type NewTask } from './lead-tasks';
 import {
   addDays,
   changeWords,
   DATE_GROUPS,
   dateGroupOf,
   DONE_WINDOW_DAYS,
+  TaskLead,
   TasksBoard,
   type BoardGroupBy,
   type TaskChange,
@@ -107,9 +105,11 @@ function patchList(
 /**
  * "My tasks": the active (to do and in progress) tasks assigned to the
  * viewer on this site, the unassigned ones for picking up work, or the whole
- * team's. As a list, by due date; as a board (`TasksBoard`), by status or by
- * date. The view and the board's grouping are this viewer's choices, kept in
- * this browser. A change made here is made on the lead.
+ * team's: tasks on leads and plain tasks (no lead), which this page asks for
+ * with `plain: 'include'`. As a list, by due date; as a board (`TasksBoard`),
+ * by status or by date. The view and the board's grouping are this viewer's
+ * choices, kept in this browser. "New task" makes a plain task, for those who
+ * may change tasks.
  */
 export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
   const { workspaceId, accessToken, members } = useLeadWorkspace(workspaceSlug);
@@ -124,6 +124,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
             listStaffTasks(accessToken, workspaceId, {
               assignee: scope,
               status: 'active',
+              plain: 'include',
               pageSize: 200,
             })
         : undefined,
@@ -139,6 +140,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
               assignee: scope,
               status: 'done',
               completedSince: doneSince,
+              plain: 'include',
               pageSize: DONE_LOAD,
             })
         : undefined,
@@ -207,6 +209,16 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
     void change(task, { status }, 'update the task');
   }
 
+  /** A plain task from the New task form; the lists reload to show it where it belongs. */
+  async function addPlainTask(next: NewTask) {
+    if (!accessToken || !workspaceId) return;
+    setAnnouncement(undefined);
+    const result = await createPlainTask(accessToken, workspaceId, next);
+    setAnnouncement(`“${result.task.title}” added.`);
+    void reload();
+    void reloadDone();
+  }
+
   const list = tasks.data?.tasks ?? [];
   const activeCount = list.filter((task) => isActiveTaskStatus(task.status)).length;
   // The board reads both loads as one: a task completed here stays in the
@@ -227,7 +239,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My tasks</h1>
           <p className="text-sm text-muted-foreground">
-            Follow-ups on this site’s leads, soonest first.
+            Follow-ups on this site’s leads and tasks with no lead, soonest first.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -263,6 +275,12 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
           ) : null}
         </div>
       </div>
+
+      {canWrite ? (
+        <div className="max-w-2xl">
+          <TaskForm members={members} onAdd={addPlainTask} onError={setMessage} />
+        </div>
+      ) : null}
 
       {message ? (
         <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
@@ -305,7 +323,7 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
       ) : list.length === 0 ? (
         <p className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
           {scope === 'me'
-            ? 'Nothing due. Tasks you are given on a lead show up here.'
+            ? 'Nothing due. Tasks you are given show up here.'
             : scope === 'none'
               ? 'No unassigned tasks.'
               : 'No open tasks on this site.'}
@@ -350,12 +368,11 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
                       busy={busyIds.has(task.id)}
                       onStatus={(status) => setStatus(task, status)}
                     >
-                      <Link
-                        href={`/w/${workspaceSlug}/leads/${task.lead.id}`}
-                        className="min-w-0 truncate rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        {leadDisplayName(task.lead.contact)} · {leadTypeLabel(task.lead.leadType)}
-                      </Link>
+                      <TaskLead
+                        task={task}
+                        workspaceSlug={workspaceSlug}
+                        className="min-w-0 truncate rounded-md border px-2 py-0.5 text-xs text-muted-foreground"
+                      />
                     </TaskRow>
                   ))}
                 </ul>

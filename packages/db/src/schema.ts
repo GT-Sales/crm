@@ -535,7 +535,13 @@ export const leadActivities = appSchema
   )
   .enableRLS();
 
-/** A follow-up on a lead with an optional due time and assignee. */
+/**
+ * A task with an optional due time and assignee: a follow-up on a lead, or a
+ * **plain task** with no lead (`lead_id` null, migration 0038). The composite
+ * foreign key stays: under Postgres's default MATCH SIMPLE it is not checked
+ * for a null `lead_id` and still ties every other task to a lead of its own
+ * site.
+ */
 export const leadTasks = appSchema
   .table(
     'lead_tasks',
@@ -544,7 +550,7 @@ export const leadTasks = appSchema
       workspaceId: uuid('workspace_id')
         .notNull()
         .references(() => workspaces.id, { onDelete: 'cascade' }),
-      leadId: uuid('lead_id').notNull(),
+      leadId: uuid('lead_id'),
       title: text('title').notNull(),
       dueAt: timestamp('due_at', { withTimezone: true, mode: 'date' }),
       assignedActorId: uuid('assigned_actor_id'),

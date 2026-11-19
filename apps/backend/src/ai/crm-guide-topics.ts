@@ -135,14 +135,16 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
   },
   {
     id: 'tasks',
-    summary: 'Creating follow-up tasks on a lead, completing them, and the My tasks page',
+    summary: 'Tasks on a lead or with no lead (plain tasks), moving them, and the My tasks page',
     body: text(
       'Create a task on a lead:',
       '1. Open the lead → Tasks tab (side panel) or the tasks card (full page).',
       '2. Under "New task" write "What needs to be done?", optionally a Due date, and "Assign the task to" (Me, Unassigned or a teammate).',
       '3. Press "Add task".',
+      'Create a plain task (a task with no lead, such as calling a supplier): on My tasks (sidebar), use the "New task" box at the top the same way and press "Add task". It shows "No lead" where a lead’s name would be.',
       'Tick the round button on a task to complete it (again to reopen); the × cancels it. "Show N closed tasks" lists finished ones. Changing tasks needs the Leads role (or owner).',
-      'My tasks (sidebar) lists follow-ups across leads, soonest first. Choose Assigned to me, Unassigned or Everyone, and List or Board. The board groups by Status or Date: drag a card, or use its menu to set the status or due date.',
+      'My tasks (sidebar) lists tasks across leads and plain tasks, soonest first. Choose Assigned to me, Unassigned or Everyone, and List or Board. The board groups by Status or Date: drag a card, or use its menu to set the status (To do, In progress, Done) or due date.',
+      'Ask AI can also create a task, with or without a lead, and move a task to another status; each is a card you confirm.',
     ),
   },
   {
@@ -324,7 +326,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
     body: text(
       'Open it with "Ask AI" in the top bar. With a lead open it knows which lead you mean ("Remove lead context" drops that).',
       'It can read this site’s lead counts, stages, lead and order summaries, assignments, open tasks and source performance, and explain how the CRM works.',
-      'For people who manage leads it can prepare a note, a task (for you or unassigned), an email to the lead’s customer, or a change to a lead’s stage, assignee, name or phone. Each is a card: nothing is saved until you press "Confirm" (or "Send" for an email). "Cancel" drops it. Stage rules and documents still apply.',
+      'For people who manage leads it can prepare a note, a task (for you or unassigned; on a lead, or a plain task with "No lead" when you name none), an email to the lead’s customer, a change to a lead’s stage, assignee, name or phone, or move a task to To do, In progress, Done or Cancelled. Each is a card: nothing is saved until you press "Confirm" (or "Send" for an email). "Cancel" drops it. Stage rules and documents still apply.',
       'With the Integrations permission it can draft or edit an automation; press "Save draft" on the card. Activating and switching it on stay in Automations.',
       'It cannot archive, export or delete anything, send bulk mail, or show contact details; use the lead page for those.',
     ),

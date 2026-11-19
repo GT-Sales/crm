@@ -113,6 +113,10 @@ export const toolInputSchemas = {
     .object({
       assignee: z.union([z.enum(['me', 'all', 'none']), z.uuid()]).optional(),
       due: z.enum(['any', 'overdue', 'due_today', 'due_today_or_earlier']).optional(),
+      /** `active` (To do and In progress, the default) or one stage. */
+      status: z.enum(['active', 'open', 'in_progress', 'done', 'cancelled']).optional(),
+      /** A few words of the task's title, to find one task (case-insensitive). */
+      titleContains: z.string().trim().min(1).max(100).optional(),
       page: z.int().min(1).max(5).optional(),
     })
     .strict(),
@@ -561,12 +565,16 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     const dueFilter: TaskDueFilter = input.due ?? 'due_today_or_earlier';
     const due = resolveTaskDueWindow(dueFilter, context.now);
     const assignee = input.assignee ?? 'all';
+    const status = input.status ?? 'active';
     const scope = scopeOf(context, {
       window: null,
       filters: {
         due: dueFilter,
         dueLabel: due.label,
         assignee,
+        status,
+        // Whether a title was given, never the words themselves (as findLeads' search).
+        ...(input.titleContains === undefined ? {} : { titleContains: 'provided' }),
       },
     });
 
@@ -575,6 +583,8 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
       result = await context.reads.openTasks(context.scope, {
         assignee,
         due,
+        status,
+        ...(input.titleContains === undefined ? {} : { titleContains: input.titleContains }),
         limit: TASKS_PAGE_SIZE,
         offset: (page - 1) * TASKS_PAGE_SIZE,
       });
@@ -585,7 +595,9 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     }
 
     const tasks = result.rows.map(projectTask);
-    context.sources.tasks(`${context.site.name} · open follow-ups · ${due.label}`);
+    context.sources.tasks(
+      `${context.site.name} · ${status === 'active' ? 'open follow-ups' : `${status.replace('_', ' ')} tasks`} · ${due.label}`,
+    );
     const hasMore = page < 5 && result.total > page * TASKS_PAGE_SIZE;
     return finish(
       {
@@ -797,7 +809,7 @@ export function createAssistantTools(context: ToolContext): AssistantToolset {
     }),
     listOpenTasks: tool({
       description:
-        'List open follow-ups (tasks) on active leads, with their due days, filtered by assignee and by due date. "Due today or earlier" includes overdue and due today; overdue alone means before today.',
+        'List tasks with their ids, stages and due days: follow-ups on active leads and plain tasks (no lead; leadId null). Filter by status (active, the default, is To do and In progress together; or open, in_progress, done, cancelled), assignee, due date (default due today or earlier; use due any to find a task to move) and titleContains (a few words of the title, such as "supplier", to find the one task the person means; use it whenever they name the task). Done tasks come most recently completed first, cancelled ones most recently changed first, active ones undated first then soonest due. "Due today or earlier" includes overdue and due today; overdue alone means before today.',
       inputSchema: toolInputSchemas.listOpenTasks,
       execute: async (input) => run('listOpenTasks', input),
     }),

@@ -87,6 +87,10 @@ export interface LeadSummaryRows {
 export interface OpenTasksQuery {
   readonly assignee: 'me' | 'all' | 'none' | string;
   readonly due: TaskDueWindow;
+  /** `active` (open and in progress; the default) or one stage. */
+  readonly status?: 'active' | 'open' | 'in_progress' | 'done' | 'cancelled';
+  /** Only tasks whose title holds this text (case-insensitive; `%` and `_` taken literally). */
+  readonly titleContains?: string;
   readonly limit: number;
   readonly offset: number;
 }
@@ -338,7 +342,7 @@ export class DatabaseAiReadService implements AiReadService {
       const taskRows = await tx.execute<{ [key: string]: unknown }>(sql`
         select
           t.id, t.lead_id, l.external_ref as lead_ref, l.full_name as lead_name,
-          t.title, m.display_name as assignee_name, t.due_at
+          t.title, t.status, m.display_name as assignee_name, t.due_at
         from app.lead_tasks t
         join app.leads l on l.id = t.lead_id and l.workspace_id = t.workspace_id
         left join app.memberships m
@@ -393,13 +397,33 @@ export class DatabaseAiReadService implements AiReadService {
     });
   }
 
+  /**
+   * Tasks by stage: a lead's while its lead is active and unrestricted, and
+   * the site's plain tasks (no lead). A left join on purpose, so a plain task
+   * is listed, never dropped by the join.
+   *
+   * The order puts the task a person means within the tool's five pages:
+   * done tasks most recently completed first and cancelled ones most recently
+   * changed first ("reopen the call I finished today"); active ones soonest
+   * due first, with the undated ones ahead of them, most recently changed
+   * first, because no due window reaches an undated task and after every
+   * dated one it would sit past the last page. The id breaks every tie.
+   */
   openTasks(scope: Scope, query: OpenTasksQuery): Promise<TaskPage> {
+    const status = query.status ?? 'active';
     const conditions: SQL[] = [
       sql`t.workspace_id = ${contextWorkspaceId}`,
-      sql`t.status in ('open', 'in_progress')`,
-      sql`l.deleted_at is null`,
-      sql`l.customer_data_restricted_at is null`,
+      status === 'active' ? sql`t.status in ('open', 'in_progress')` : sql`t.status = ${status}`,
+      sql`(t.lead_id is null or (l.deleted_at is null and l.customer_data_restricted_at is null))`,
     ];
+    if (query.titleContains !== undefined)
+      conditions.push(sql`t.title ilike ${likePattern(query.titleContains)}`);
+    const order =
+      status === 'done'
+        ? sql`t.completed_at desc nulls last, t.id`
+        : status === 'cancelled'
+          ? sql`t.updated_at desc, t.id`
+          : sql`t.due_at asc nulls first, t.updated_at desc, t.id`;
     if (query.assignee === 'me') {
       conditions.push(sql`t.assigned_actor_id = ${scope.actorId}`);
     } else if (query.assignee === 'none') {
@@ -416,14 +440,14 @@ export class DatabaseAiReadService implements AiReadService {
       const rows = await tx.execute<{ [key: string]: unknown }>(sql`
         select
           t.id, t.lead_id, l.external_ref as lead_ref, l.full_name as lead_name,
-          t.title, m.display_name as assignee_name, t.due_at,
+          t.title, t.status, m.display_name as assignee_name, t.due_at,
           count(*) over ()::int as total
         from app.lead_tasks t
-        join app.leads l on l.id = t.lead_id and l.workspace_id = t.workspace_id
+        left join app.leads l on l.id = t.lead_id and l.workspace_id = t.workspace_id
         left join app.memberships m
           on m.workspace_id = t.workspace_id and m.user_id = t.assigned_actor_id and m.status = 'active'
         where ${sql.join(conditions, sql` and `)}
-        order by t.due_at asc nulls last, t.id
+        order by ${order}
         limit ${query.limit} offset ${query.offset}
       `);
       const total = rows[0]?.['total'];
@@ -433,7 +457,7 @@ export class DatabaseAiReadService implements AiReadService {
       const [counted] = await tx.execute<{ [key: string]: unknown }>(sql`
         select count(*)::int as total
         from app.lead_tasks t
-        join app.leads l on l.id = t.lead_id and l.workspace_id = t.workspace_id
+        left join app.leads l on l.id = t.lead_id and l.workspace_id = t.workspace_id
         where ${sql.join(conditions, sql` and `)}
       `);
       return { rows: [], total: countRowSchema.parse(counted).total };

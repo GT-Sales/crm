@@ -70,6 +70,11 @@ import { isPlanAvailable, submittedOrder, toLeadOrder } from './order.js';
 import { planStageMove, todayInToronto, type StageMoveRefusal } from './stage-move.js';
 import { isClosingStage } from './types.js';
 import {
+  DatabasePlainTaskSchemaProbe,
+  isNotNullViolation,
+  type PlainTaskSchemaProbe,
+} from './task-schema.js';
+import {
   iso,
   selectLeadBoard,
   selectLeadDetail,
@@ -144,6 +149,24 @@ export interface QueueCustomerEmailInput extends WriteScope {
 export type TaskOutcome =
   { status: 'saved'; task: LeadTask } | { status: 'not_found' | 'trashed' | 'assignee_not_found' };
 
+/** A plain task's creation: saved, or refused (`unavailable`: the database lacks migration 0038). */
+export type PlainTaskOutcome =
+  { status: 'saved'; task: LeadTask } | { status: 'assignee_not_found' | 'unavailable' };
+
+/** A task as an AI move card is prepared against: its stage then and its update time. */
+export interface AiTaskUpdatePreview {
+  /** The task's update time in microseconds; confirmation refuses a card older than it. */
+  version: string;
+  title: string;
+  status: LeadTaskStatus;
+  /** Null for a plain task. */
+  leadId: string | null;
+}
+
+/** A confirmed AI task move: saved, or why not. */
+export type AiTaskUpdateConfirmOutcome =
+  { status: 'saved'; recordId: string } | { status: 'not_found' | 'trashed' | 'conflict' };
+
 export interface UpdateLeadWorkInput extends WriteScope {
   leadId: string;
   stage?: string;
@@ -199,6 +222,15 @@ export interface CreateTaskInput extends WriteScope {
   /** The AI card that confirmed it (a version of `creationId`'s draft), kept in the audit. */
   aiCardId?: string;
   leadId: string;
+  title: string;
+  dueAt?: string | null;
+  assignedActorId?: string | null;
+}
+
+export interface CreatePlainTaskInput extends WriteScope {
+  /** Server-signed AI proposal id; a retry finds the task it made instead of making another. */
+  creationId?: string;
+  aiCardId?: string;
   title: string;
   dueAt?: string | null;
   assignedActorId?: string | null;
@@ -287,13 +319,38 @@ export interface LeadWorkStore {
     input: WriteScope & { leadId: string; subject: string; body: string },
   ): Promise<CustomerEmailOutcome>;
   createTask(input: CreateTaskInput): Promise<TaskOutcome>;
+  /**
+   * A plain task (no lead), through the same insert, audit and checks as a
+   * lead's task; `unavailable` until migration 0038 is applied.
+   */
+  createPlainTask?(input: CreatePlainTaskInput): Promise<PlainTaskOutcome>;
+  /** Whether the database takes plain tasks yet (migration 0038). */
+  plainTasksReady?(input: Scope): Promise<boolean>;
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome>;
+  /** A task an AI move card may name: a plain task, or one on an active, unrestricted lead. */
+  previewAiTaskUpdate?(input: Scope & { taskId: string }): Promise<AiTaskUpdatePreview | undefined>;
+  /**
+   * Moves a task as a staff `PATCH` does, unless it changed since the card:
+   * its update time is not the card's `version`, or its status not `before`.
+   */
+  confirmAiTaskUpdate?(
+    input: WriteScope & {
+      taskId: string;
+      status: LeadTaskStatus;
+      version: string;
+      before: LeadTaskStatus;
+      creationId: string;
+      aiCardId?: string;
+    },
+  ): Promise<AiTaskUpdateConfirmOutcome>;
   listTasks(
     input: Scope & {
       assignee: TaskAssigneeFilter;
       status: TaskStatusFilter;
       dueBy?: string;
       completedSince?: string;
+      /** List plain tasks too; left out otherwise (older admins cannot read one). */
+      includePlain?: boolean;
     },
     page: number,
     pageSize: number,
@@ -545,13 +602,15 @@ async function auditLead(
 }
 
 /**
- * The one insert of a task, its audit and its timers; the staff route and
- * the flow step both call it. The lead is the caller's, already locked.
+ * The one insert of a task, its audit and its timers; the staff routes, the
+ * flow step and Ask AI's confirmation all call it. The lead is the caller's,
+ * already locked; a plain task (`leadId` null) has none, and so no
+ * `task_overdue` timers: a flow runs on a lead.
  */
 export async function insertLeadTask(
   tx: TenantTransaction,
   input: WriteScope & {
-    leadId: string;
+    leadId: string | null;
     title: string;
     dueAt: string | null;
     assignedActorId: string | null;
@@ -590,7 +649,8 @@ export async function insertLeadTask(
     requestId: input.requestId,
     after: input.automation ? { ...after, automation: auditedAutomation(input.automation) } : after,
   });
-  if (input.dueAt) await writeTaskTimers(tx, input.workspaceId, input.leadId, row.id, input.dueAt);
+  if (input.dueAt && input.leadId !== null)
+    await writeTaskTimers(tx, input.workspaceId, input.leadId, row.id, input.dueAt);
   return { taskId: row.id };
 }
 
@@ -1082,6 +1142,143 @@ export function aiLeadValueDigest(value: string | null | undefined): string {
     .digest('hex');
 }
 
+/** A task's update time as a version: microseconds since the epoch, exact (numeric). */
+const TASK_VERSION = sql.raw(`(extract(epoch from k.updated_at) * 1000000)::bigint::text`);
+
+const isLeadTaskStatus = (value: string): value is LeadTaskStatus =>
+  value === 'open' || value === 'in_progress' || value === 'done' || value === 'cancelled';
+
+interface LockedTask {
+  [key: string]: unknown;
+  status: string;
+  title: string;
+  dueAt: Date | string | null;
+  assignedActorId: string | null;
+  /** Its lead is archived (never true for a plain task). */
+  trashed: boolean;
+  /** Null for a plain task. */
+  leadId: string | null;
+  version: string;
+}
+
+/**
+ * A task, locked for the rest of the transaction: a plain task, or one whose
+ * lead is not restricted (a restricted lead's tasks do not exist here).
+ */
+async function lockTask(
+  tx: TenantTransaction,
+  workspaceId: string,
+  taskId: string,
+): Promise<LockedTask | undefined> {
+  const [row] = await tx.execute<LockedTask>(sql`
+    select
+      k.lead_id as "leadId",
+      k.status,
+      k.title,
+      k.due_at as "dueAt",
+      k.assigned_actor_id as "assignedActorId",
+      coalesce(l.deleted_at is not null, false) as trashed,
+      ${TASK_VERSION} as version
+    from app.lead_tasks k
+    left join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
+    where k.workspace_id = ${workspaceId}
+      and k.id = ${taskId}
+      and (k.lead_id is null or l.customer_data_restricted_at is null)
+    for update of k
+  `);
+  return row;
+}
+
+/**
+ * The one change to a task: the staff `PATCH` and Ask AI's confirmed move
+ * both make it. The task is the caller's, locked and not on an archived lead.
+ * It writes the task and a `lead.task_updated` audit (field names and the
+ * status, never the title) and no timeline entry, for a lead's task and a
+ * plain one alike. A lead's active task with a new due day, or reopened with
+ * one, starts its overdue clock; a plain task has none (a flow runs on a lead).
+ */
+async function applyTaskUpdate(
+  tx: TenantTransaction,
+  input: UpdateTaskInput & { aiActionId?: string },
+  current: LockedTask,
+): Promise<TaskOutcome> {
+  if (
+    input.assignedActorId !== undefined &&
+    input.assignedActorId !== null &&
+    input.assignedActorId !== current.assignedActorId &&
+    !(await isActiveMember(tx, input.workspaceId, input.assignedActorId))
+  ) {
+    return { status: 'assignee_not_found' };
+  }
+
+  const set: Partial<typeof leadTasks.$inferInsert> = {};
+  const changedFields: string[] = [];
+  if (input.title !== undefined && input.title !== current.title) {
+    set.title = input.title;
+    changedFields.push('title');
+  }
+  if (input.dueAt !== undefined) {
+    set.dueAt = input.dueAt === null ? null : new Date(input.dueAt);
+    changedFields.push('dueAt');
+  }
+  if (input.assignedActorId !== undefined && input.assignedActorId !== current.assignedActorId) {
+    set.assignedActorId = input.assignedActorId;
+    changedFields.push('assignedActorId');
+  }
+  if (input.status !== undefined && input.status !== current.status) {
+    set.status = input.status;
+    // The completion check pairs `done` with a completion time; any other
+    // status clears it, so a reopened task is open again in full.
+    set.completedAt = input.status === 'done' ? new Date() : null;
+    changedFields.push('status');
+  }
+  if (changedFields.length === 0) {
+    return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
+  }
+
+  await tx
+    .update(leadTasks)
+    .set({ ...set, updatedAt: new Date() })
+    .where(and(eq(leadTasks.workspaceId, input.workspaceId), eq(leadTasks.id, input.taskId)));
+  await tx.insert(auditEvents).values({
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    actorLabel: 'staff actor',
+    action: 'lead.task_updated',
+    entity: 'lead_task',
+    entityId: input.taskId,
+    requestId: input.requestId,
+    before: { status: current.status },
+    after: {
+      changedFields,
+      status: input.status ?? current.status,
+      ...(input.aiActionId === undefined ? {} : { aiActionId: input.aiActionId }),
+    },
+  });
+  // An active (open or in-progress) task with a new due day, or one
+  // reopened from done or cancelled with a due day, starts its overdue
+  // clock. Moving between open and in progress keeps the clock it has.
+  const status = input.status ?? current.status;
+  const dueAt = input.dueAt !== undefined ? input.dueAt : current.dueAt;
+  const dueMoved =
+    input.dueAt !== undefined &&
+    input.dueAt !== null &&
+    (current.dueAt === null || taskDueDay(input.dueAt) !== taskDueDay(current.dueAt));
+  const reopened =
+    input.status !== undefined &&
+    isActiveTaskStatus(input.status) &&
+    !isActiveTaskStatus(current.status);
+  if (
+    current.leadId !== null &&
+    isActiveTaskStatus(status) &&
+    dueAt !== null &&
+    (dueMoved || reopened)
+  ) {
+    await writeTaskTimers(tx, input.workspaceId, current.leadId, input.taskId, dueAt);
+  }
+  return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
+}
+
 type LeadDatabase = Pick<DatabaseClient, 'withTenantTx'>;
 
 const defaultLeadDatabase: LeadDatabase = { withTenantTx };
@@ -1091,6 +1288,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     private readonly database: LeadDatabase = defaultLeadDatabase,
     /** What customer mail needs from the deployment: the provider and the hash secret. */
     private readonly emailEnvironment: CustomerEmailEnvironment = customerEmailEnvironmentFromEnv(),
+    /** Whether the database takes plain tasks (migration 0038); asked, then cached. */
+    private readonly plainTaskSchema: PlainTaskSchemaProbe = new DatabasePlainTaskSchemaProbe(),
   ) {}
 
   summary(input: Scope & { dueBy?: string }) {
@@ -1455,7 +1654,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       const [row] = await tx.execute<{ card: string | null }>(sql`
         select after ->> 'aiCardId' as card from app.audit_events
         where workspace_id = ${input.workspaceId}
-          and action in ('ai.lead_updated', 'lead.note_added', 'lead.task_created', 'lead.customer_emailed')
+          and action in ('ai.lead_updated', 'ai.task_updated', 'lead.note_added', 'lead.task_created', 'lead.customer_emailed')
           and (id::text = ${input.rootId} or after ->> 'aiActionId' = ${input.rootId})
         order by created_at
         limit 1
@@ -1743,102 +1942,148 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     });
   }
 
+  createPlainTask(input: CreatePlainTaskInput): Promise<PlainTaskOutcome> {
+    return this.database
+      .withTenantTx(input, async (tx): Promise<PlainTaskOutcome> => {
+        if (!(await this.plainTaskSchema.ready(tx))) return { status: 'unavailable' };
+        if (input.creationId) {
+          // No lead to lock: one confirmation at a time per signed card, so a
+          // concurrent retry finds the task the first one made.
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${`plain_task:${input.creationId}`}, 0))`,
+          );
+          const [existing] = await tx.execute<{ id: string }>(sql`
+            select k.id from app.lead_tasks k
+            where k.workspace_id = ${input.workspaceId} and k.id = ${input.creationId}
+              and k.created_by = ${input.actorId} and k.lead_id is null
+          `);
+          if (existing)
+            return { status: 'saved', task: await requireTask(tx, input.workspaceId, existing.id) };
+        }
+        const assignee = input.assignedActorId ?? null;
+        if (assignee !== null && !(await isActiveMember(tx, input.workspaceId, assignee))) {
+          return { status: 'assignee_not_found' };
+        }
+        const { taskId } = await insertLeadTask(tx, {
+          ...(input.creationId === undefined ? {} : { creationId: input.creationId }),
+          ...(input.aiCardId === undefined ? {} : { aiCardId: input.aiCardId }),
+          workspaceId: input.workspaceId,
+          actorId: input.actorId,
+          requestId: input.requestId,
+          leadId: null,
+          title: input.title,
+          dueAt: input.dueAt ?? null,
+          assignedActorId: assignee,
+        });
+        return { status: 'saved', task: await requireTask(tx, input.workspaceId, taskId) };
+      })
+      .catch((error: unknown): PlainTaskOutcome => {
+        // A probe answer cached moments before the column was checked would
+        // otherwise be a 500: the database itself says it is not ready.
+        if (isNotNullViolation(error)) return { status: 'unavailable' };
+        throw error;
+      });
+  }
+
+  plainTasksReady(input: Scope): Promise<boolean> {
+    if (this.plainTaskSchema.knownReady?.() === true) return Promise.resolve(true);
+    return this.database.withTenantTx(input, (tx) => this.plainTaskSchema.ready(tx));
+  }
+
   updateTask(input: UpdateTaskInput): Promise<TaskOutcome> {
     return this.database.withTenantTx(input, async (tx) => {
-      const [current] = await tx.execute<{
-        [key: string]: unknown;
-        status: string;
-        title: string;
-        dueAt: Date | string | null;
-        assignedActorId: string | null;
-        trashed: boolean;
-        leadId: string;
-      }>(sql`
-        select
-          k.lead_id as "leadId",
-          k.status,
-          k.title,
-          k.due_at as "dueAt",
-          k.assigned_actor_id as "assignedActorId",
-          l.deleted_at is not null as trashed
-        from app.lead_tasks k
-        inner join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
-        where k.workspace_id = ${input.workspaceId}
-          and k.id = ${input.taskId}
-          and l.customer_data_restricted_at is null
-        for update of k
-      `);
+      const current = await lockTask(tx, input.workspaceId, input.taskId);
       if (!current) return { status: 'not_found' };
       if (current.trashed) return { status: 'trashed' };
-      if (
-        input.assignedActorId !== undefined &&
-        input.assignedActorId !== null &&
-        input.assignedActorId !== current.assignedActorId &&
-        !(await isActiveMember(tx, input.workspaceId, input.assignedActorId))
-      ) {
-        return { status: 'assignee_not_found' };
-      }
+      return applyTaskUpdate(tx, input, current);
+    });
+  }
 
-      const set: Partial<typeof leadTasks.$inferInsert> = {};
-      const changedFields: string[] = [];
-      if (input.title !== undefined && input.title !== current.title) {
-        set.title = input.title;
-        changedFields.push('title');
-      }
-      if (input.dueAt !== undefined) {
-        set.dueAt = input.dueAt === null ? null : new Date(input.dueAt);
-        changedFields.push('dueAt');
-      }
-      if (
-        input.assignedActorId !== undefined &&
-        input.assignedActorId !== current.assignedActorId
-      ) {
-        set.assignedActorId = input.assignedActorId;
-        changedFields.push('assignedActorId');
-      }
-      if (input.status !== undefined && input.status !== current.status) {
-        set.status = input.status;
-        // The completion check pairs `done` with a completion time; any other
-        // status clears it, so a reopened task is open again in full.
-        set.completedAt = input.status === 'done' ? new Date() : null;
-        changedFields.push('status');
-      }
-      if (changedFields.length === 0) {
-        return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
-      }
+  previewAiTaskUpdate(input: Scope & { taskId: string }): Promise<AiTaskUpdatePreview | undefined> {
+    return this.database.withTenantTx(input, async (tx) => {
+      await tx.execute(sql`set local statement_timeout = '5s'`);
+      const [row] = await tx.execute<{
+        [key: string]: unknown;
+        version: string;
+        title: string;
+        status: string;
+        leadId: string | null;
+      }>(sql`
+        select ${TASK_VERSION} as version, k.title, k.status, k.lead_id as "leadId"
+        from app.lead_tasks k
+        left join app.leads l on l.workspace_id = k.workspace_id and l.id = k.lead_id
+        where k.workspace_id = ${input.workspaceId}
+          and k.id = ${input.taskId}
+          and (k.lead_id is null or (l.deleted_at is null and l.customer_data_restricted_at is null))
+      `);
+      if (!row || !isLeadTaskStatus(row.status)) return undefined;
+      return { version: row.version, title: row.title, status: row.status, leadId: row.leadId };
+    });
+  }
 
-      await tx
-        .update(leadTasks)
-        .set({ ...set, updatedAt: new Date() })
-        .where(and(eq(leadTasks.workspaceId, input.workspaceId), eq(leadTasks.id, input.taskId)));
+  confirmAiTaskUpdate(
+    input: WriteScope & {
+      taskId: string;
+      status: LeadTaskStatus;
+      version: string;
+      before: LeadTaskStatus;
+      creationId: string;
+      aiCardId?: string;
+    },
+  ): Promise<AiTaskUpdateConfirmOutcome> {
+    return this.database.withTenantTx(input, async (tx): Promise<AiTaskUpdateConfirmOutcome> => {
+      const current = await lockTask(tx, input.workspaceId, input.taskId);
+      if (!current) return { status: 'not_found' };
+      // A retry (a lost response, a second tab) finds the receipt under the task lock.
+      const [receipt] = await tx
+        .select({ id: auditEvents.id })
+        .from(auditEvents)
+        .where(
+          and(
+            eq(auditEvents.workspaceId, input.workspaceId),
+            eq(auditEvents.id, input.creationId),
+            eq(auditEvents.actorId, input.actorId),
+            eq(auditEvents.entityId, input.taskId),
+            eq(auditEvents.action, 'ai.task_updated'),
+          ),
+        );
+      if (receipt) return { status: 'saved', recordId: input.taskId };
+      if (current.trashed) return { status: 'trashed' };
+      // Any change to the task since the card was prepared makes the card stale:
+      // its update time, or its status alone, which the nightly Get Canada Sim
+      // sync changes on imported tasks without touching the update time.
+      if (current.version !== input.version || current.status !== input.before)
+        return { status: 'conflict' };
+      const outcome = await applyTaskUpdate(
+        tx,
+        {
+          workspaceId: input.workspaceId,
+          actorId: input.actorId,
+          requestId: input.requestId,
+          taskId: input.taskId,
+          status: input.status,
+          aiActionId: input.creationId,
+        },
+        current,
+      );
+      if (outcome.status !== 'saved') throw new Error('a locked task refused a status change');
+      // The move's receipt, keyed by the draft's root id: a retry returns it.
       await tx.insert(auditEvents).values({
+        id: input.creationId,
         workspaceId: input.workspaceId,
         actorId: input.actorId,
         actorLabel: 'staff actor',
-        action: 'lead.task_updated',
+        action: 'ai.task_updated',
         entity: 'lead_task',
         entityId: input.taskId,
         requestId: input.requestId,
         before: { status: current.status },
-        after: { changedFields, status: input.status ?? current.status },
+        after: {
+          status: input.status,
+          ...(input.aiCardId ? { aiCardId: input.aiCardId } : {}),
+        },
       });
-      // An active (open or in-progress) task with a new due day, or one
-      // reopened from done or cancelled with a due day, starts its overdue
-      // clock. Moving between open and in progress keeps the clock it has.
-      const status = input.status ?? current.status;
-      const dueAt = input.dueAt !== undefined ? input.dueAt : current.dueAt;
-      const dueMoved =
-        input.dueAt !== undefined &&
-        input.dueAt !== null &&
-        (current.dueAt === null || taskDueDay(input.dueAt) !== taskDueDay(current.dueAt));
-      const reopened =
-        input.status !== undefined &&
-        isActiveTaskStatus(input.status) &&
-        !isActiveTaskStatus(current.status);
-      if (isActiveTaskStatus(status) && dueAt !== null && (dueMoved || reopened)) {
-        await writeTaskTimers(tx, input.workspaceId, current.leadId, input.taskId, dueAt);
-      }
-      return { status: 'saved', task: await requireTask(tx, input.workspaceId, input.taskId) };
+      return { status: 'saved', recordId: input.taskId };
     });
   }
 
@@ -1848,6 +2093,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
       status: TaskStatusFilter;
       dueBy?: string;
       completedSince?: string;
+      includePlain?: boolean;
     },
     page: number,
     pageSize: number,
@@ -1862,6 +2108,7 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           status: input.status,
           dueBy: input.dueBy,
           completedSince: input.completedSince,
+          includePlain: input.includePlain === true,
         },
         page,
         pageSize,

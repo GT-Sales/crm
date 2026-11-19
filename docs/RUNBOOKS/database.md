@@ -27,6 +27,10 @@ values ('<sha256 of the .sql file>', <journal "when">);
 Verify against the schema, not the trackers: `select … from pg_tables /
 pg_proc / pg_policies where schemaname = 'app'`.
 
+On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
+all applied, the Drizzle tracker holding rows 1 to 38, each verified against
+its file's SHA-256. 0038 is the one prepared and waiting.
+
 ## Runtime role settings (2026-11-13)
 
 `app_runtime` carries `idle_in_transaction_session_timeout = 30s`, set by hand
@@ -985,7 +989,7 @@ policy changes. Paste file:
 select prosecdef, proconfig from pg_proc where proname = 'erase_restricted_lead_data';  -- t, {search_path=""}
 ```
 
-## 0031_invitation_expiry, 0032_workspaces_rls and 0033_workspaces_rls_force (2026-11-10, prepared, not applied)
+## 0031_invitation_expiry, 0032_workspaces_rls and 0033_workspaces_rls_force (2026-11-10, applied, verified 2026-11-19)
 
 Two small hardening changes from the 2026-11-10 security review (audit L-16
 and I-2). Neither is applied by the deploy; the owner applies them in order, after 0030,
@@ -1052,7 +1056,7 @@ select pg_get_functiondef('app.accept_staff_invitations(text,uuid)'::regprocedur
 After applying, run the next nightly backup and check its row counts include
 `app.workspaces` (the backup's completeness guard compares them).
 
-## 0034_ai_conversations, 0035_ai_conversations_runtime and 0036_ai_attachment_sweep (2026-11-18, prepared, not applied)
+## 0034_ai_conversations, 0035_ai_conversations_runtime and 0036_ai_attachment_sweep (2026-11-18, applied, verified 2026-11-19)
 
 Ask AI's saved chat (docs/design/ai-chat.md). Not applied by the deploy; the
 owner applies them in order through the SQL editor (0034 and 0035 hold
@@ -1135,7 +1139,7 @@ select has_function_privilege('app_runtime',
   'app.sweep_unsent_ai_attachments(uuid,timestamptz,integer)', 'execute');                -- true
 ```
 
-## 0037_ai_effort (2026-11-18, prepared, not applied)
+## 0037_ai_effort (2026-11-18, applied, verified 2026-11-19)
 
 Ask AI's effort levels (docs/design/ai-assistant.md §8). Not applied by the
 deploy; the owner applies it through the SQL editor after 0034–0036 (it holds
@@ -1177,6 +1181,67 @@ select table_name, column_default, is_nullable from information_schema.columns
                                   -- ai_messages, null, YES; ai_turns, 'normal'::text, NO
 select conname from pg_constraint
  where conname in ('ai_turns_effort_check', 'ai_messages_effort_check');      -- 2 rows
+```
+
+## 0038_plain_tasks (2026-11-19, prepared, not applied)
+
+A **plain task** is a task with no lead (the Tasks page's "New task", Ask
+AI's task card when the person names no lead). Not applied by the deploy; the
+owner applies it through the SQL editor (it holds `ALTER`), then inserts the
+Drizzle tracker row. The deploy and the migration may go in either order: an
+older backend never writes a null `lead_id` and reads every task through its
+lead as before, and this backend runs before 0038 (below).
+
+**0038 (generated).** One statement:
+
+```sql
+ALTER TABLE "app"."lead_tasks" ALTER COLUMN "lead_id" DROP NOT NULL;
+```
+
+Dropping `NOT NULL` is a catalogue change only (no rewrite, no scan). The
+composite foreign key `lead_tasks_workspace_lead_fk` (`(workspace_id,
+lead_id)` → `app.leads`, `ON DELETE CASCADE`) stays: under Postgres's default
+`MATCH SIMPLE` it is not checked for a row whose `lead_id` is null and still
+ties every other task to a lead of its own site. The status, title and
+completion checks, the three indexes, `lead_tasks_tenant_policy`, the backup
+read policy and the runtime role's table-level grants (0001) are unchanged, so
+no custom companion is needed. The Tasks board and My tasks still read the
+`(workspace_id, assigned_actor_id, status, due_at)` and `(workspace_id,
+status, due_at)` indexes for plain tasks; their join to `app.leads` is a left
+join (`leads/staff-queries.ts`).
+
+- **To apply** (owner): run the file, then the tracker row (hash,
+  `created_at`): `0038_plain_tasks`
+  `c0ba77eb32df8619d3776d86433e6a496c2c075c76008cd9fb44d67050d62245`,
+  `1795054241116`.
+- **Before it is applied**: `POST /workspaces/:id/tasks` answers `503
+plain_tasks_unavailable` and writes nothing, Ask AI's task tool asks which
+  lead a task is for (its capabilities list `taskActions: ['task_update']`
+  only), and every other task read and write works as it did
+  (`leads/task-schema.ts` asks the catalogue, never the journal).
+- **After applying**: the backend checks the catalogue and takes plain tasks
+  within 5 minutes, with no redeploy.
+- **Deploy the admin no later than the backend for this release**: an admin
+  from before it drops a stream's whole `actions` part when it holds a
+  plain-task or task-move card (with any other card of that answer). GT Sales
+  (and Canadian Plans) deploy both apps from the same merge, the admin on
+  Vercel and the backend on Railway, so the window is the minutes between the
+  two builds finishing.
+- Rollback, after reverting the code, and only once no plain task is left
+  (delete them, or attach each to a lead):
+  `select count(*) from app.lead_tasks where lead_id is null;` (0), then
+  `ALTER TABLE app.lead_tasks ALTER COLUMN lead_id SET NOT NULL;`. A backend
+  that has seen the column nullable keeps believing it is until it restarts;
+  until then a plain task's insert fails on the constraint and answers `503
+plain_tasks_unavailable`.
+- Verify against the schema:
+
+```sql
+select is_nullable from information_schema.columns
+ where table_schema = 'app' and table_name = 'lead_tasks' and column_name = 'lead_id';  -- YES
+select pg_get_constraintdef(oid) from pg_constraint
+ where conname = 'lead_tasks_workspace_lead_fk';
+  -- FOREIGN KEY (workspace_id, lead_id) REFERENCES app.leads(workspace_id, id) ON DELETE CASCADE
 ```
 
 ## Historical CanadaWide import (2026-10-27)

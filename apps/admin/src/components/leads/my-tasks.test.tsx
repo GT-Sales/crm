@@ -169,6 +169,7 @@ describe('the Tasks page', () => {
     expect(mocks.listStaffTasks).toHaveBeenCalledWith('staff-token', WORKSPACE, {
       assignee: 'me',
       status: 'active',
+      plain: 'include',
       pageSize: 200,
     });
     // The list never loads the Done column.
@@ -181,6 +182,7 @@ describe('the Tasks page', () => {
       expect(mocks.listStaffTasks).toHaveBeenLastCalledWith('staff-token', WORKSPACE, {
         assignee: 'all',
         status: 'active',
+        plain: 'include',
         pageSize: 200,
       }),
     );
@@ -231,6 +233,7 @@ describe('the board by status', () => {
       assignee: 'me',
       status: 'done',
       completedSince: addDays(TODAY, -14),
+      plain: 'include',
       pageSize: 50,
     });
     const todo = column(/^To do, 3 tasks$/);
@@ -249,7 +252,7 @@ describe('the board by status', () => {
     const link = within(card).getByRole('link', {
       name: 'Avery Example · Internet',
     });
-    expect(link.getAttribute('href')).toBe(`/w/canadawide/leads/${overdue.lead.id}`);
+    expect(link.getAttribute('href')).toBe(`/w/canadawide/leads/${overdue.lead?.id}`);
     // Assignee initials: Sam's avatar on his card.
     expect(within(column(/^In progress/)).getByText('SR')).toBeTruthy();
   });

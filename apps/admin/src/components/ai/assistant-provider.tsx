@@ -2018,7 +2018,14 @@ export function AssistantProvider({
             });
             return;
           }
-          notifyLeadWorkSaved(workspace.id, action.proposal.draft.leadId);
+          // The Tasks page and the lead page refresh; a plain task names no lead.
+          const draft = action.proposal.draft;
+          notifyLeadWorkSaved(
+            workspace.id,
+            draft.kind === 'task_update'
+              ? (action.proposal.taskUpdateContext?.leadId ?? null)
+              : (draft.leadId ?? null),
+          );
           if (sessionRef.current.messages.some((m) => m.id === messageId))
             updateAction(messageId, actionId, { status: 'saved' });
         },
@@ -2046,18 +2053,23 @@ export function AssistantProvider({
               : error instanceof BackendError && error.code === 'conflict'
                 ? action.proposal.draft.kind === 'lead_update'
                   ? 'The lead changed or this update needs additional details. Check the lead page and request a fresh draft.'
-                  : 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
-                : error instanceof BackendError && error.code === 'feature_not_ready'
-                  ? 'Email is not ready. Check this Site’s email settings and the customer address on the lead.'
-                  : error instanceof BackendError &&
-                      [
-                        'invalid_request',
-                        'lead_not_found',
-                        'lead_trashed',
-                        'ai_unavailable',
-                      ].includes(error.code)
-                    ? 'This draft expired or is no longer available. Check the lead before asking for a new draft.'
-                    : 'Could not confirm the save. Retry this same card to avoid a duplicate.',
+                  : action.proposal.draft.kind === 'task_update'
+                    ? 'The task changed since this draft. Check the Tasks page and request a fresh draft.'
+                    : 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
+                : error instanceof BackendError && error.code === 'plain_tasks_unavailable'
+                  ? 'Tasks without a lead are not switched on for this site yet. Ask for the task on a lead.'
+                  : error instanceof BackendError && error.code === 'feature_not_ready'
+                    ? 'Email is not ready. Check this Site’s email settings and the customer address on the lead.'
+                    : error instanceof BackendError &&
+                        [
+                          'invalid_request',
+                          'lead_not_found',
+                          'lead_trashed',
+                          'task_not_found',
+                          'ai_unavailable',
+                        ].includes(error.code)
+                      ? 'This draft expired or is no longer available. Check the lead before asking for a new draft.'
+                      : 'Could not confirm the save. Retry this same card to avoid a duplicate.',
           });
         },
       );

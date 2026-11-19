@@ -4,15 +4,18 @@ import { z } from 'zod';
 import {
   aiActionDraftSchema,
   aiActionProposalSchema,
+  leadTaskStatusSchema,
   leadTypeLabel,
+  type AiActionDraft,
   type AiActionProposal,
   type AiStageMoveNeed,
+  type AiTaskUpdateContext,
 } from '@gt-sales/contracts';
 import type { Scope } from '../tenant-scope.js';
-import type { AiReadService } from './read-service.js';
+import type { AiReadService, LeadHint } from './read-service.js';
 import { decideAccess, type StaffAccessSnapshot } from '../staff/authorization.js';
 import { TurnBudget } from './limits.js';
-import { aiLeadValueDigest } from '../leads/work-store.js';
+import { aiLeadValueDigest, type AiTaskUpdatePreview } from '../leads/work-store.js';
 
 const signedActionSchema = z
   .object({
@@ -38,6 +41,17 @@ const signedActionSchema = z
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
     emailContext: z.object({ toAddress: z.email(), fromAddress: z.email() }).strict().optional(),
+    /**
+     * A task move's task version when prepared (its update time): confirmation
+     * refuses the card if the task changed since, never moving it over a change.
+     */
+    taskUpdateVersion: z.string().min(1).max(100).optional(),
+    /**
+     * The task's status when the move was prepared: confirmation refuses the
+     * card if it differs, even when the update time did not move (the nightly
+     * Get Canada Sim sync changes imported tasks without touching it).
+     */
+    taskUpdateBefore: leadTaskStatusSchema.optional(),
   })
   .strict();
 export type SignedAiAction = z.infer<typeof signedActionSchema>;
@@ -54,6 +68,27 @@ const STAGE_NEED_MESSAGES: Record<AiStageMoveNeed, string> = {
   documents:
     'No card was prepared. This move needs the listed required documents approved on the lead page first.',
 };
+
+/** What the task tool answers when the database cannot hold a plain task yet (before 0038). */
+const PLAIN_TASKS_UNAVAILABLE =
+  'No card was prepared. Tasks without a lead are not available on this site yet. Ask the person which lead the task is for.';
+
+/**
+ * The task tool's input: the draft's fields with `leadId` required but
+ * nullable, so a model states "no lead" (null, a plain task) instead of
+ * leaving the id out by accident.
+ */
+const taskToolInputSchema = aiActionDraftSchema.options[1]
+  .omit({ kind: true, leadId: true })
+  .extend({
+    leadId: z
+      .uuid()
+      .nullable()
+      .describe(
+        'The lead the task follows up, from a read tool; null for a plain task (a task with no lead).',
+      ),
+  });
+const taskUpdateToolInputSchema = aiActionDraftSchema.options[4].omit({ kind: true });
 
 // Domain-separated signing key; rotation of the Gateway key invalidates old cards.
 function signature(payload: string, key: string): Buffer {
@@ -114,6 +149,10 @@ export function createActionProposalTools(input: {
     field: Extract<import('@gt-sales/contracts').AiActionDraft, { kind: 'lead_update' }>['field'],
     options?: { search?: string; limit?: number },
   ) => Promise<import('../leads/work-store.js').AiLeadUpdatePreview | undefined>;
+  /** The task a move card names, read as the card is prepared; absent, no move is offered. */
+  taskUpdatePreview?: (taskId: string) => Promise<AiTaskUpdatePreview | undefined>;
+  /** Whether a task may have no lead (migration 0038 applied); false asks for a lead. */
+  plainTasks?: boolean;
   loadAccess(): Promise<StaffAccessSnapshot | undefined>;
   now(): Date;
   budget: TurnBudget;
@@ -136,13 +175,78 @@ export function createActionProposalTools(input: {
     )
       return JSON.stringify({ status: 'not_available' });
     const draft = aiActionDraftSchema.parse(raw);
-    const lead = await input.reads.leadHint(input.scope, draft.leadId).catch(() => null);
-    if (lead === null)
-      return JSON.stringify({
-        status: 'temporary_failure',
-        message: 'The lead could not be checked.',
-      });
-    if (!lead || lead.leadId !== draft.leadId) return JSON.stringify({ status: 'not_available' });
+    // The lead the card is about: a note's, an email's, a lead update's, a
+    // task's when it follows one up, or the moved task's lead. None for a
+    // plain task.
+    let lead: LeadHint | undefined;
+    let taskUpdateContext: AiTaskUpdateContext | undefined;
+    const readLead = async (leadId: string): Promise<LeadHint | 'failed' | undefined> => {
+      const hint = await input.reads.leadHint(input.scope, leadId).catch(() => null);
+      if (hint === null) return 'failed';
+      return hint && hint.leadId === leadId ? hint : undefined;
+    };
+    if (draft.kind === 'task_update') {
+      const task = input.taskUpdatePreview
+        ? await input.taskUpdatePreview(draft.taskId).catch(() => null)
+        : undefined;
+      // Each refusal names its `reason`, which a revision answers by (TASK_REFUSALS).
+      if (task === null)
+        return JSON.stringify({
+          status: 'temporary_failure',
+          reason: 'temporary_failure',
+          message: 'The task could not be checked.',
+        });
+      if (!task)
+        return JSON.stringify({
+          status: 'not_available',
+          reason: 'task_not_found',
+          message: 'No task with that id is available in this site.',
+        });
+      if (task.status === draft.status)
+        return JSON.stringify({
+          status: 'not_available',
+          reason: 'already_in_stage',
+          message: 'No card was prepared. The task is already in that stage.',
+        });
+      if (task.leadId !== null) {
+        const found = await readLead(task.leadId);
+        if (found === 'failed')
+          return JSON.stringify({
+            status: 'temporary_failure',
+            reason: 'temporary_failure',
+            message: 'The task’s lead could not be checked.',
+          });
+        if (!found)
+          return JSON.stringify({
+            status: 'not_available',
+            reason: 'task_unavailable',
+            message: 'No card was prepared. The task’s lead is archived or not available.',
+          });
+        lead = found;
+      }
+      taskUpdateContext = {
+        version: task.version,
+        title: task.title,
+        before: task.status,
+        leadId: task.leadId,
+      };
+    } else if (draft.kind === 'task' && draft.leadId === undefined) {
+      if (input.plainTasks !== true)
+        return JSON.stringify({
+          status: 'not_available',
+          reason: 'plain_tasks_unavailable',
+          message: PLAIN_TASKS_UNAVAILABLE,
+        });
+    } else {
+      const found = await readLead(draft.leadId ?? '');
+      if (found === 'failed')
+        return JSON.stringify({
+          status: 'temporary_failure',
+          message: 'The lead could not be checked.',
+        });
+      if (!found) return JSON.stringify({ status: 'not_available' });
+      lead = found;
+    }
     const emailContext =
       draft.kind === 'email'
         ? await input.emailPreview?.(draft.leadId).catch(() => undefined)
@@ -200,6 +304,12 @@ export function createActionProposalTools(input: {
         ...(leadUpdateContext
           ? { leadUpdateBefore: aiLeadValueDigest(leadUpdateContext.before) }
           : {}),
+        ...(taskUpdateContext
+          ? {
+              taskUpdateVersion: taskUpdateContext.version,
+              taskUpdateBefore: taskUpdateContext.before,
+            }
+          : {}),
       },
       input.key,
     );
@@ -219,13 +329,19 @@ export function createActionProposalTools(input: {
         draft,
         ...(emailContext ? { emailContext } : {}),
         ...(leadUpdateContext ? { leadUpdateContext } : {}),
+        ...(taskUpdateContext ? { taskUpdateContext } : {}),
         siteName: input.site.name,
-        leadLabel:
-          `${lead.reference || lead.name || 'Lead'} · ${leadTypeLabel(lead.leadType)}`.slice(
-            0,
-            160,
-          ),
-        leadHref: `/w/${encodeURIComponent(input.site.slug)}/leads/${lead.leadId}`,
+        // A card about no lead (a plain task) names none and links nowhere.
+        ...(lead
+          ? {
+              leadLabel:
+                `${lead.reference || lead.name || 'Lead'} · ${leadTypeLabel(lead.leadType)}`.slice(
+                  0,
+                  160,
+                ),
+              leadHref: `/w/${encodeURIComponent(input.site.slug)}/leads/${lead.leadId}`,
+            }
+          : {}),
       }),
     );
     // Never send the bearer confirmation token to the model.
@@ -298,10 +414,17 @@ export function createActionProposalTools(input: {
       execute: (raw) => prepare({ ...raw, kind: 'email' }),
     }),
     prepareTask: tool({
+      description: input.plainTasks
+        ? 'Prepare a task, only when the person asks for one. leadId is the lead it follows up when the person names a lead or means the one open; use leadId null for a plain task (a task with no lead) when they name none or it is not about a lead. Never ask for a lead only because a task could have one. Use a calendar dueDate (YYYY-MM-DD) or null; ask if the date is ambiguous. Assignee me assigns the asking person, none leaves it unassigned. Does not save until the person confirms the card.'
+        : 'Prepare a follow-up task on a lead, only when explicitly requested. Every task needs a lead on this site for now: pass its leadId (leadId null is refused) and ask which lead when none is named. Use a calendar dueDate (YYYY-MM-DD) or null; ask if ambiguous. Assignee me assigns the asking person, none leaves it unassigned. Does not save until the person confirms the card.',
+      inputSchema: taskToolInputSchema,
+      execute: (raw) => prepare(taskDraftOf(raw)),
+    }),
+    prepareTaskUpdate: tool({
       description:
-        'Prepare a follow-up task for an identified lead, only when explicitly requested. Use a calendar dueDate (YYYY-MM-DD) or null; ask if ambiguous. Assignee me assigns the asking person, none leaves it unassigned. Does not save until the person confirms the card.',
-      inputSchema: aiActionDraftSchema.options[1].omit({ kind: true }),
-      execute: (raw) => prepare({ ...raw, kind: 'task' }),
+        'Prepare moving one task to another stage: open (To do), in_progress (In progress), done (Done) or cancelled (Cancelled); a lead’s task or a plain task. Find the task id with listOpenTasks (filter by status; due any) or getLeadSummary first, and prepare one card per task. Only the stage changes. The person sees the task, its current stage and the new one, and confirms; no write occurs here.',
+      inputSchema: taskUpdateToolInputSchema,
+      execute: (raw) => prepare({ ...raw, kind: 'task_update' }),
     }),
   };
   return {
@@ -324,20 +447,58 @@ export function createActionProposalTools(input: {
           kind: 'lead_update',
           ...aiActionDraftSchema.options[3].omit({ kind: true }).parse(raw),
         });
-      if (name !== 'prepareNote' && name !== 'prepareTask' && name !== 'prepareEmail')
+      if (name === 'prepareTask') return prepare(taskDraftOf(taskToolInputSchema.parse(raw)));
+      if (name === 'prepareTaskUpdate')
+        return prepare({ kind: 'task_update', ...taskUpdateToolInputSchema.parse(raw) });
+      if (name !== 'prepareNote' && name !== 'prepareEmail')
         throw new Error('unknown action proposal');
       const schema =
         name === 'prepareNote'
           ? aiActionDraftSchema.options[0].omit({ kind: true })
-          : name === 'prepareTask'
-            ? aiActionDraftSchema.options[1].omit({ kind: true })
-            : aiActionDraftSchema.options[2].omit({ kind: true });
+          : aiActionDraftSchema.options[2].omit({ kind: true });
       return prepare({
-        kind: name === 'prepareNote' ? 'note' : name === 'prepareTask' ? 'task' : 'email',
+        kind: name === 'prepareNote' ? 'note' : 'email',
         ...schema.parse(raw),
       });
     },
   };
+}
+
+/** A task draft from the task tool's input: a null lead is a plain task, which has no `leadId`. */
+function taskDraftOf(
+  raw: z.infer<typeof taskToolInputSchema>,
+): Extract<AiActionDraft, { kind: 'task' }> {
+  const { leadId, ...rest } = raw;
+  return { kind: 'task', ...(leadId === null ? {} : { leadId }), ...rest };
+}
+
+/** The task tool's input for a task draft (the revise route re-runs the tool on an edit). */
+export function taskToolInputOf(
+  draft: Extract<AiActionDraft, { kind: 'task' }>,
+): z.infer<typeof taskToolInputSchema> {
+  const { kind: _kind, leadId, ...rest } = draft;
+  return { ...rest, leadId: leadId ?? null };
+}
+
+/**
+ * Why a task tool made no card, from its result: the `reason` a move or a plain
+ * task's refusal names (`task_not_found`, `already_in_stage`,
+ * `task_unavailable`, `plain_tasks_unavailable`, `temporary_failure`), or
+ * `not_available` for any other.
+ */
+export function taskRefusalReason(result: string): string {
+  try {
+    const parsed = z
+      .object({ status: z.string(), reason: z.string().max(40).optional() })
+      .safeParse(JSON.parse(result));
+    if (!parsed.success) return 'not_available';
+    return (
+      parsed.data.reason ??
+      (parsed.data.status === 'temporary_failure' ? 'temporary_failure' : 'not_available')
+    );
+  } catch {
+    return 'not_available';
+  }
 }
 
 /** The id a confirmation saves under: the draft's first card (`rootId`), else the card's own. */

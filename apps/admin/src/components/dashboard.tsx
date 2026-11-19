@@ -875,7 +875,8 @@ function hasRecorded(statuses: readonly { key: string; total: number }[]): boole
 
 /**
  * The whole team's open tasks due today or earlier (the viewer's today; due
- * dates are calendar days), most overdue first, each linking to its lead.
+ * dates are calendar days), most overdue first, each linking to its lead; a
+ * plain task (no lead) is listed with "No lead" and links nowhere.
  */
 /** The follow-ups card's tasks, loaded once by the dashboard however often the card moves. */
 function useFollowUpsDue(workspaceSlug: string) {
@@ -890,6 +891,7 @@ function useFollowUpsDue(workspaceSlug: string) {
               assignee: 'all',
               status: 'active',
               dueBy: today,
+              plain: 'include',
               pageSize: SHOWN,
             })
         : undefined,
@@ -942,18 +944,22 @@ function FollowUpsDue({
           </p>
         ) : (
           <ul className="-mx-2 divide-y">
-            {tasks.map((task) => (
-              <li key={task.id}>
-                <Link
-                  href={`/w/${workspaceSlug}/leads/${task.lead.id}`}
-                  className="flex items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/40"
-                >
+            {tasks.map((task) => {
+              const lead = task.lead;
+              const body = (
+                <>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">
-                      {leadDisplayName(task.lead.contact)}{' '}
-                      <span className="font-mono text-xs font-normal text-muted-foreground">
-                        {task.lead.externalRef ?? leadTypeLabel(task.lead.leadType)}
-                      </span>
+                      {lead ? (
+                        <>
+                          {leadDisplayName(lead.contact)}{' '}
+                          <span className="font-mono text-xs font-normal text-muted-foreground">
+                            {lead.externalRef ?? leadTypeLabel(lead.leadType)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="font-normal text-muted-foreground">No lead</span>
+                      )}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {task.title}
@@ -971,9 +977,24 @@ function FollowUpsDue({
                       {followUpLabel(task.dueAt)}
                     </span>
                   ) : null}
-                </Link>
-              </li>
-            ))}
+                </>
+              );
+              return (
+                <li key={task.id}>
+                  {lead ? (
+                    <Link
+                      href={`/w/${workspaceSlug}/leads/${lead.id}`}
+                      className="flex items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/40"
+                    >
+                      {body}
+                    </Link>
+                  ) : (
+                    // A plain task belongs to no lead: it is listed, never a link.
+                    <div className="flex items-center gap-3 rounded-md px-2 py-2.5">{body}</div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
 

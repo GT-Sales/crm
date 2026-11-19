@@ -43,7 +43,11 @@ const TRY_AGAIN = 'Try again in a minute; if it keeps happening, tell your admin
  * is unreachable: read as `known` before the status is, so they keep their own
  * sentence. An edge's 503 carries no such code.
  */
-const SWITCHED_OFF_CODES = new Set(['ai_unavailable', 'attachments_unavailable']);
+const SWITCHED_OFF_CODES = new Set([
+  'ai_unavailable',
+  'attachments_unavailable',
+  'plain_tasks_unavailable',
+]);
 
 /** An `attachment_rejected` refusal by its `details.reason`. */
 const ATTACHMENT_REJECTED = {
@@ -54,6 +58,13 @@ const ATTACHMENT_REJECTED = {
   unknown: 'That file could not be attached. Choose it again, or try another file.',
 } as const;
 const RELOAD = 'Reload the page to see the latest, then try again.';
+
+/** A refused revision of an Ask AI task card (`conflict`), by its `details.reason`. */
+const TASK_CARD_CONFLICT: Readonly<Record<string, string>> = {
+  already_in_stage: 'The task is already in that stage. Pick another stage.',
+  task_unavailable: 'This task can no longer be changed from Ask AI. Check it on the Tasks page.',
+  temporary_failure: 'The task could not be checked just now. Try again in a moment.',
+};
 
 /**
  * Words for every refusal a staff user can meet. A function gets the action
@@ -98,6 +109,8 @@ const KNOWN: Record<string, string | ((action: string) => string)> = {
   export_too_large:
     'Too many leads to export at once. Narrow the list with filters, or pick fewer leads, and try again.',
   task_not_found: `This task no longer exists. ${RELOAD}`,
+  plain_tasks_unavailable:
+    'Tasks without a lead are not switched on for this site yet. Add the task on a lead for now, or ask the owner.',
   assignee_not_found:
     'That person is no longer on this site team. Pick someone else from the list.',
   reminder_not_found: `This reminder no longer exists. ${RELOAD}`,
@@ -300,6 +313,13 @@ export function describeError(error: unknown, action: string): string {
         return ATTACHMENT_REJECTED.unknown;
     }
   }
+  if (
+    kind === 'known' &&
+    code === 'conflict' &&
+    reason !== undefined &&
+    Object.hasOwn(TASK_CARD_CONFLICT, reason)
+  )
+    return TASK_CARD_CONFLICT[reason] ?? '';
   const known = kind === 'known' && code !== undefined ? KNOWN[code] : undefined;
   if (known !== undefined) return typeof known === 'function' ? known(action) : known;
   switch (kind) {

@@ -1,0 +1,1 @@
+ALTER TABLE "app"."lead_tasks" ALTER COLUMN "lead_id" DROP NOT NULL;

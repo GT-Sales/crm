@@ -164,6 +164,31 @@ export function changeWords(change: TaskChange): string {
   return parts.join(', ');
 }
 
+/**
+ * Where a task belongs: a link to its lead (name and type), or, for a plain
+ * task, "No lead" in muted text, which links nowhere.
+ */
+export function TaskLead({
+  task,
+  workspaceSlug,
+  className,
+}: {
+  task: Pick<WorkspaceTask, 'lead'>;
+  workspaceSlug: string;
+  className?: string;
+}) {
+  if (!task.lead) return <span className={className}>No lead</span>;
+  return (
+    <Link
+      href={`/w/${workspaceSlug}/leads/${task.lead.id}`}
+      draggable={false}
+      className={cn(className, 'hover:text-foreground hover:underline')}
+    >
+      {leadDisplayName(task.lead.contact)} · {leadTypeLabel(task.lead.leadType)}
+    </Link>
+  );
+}
+
 export function TasksBoard({
   tasks,
   groupBy,
@@ -212,7 +237,6 @@ export function TasksBoard({
     const active = isActiveTaskStatus(task.status);
     const overdue = active && dateGroupOf(task, today) === 'overdue';
     const busy = busyIds.has(task.id);
-    const leadName = leadDisplayName(task.lead.contact);
     return (
       <li
         key={task.id}
@@ -305,13 +329,11 @@ export function TasksBoard({
             </DropdownMenu>
           ) : null}
         </div>
-        <Link
-          href={`/w/${workspaceSlug}/leads/${task.lead.id}`}
-          draggable={false}
-          className="mt-0.5 block truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
-        >
-          {leadName} · {leadTypeLabel(task.lead.leadType)}
-        </Link>
+        <TaskLead
+          task={task}
+          workspaceSlug={workspaceSlug}
+          className="mt-0.5 block truncate text-xs text-muted-foreground"
+        />
         {picking === task.id ? (
           <DatePicker
             title={task.title}

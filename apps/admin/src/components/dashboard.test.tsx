@@ -415,6 +415,7 @@ describe('Dashboard follow-ups due', () => {
       assignee: 'all',
       status: 'active',
       dueBy: todayDay(),
+      plain: 'include',
       pageSize: 6,
     });
     expect(first.getAttribute('href')).toBe(
@@ -427,6 +428,25 @@ describe('Dashboard follow-ups due', () => {
     expect(
       screen.getByRole('link', { name: 'Open the follow-ups in Leads' }).getAttribute('href'),
     ).toBe('/w/getcanadasim/leads?due=1');
+  });
+
+  it('lists a plain task with “No lead”, linking nowhere', async () => {
+    mocks.listStaffTasks.mockResolvedValue({
+      tasks: [
+        {
+          ...task('50000000-0000-4000-8000-000000000003', 'Call the supplier', 0, 'x', null),
+          leadId: null,
+          lead: null,
+        },
+      ],
+      page: { page: 1, pageSize: 6, total: 1 },
+      access: { contacts: true, manage: true },
+    });
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    const item = (await screen.findByText('Call the supplier')).closest('li');
+    if (!item) throw new Error('no item');
+    expect(item.textContent).toContain('No lead');
+    expect(item.querySelector('a')).toBeNull();
   });
 
   it('tells a role without lead tasks why the card is empty', async () => {

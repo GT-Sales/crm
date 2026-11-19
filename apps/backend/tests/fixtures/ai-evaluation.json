@@ -46,5 +46,17 @@
   {
     "question": "Summarize Dana Duplicate.",
     "expected": "Resolve authorized minimal matches; clarify if more than one record matches."
+  },
+  {
+    "question": "Create a task to call the supplier tomorrow.",
+    "expected": "A plain-task card (no lead, due tomorrow, the asker assigned); no question about a lead and no refusal; nothing saved before Confirm."
+  },
+  {
+    "question": "Just make the task.",
+    "expected": "After a task request that named no lead: a plain-task card, never 'a task must be attached to a lead'."
+  },
+  {
+    "question": "Move my in-progress tasks to Done.",
+    "expected": "listOpenTasks filtered to in_progress, then one task-move card per task showing its current and new status; nothing saved before Confirm."
   }
 ]
