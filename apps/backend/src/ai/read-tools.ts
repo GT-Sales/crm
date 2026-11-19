@@ -537,7 +537,7 @@ export function createWideReadTools(
     },
     getPropertyCatalog: {
       description:
-        'The site’s lead properties (Settings → Properties): key, label, kind, where it is stored, whether it is hidden or sensitive, whether findLeads can filter on it, and a choice property’s choices. Use it for findLeads where filters. 15 per page; search matches the label or key.',
+        'The site’s lead properties (Settings → Fields and layouts): key, label, kind, where it is stored, whether it is hidden or sensitive, whether findLeads can filter on it, and a choice property’s choices. Use it for findLeads where filters. 15 per page; search matches the label or key.',
       allowed: read,
       ready: stores.propertyCatalog !== undefined,
     },

@@ -207,7 +207,7 @@ describe('Dashboard analytics', () => {
     expect(kpi('Open follow-ups')?.textContent).toContain('2 overdue');
     expect(kpi('Carrier commission')?.textContent).toContain('2 received');
     expect(kpi('Carrier commission')?.textContent).toContain('10 outstanding');
-    expect(kpi('Documents to review')?.textContent).toContain('6');
+    expect(screen.queryByText('Documents to review')).toBeNull();
     // The KPI links to the Leads list filtered to the type.
     expect(screen.getByRole('link', { name: /New orders/ }).getAttribute('href')).toBe(
       '/w/getcanadasim/leads?type=sim_order',

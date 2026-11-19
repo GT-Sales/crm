@@ -64,21 +64,22 @@ test('the inbox shows each lead type with counts and searches as you type', asyn
   expect(errors).toEqual([]);
 });
 
-test('Documents lists the files waiting on staff, and the lead flags them', async ({ page }) => {
+test('documents are reviewed on the lead, which flags them; there is no Documents page', async ({
+  page,
+}) => {
   const errors = trackErrors(page);
-  await page.goto('/w/getcanadasim/documents');
-  // Nadia Khan's passport is attached and not reviewed; Rogers 60GB requires it.
-  const queue = page.getByRole('list', { name: 'To review documents' });
-  const row = queue.getByRole('listitem').filter({ hasText: 'Nadia Khan' }).first();
-  await expect(row.getByText('Required by plan')).toBeVisible();
-  await expect(row.getByRole('button', { name: 'Approve Passport for Nadia Khan' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /^Documents, \d+ to review$/ })).toBeVisible();
-  // Her lead says what waits on staff and takes them to it.
-  await row.getByRole('link', { name: 'Nadia Khan' }).click();
+  await page.goto('/w/getcanadasim/leads');
+  const menu = page.getByRole('navigation', { name: 'Site navigation' });
+  await expect(menu.getByRole('link', { name: 'Leads' })).toBeVisible();
+  await expect(menu.getByRole('link', { name: /^Documents/ })).toHaveCount(0);
+  // Nadia Khan's passport is attached and not reviewed; her lead says what waits on staff.
+  await page.getByRole('link', { name: 'Nadia Khan' }).first().click();
   const attention = page.getByRole('region', { name: 'Needs attention' });
   await expect(attention.getByRole('button', { name: 'Change request #1 waiting' })).toBeVisible();
   await expect(attention.getByRole('button', { name: 'Passport not reviewed' })).toBeVisible();
   expect(errors).toEqual([]);
+  const gone = await page.goto('/w/getcanadasim/documents');
+  expect(gone?.status()).toBe(404);
 });
 
 test('the dashboard lists the follow-ups due, and Leads filters to them', async ({ page }) => {
@@ -460,10 +461,10 @@ test('a custom property is set in the side panel, filtered on, saved as a view, 
 }) => {
   const errors = trackErrors(page);
 
-  // Settings → Properties: the owner adds a text property for every lead type.
+  // Settings → Fields and layouts: the owner adds a text property for every lead type.
   await page.goto('/w/canadawide/settings');
-  await page.getByRole('link', { name: 'Properties and record layouts' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Properties' })).toBeVisible();
+  await page.getByRole('link', { name: 'Fields and layouts' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Fields and layouts' })).toBeVisible();
   await page.getByRole('button', { name: 'Add property' }).click();
   const addDialog = page.getByRole('dialog', { name: 'Add property' });
   await addDialog.getByLabel('Label').fill('Referral code');
@@ -1130,7 +1131,6 @@ test('the redesigned workspace supports page finding, persistent themes and narr
     { route: 'leads?type=sim_order', title: 'Leads' },
     { route: 'tasks', title: 'My tasks' },
     { route: 'settings', title: 'General settings' },
-    { route: 'documents', title: 'Documents' },
   ];
   for (const { route, title } of pages) {
     await page.goto(`/w/getcanadasim/${route}`);

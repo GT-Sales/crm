@@ -164,10 +164,15 @@ export class SourceRegistry {
  */
 export const ADMIN_SCREENS = {
   plans: { path: '/settings/plans', label: 'Settings → Plans', kind: 'overview' },
-  properties: { path: '/settings/properties', label: 'Settings → Properties', kind: 'overview' },
+  properties: {
+    path: '/settings/properties',
+    label: 'Settings → Fields and layouts',
+    kind: 'overview',
+  },
   analytics: { path: '/analytics', label: 'Analytics', kind: 'report' },
   dashboard: { path: '/dashboard', label: 'Dashboard', kind: 'report' },
-  documents: { path: '/documents', label: 'Documents', kind: 'overview' },
+  // Documents are reviewed on each lead's page; there is no Documents page.
+  documents: { path: '/leads', label: 'Leads', kind: 'overview' },
   mail: { path: '/mail', label: 'Mail', kind: 'overview' },
   jobs: { path: '/settings/jobs', label: 'Settings → Background jobs', kind: 'overview' },
   team: { path: '/settings/team', label: 'Settings → Team', kind: 'overview' },

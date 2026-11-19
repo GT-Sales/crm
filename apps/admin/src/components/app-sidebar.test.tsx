@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarProvider } from '@gt-sales/ui';
 
@@ -12,13 +12,15 @@ vi.mock('next/navigation', () => ({
 }));
 
 const getLeadsSummary = vi.fn();
-const listDocumentReviewQueue = vi.fn();
 const listWorkspaceMembers = vi.fn();
 const signOut = vi.fn();
+const askAi = vi.hoisted(() => ({ enabled: false }));
+vi.mock('./ai/assistant-provider', () => ({
+  useOptionalAssistant: () => ({ conversations: { enabled: askAi.enabled } }),
+}));
 vi.mock('../lib/api', () => ({
   listWorkspaceMembers: (...args: unknown[]) => listWorkspaceMembers(...args),
   getLeadsSummary: (...args: unknown[]) => getLeadsSummary(...args),
-  listDocumentReviewQueue: (...args: unknown[]) => listDocumentReviewQueue(...args),
 }));
 vi.mock('./staff-session-provider', () => ({
   useStaffSession: () => ({
@@ -58,9 +60,7 @@ describe('AppSidebar', () => {
       members: [{ displayName: 'Alex Example', isSelf: true }],
     });
     getLeadsSummary.mockReset();
-    listDocumentReviewQueue.mockReset();
-    // A role without document access: the queue refuses and no count shows.
-    listDocumentReviewQueue.mockRejectedValue(new Error('permission_denied'));
+    askAi.enabled = false;
     getLeadsSummary.mockResolvedValue({
       types: [],
       archived: 0,
@@ -105,17 +105,15 @@ describe('AppSidebar', () => {
     usePathname.mockReturnValue('/w/getcanadasim/leads');
     renderSidebar('getcanadasim');
 
-    expect(
-      screen.getByRole('link', { name: /documents/i }).getAttribute('aria-current'),
-    ).toBeNull();
+    expect(screen.getByRole('link', { name: 'My tasks' }).getAttribute('aria-current')).toBeNull();
   });
 
   it('links every nav item to the current site slug', () => {
     usePathname.mockReturnValue('/w/canadawide/leads');
     renderSidebar('canadawide');
 
-    expect(screen.getByRole('link', { name: /documents/i }).getAttribute('href')).toBe(
-      '/w/canadawide/documents',
+    expect(screen.getByRole('link', { name: 'My tasks' }).getAttribute('href')).toBe(
+      '/w/canadawide/tasks',
     );
   });
 
@@ -126,20 +124,43 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('link', { name: /^reports$/i })).toBeNull();
   });
 
-  it('offers only sections that exist', () => {
+  /** Each group of the sidebar: its heading (or none) and its link names, in order. */
+  function groupsOf() {
+    const nav = screen.getByRole('navigation', { name: 'Site navigation' });
+    return within(nav)
+      .getAllByRole('group')
+      .map((group) => ({
+        heading: group.getAttribute('aria-labelledby')
+          ? (group.ownerDocument.getElementById(group.getAttribute('aria-labelledby')!)
+              ?.textContent ?? null)
+          : null,
+        links: within(group)
+          .getAllByRole('link')
+          .map((link) => link.textContent),
+      }));
+  }
+
+  it('groups the pages: Dashboard alone, then Work, Insights and Setup', () => {
     usePathname.mockReturnValue('/w/canadawide/leads');
     renderSidebar('canadawide');
 
-    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
-      'Dashboard',
-      'Leads',
-      'My tasks',
-      'Documents',
-      'Mail',
-      'Analytics',
-      'Automations',
-      'Settings',
+    expect(groupsOf()).toEqual([
+      { heading: null, links: ['Dashboard'] },
+      { heading: 'Work', links: ['Leads', 'My tasks', 'Mail'] },
+      { heading: 'Insights', links: ['Analytics'] },
+      { heading: 'Setup', links: ['Automations', 'Settings'] },
     ]);
+    expect(screen.queryByRole('link', { name: /documents/i })).toBeNull();
+    expect(screen.queryByText('Manage')).toBeNull();
+  });
+
+  it('puts Ask AI under Dashboard, outside the headed groups, only when conversations are stored', () => {
+    usePathname.mockReturnValue('/w/canadawide/chat');
+    askAi.enabled = true;
+    renderSidebar('canadawide');
+
+    expect(groupsOf()[0]).toEqual({ heading: null, links: ['Dashboard', 'Ask AI'] });
+    expect(screen.getByRole('link', { name: 'Ask AI' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('lists Automations, linked to the site', () => {
@@ -149,29 +170,6 @@ describe('AppSidebar', () => {
     const link = screen.getByRole('link', { name: 'Automations' });
     expect(link.getAttribute('href')).toBe('/w/canadawide/automations');
     expect(link.getAttribute('aria-current')).toBe('page');
-  });
-
-  it('counts documents waiting for a first review beside Documents, and refreshes after a review', async () => {
-    listDocumentReviewQueue.mockResolvedValue({ counts: { toReview: 2, rejected: 1 } });
-    renderSidebar('getcanadasim');
-    const link = await screen.findByRole('link', { name: 'Documents, 2 to review' });
-    expect(link.getAttribute('href')).toBe('/w/getcanadasim/documents');
-    expect(listDocumentReviewQueue).toHaveBeenCalledWith(
-      'staff-token',
-      '10000000-0000-4000-8000-000000000001',
-      { status: 'to_review' },
-    );
-    listDocumentReviewQueue.mockResolvedValue({ counts: { toReview: 1, rejected: 1 } });
-    window.dispatchEvent(new CustomEvent('crm:documents-reviewed'));
-    expect(await screen.findByRole('link', { name: 'Documents, 1 to review' })).toBeTruthy();
-  });
-
-  it('shows no Documents count to a role the queue refuses', async () => {
-    renderSidebar('getcanadasim');
-    await waitFor(() => expect(listDocumentReviewQueue).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(screen.getByRole('link', { name: 'Documents' }).textContent).toBe('Documents'),
-    );
   });
 
   it('counts the leads no one has opened yet beside Leads', async () => {

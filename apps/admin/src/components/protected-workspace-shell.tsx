@@ -25,8 +25,6 @@ function pageShape(pathname: string | null) {
       return subpage ? 'record' : 'table';
     case 'tasks':
       return 'tasks';
-    case 'documents':
-      return 'documents';
     case 'mail':
       return 'mail';
     // The chat is a list beside a thread, as Mail is.
