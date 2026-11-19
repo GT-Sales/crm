@@ -186,7 +186,7 @@ export function ChatThread({
         aria-relevant="additions"
         aria-busy={load.status === 'loading'}
         onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8 sm:px-6">
           {content}

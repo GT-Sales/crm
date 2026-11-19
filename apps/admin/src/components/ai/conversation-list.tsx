@@ -313,6 +313,7 @@ export function ConversationList({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-col gap-1 p-2 pb-1">
+        <p className="px-2.5 pt-1 pb-1 text-xs font-medium text-muted-foreground">Actions</p>
         <Button
           asChild
           variant="ghost"
@@ -331,40 +332,44 @@ export function ConversationList({
             New chat
           </Link>
         </Button>
-        <div className="relative">
-          <label htmlFor={searchId} className="sr-only">
-            Search conversations
-          </label>
-          <SearchIcon
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            id={searchId}
-            type="search"
-            value={query}
-            maxLength={AI_CHAT_LIMITS.maxTitleChars}
-            placeholder="Search titles"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && query.length > 0) {
-                event.preventDefault();
-                event.stopPropagation();
-                setQuery('');
-              }
-            }}
-            className="h-9 rounded-lg border-transparent bg-transparent pr-8 pl-[2.375rem] text-[13px] shadow-none hover:bg-accent/50 focus-visible:bg-background md:text-[13px] [&::-webkit-search-cancel-button]:hidden"
-          />
-          {query.length > 0 ? (
-            <button
-              type="button"
-              aria-label="Clear search"
-              onClick={() => setQuery('')}
-              className="absolute top-1/2 right-1 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <XIcon aria-hidden="true" className="size-3.5" />
-            </button>
-          ) : null}
+        {/* The section label and the title search share a line, as the reference's Chats row does. */}
+        <div className="mt-2 flex items-center gap-2 px-2.5">
+          <p className="text-xs font-medium text-muted-foreground">Chats</p>
+          <div className="relative min-w-0 flex-1">
+            <label htmlFor={searchId} className="sr-only">
+              Search conversations
+            </label>
+            <SearchIcon
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              id={searchId}
+              type="search"
+              value={query}
+              maxLength={AI_CHAT_LIMITS.maxTitleChars}
+              placeholder="Search titles"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query.length > 0) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setQuery('');
+                }
+              }}
+              className="h-7 rounded-md border-transparent bg-transparent pr-7 pl-7 text-xs shadow-none hover:bg-accent/50 focus-visible:bg-background md:text-xs [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query.length > 0 ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+                className="absolute top-1/2 right-0.5 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <XIcon aria-hidden="true" className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 

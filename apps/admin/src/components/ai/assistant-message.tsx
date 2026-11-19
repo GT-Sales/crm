@@ -236,17 +236,20 @@ function AssistantAnswer({
     );
   }
   return (
-    <div className={cn('flex min-w-0 items-start', compact ? 'gap-2.5' : 'gap-3')}>
-      <span
-        aria-hidden="true"
-        className={cn(
-          'grid shrink-0 place-items-center rounded-full border bg-card text-primary shadow-xs',
-          compact ? 'size-6' : 'size-8',
-        )}
-      >
-        <SparklesIcon className={compact ? 'size-3' : 'size-4'} />
-      </span>
-      <div className={cn('flex min-w-0 flex-1 flex-col gap-3', !compact && 'pt-1')}>
+    <div className="flex min-w-0 flex-col gap-2">
+      {/* Who is answering: a small avatar and the assistant's name, never a model. */}
+      <div aria-hidden="true" className="flex items-center gap-2.5">
+        <span
+          className={cn(
+            'grid shrink-0 place-items-center rounded-full border bg-card text-primary shadow-xs',
+            compact ? 'size-6' : 'size-7',
+          )}
+        >
+          <SparklesIcon className={compact ? 'size-3' : 'size-3.5'} />
+        </span>
+        <span className="text-[13px] font-medium">Ask AI</span>
+      </div>
+      <div className={cn('flex min-w-0 flex-col gap-3', !compact && 'pl-[2.375rem]')}>
         {message.fileLimitReached ? (
           <p className="text-xs text-muted-foreground">{FILE_LIMIT_TEXT}</p>
         ) : null}

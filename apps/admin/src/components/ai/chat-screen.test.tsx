@@ -1242,6 +1242,18 @@ describe('Ask AI full page: review findings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   }
 
+  it('the desktop list can be hidden and shown again without losing the open chat', async () => {
+    mocks.listAiConversations.mockResolvedValue(page([conversation(1, 'Alpha')]));
+    render(<Screen />);
+    await screen.findByRole('link', { name: 'Alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide conversation list' }));
+    expect(screen.queryByRole('navigation', { name: 'Conversations' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Ask a question' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Show conversation list' }));
+    expect(await screen.findByRole('link', { name: 'Alpha' })).toBeTruthy();
+    expect(screen.getAllByRole('navigation', { name: 'Conversations' })).toHaveLength(1);
+  });
+
   it('a search typed in the phone drawer asks once, and only one list is ever mounted', async () => {
     mocks.listAiConversations.mockResolvedValue(
       page([conversation(1, 'Alpha'), conversation(2, 'Beta')]),
