@@ -18,7 +18,8 @@ const LEAD = '90000000-0000-4000-8000-000000000201';
 const base = {
   id: '40000000-0000-4000-8000-000000000201',
   token: 'opaque-token',
-  expiresAt: '2026-11-19T12:10:00.000Z',
+  // Always in the future, so the card is never shown as expired.
+  expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
   siteName: 'Get Canada Sim',
 };
 
