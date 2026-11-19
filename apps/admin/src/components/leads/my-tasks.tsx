@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
 import {
   isActiveTaskStatus,
@@ -342,7 +342,10 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
   const canWrite = tasks.data?.access.manage ?? false;
 
   // "C" opens the composer, as in Linear, unless the person is typing or in a menu or dialog.
-  useEffect(() => {
+  // A layout effect, so the listener is attached in the same commit that shows the
+  // Add task button: a passive effect runs a moment after paint, and a key pressed in
+  // that gap (a fast browser test on a loaded runner) would be lost.
+  useLayoutEffect(() => {
     if (!canWrite) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== 'c' || event.defaultPrevented || event.repeat) return;

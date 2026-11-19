@@ -105,6 +105,33 @@ describe('adding tasks on the Tasks page', () => {
     other.remove();
   });
 
+  it('has the C shortcut live in the very commit that shows the Add task button', async () => {
+    // A key pressed the instant the button can be seen must not be lost: a
+    // listener attached only after paint would miss it (seen on a loaded CI runner).
+    let formWhenButtonAppeared: boolean | undefined;
+    const watcher = new MutationObserver(() => {
+      if (formWhenButtonAppeared !== undefined) return;
+      const button = [...document.querySelectorAll('button')].find((item) =>
+        item.textContent?.startsWith('Add task'),
+      );
+      if (!button) return;
+      // A microtask after the commit, before React's deferred (passive) effects.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }));
+      formWhenButtonAppeared = false;
+      queueMicrotask(() => {
+        formWhenButtonAppeared = document.querySelector('form[aria-label="New task"]') !== null;
+      });
+    });
+    watcher.observe(document.body, { childList: true, subtree: true });
+    try {
+      await ready();
+      await screen.findByRole('form', { name: 'New task' }, { timeout: 1000 });
+      await waitFor(() => expect(formWhenButtonAppeared).toBe(true));
+    } finally {
+      watcher.disconnect();
+    }
+  });
+
   it('adds a task to a lead through the lead’s own route when the Lead chip picks one', async () => {
     mocks.createLeadTask.mockResolvedValue({
       task: saved('Send the contract', null, LEAD),
