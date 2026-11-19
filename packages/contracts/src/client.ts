@@ -1,8 +1,3 @@
-import {
-  documentReviewQueueResponseSchema,
-  type DocumentReviewQueueQuery,
-  type DocumentReviewQueueResponse,
-} from './document-review';
 import { mailboxResponseSchema, type MailboxQuery, type MailboxResponse } from './mailbox';
 import {
   webAnalyticsResponseSchema,
@@ -679,10 +674,6 @@ export interface BackendClient {
       workspaceId: string,
       query?: ListWorkspaceTasksQuery,
     ): Promise<ListWorkspaceTasksResponse>;
-    listDocumentReviewQueue(
-      workspaceId: string,
-      query?: DocumentReviewQueueQuery,
-    ): Promise<DocumentReviewQueueResponse>;
     listMailbox(workspaceId: string, query?: MailboxQuery): Promise<MailboxResponse>;
     getWebAnalytics(workspaceId: string, query?: WebAnalyticsQuery): Promise<WebAnalyticsResponse>;
     /** `query.object` picks lead (the default) or plan properties on these five. */
@@ -1543,13 +1534,6 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
             pageSize: query?.pageSize,
           },
           responseSchema: listWorkspaceTasksResponseSchema,
-        }),
-      listDocumentReviewQueue: (workspaceId, query) =>
-        call({
-          method: 'GET',
-          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/documents/review-queue`,
-          query: { status: query?.status, page: query?.page },
-          responseSchema: documentReviewQueueResponseSchema,
         }),
       listMailbox: (workspaceId, query) =>
         call({

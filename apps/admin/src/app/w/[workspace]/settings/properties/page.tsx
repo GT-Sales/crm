@@ -12,7 +12,7 @@ export default async function PropertiesSettingsPage({
     <Card>
       <CardHeader>
         <CardTitle asChild>
-          <h1>Properties</h1>
+          <h1>Fields and layouts</h1>
         </CardTitle>
         <CardDescription>
           The details this site keeps on its leads, and how each lead type groups them on the record

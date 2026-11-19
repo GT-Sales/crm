@@ -6,7 +6,6 @@ type LoadingLayout =
   | 'tasks'
   | 'mail'
   | 'analytics'
-  | 'documents'
   | 'table'
   | 'form'
   | 'record'
@@ -342,15 +341,6 @@ export function LoadingSkeleton({
       ) : null}
       {variant === 'flow' ? <FlowLayout /> : null}
       {variant === 'tasks' ? <TaskListLayout /> : null}
-      {variant === 'documents' ? (
-        <>
-          <div aria-hidden="true" className="flex gap-3 border-b pb-2">
-            <Skeleton className="h-8 w-24" />
-            <Skeleton className="h-8 w-24" />
-          </div>
-          <Lines rows={rows} />
-        </>
-      ) : null}
       {variant === 'analytics' ? (
         <>
           <Metrics website />

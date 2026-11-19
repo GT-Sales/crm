@@ -17,8 +17,8 @@ import {
 import { getStaffLeads } from '../lib/api';
 import { describeError } from '../lib/error-text';
 import { leadDisplayName } from './leads/lead-display';
-import { useAskAiPageAvailable, withAskAi } from './ai/chat-nav';
-import { NAV_ITEMS } from './nav-items';
+import { useAskAiPageAvailable } from './ai/chat-nav';
+import { mainNavEntries } from './nav-items';
 import { useStaffSession } from './staff-session-provider';
 
 /** Leads are searched once this many characters are typed, a moment after typing stops. */
@@ -101,7 +101,7 @@ export function QuickNavigation({
     return () => clearTimeout(timer);
   }, [searchable, term, accessToken, workspaceId]);
 
-  const pages = withAskAi(NAV_ITEMS, askAi).filter((item) =>
+  const pages = mainNavEntries(askAi).filter((item) =>
     item.label.toLowerCase().includes(term.toLowerCase()),
   );
   const leads = search.status === 'done' ? search.leads : [];

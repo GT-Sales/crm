@@ -33,8 +33,6 @@ import {
   type LeadDetail,
   type LeadListItem,
   type PropertyCatalog,
-  DOCUMENT_REVIEW_PAGE_SIZE,
-  documentReviewQueueQuerySchema,
   MAILBOX_PAGE_SIZE,
   mailboxQuerySchema,
   webAnalyticsQuerySchema,
@@ -1635,47 +1633,6 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
   // ---- Documents -----------------------------------------------------------
   // Downloading an original requires the separately-grantable
   // `document.download` permission; approve/reject is a lead-management action.
-
-  // The site's documents waiting on staff (Documents page). It names customers,
-  // so it needs contact access; reviewing and downloading recheck their own.
-  router.get('/workspaces/:workspaceId/documents/review-queue', async (req, res) => {
-    const workspaceId = z.uuid().safeParse(req.params['workspaceId']);
-    const query = documentReviewQueueQuerySchema.safeParse(req.query);
-    if (!workspaceId.success || !query.success) {
-      sendStaffAuthError(res, req.id, 'invalid_request', 400);
-      return;
-    }
-    try {
-      const { actor, decision } = await decide(req, workspaceId.data, 'workspace.read');
-      if (!decision.allowed) {
-        sendStaffAuthError(res, req.id, denyReasonOf(decision), 403);
-        return;
-      }
-      if (!leadAccessOf(decision.access).contacts) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
-        return;
-      }
-      const page = query.data.page ?? 1;
-      const queue = dependencies.documentReviewQueue ?? new DatabaseDocumentReviewQueue();
-      const result = await queue.list(
-        { workspaceId: workspaceId.data, actorId: actor.actorId },
-        { status: query.data.status ?? 'to_review', page },
-      );
-      res.json({
-        items: result.items,
-        counts: result.counts,
-        page: { page, pageSize: DOCUMENT_REVIEW_PAGE_SIZE, total: result.total },
-        access: {
-          review: decideAccess(decision.access, 'order.manage').allowed,
-          download: decideAccess(decision.access, 'document.download').allowed,
-        },
-        requestId: req.id,
-      });
-    } catch (error) {
-      reportFailure(req, error);
-      sendStaffAuthError(res, req.id, 'internal_error', 500);
-    }
-  });
 
   // The site's website traffic (Analytics page), read from Umami. Totals only,
   // no customer details, so any member of the site may read it.
