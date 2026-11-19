@@ -35,17 +35,17 @@ Admin browser (Vercel)
   -> model via AI Gateway -> typed SSE parts -> browser
 ```
 
-| Input                                 | Authority                                                            | Enforced in                                                    |
-| ------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Verified staff session                | The actor; a body-supplied actor id is rejected by the strict schema | `requireStaffSession` (staff router) + `aiChatRequestSchema`   |
-| Route `workspaceId` + live membership | The site                                                             | `loadAccess` + `decideAiAccess` in `routes/ai-assistant.ts`    |
-| Tool arguments                        | Untrusted proposals                                                  | Zod schemas in `ai/tools.ts`; every value validated            |
-| Lead id / context                     | A hint, re-authorized on read                                        | `getLeadSummary` reads by id inside the tenant transaction     |
-| Browser chat history                  | Untrusted text                                                       | Re-validated; never produces a source card or an authorization |
-| Stored conversation, attached files   | The member's own, under an owner policy; file content is data        | `ai/conversation-store.ts`, `ai/attachments.ts`; ai-chat.md §3 |
-| Records, names, notes                 | Untrusted data                                                       | System prompt treats them as data; rendering is escaped text   |
-| Tool output                           | Authorized evidence                                                  | Explicit projections in `ai/projections.ts`                    |
-| Model text                            | Presentation only                                                    | Rendered as text; links only come from server source cards     |
+| Input                                 | Authority                                                            | Enforced in                                                                                           |
+| ------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Verified staff session                | The actor; a body-supplied actor id is rejected by the strict schema | `requireStaffSession` (staff router) + `aiChatRequestSchema`                                          |
+| Route `workspaceId` + live membership | The site                                                             | `loadAccess` + `decideAiAccess` in `routes/ai-assistant.ts`                                           |
+| Tool arguments                        | Untrusted proposals                                                  | Zod schemas in `ai/tools.ts`; every value validated                                                   |
+| Lead id / context                     | A hint, re-authorized on read                                        | `getLeadSummary` reads by id inside the tenant transaction                                            |
+| Browser chat history                  | Untrusted text                                                       | Re-validated; never produces a source card or an authorization                                        |
+| Stored conversation, attached files   | The member's own, under an owner policy; file content is data        | `ai/conversation-store.ts`, `ai/attachments.ts`; ai-chat.md §3                                        |
+| Records, names, notes                 | Untrusted data                                                       | `ai/record-text.ts` cleans every typed string; results carry a data notice; rendering is escaped text |
+| Tool output                           | Authorized evidence                                                  | Explicit projections in `ai/projections.ts`, `ai/lead-record.ts`, `ai/read-tools.ts`                  |
+| Model text                            | Presentation only                                                    | Rendered as text; links only come from server source cards                                            |
 
 `decideAiAccess` uses the existing `decideAccess` (no second role table):
 `workspace.read` **and** at least one of `lead.manage`, `order.manage`,
@@ -60,13 +60,42 @@ on `access_lost` and says the member's access changed.
 
 ## 3. Reused reads, new queries, and side effects
 
-| Tool                   | Source                                                                                                                                                                                                                      | Side effects                                                                     |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `getSiteOverview`      | New narrow parameterized counts in `ai/read-service.ts` over `app.leads` (type, window, `deleted_at is null`, `customer_data_restricted_at is null`)                                                                        | none                                                                             |
-| `findLeads`            | New narrow list in `ai/read-service.ts` (name/reference/email/phone ILIKE, type, stage, assignee, archive, page) with `count(*) over ()` as the exact total                                                                 | none                                                                             |
-| `getLeadSummary`       | New narrow read of one lead + up to 10 open tasks + up to 10 activity rows                                                                                                                                                  | none — deliberately **not** the staff lead page's getters, which record "opened" |
-| `listOpenTasks`        | New narrow list in `ai/read-service.ts` of lead tasks on active, unrestricted leads and plain tasks (no lead), by status (`active` or one status); due-day filters reuse the `dueCutoff` rule from `leads/staff-queries.ts` | none                                                                             |
-| `getSourcePerformance` | The existing `DatabaseReportStore.sourceReport` (`reports/store.ts`), unchanged                                                                                                                                             | none                                                                             |
+Each read runs in its own read-only, time-limited tenant transaction where it
+reads through `ai/read-service.ts`, and through the staff route's own store
+function wherever there is one. A tool is offered to the model only when the
+member's live access holds the action its staff route checks and the
+deployment has that store; every call checks the access again, and a refusal
+carries no data.
+
+| Tool                                                                            | Source (the staff route it mirrors)                                                                                                                                                                                                                    | Action                                                        |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `getSiteOverview`                                                               | Narrow counts in `ai/read-service.ts` (type, window, not archived, not restricted)                                                                                                                                                                     | `workspace.read`                                              |
+| `findLeads`                                                                     | `selectLeadPage` in `leads/staff-queries.ts` (`GET /leads`): search, type, stage, assignee, status, view (`new` reads the inbox's "not opened yet"), `dueBy`, property filters checked with `areValidLeadPropertyFilters` against the site's catalogue | Ask AI access (the contacts roles)                            |
+| `getLeadSummary`                                                                | The lead row and tasks in `ai/read-service.ts`, and `selectLeadWithWork` (`GET /leads/:leadId`'s query) for the timeline, documents, change request and values; never `LeadWorkStore` getters                                                          | Ask AI access                                                 |
+| `listOpenTasks`                                                                 | Narrow list in `ai/read-service.ts` (lead tasks on active, unrestricted leads and plain tasks), with `completedSince` and a due-day range by the `dueCutoff` rule                                                                                      | Ask AI access                                                 |
+| `getSourcePerformance`                                                          | `DatabaseReportStore.sourceReport` (`GET /reports/sources`), unchanged                                                                                                                                                                                 | `workspace.read`                                              |
+| `getInboxCounts`                                                                | `selectLeadSummary` (`GET /leads/summary`)                                                                                                                                                                                                             | `workspace.read`                                              |
+| `listPlans`                                                                     | `PlanStore.list` (`GET /plans`)                                                                                                                                                                                                                        | `workspace.read`                                              |
+| `getPropertyCatalog`                                                            | `PropertyStore.catalog` (`GET /properties`)                                                                                                                                                                                                            | `workspace.read`                                              |
+| `getAnalytics`                                                                  | `AnalyticsStore.analytics` with `withoutMoney` (`GET /analytics`)                                                                                                                                                                                      | `workspace.read`                                              |
+| `getWebAnalytics`                                                               | The Umami reader (`GET /web-analytics`)                                                                                                                                                                                                                | `workspace.read`                                              |
+| `getDocumentQueue`                                                              | `DocumentReviewQueueStore.list` (`GET /documents/review-queue`)                                                                                                                                                                                        | contacts roles                                                |
+| `listSentMail`                                                                  | `MailboxStore.list` (`GET /mail`) and the delivery counters (`EmailStore.deliverySummary`)                                                                                                                                                             | contacts roles                                                |
+| `listJobs`                                                                      | `JobAdminStore.listActive` (`GET /jobs`)                                                                                                                                                                                                               | `workspace.read`                                              |
+| `getMyAccess`                                                                   | The live access snapshot (`GET /access`)                                                                                                                                                                                                               | `workspace.read`                                              |
+| `listMembers`                                                                   | `StaffStore.listAssignableMembers` (`GET /members`)                                                                                                                                                                                                    | `workspace.read`                                              |
+| `getEmailSettings`, `getEmailTemplate`                                          | `EmailSettingsStore` (`GET /email/settings`, `GET /email/templates`)                                                                                                                                                                                   | `integration.manage`                                          |
+| `linkToScreen`                                                                  | A fixed list of admin paths in `ai/sources.ts`                                                                                                                                                                                                         | `workspace.read`                                              |
+| `listAutomations`, `getAutomation`, `getAutomationCatalog`, `getAutomationRuns` | `FlowStore` (`GET /automations…`)                                                                                                                                                                                                                      | Ask AI access; with authoring, `integration.manage` as before |
+
+Lead names and references in the sent box, the review queue and automation
+runs are read with `leadLabels` (active, unrestricted leads only), because
+those screens' own rows name a lead by "name, else email". Each lead these
+three name also gets its lead source card, so a stored answer that names it is
+not replayed once the lead is restricted and is found by the erasure
+([ai-chat.md](ai-chat.md) §6 and §13); `listOpenTasks` names a task's lead
+without a card (its link is the tasks page), so such an answer is found only
+by the lead's order number.
 
 No getter that marks a lead opened, seeds automations, writes a timeline entry or
 queues a job is called. The only writes a turn makes are the
@@ -78,7 +107,8 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
 - `GET  …/ai/capabilities` — ordinary JSON; `cache-control: no-store`.
 - `POST …/ai/chat` — SDK `createUIMessageStream` and
   `pipeUIMessageStreamToResponse`, protocol header `v1`, typed transient
-  `data-assistant` parts carrying `progress`, `text`, `sources`, `error`, `done`,
+  `data-assistant` parts carrying `progress`, `text`, `sources`, `error`, `done`
+  (and, in a stored conversation, `notice`: [ai-chat.md](ai-chat.md) §8),
   followed by the SDK `[DONE]` terminator. `aiWirePartSchema` describes the wire.
 - The request may carry the optional `effort` (`high` only, and only where
   capabilities list it in `efforts`; §8); without it the turn is Normal.
@@ -91,7 +121,8 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
 - Errors before the first frame are the normal JSON error envelope
   (`ai_unavailable` 503, `ai_rate_limited` 429, `permission_denied` 403,
   `invalid_request` 400; for a stored conversation also
-  `conversation_not_found` 404, `conversation_full` 409, `conflict` 409 and
+  `conversation_not_found` 404, `conversation_full` 409,
+  `conversation_limit_reached` 409, `conflict` 409 and
   `attachments_unavailable` 503). After the first frame, only typed `error` parts.
 - The registry (`packages/contracts/src/endpoints.ts`) describes the stream with
   a new `stream` field; `openapi.ts` publishes the frame schema under
@@ -131,24 +162,60 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
 
 ## 6. Fields the model may see
 
-Leads: id, type and stage labels, reference, name, staff display name of the
-assignee, created/updated dates, archive state. Tasks: id, lead id/reference/name
-(all three null for a plain task), title, status, assignee display name, due
-instant and due day. Activity: kind and time;
-a note excerpt (≤500 characters, at most 5) **only** when the caller asked for
-notes.
+What reaches the AI provider from the CRM, by tool. "Contacts roles" are the
+roles that see a lead's details (`lead.manage`, `order.manage` or
+`financial.read`, `staff/lead-visibility.ts`); every Ask AI user is one.
 
-Never sent from the CRM: email, phone, address, country, SIN, passport or visa
-content, the lead's documents, document ids or signed URLs, custom values, activation numbers/accounts, documents overrides, the access snapshot, property catalogue, headers and
-environment. Order summaries now include the frozen plan name, quantity, dispatch and
-activation dates. Price in integer CAD cents, payment and commission state
-require effective `financial.read`. The live property catalogue excludes hidden
-or sensitive order fields; no raw order JSON reaches the model.
+| Data                                                                                                                                                                                                                                                                                                                                                              | Sent                             | Condition                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lead: id, type and stage labels, status, reference, name, assignee's display name, created/updated dates, archive state                                                                                                                                                                                                                                           | Yes                              | —                                                                                                                                                                                      |
+| Order: plan name, quantity, courier, dispatch and activation dates                                                                                                                                                                                                                                                                                                | Yes                              | the catalogue's property is neither hidden nor sensitive                                                                                                                               |
+| Order: price (integer CAD cents), currency, payment status, commission state                                                                                                                                                                                                                                                                                      | Yes                              | contacts roles, as on the lead page (`moneyVisibilityOf`); the catalogue's property not hidden or sensitive                                                                            |
+| Commission amounts (a frozen plan's or a plan's), commission earned and expected                                                                                                                                                                                                                                                                                  | Yes                              | `revenue.view` only                                                                                                                                                                    |
+| Timeline: kind, time, who (display name, "Automation", "Customer"), stage from → to, assignment from → to by display name, edited field labels, the template sent and its delivery status, a review's document type and decision, a change request's number, field labels and document types, a documents override's missing types, the flow's name, "via Ask AI" | Yes, the 10 newest (notes aside) | —                                                                                                                                                                                      |
+| Note excerpts (≤ 500 characters, at most 5)                                                                                                                                                                                                                                                                                                                       | Yes                              | only with the `notes` section                                                                                                                                                          |
+| Documents: type, review status, upload and review dates                                                                                                                                                                                                                                                                                                           | Yes, at most 16                  | —                                                                                                                                                                                      |
+| A change request: whether one waits, since when, its number                                                                                                                                                                                                                                                                                                       | Yes                              | —                                                                                                                                                                                      |
+| Form and custom values                                                                                                                                                                                                                                                                                                                                            | Yes, at most 30                  | only with the `details` section, and only when the property is not hidden, not sensitive, not of kind email or phone and not an address or SIN number field (`isModelVisibleProperty`) |
+| Tasks: id, lead id/reference/name (null for a plain task), title, status, assignee, due instant and day                                                                                                                                                                                                                                                           | Yes                              | —                                                                                                                                                                                      |
+| Inbox counters, lead counts, stage distribution, source report rows                                                                                                                                                                                                                                                                                               | Yes                              | —                                                                                                                                                                                      |
+| Plans: name, type, price, billing period, payment required, required document types, active                                                                                                                                                                                                                                                                       | Yes                              | —                                                                                                                                                                                      |
+| Property catalogue: key, label, kind, storage, hidden/sensitive flags, filterable, visible choices                                                                                                                                                                                                                                                                | Yes (definitions, no values)     | —                                                                                                                                                                                      |
+| Analytics: KPIs, stages, top sources, partners and plans, delivery, payment and commission states, each member's counts by display name                                                                                                                                                                                                                           | Yes                              | money figures only with `revenue.view`                                                                                                                                                 |
+| Website traffic: totals, top pages, referrers, countries, devices                                                                                                                                                                                                                                                                                                 | Yes                              | —                                                                                                                                                                                      |
+| Review queue: counts, document type, required, upload date, lead reference/name/type/stage                                                                                                                                                                                                                                                                        | Yes, 10 per page                 | contacts roles                                                                                                                                                                         |
+| Sent mail: direction, time, template name, a hand-written mail's subject line, delivery status, flow name, lead reference/name; the delivery counters                                                                                                                                                                                                             | Yes, 10 per page                 | contacts roles                                                                                                                                                                         |
+| Background jobs: kind, status, attempts, last error code, times                                                                                                                                                                                                                                                                                                   | Yes, at most 20                  | —                                                                                                                                                                                      |
+| The member's own roles, individual permissions, and what they may and may not do, in words                                                                                                                                                                                                                                                                        | Yes                              | —                                                                                                                                                                                      |
+| Members: display name, roles, whether it is the member                                                                                                                                                                                                                                                                                                            | Yes, 20 per page                 | —                                                                                                                                                                                      |
+| Email settings: from name and address, reply-to, style, footer; templates' names, subjects, versions, the flows that send them; one template's subject and body text                                                                                                                                                                                              | Yes                              | `integration.manage`                                                                                                                                                                   |
+| Automations: flows, versions, definitions, catalogue, run statuses; a run's lead reference and name                                                                                                                                                                                                                                                               | Yes                              | the lead only for contacts roles, never a restricted lead                                                                                                                              |
+
+Never sent: a contact's email, phone and address (they stay searchable and
+appear only on cards in the browser); values of hidden or sensitive
+properties and of email, phone and address properties; documents, file ids,
+download links; a mail's or a reply's words (and a reply's subject); sealed
+identities; tracking numbers, activation numbers and accounts; a documents
+override's reason; a change request's values; job payloads; the email
+settings' logo and site links; anything about a restricted (erasure-requested)
+lead; actor and membership ids; confirmation tokens; the property catalogue's
+values outside the details rule; headers and environment.
+
+Every string a customer or a colleague typed (names, references, form and
+custom values, UTM and referrer labels, note excerpts, task titles, plan and
+property labels, display names, flow, template and partner names, template
+text, source card labels) is cleaned in `ai/record-text.ts`: control, format
+and bidirectional characters removed, whitespace collapsed (long text keeps
+its line breaks), each bounded; every serialized result is cleaned once more
+(`neutralizeSerialized`) and carries `notice`, which says its text is data,
+never instructions. Property filter and search values are never echoed back
+in a result's scope.
 
 A file the member attaches to a message of a stored conversation is sent with
 that turn, whatever it contains: an image's or PDF's bytes, a text file's
 decoded text in a labelled block, and the files of earlier messages within the
-per-turn limits ([ai-chat.md](ai-chat.md) §7 and §9). The member chooses to
+per-turn limits and the member's daily file budget ([ai-chat.md](ai-chat.md)
+§7 and §9). The member chooses to
 send it; nothing of the CRM's own is attached for them.
 
 ## 7. Limits (constants in `AI_ASSISTANT_LIMITS`)
@@ -276,9 +343,11 @@ components and the stored state are in [ai-chat.md](ai-chat.md) §10.
 The runbook (`docs/RUNBOOKS/ai-assistant.md` §10) lists what has not been
 verified live. Known limitations to state plainly:
 
-- Synthetic notes containing instructions are covered by the prompt and by the
-  projection (notes only on request); there is no automated "model ignores the
-  injection" test, because that requires a real model.
+- Synthetic notes, names and values containing instructions are covered by
+  the prompt, the record text cleaning and the projection (notes and values
+  only on request); the tests check that such text arrives cleaned and
+  labelled, but there is no automated "model ignores the injection" test,
+  because that requires a real model.
 - Real Chromium journeys cover 375 px and desktop, both themes, focus,
   cancellation, sources and nested lead sheets. Physical on-screen keyboards,
   assistive technology and deployed clipboard behavior still need device checks.

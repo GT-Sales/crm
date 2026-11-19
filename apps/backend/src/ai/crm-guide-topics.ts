@@ -325,7 +325,7 @@ export const CRM_GUIDE_TOPICS: readonly CrmGuideTopic[] = [
       'What Ask AI can and cannot do: questions, prepared notes/tasks/emails, automation drafts',
     body: text(
       'Open it with "Ask AI" in the top bar. With a lead open it knows which lead you mean ("Remove lead context" drops that).',
-      'It can read this site’s lead counts, stages, lead and order summaries, assignments, open tasks and source performance, and explain how the CRM works.',
+      'It can read what you can see in the CRM, nothing more: leads, their timeline, documents and order, tasks, plans, analytics, mail and job statuses, the team, automations and your own permissions. Contact details, documents, hidden fields and mail text never go to the AI provider.',
       'For people who manage leads it can prepare a note, a task (for you or unassigned; on a lead, or a plain task with "No lead" when you name none), an email to the lead’s customer, a change to a lead’s stage, assignee, name or phone, or move a task to To do, In progress, Done or Cancelled. Each is a card: nothing is saved until you press "Confirm" (or "Send" for an email). "Cancel" drops it. Stage rules and documents still apply.',
       'With the Integrations permission it can draft or edit an automation; press "Save draft" on the card. Activating and switching it on stay in Automations.',
       'It cannot archive, export or delete anything, send bulk mail, or show contact details; use the lead page for those.',

@@ -161,7 +161,13 @@ there is no unsigned path.
 A turn whose answer's source cards link a lead that is now restricted, or
 that no longer exists, is never replayed (audit B2). The check reads the lead
 itself, so it holds before the erasure has emptied the turn and before 0039
-is applied; an emptied turn has no text and is skipped as above.
+is applied; an emptied turn has no text and is skipped as above. The reads
+that name a lead give it its lead card (the lead summary, the lead search,
+the sent box, the review queue and automation runs; ai-assistant.md §3), and
+none of them names a restricted lead in the first place. Not covered: a
+task's lead in `listOpenTasks` (no card of its own) and a lead past the
+turn's 20 cards (`SourceRegistry.MAX_SOURCES`); such an answer is found only
+by the erasure's order-number match.
 
 A new message that is exactly (trimmed) one of the follow-up choices an
 earlier replayed answer offered reaches the model marked as a picked option

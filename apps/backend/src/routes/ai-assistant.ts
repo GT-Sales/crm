@@ -1,5 +1,9 @@
 import { createAiAutomationRoutes } from './ai-automations.js';
-import { createAutomationTools, AUTOMATION_TOOL_NAMES } from '../ai/automation-tools.js';
+import {
+  createAutomationTools,
+  AUTOMATION_READ_TOOL_NAMES,
+  AUTOMATION_TOOL_NAMES,
+} from '../ai/automation-tools.js';
 import type { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import type { FlowStore } from '../automations/flow-store.js';
 import { AISDKError, tool, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
@@ -81,6 +85,12 @@ import type { AiReadService } from '../ai/read-service.js';
 import type { AiSiteContextStore } from '../ai/site-context.js';
 import { SourceRegistry } from '../ai/sources.js';
 import {
+  WIDE_READ_TOOL_NAMES,
+  createWideReadTools,
+  type WideReadStores,
+  type WideReadToolName,
+} from '../ai/read-tools.js';
+import {
   AssistantAccessRevokedError,
   TOOL_NAMES,
   createAssistantTools,
@@ -134,9 +144,16 @@ const PROGRESS_LABELS: Record<ToolName, string> = {
   getLeadSummary: 'Reading the lead',
   listOpenTasks: 'Checking follow-ups',
   getSourcePerformance: 'Reading the source report',
+  getInboxCounts: 'Checking the inbox counters',
 };
 
 const TOOL_NAME_SET: ReadonlySet<string> = new Set(TOOL_NAMES);
+const WIDE_READ_NAME_SET: ReadonlySet<string> = new Set(WIDE_READ_TOOL_NAMES);
+
+/** Narrows a model-supplied tool name to one of the smaller reads. */
+function isWideReadName(value: string): value is WideReadToolName {
+  return WIDE_READ_NAME_SET.has(value);
+}
 
 /** Narrows a model-supplied tool name to one this route actually offers. */
 function isToolName(value: string): value is ToolName {
@@ -169,6 +186,12 @@ export interface AiAssistantRouteDependencies {
   reads: AiReadService;
   /** The existing source report, reused unchanged for the source tool. */
   reports: ReportStore;
+  /**
+   * The stores behind Ask AI's smaller reads (plans, properties, analytics,
+   * documents queue, mail, jobs, members, email settings), each the one its
+   * staff route uses. A read whose store is absent is not offered.
+   */
+  wideReads?: WideReadStores;
   /** Absent when the deployment is not configured: the chat then answers unavailable. */
   engine?: AssistantEngine;
   /** The distributed limiter; a failure to reach it refuses the request. */
@@ -1132,6 +1155,12 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               budget,
             })
           : undefined;
+      const sources = new SourceRegistry({
+        workspaceSlug: site.slug,
+        asOf: turnStarted,
+      });
+      // A run's lead by reference and name (active, unrestricted leads only).
+      const leadLabels = dependencies.reads.leadLabels?.bind(dependencies.reads);
       const automationTools =
         dependencies.automationAuthoring &&
         dependencies.flows &&
@@ -1144,15 +1173,15 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               key: dependencies.config.signingKey,
               flows: dependencies.flows,
               store: dependencies.automationAuthoring,
+              ...(leadLabels === undefined
+                ? {}
+                : { leadLabels: (ids: readonly string[]) => wait(leadLabels(scope, ids)) }),
+              sources,
               loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
               now,
               budget,
             })
           : undefined;
-      const sources = new SourceRegistry({
-        workspaceSlug: site.slug,
-        asOf: turnStarted,
-      });
 
       let toolset: AssistantToolset;
       try {
@@ -1176,6 +1205,54 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendStaffAuthError(res, req.id, 'internal_error', 500);
         return;
       }
+      // The smaller reads this member's access allows now; each call checks again.
+      const wideReadTools = createWideReadTools(
+        {
+          scope,
+          site,
+          requestId: req.id,
+          now: turnStarted,
+          budget,
+          sources,
+          reads: dependencies.reads,
+          stores: dependencies.wideReads ?? {},
+          loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
+          signal: controller.signal,
+          onAccessRevoked: () => {
+            revoked = true;
+            controller.abort();
+          },
+        },
+        decision.access,
+      );
+      // Every AI user reads the site's automations as the staff routes allow
+      // with workspace.read (A1–A4); authoring stays where it was gated above.
+      const automationReads =
+        automationTools === undefined && dependencies.flows
+          ? createAutomationTools({
+              scope,
+              site,
+              authoring: false,
+              flows: dependencies.flows,
+              ...(leadLabels === undefined
+                ? {}
+                : { leadLabels: (ids: readonly string[]) => wait(leadLabels(scope, ids)) }),
+              sources,
+              loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
+              now,
+              budget,
+            })
+          : undefined;
+      const isAutomationRead = (name: string) =>
+        automationReads !== undefined &&
+        AUTOMATION_READ_TOOL_NAMES.some((toolName) => toolName === name);
+      const executeRead = (name: string, input: unknown) =>
+        isWideReadName(name)
+          ? wideReadTools.execute(name, input)
+          : isToolName(name)
+            ? toolset.execute(name, input)
+            : (automationReads?.execute(name, input) ??
+              Promise.reject(new Error('unknown assistant tool')));
 
       // A stored conversation (docs/design/ai-chat.md): the conversation is
       // created or loaded, this message's files linked and the member's
@@ -1516,6 +1593,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             today: businessDayLabel(turnStarted, AI_BUSINESS_TIME_ZONE),
             timeZone: AI_BUSINESS_TIME_ZONE,
             automationsAvailable: automationTools !== undefined,
+            automationReadsAvailable: automationReads !== undefined,
             actionsAvailable:
               actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
             plainTasksAvailable: plainTasks,
@@ -1567,6 +1645,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                 (actionTools?.proposals.length ?? 0) > 0,
               tools: {
                 ...toolset.definitions,
+                ...wideReadTools.definitions,
+                ...automationReads?.definitions,
                 ...actionTools?.definitions,
                 ...automationTools?.definitions,
                 askFollowUp: guidedTool,
@@ -1576,8 +1656,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               // Only a High turn names its level, so a Normal turn's input is as it was.
               ...(high ? { effort } : {}),
               executeTool: (name, input) =>
-                isToolName(name)
-                  ? toolset.execute(name, input)
+                isToolName(name) || isWideReadName(name) || isAutomationRead(name)
+                  ? executeRead(name, input)
                   : actionTools &&
                       (name === 'prepareNote' ||
                         name === 'prepareTask' ||

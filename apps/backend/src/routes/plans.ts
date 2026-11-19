@@ -12,8 +12,8 @@ import { sendStaffAuthError } from '../http/staff-errors.js';
 import type { PlanStore } from '../plans/store.js';
 import type { PropertyContext } from '../properties/store.js';
 import type { Plan } from '@gt-sales/contracts';
+import { moneyVisibilityOf } from '../staff/lead-visibility.js';
 import {
-  decideAccess,
   denyReasonOf,
   type AuthorizationDecision,
   type StaffAction,
@@ -78,7 +78,7 @@ export function createPlanRoutes(dependencies: PlanRouteDependencies): Router {
       workspaceId,
       actorId: actor.actorId,
       requestId: req.id,
-      revenue: decideAccess(decision.access, 'revenue.view').allowed,
+      revenue: moneyVisibilityOf(decision.access).revenue,
     };
   }
 

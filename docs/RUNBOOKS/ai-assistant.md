@@ -123,11 +123,13 @@ group by outcome;
   text (from the browser session, or from the stored conversation, §12), the
   files the person attached to the conversation's messages within the per-turn
   limits (images and PDFs as bytes, text files as text), and the tool results (only the projected
-  fields listed in the design doc). No email, phone, address, SIN, passport,
-  or document value is in that set. Safe order fields are included; price in
-  CAD cents, payment and commission status require effective `financial.read`.
-  A user can type personal information in their own question, and requested
-  note excerpts can contain it; those texts are sent to the provider.
+  fields listed in the design doc, §6). No email, phone, address, SIN,
+  passport, document, mail body or hidden or sensitive property value is in
+  that set. Order money follows the lead page: price in CAD cents, payment and
+  commission status for the roles that see lead details, commission amounts
+  and revenue only with `revenue.view`. A user can type personal information
+  in their own question, and requested note excerpts and form or custom values
+  can contain it; those texts are sent to the provider.
 - **Kept by us:** in the memory-only chat no chat history (it lives in the
   browser tab's memory only); in a stored conversation the member's messages,
   the answers as streamed, their source cards and follow-ups

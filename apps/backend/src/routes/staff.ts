@@ -104,10 +104,12 @@ import {
   type DocumentReviewQueueStore,
 } from '../documents/review-queue.js';
 import { DatabaseMailbox, type MailboxStore } from '../email/mailbox.js';
+import { DatabaseEmailStore, type DeliverySummary } from '../email/store.js';
 import { loadReplyAddressing, type ReplyAddressing } from '../email/reply-address.js';
 import { loadWebAnalyticsReader, type WebAnalyticsReader } from '../analytics/web-analytics.js';
 import { createAutomationRoutes } from './automations.js';
 import { createAiAssistantRoutes } from './ai-assistant.js';
+import { canSeeLeadDetails, moneyVisibilityOf } from '../staff/lead-visibility.js';
 import { createEmailSettingsRoutes } from './email-settings.js';
 import { createPlanRoutes } from './plans.js';
 import { createPropertyRoutes } from './properties.js';
@@ -187,6 +189,8 @@ export interface StaffRouteDependencies {
      */
     chat?: AiChatDependencies;
     now?: () => Date;
+    /** The site's delivery counters for Ask AI's sent-mail read (the email route's own store). */
+    deliverySummary?: (scope: { workspaceId: string; actorId: string }) => Promise<DeliverySummary>;
   };
 }
 
@@ -201,6 +205,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
   }
   // One catalogue check shared by the saved chat and the turn records.
   const aiSchema = new DatabaseAiChatSchemaProbe();
+  const deliveryStore = new DatabaseEmailStore();
   return {
     sessionVerifier: defaultStaffSessionVerifier(),
     rateLimit: rateLimitHit,
@@ -224,6 +229,7 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
       config: aiConfig,
       siteContext: new DatabaseAiSiteContextStore(),
       reads: new DatabaseAiReadService(),
+      deliverySummary: (scope) => deliveryStore.deliverySummary(scope.workspaceId, scope.actorId),
       // Only a fully configured deployment builds a provider; otherwise the
       // chat route reports the feature unavailable and never calls a model.
       ...(aiConfig.enabled && aiConfig.apiKey !== undefined && aiConfig.modelId !== undefined
@@ -398,9 +404,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
    * reads here were most of the leads inbox's latency.
    */
   function canSeeContacts(access: StaffAccessSnapshot): boolean {
-    return (['lead.manage', 'order.manage', 'financial.read'] as const).some(
-      (action) => decideAccess(access, action).allowed,
-    );
+    return canSeeLeadDetails(access);
   }
 
   /** The site's property catalogue, read once per request after the caller is authorized. */
@@ -435,7 +439,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
    * commission left out of its order details (the key, not a null).
    */
   function withMoneyFor(access: StaffAccessSnapshot, lead: LeadDetail): LeadDetail {
-    if (decideAccess(access, 'revenue.view').allowed || !lead.order?.plan) return lead;
+    if (moneyVisibilityOf(access).revenue || !lead.order?.plan) return lead;
     const { commission: _commission, ...plan } = lead.order.plan;
     return { ...lead, order: { ...lead.order, plan } };
   }
@@ -1910,6 +1914,29 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       siteContext: ai.siteContext,
       reads: ai.reads ?? new DatabaseAiReadService(),
       reports: dependencies.reportStore ?? unconfiguredReportStore,
+      // Ask AI's smaller reads, through the stores their staff routes use.
+      wideReads: {
+        ...(dependencies.planStore === undefined ? {} : { plans: dependencies.planStore }),
+        ...(dependencies.propertyStore === undefined
+          ? {}
+          : {
+              propertyCatalog: (scope: { workspaceId: string; actorId: string }) =>
+                propertyStore.catalog({ ...scope, requestId: 'ai-read' }),
+            }),
+        ...(dependencies.analyticsStore === undefined
+          ? {}
+          : { analytics: dependencies.analyticsStore }),
+        webAnalytics: dependencies.webAnalytics ?? defaultWebAnalytics,
+        documentReviewQueue: dependencies.documentReviewQueue ?? new DatabaseDocumentReviewQueue(),
+        mailbox: dependencies.mailbox ?? new DatabaseMailbox(),
+        ...(ai.deliverySummary === undefined ? {} : { deliverySummary: ai.deliverySummary }),
+        ...(dependencies.jobStore === undefined ? {} : { jobs: dependencies.jobStore }),
+        members: (scope: { workspaceId: string; actorId: string }) =>
+          dependencies.store.listAssignableMembers(scope.workspaceId, scope.actorId),
+        ...(dependencies.emailSettingsStore === undefined
+          ? {}
+          : { emailSettings: dependencies.emailSettingsStore }),
+      },
       ...(ai.engine === undefined ? {} : { engine: ai.engine }),
       rateLimit: ai.rateLimit ?? rateLimitHit,
       ...(ai.turns === undefined ? {} : { turns: ai.turns }),

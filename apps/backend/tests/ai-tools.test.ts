@@ -141,10 +141,11 @@ describe('tool catalogue', () => {
     },
   );
 
-  it('exposes exactly the five version-1 tools', () => {
+  it('exposes exactly the five version-1 tools and the inbox counters', () => {
     const toolset = createAssistantTools(context());
     expect(Object.keys(toolset.definitions).sort()).toEqual([
       'findLeads',
+      'getInboxCounts',
       'getLeadSummary',
       'getSiteOverview',
       'getSourcePerformance',
@@ -495,8 +496,38 @@ describe('review regressions', () => {
     );
     const result = await tools.execute('findLeads', {});
     expect(Buffer.byteLength(result)).toBeLessThanOrEqual(6 * 1024);
-    expect(parse(result)['truncated']).toBe(true);
     expect(parse(result)['total']).toBe(1);
+    // A typed name is bounded before the budget is even reached (C12).
+    const data = parse(result)['data'] as { leads: { name: string }[] };
+    expect(Array.from(data.leads[0]?.name ?? '')).toHaveLength(160);
+  });
+
+  it('trims whole rows when the remaining turn budget cannot hold the page', async () => {
+    const budget = new TurnBudget();
+    // Leave 4,500 bytes of the turn's 24 KiB (one result takes at most 6 KiB).
+    for (const bytes of [6 * 1024, 6 * 1024, 6 * 1024, 6 * 1024 - 4500])
+      expect(budget.acceptResult({ bytes, records: 0 }).rejected).toBe(false);
+    expect(budget.remainingBytes).toBe(4500);
+    const tools = createAssistantTools(
+      context({
+        budget,
+        reads: fakeReads({
+          findLeads: async () => ({
+            rows: Array.from({ length: 10 }, (_, index) =>
+              leadRow({
+                id: `40000000-0000-4000-8000-0000000000${String(index).padStart(2, '0')}`,
+                full_name: 'y'.repeat(150),
+              }),
+            ),
+            total: 10,
+          }),
+        }),
+      }),
+    );
+    const result = await tools.execute('findLeads', {});
+    expect(Buffer.byteLength(result)).toBeLessThanOrEqual(4500);
+    expect(parse(result)['truncated']).toBe(true);
+    expect(parse(result)['total']).toBe(10);
   });
 
   it('bounds nested summary records and serializes only what it charges', async () => {

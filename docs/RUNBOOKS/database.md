@@ -1246,7 +1246,7 @@ select pg_get_constraintdef(oid) from pg_constraint
 
 ## 0039_ai_chat_erasure (2026-11-19, prepared, not applied)
 
-Audit B2 and C13 (docs/design/ai-chat.md §12): a customer's data
+Audit B2 and C13 (docs/design/ai-chat.md §13): a customer's data
 restriction reaches Ask AI's saved chats, and the chats of someone who left a
 site are deleted. Not applied by the deploy; the owner applies it through the
 SQL editor after 0034–0037 (it holds `ALTER` and creates functions), then
