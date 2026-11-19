@@ -304,7 +304,12 @@ function LeadPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [found, setFound] = useState<TaskLeadRef[]>([]);
+  // The results together with the query they answer, so a slower or newer
+  // search never shows another query's leads.
+  const [answer, setAnswer] = useState<{ query: string; leads: TaskLeadRef[] }>({
+    query: '',
+    leads: [],
+  });
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const focus = useChosenFocus(title);
 
@@ -315,10 +320,11 @@ function LeadPicker({
     setState('loading');
     const timer = setTimeout(
       () => {
-        search(query.trim())
+        const asked = query.trim();
+        search(asked)
           .then((leads) => {
             if (!current) return;
-            setFound(leads);
+            setAnswer({ query: asked, leads });
             setState('ready');
           })
           .catch(() => {
@@ -333,6 +339,8 @@ function LeadPicker({
     };
   }, [open, query, search]);
 
+  // Only leads that answer the query now typed, and only once they have arrived.
+  const found = state === 'ready' && answer.query === query.trim() ? answer.leads : [];
   const options: CommandOption[] = [
     ...(query.trim() === ''
       ? [
@@ -349,7 +357,7 @@ function LeadPicker({
       description: [entry.externalRef, leadTypeLabel(entry.leadType)].filter(Boolean).join(' · '),
     })),
   ];
-  const known = new Map(found.map((entry) => [entry.id, entry]));
+  const known = new Map(answer.leads.map((entry) => [entry.id, entry]));
   if (lead) known.set(lead.id, lead);
 
   return (

@@ -179,6 +179,64 @@ describe('TaskComposer', () => {
     expect(onAdd.mock.calls[0]?.[0].lead).toEqual(lead);
   });
 
+  describe('lead search results', () => {
+    const other: TaskLeadRef = {
+      ...lead,
+      id: '90000000-0000-4000-8000-000000000002',
+      contact: { fullName: 'Jordan Smith' },
+      externalRef: 'MS-102',
+    };
+
+    const open = async (searchLeads: (q: string) => Promise<TaskLeadRef[]>) => {
+      const view = setup({ searchLeads });
+      fireEvent.click(within(view.form).getByRole('button', { name: 'Lead: No lead' }));
+      await screen.findByRole('option', { name: /Blake Sample/ });
+      return { ...view, box: screen.getByRole('combobox', { name: 'Find a lead' }) };
+    };
+
+    it('selects nothing on Enter while a new search is pending', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const searchLeads = vi.fn(async (q: string) => (q ? [other] : [lead]));
+      const { form, box } = await open(searchLeads);
+      fireEvent.change(box, { target: { value: 'smith' } });
+      expect(screen.queryByRole('option', { name: /Blake Sample/ })).toBeNull();
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(within(form).getByRole('button', { name: 'Lead: No lead' })).toBeTruthy();
+      expect(screen.getByRole('combobox', { name: 'Find a lead' })).toBeTruthy();
+    });
+
+    it('picks the right lead on Enter once the new results arrive', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const searchLeads = vi.fn(async (q: string) => (q ? [other] : [lead]));
+      const { form, box } = await open(searchLeads);
+      fireEvent.change(box, { target: { value: 'smith' } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      await screen.findByRole('option', { name: /Jordan Smith/ });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(within(form).getByRole('button', { name: 'Lead: Jordan Smith' })).toBeTruthy();
+    });
+
+    it('shows the failure and no stale leads when the search fails', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const searchLeads = vi.fn(async (q: string) => {
+        if (q) throw new Error('down');
+        return [lead];
+      });
+      const { form, box } = await open(searchLeads);
+      fireEvent.change(box, { target: { value: 'smith' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(await screen.findByText('The leads could not be searched. Try again.')).toBeTruthy();
+      expect(screen.queryByRole('option')).toBeNull();
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(within(form).getByRole('button', { name: 'Lead: No lead' })).toBeTruthy();
+    });
+  });
+
   it('turns "Today" and "Tomorrow" into the right day around midnight', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 19, 23, 59, 30) });
     const { form, title, onAdd } = setup();

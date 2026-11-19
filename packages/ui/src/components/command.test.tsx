@@ -40,4 +40,17 @@ describe('Command', () => {
     expect(onQueryChange).toHaveBeenCalledWith('zzz');
     expect(screen.getAllByRole('option')).toHaveLength(3);
   });
+
+  it('does not choose on Enter while results are loading', () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <Command label="Leads" options={options} loading onSelect={onSelect} />,
+    );
+    const box = screen.getByRole('combobox', { name: 'Leads' });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSelect).not.toHaveBeenCalled();
+    rerender(<Command label="Leads" options={options} onSelect={onSelect} />);
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith('a');
+  });
 });

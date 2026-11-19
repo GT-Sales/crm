@@ -102,6 +102,12 @@ function Command({
         setActive(last);
         break;
       case 'Enter': {
+        // Results still on screen belong to the previous search; choosing one
+        // now would pick something the person did not see for this query.
+        if (loading) {
+          event.preventDefault();
+          break;
+        }
         const option = visible[current];
         if (!option) break;
         event.preventDefault();
