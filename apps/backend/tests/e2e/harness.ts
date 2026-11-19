@@ -36,8 +36,15 @@
  * it: no object store runs here, so documents are reviewed against an
  * in-memory one.
  *
+ * Besides the verifier, one test-only route outside the app,
+ * `POST /__e2e/colleague-role` (`{ "role": "leads" | "orders" }`), changes the
+ * seeded colleague's role on CanadaWide in the database, as an owner would in
+ * the admin, so a journey can take a permission away while a card is open.
+ * It is mounted in front of the real app here and nowhere else.
+ *
  * Never imported by the deployed server: tsup bundles only `src/server.ts`.
  */
+import express from 'express';
 import postgres from 'postgres';
 import { z } from 'zod';
 import { createAiChatDependenciesFromEnv } from '../../src/ai/chat-factory.js';
@@ -703,15 +710,6 @@ const assistantEngine: AssistantEngine = {
       yield { type: 'finish', outputTokens: 8 };
       return;
     }
-    // "Restore the archived lead <id>": an archived lead is not the open record, so it is named.
-    const restore = /^restore the archived lead ([a-f0-9-]{36})$/i.exec(question);
-    if (restore?.[1]) {
-      if (!input.executeTool) throw new Error('expected executor');
-      await input.executeTool('prepareArchive', { leadId: restore[1], archived: false });
-      yield { type: 'text', text: 'Restore draft ready for review.' };
-      yield { type: 'finish', outputTokens: 8 };
-      return;
-    }
     // "Prepare lead edit: {json}": plan, quantity, form fields, custom values, in one card.
     if (question.startsWith('Prepare lead edit:')) {
       if (!input.executeTool) throw new Error('expected executor');
@@ -916,6 +914,27 @@ const app = createApp({
     rateLimit: undefined,
   },
 });
-app.listen(PORT, '127.0.0.1', () => {
+// Test-only: the seeded colleague's role on CanadaWide, changed as an owner would change it.
+const roles = postgres(ADMIN_URL, { max: 1, prepare: false, ssl: false });
+const harness = express();
+harness.post('/__e2e/colleague-role', express.json(), async (req, res) => {
+  const role = z.object({ role: z.enum(['leads', 'orders']) }).safeParse(req.body);
+  if (!role.success) {
+    res.status(400).json({ error: 'role must be leads or orders' });
+    return;
+  }
+  await roles`
+    update app.membership_roles mr
+    set role_id = (
+      select r.id from app.roles r where r.workspace_id = ${WORKSPACE_ID} and r.name = ${role.data.role}
+    )
+    from app.memberships m
+    where mr.membership_id = m.id and m.workspace_id = ${WORKSPACE_ID}
+      and m.user_id = ${COLLEAGUE_ID}
+  `;
+  res.json({ role: role.data.role });
+});
+harness.use(app);
+harness.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(`e2e harness listening on http://127.0.0.1:${PORT}\n`);
 });

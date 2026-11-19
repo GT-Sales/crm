@@ -36,7 +36,10 @@ import { archiveEffects, automationOffEffects, type AiLeadEditPreview } from './
 import {
   cardAllowed,
   cardLeadLabel,
-  mentionedOtherLeads,
+  emailMentionText,
+  legacyProposalOf,
+  MAX_SEEN_LEADS,
+  mentionedLeads,
   sideEffectsDigest,
   type CardSite,
   type SeenLead,
@@ -89,8 +92,12 @@ const signedActionSchema = z
     automationRevision: z.int().min(0).optional(),
     /** B1: the confirmation needs the person's tick that they checked the named leads. */
     acknowledgementRequired: z.literal(true).optional(),
-    /** B1: the other leads read in the turn, so a revision checks its new text against them. */
-    mentionLeadIds: z.array(z.uuid()).max(30).optional(),
+    /**
+     * B1: every other lead the card was checked against (those it names
+     * first), so a revision checks its new text against the same leads (R2).
+     * At most the turn's MAX_SEEN_LEADS.
+     */
+    mentionLeadIds: z.array(z.uuid()).max(200).optional(),
   })
   .strict();
 export type SignedAiAction = z.infer<typeof signedActionSchema>;
@@ -243,6 +250,25 @@ const TOOL_KIND: Readonly<Record<ActionToolName, AiCardKind>> = {
   prepareAutomationOff: 'automation_off',
 };
 
+/** The card kinds an older admin shows (its `actions` part), whatever this backend offers. */
+export const LEGACY_CARD_KINDS: readonly AiCardKind[] = [
+  'note',
+  'task',
+  'email',
+  'lead_update',
+  'task_update',
+];
+
+/**
+ * The tools an older admin's turn is offered (T12): those of its kinds, less
+ * the member list, which only serves a task for another member.
+ */
+const LEGACY_TOOL_NAMES: ReadonlySet<ActionToolName> = new Set(
+  ACTION_TOOL_NAMES.filter(
+    (name) => LEGACY_CARD_KINDS.includes(TOOL_KIND[name]) && name !== 'getAssigneeOptions',
+  ),
+);
+
 // Domain-separated signing key; rotation of the Gateway key invalidates old cards.
 function signature(payload: string, key: string): Buffer {
   const derived = createHmac('sha256', key).update('gt-sales/ai-action/v1').digest();
@@ -349,6 +375,13 @@ export function createActionProposalTools(input: {
   budget: TurnBudget;
   /** Set when revising: the draft's first card, signed into the new one. */
   rootId?: string;
+  /**
+   * T12: the client shows only the older cards (its chat request had no
+   * `wide`). The new kinds' tools are not offered, and no card is prepared
+   * that the older shape cannot carry (a task for another member, a task
+   * edit beyond its status, a card that needs the mention tick).
+   */
+  legacyClient?: boolean;
 }) {
   const proposals: AiActionCard[] = [];
   const cardSite = input.cardSite ?? { automations: false };
@@ -383,6 +416,8 @@ export function createActionProposalTools(input: {
         message: 'Access could not be checked.',
       });
     const draft: AiCardDraft = aiCardDraftSchema.parse(raw);
+    /** The draft the card signs: the one asked for, or a lead edit with the server's defaults (T2). */
+    let cardDraft: AiCardDraft = draft;
     // C1: the same actions the kind's staff route checks, decided now.
     if (!cardAllowed(access, draft.kind, cardSite))
       return JSON.stringify({ status: 'not_available' });
@@ -647,6 +682,8 @@ export function createActionProposalTools(input: {
       }
       extras.leadEditContext = preview.context;
       signed.leadEditVersion = preview.version;
+      // T2: the card signs what Confirm saves, a move's default date included.
+      cardDraft = { ...draft, changes: preview.changes };
       if (preview.sideEffects.length > 0) extras.sideEffects = preview.sideEffects;
       if (preview.context.needs === 'dispatch_details')
         resultMessage =
@@ -699,14 +736,16 @@ export function createActionProposalTools(input: {
           message: 'The draft could not be checked.',
         });
       const others = seen.filter((entry) => entry.leadId !== draft.leadId);
-      const mentions = mentionedOtherLeads(
-        draft.kind === 'email' ? `${draft.subject}\n${draft.body}` : draft.body,
+      const { names: mentions, leadIds: mentioned } = mentionedLeads(
+        draft.kind === 'email' ? emailMentionText(draft.subject, draft.body) : draft.body,
         others,
         { leadId: draft.leadId, name: lead?.name ?? null },
       );
-      // A lead seen under several names is listed once.
-      const otherIds = [...new Set(others.map((entry) => entry.leadId))];
-      if (otherIds.length > 0) signed.mentionLeadIds = otherIds.slice(0, 30);
+      // R2: every lead it was checked against is signed, the ones it names
+      // first, so a revision is checked against them all (a lead seen under
+      // several names is listed once; the turn keeps at most MAX_SEEN_LEADS).
+      const otherIds = [...new Set([...mentioned, ...others.map((entry) => entry.leadId)])];
+      if (otherIds.length > 0) signed.mentionLeadIds = otherIds.slice(0, MAX_SEEN_LEADS);
       if (mentions.length > 0) {
         extras.mentions = mentions;
         extras.acknowledgementRequired = true;
@@ -717,7 +756,7 @@ export function createActionProposalTools(input: {
     }
     if (extras.sideEffects) signed.sideEffects = sideEffectsDigest(extras.sideEffects);
 
-    const previous = proposals.find((p) => JSON.stringify(p.draft) === JSON.stringify(draft));
+    const previous = proposals.find((p) => JSON.stringify(p.draft) === JSON.stringify(cardDraft));
     if (previous)
       return JSON.stringify({
         status: 'confirmation_required',
@@ -734,7 +773,7 @@ export function createActionProposalTools(input: {
         id,
         ...(input.rootId ? { rootId: input.rootId } : {}),
         expiresAt,
-        draft,
+        draft: cardDraft,
         ...(emailContext ? { emailContext } : {}),
         ...(leadUpdateContext
           ? { leadUpdateBefore: aiLeadValueDigest(leadUpdateContext.before) }
@@ -754,26 +793,33 @@ export function createActionProposalTools(input: {
       input.budget.acceptResult({ bytes: Buffer.byteLength(result, 'utf8'), records: 1 }).rejected
     )
       return JSON.stringify({ status: 'not_available' });
-    proposals.push(
-      aiActionCardSchema.parse({
-        id,
-        token,
-        expiresAt,
-        draft,
-        ...(emailContext ? { emailContext } : {}),
-        ...(leadUpdateContext ? { leadUpdateContext } : {}),
-        ...(taskUpdateContext ? { taskUpdateContext } : {}),
-        ...extras,
-        siteName: input.site.name,
-        // A card about no lead (a plain task) names none and links nowhere;
-        // an automation's card links to the automation.
-        ...(lead
-          ? { leadLabel: cardLeadLabel(lead), leadHref: leadHref(lead.leadId) }
-          : draft.kind === 'automation_off'
-            ? { leadHref: automationHref(draft.automationKey) }
-            : {}),
-      }),
-    );
+    const card = aiActionCardSchema.parse({
+      id,
+      token,
+      expiresAt,
+      draft: cardDraft,
+      ...(emailContext ? { emailContext } : {}),
+      ...(leadUpdateContext ? { leadUpdateContext } : {}),
+      ...(taskUpdateContext ? { taskUpdateContext } : {}),
+      ...extras,
+      siteName: input.site.name,
+      // A card about no lead (a plain task) names none and links nowhere;
+      // an automation's card links to the automation.
+      ...(lead
+        ? { leadLabel: cardLeadLabel(lead), leadHref: leadHref(lead.leadId) }
+        : draft.kind === 'automation_off'
+          ? { leadHref: automationHref(draft.automationKey) }
+          : {}),
+    });
+    // T12: an older admin drops a card it cannot parse, leaving "Draft ready" and no card.
+    if (input.legacyClient === true && legacyProposalOf(card) === undefined)
+      return JSON.stringify({
+        status: 'not_available',
+        reason: 'client_cannot_show',
+        message:
+          'No card was prepared. The person’s Ask AI panel is out of date and cannot show this card. Ask them to reload the page, or offer the change for themselves (me) without naming other customers.',
+      });
+    proposals.push(card);
     if (lead) input.onLeadPage?.(lead);
     // Never send the bearer confirmation token to the model.
     return result;
@@ -1038,12 +1084,16 @@ export function createActionProposalTools(input: {
     definitions[name] = all[name];
   }
 
-  /** C1: only the tools of kinds this member may use here are offered to the model. */
+  /**
+   * C1: only the tools of kinds this member may use here are offered to the
+   * model; to an older admin (T12), only those of the kinds it shows.
+   */
   async function offered(): Promise<ToolSet> {
     const access = await input.loadAccess();
     const allowedTools: ToolSet = {};
     for (const name of ACTION_TOOL_NAMES) {
       const definition = definitions[name];
+      if (input.legacyClient === true && !LEGACY_TOOL_NAMES.has(name)) continue;
       if (definition && cardAllowed(access, TOOL_KIND[name], cardSite))
         allowedTools[name] = definition;
     }

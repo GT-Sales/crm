@@ -29,6 +29,7 @@ import { createCrmGuideTool, runCrmGuide } from '../ai/crm-guide.js';
 import {
   aiActionRootId,
   createActionProposalTools,
+  LEGACY_CARD_KINDS,
   taskRefusalReason,
   verifyAiAction,
   type SignedAiAction,
@@ -37,6 +38,7 @@ import {
   cardAllowed,
   cardKindsFor,
   dailyCapRefusal,
+  MAX_SEEN_LEADS,
   legacyProposalOf,
   sideEffectsDigest,
   SeenLeads,
@@ -310,6 +312,24 @@ function sendRefusal(res: Response, requestId: string, reason: AiAccessRefusal['
     return;
   }
   sendStaffAuthError(res, requestId, reason, 403);
+}
+
+/**
+ * A card this member may no longer save or revise. While they keep Ask AI
+ * (T8), only the card is refused (`details.reason: 'card_not_permitted'`):
+ * their conversation stays and they can go on asking. Without Ask AI at all,
+ * the refusal is the plain one, after which the admin clears the chat.
+ */
+function refuseCard(
+  res: Response,
+  requestId: string,
+  access: StaffAccessSnapshot | undefined,
+): void {
+  if (decideAiAccess(access).allowed) {
+    sendDomainError(res, requestId, 'permission_denied', 403, { reason: 'card_not_permitted' });
+    return;
+  }
+  sendStaffAuthError(res, requestId, 'permission_denied', 403);
 }
 
 function capabilityDocument(
@@ -631,15 +651,40 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
     };
   }
 
-  /** B1: the leads a revision's first card was checked against, read again by id. */
+  /**
+   * B1: the real names and references of these leads for the mention check,
+   * an archived lead included (`mentionLabels`), 100 ids per read. Without
+   * that read, each lead is read as the model reads it. A read that fails
+   * throws: the card or revision that needed it is refused (R2).
+   */
+  async function mentionLabelsOf(
+    scope: Scope,
+    ids: readonly string[],
+    wait: <T>(work: Promise<T>) => Promise<T> = (work) => work,
+  ): Promise<Map<string, { name: string | null; reference: string | null }>> {
+    const reads = dependencies.reads;
+    const labels = new Map<string, { name: string | null; reference: string | null }>();
+    const lookup = reads.mentionLabels?.bind(reads) ?? reads.leadLabels?.bind(reads);
+    if (lookup) {
+      for (let start = 0; start < ids.length; start += 100)
+        for (const [leadId, label] of await wait(lookup(scope, ids.slice(start, start + 100))))
+          labels.set(leadId, { name: label.name, reference: label.reference });
+      return labels;
+    }
+    for (const hint of await wait(Promise.all(ids.map((id) => reads.leadHint(scope, id)))))
+      if (hint) labels.set(hint.leadId, { name: hint.name, reference: hint.reference });
+    return labels;
+  }
+
+  /** B1: the leads a revision's first card was checked against, every one, read again by id (R2). */
   async function leadsOfCard(scope: Scope, action: SignedAiAction): Promise<SeenLead[]> {
     const ids = action.mentionLeadIds ?? [];
-    const hints = await Promise.all(
-      ids.map((leadId) => dependencies.reads.leadHint(scope, leadId).catch(() => undefined)),
-    );
-    return hints.flatMap((hint) =>
-      hint ? [{ leadId: hint.leadId, name: hint.name, reference: hint.reference }] : [],
-    );
+    const labels = await mentionLabelsOf(scope, ids);
+    // In the signed order, so the warning names them as the first card did.
+    return ids.flatMap((leadId) => {
+      const label = labels.get(leadId);
+      return label ? [{ leadId, ...label }] : [];
+    });
   }
   // One guard per router (one per process): a duplicate request id inside a
   // minute is refused rather than spending a second turn's budget.
@@ -745,7 +790,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         !decideAccess(access, 'workspace.read').allowed ||
         cardKindsHere(access, workspaceId.data).length === 0
       ) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        refuseCard(res, req.id, access);
         return;
       }
       const config = dependencies.config;
@@ -784,7 +829,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       if (!cardAllowed(access, original.draft.kind, cardSiteOf(scope.workspaceId))) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        refuseCard(res, req.id, access);
         return;
       }
       const site = await dependencies.siteContext.siteContext(scope);
@@ -793,7 +838,15 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         return;
       }
       const identity = <T>(work: Promise<T>) => work;
-      const others = await leadsOfCard(scope, original);
+      // R2: a lookup that fails refuses the revision, as it refuses a new card.
+      let others: SeenLead[];
+      try {
+        others = await leadsOfCard(scope, original);
+      } catch (error) {
+        dependencies.reportFailure(req, error);
+        sendDomainError(res, req.id, 'ai_unavailable', 503);
+        return;
+      }
       const tools = createActionProposalTools({
         scope,
         site,
@@ -857,7 +910,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         !decideAccess(finalAccess, 'workspace.read').allowed ||
         !cardAllowed(finalAccess, proposal.draft.kind, cardSiteOf(scope.workspaceId))
       ) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        refuseCard(res, req.id, finalAccess);
         return;
       }
       // An older admin parses the older proposal strictly; a newer one asks for the card in full.
@@ -883,7 +936,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         !decideAccess(access, 'workspace.read').allowed ||
         cardKindsHere(access, workspaceId.data).length === 0
       ) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        refuseCard(res, req.id, access);
         return;
       }
       const config = dependencies.config;
@@ -905,7 +958,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
       // C1: the actions this kind's staff route checks, decided now.
       if (!cardAllowed(access, action.draft.kind, cardSiteOf(scope.workspaceId))) {
-        sendStaffAuthError(res, req.id, 'permission_denied', 403);
+        refuseCard(res, req.id, access);
         return;
       }
       if (!kindWired(action.draft.kind)) {
@@ -928,7 +981,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       }
       if (cap) {
         res.setHeader('retry-after', String(cap.retryAfterSeconds));
-        sendDomainError(res, req.id, 'ai_rate_limited', 429, { reason: cap.reason });
+        // When the cap opens again, so the card can say so (T10).
+        sendDomainError(res, req.id, 'ai_rate_limited', 429, {
+          reason: cap.reason,
+          retryAfterSeconds: cap.retryAfterSeconds,
+        });
         return;
       }
       // Every version of one draft saves under its first card's id, so the
@@ -1057,7 +1114,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         }
         let outcome:
           | { status: 'queued'; recordId: string }
-          | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' };
+          | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' }
+          | { status: 'changed'; reason: import('../leads/work-store.js').AiMailChange };
         if (draft.kind === 'email') {
           if (!work.queueAiEmail) {
             sendDomainError(res, req.id, 'ai_unavailable', 503);
@@ -1092,6 +1150,11 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           }
           outcome = queued;
         }
+        if (outcome.status === 'changed') {
+          // T7: which part of the mail changed since the card showed it.
+          sendDomainError(res, req.id, 'conflict', 409, { reason: outcome.reason });
+          return;
+        }
         if (outcome.status !== 'queued') {
           sendDomainError(
             res,
@@ -1100,9 +1163,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               ? 'lead_not_found'
               : outcome.status === 'trashed'
                 ? 'lead_trashed'
-                : outcome.status === 'changed'
-                  ? 'conflict'
-                  : 'feature_not_ready',
+                : 'feature_not_ready',
             outcome.status === 'not_found' ? 404 : 409,
           );
           return;
@@ -1460,11 +1521,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
        * the card (`temporary_failure`), as before.
        */
       const seenLeadsOfTurn = async (): Promise<readonly SeenLead[]> => {
-        if (leadLabels) {
-          const ids = seenLeads.ids();
-          for (let start = 0; start < ids.length; start += 100)
-            seenLeads.addLabels(await wait(leadLabels(scope, ids.slice(start, start + 100))));
-        }
+        if (dependencies.reads.mentionLabels || leadLabels)
+          seenLeads.addLabels(await mentionLabelsOf(scope, seenLeads.ids(), wait));
         return seenLeads.list();
       };
       // C1: the card tools exist when the member may use at least one kind here.
@@ -1500,9 +1558,17 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               loadAccess: () => wait(dependencies.loadAccess(actor.actorId, workspaceId.data)),
               now,
               budget,
+              // T12: an admin that did not say it shows every card kind gets the older ones only.
+              legacyClient: body.wide !== true,
             })
           : undefined;
       const actionDefinitions = actionTools ? await wait(actionTools.offered()) : {};
+      /** The kinds this turn's client is offered (T12), for the system prompt. */
+      const promptCardKinds = actionTools
+        ? cardKindsHere(access, scope.workspaceId).filter(
+            (kind) => body.wide === true || LEGACY_CARD_KINDS.includes(kind),
+          )
+        : [];
       const automationTools =
         dependencies.automationAuthoring &&
         dependencies.flows &&
@@ -1723,6 +1789,15 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             reservedChars: Array.from(body.message).length,
           }),
         );
+        // B1, T11: the leads the replayed answers read are still before the
+        // model, so the mention check covers them too: the newest turns'
+        // first, at most half of the turn's seen-leads cap, leaving the rest
+        // for what this turn reads.
+        const replayed = [...history]
+          .reverse()
+          .flatMap((message) => message.leadIds ?? [])
+          .slice(0, MAX_SEEN_LEADS / 2);
+        for (const leadId of replayed) seenLeads.addId(leadId);
         // Audit B8: a message that is exactly one of the choices an earlier
         // answer offered reached here by a click (or reads the same): the
         // model is told it is an option it offered, not new words from the
@@ -1923,12 +1998,23 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             });
           }
 
-          const leadHint =
+          const activeHint =
             body.context === undefined
               ? undefined
               : await wait(dependencies.reads.leadHint(scope, body.context.leadId)).catch(
                   () => undefined,
                 );
+          // T13: an archived lead's page is still the open record. The model is
+          // told it is archived (restoring it is a card from its own page); a
+          // restricted or gone lead is no open record at all.
+          const archivedHint =
+            activeHint === undefined && body.context !== undefined && dependencies.cards
+              ? await wait(
+                  dependencies.cards.archiveLead({ ...scope, leadId: body.context.leadId }),
+                ).catch(() => undefined)
+              : undefined;
+          const leadHint = activeHint ?? (archivedHint?.archived ? archivedHint : undefined);
+          const openArchived = activeHint === undefined && leadHint !== undefined;
           if (leadHint)
             seenLeads.add({
               leadId: leadHint.leadId,
@@ -1966,7 +2052,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
             actionsAvailable:
               actionTools !== undefined && decideAccess(access, 'lead.manage').allowed,
             plainTasksAvailable: plainTasks,
-            cardKinds: actionTools ? cardKindsHere(access, scope.workspaceId) : [],
+            cardKinds: promptCardKinds,
             // Only the verified id and the catalogue's labels reach the system
             // prompt; the customer-typed name and reference travel as data in
             // the person's own message below.
@@ -1977,6 +2063,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
                     leadId: leadHint.leadId,
                     leadTypeLabel: leadTypeLabel(leadHint.leadType),
                     stageLabel: leadStageLabel(leadHint.leadType, leadHint.stage),
+                    ...(openArchived ? { archived: true } : {}),
                   },
                 }),
           });

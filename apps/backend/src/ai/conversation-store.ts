@@ -65,6 +65,12 @@ export interface AiReplayMessage {
   readonly attachments: readonly AiTurnAttachment[];
   /** An answer's follow-up choices as stored, so a clicked one can be told from typed words (B8). */
   readonly followUpChoices?: readonly string[];
+  /**
+   * The leads an answer's source cards link: what the model read in that
+   * turn and can still see now it is replayed, for the mention check (B1,
+   * T11). None for a member's message.
+   */
+  readonly leadIds?: readonly string[];
 }
 
 export interface BeginAiTurnInput {
@@ -308,6 +314,18 @@ const ATTACHMENT_COLUMNS = sql`
 function storedSources(value: unknown): AiSource[] {
   const parsed = aiSourceSchema.array().max(20).safeParse(value);
   return parsed.success ? parsed.data : [];
+}
+
+/** The leads a stored answer's source cards link (`SourceRegistry.lead`: its id or its href). */
+function sourceLeadIds(value: unknown): string[] {
+  const ids = new Set<string>();
+  for (const source of storedSources(value)) {
+    const id =
+      new RegExp(LEAD_CARD_ID).exec(source.id)?.[1] ??
+      new RegExp(LEAD_CARD_HREF).exec(source.href ?? '')?.[1];
+    if (id) ids.add(id.toLowerCase());
+  }
+  return [...ids];
 }
 
 function storedFollowUp(value: unknown): AiFollowUp | undefined {
@@ -667,7 +685,8 @@ export class DatabaseAiConversationStore implements AiConversationStore {
       // 0039 is applied; this check needs no migration). An emptied turn has
       // no text and is skipped below as well.
       const rows = await tx.execute<Record<string, unknown>>(sql`
-        select q.id, q.text as question, a.text as answer, a.follow_up as "followUp"
+        select q.id, q.text as question, a.text as answer, a.follow_up as "followUp",
+          a.sources
         from app.ai_messages q
         join app.ai_messages a
           on a.workspace_id = q.workspace_id
@@ -706,6 +725,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
         question: Record<string, unknown>;
         answer: string;
         choices?: readonly string[];
+        leadIds: readonly string[];
       }[] = [];
       for (const row of [...rows].reverse()) {
         // The text a browser would have replayed (and the server signed).
@@ -719,6 +739,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           question: { id: row['id'], text: question },
           answer,
           ...(followUp ? { choices: followUp.choices } : {}),
+          leadIds: sourceLeadIds(row['sources']),
         });
       }
       // Newest kept, within the same limits a browser's history obeys.
@@ -752,6 +773,7 @@ export class DatabaseAiConversationStore implements AiConversationStore {
           text: turn.answer,
           attachments: [],
           ...(turn.choices ? { followUpChoices: turn.choices } : {}),
+          ...(turn.leadIds.length > 0 ? { leadIds: turn.leadIds } : {}),
         },
       ]);
     });

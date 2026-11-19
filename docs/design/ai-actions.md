@@ -136,7 +136,16 @@ The kinds beyond note, task, email, lead update and task move:
   gate needs a courier or an activation date carries those fields on the card
   (`leadEditContext.inputs`): the model may pass a courier, tracking number
   and dates the person gave; the activation number and account are typed by
-  the person on the card and never accepted from the model. The documents
+  the person on the card and never accepted from the model. The card shows
+  exactly what Confirm saves (`leadEditContext.rows`, computed on the server):
+  a row for each detail that changes and for each the move requires (a
+  courier still to be typed reads "To enter with Edit"), never one for a
+  detail that neither changes nor is required; the dispatch or activation
+  date a move defaults to (today in Toronto) is written into the signed draft
+  and shown as that day ("20 Nov 2026 (today)"), so Confirm saves the day the
+  card showed even after midnight. The person's Edit opens only on a card
+  that has details to type (a move's courier, dates and activation number and
+  account); a plan or quantity card has none and offers no Edit. The documents
   check stays: a move whose required documents are not approved makes no
   card, and the tool answers which documents and leaves a link to the lead
   page. A card can never carry a documents override or a contact change.
@@ -150,44 +159,80 @@ The kinds beyond note, task, email, lead update and task move:
   role, `staff/lead-visibility.ts`); commission amounts are never on a card.
 - **`task`** takes any active member as assignee (`getAssigneeOptions` lists
   them); **`task_update`** changes any of status, title, due date and
-  assignee, with the same signed version and status check as a move.
+  assignee, with the same signed version and status check as a move. Saved,
+  it reads "Task moved." when only its status changed and "Task updated."
+  otherwise.
 - **`template_email`**: one of the templates the staff route sends by hand
   (`queueCustomerEmailRequestSchema`; today `sim_number_ready`), rendered on
   the server and shown in full. The card signs the template's version, the
   digest of the rendered mail, the recipient and the sender; Send is refused
-  as changed when any differs. A lead that lacks a fill-in gets no card, and
+  as changed when any differs, with its own `details.reason` and sentence:
+  `recipient_changed` (the customer's address), `sender_changed` (the site's
+  sender), `template_changed` (the template saved again or no longer usable)
+  or `text_changed` (what it fills in from the lead). A written email's Send
+  names `recipient_changed` or `sender_changed` the same way. A lead that lacks a fill-in gets no card, and
   the tool names what is missing. It queues under `ai_template_email:<root
 id>`, so a retry finds the first job.
 - **`lead_archive`**: archive or restore one lead through `setArchived`, whose
   audit keeps the card's root id so a retry answers with the first receipt. A
-  lead someone else already archived (or restored) is refused as changed.
+  lead someone else already archived (or restored) is refused as changed. On
+  an archived lead's own page the model is told the open lead is archived,
+  so "restore this lead" prepares the restore card there.
 - **`automation_off`**: switches one flow off through `setEnabled(false)`
   with the revision the card was prepared against. There is no card that
   switches a flow on or activates one.
 
-Each card that moves a stage, archives, sends mail or switches a flow off
-shows what else happens (`sideEffects`), computed on the server: the flows
-that fire for the stage entered and what their steps do ("sends the
-Cancelled email to the customer"), a checkout the move submits, the runs and
-timers an archive cancels. Its digest is signed and recomputed at Confirm; a
+Each card that moves a stage, changes a plan, archives, sends mail or
+switches a flow off shows what else happens (`sideEffects`), computed on the
+server: the flows that fire for the stage entered and what their steps do
+("sends the Cancelled email to the customer"), a checkout the move submits, a
+plan's re-freeze, the runs and timers an archive cancels. A flow's steps that
+always run read as definite; the steps inside an if/else read as ones it
+"may, depending on its conditions" do, since the card cannot know a
+condition's answer before the move (`flowRunSentence` in
+`ai/card-store.ts`). Its digest is signed and recomputed at Confirm; a
 difference is `409 conflict` with `details.reason: 'changed'`, as is any
 change to what the card touches (`leadEditVersion`: stage, status, order
-and the named fields).
+and the named fields). A lead edit's effects, a stage move's and a plan
+change's together, are computed for the preview and again at Confirm by one
+function (`leadEditEffects`), so a card that moves the stage and changes the
+plan confirms like either alone; a plan no longer active by then is a
+change.
 
-An email or note whose text names another lead read in the same turn (its
-name or reference, as whole words) carries `mentions` and
-`acknowledgementRequired`; Confirm without `acknowledged: true` is `409
-conflict` with `details.reason: 'acknowledgement_required'`. The turn's leads
-are every lead any read named: those in a tool result (`leadId` beside
-`name`/`reference` or `leadName`/`leadReference`), every lead a read gave a
-source card (an automation run's lead has no id in its result, only its
-card), and the open lead; each is compared under what the result said and
-under its real name and reference, looked up at prepare time with
-`leadLabels` (a lookup that fails refuses the card). Both sides are
-normalised as the reads clean text: control, format and bidi characters
-count as spaces and, a second time, as nothing, so a hidden character
-inside a name or reference never hides it. The other leads' ids are signed,
-so a revision checks its new text against the same leads.
+An email or note whose text names another lead the model can see carries
+`mentions` and `acknowledgementRequired`; Confirm without `acknowledged:
+true` is `409 conflict` with `details.reason: 'acknowledgement_required'`.
+The leads it can see are every lead any read of the turn named: those in a
+tool result (`leadId` beside `name`/`reference` or
+`leadName`/`leadReference`), every lead a read gave a source card (an
+automation run's lead has no id in its result, only its card), and the open
+lead; and, in a stored conversation, the leads the source cards of the
+replayed earlier answers link (the newest first, at most half the turn's
+200-lead cap, `MAX_SEEN_LEADS`). Each is compared under what the result said
+and under its real name and reference, looked up with `mentionLabels`
+(an archived lead included, a restricted one never; a lookup that fails
+refuses the card).
+
+Both sides are compared word by word: Unicode compatibility forms folded
+(NFKC, so full-width letters and a non-breaking space read as their plain
+forms), accents and common Cyrillic and Greek look-alike letters folded,
+then split on everything that is not a letter or a digit, so every dash,
+space and punctuation mark separates words alike. Control and format
+characters count as spaces and, a second time, as nothing, so a hidden
+character inside a name or reference never hides it; line breaks and other
+spacing controls are separators both times, so a subject's last word and a
+body's first are never glued together. A reference matches with only its
+letters and digits ("MS 9001", "MS9001" and "MS–9001" all name MS-9001); a
+name matches as all of its words in order ("Robin-Example"), or as its given
+name and surname, three characters or more each, within two words of each
+other in either order ("Example, Robin"). One word of a longer name alone, or
+a name or reference under three characters, never matches.
+
+Every lead a card was checked against is signed into it, the ones it names
+first (up to the turn's cap), so a revision checks its new text against all
+of them, an archived one included, with the same lookup; a lookup that fails
+refuses the revision (`503 ai_unavailable`), as it refuses a new card. The
+tick is required again whenever the revised text still names one.
 
 Every card about a lead gives the answer that lead's source card, so a
 stored answer that prepared one is not replayed once the lead is restricted
@@ -199,17 +244,36 @@ reference is set by the site's own server, never typed by the customer.
 Each member has two daily caps per site, counted at Confirm through
 `app.rate_limit_hit` in UTC days: `AI_CARD_LIMITS.changesPerMemberPerDay`
 (200) confirmed changes of any kind, and `mailPerMemberPerDay` (50) emails
-(written or template). Past either, Confirm answers `429 ai_rate_limited`
-with `details.reason` `daily_changes` or `daily_mail`; a limiter that cannot
-be reached refuses with `503 ai_unavailable`. A retry of a saved card counts
-again.
+(written or template). An email asks its own cap first, so one the mail cap
+refuses is not counted as a change; one counted as mail before the changes
+cap refuses it is past that cap anyway, and both open again at the same
+moment. Past either, Confirm answers `429 ai_rate_limited` with
+`details.reason` `daily_changes` or `daily_mail` and `details.retryAfterSeconds`;
+the card then says when it opens again and offers no Retry save. A limiter
+that cannot be reached refuses with `503 ai_unavailable`. A retry of a saved
+card counts again, and so does a confirmation refused after the caps for a
+reason of its own (a stale card): the limiter has no way to give a count
+back, and adding one is a migration.
+
+A member who keeps Ask AI but may no longer make a card's change (a role
+changed from Leads to Orders while the card was open) is refused that card
+alone: `403 permission_denied` with `details.reason: 'card_not_permitted'`
+on Confirm and revise. The card says so and offers no Retry save; the
+conversation stays. A member who lost Ask AI altogether gets the plain `403
+permission_denied`, after which the admin clears the chat as before.
 
 On the wire every addition is optional. The stream sends every card in full
 in the `action_cards` part, then the cards an older admin can show in their
 older shape in `actions`; a card with a new kind, a widened draft or a
 required tick is only in `action_cards`, which an older admin ignores. A
-revision answers in the older shape unless the request has `wide: true`,
-which a newer admin sends only when the capabilities list `cardActions`.
+chat request offers the new kinds (`lead_edit`, `template_email`,
+`lead_archive`, `automation_off`) and the member list only with `wide:
+true`, which a newer admin sends when the capabilities list `cardActions`;
+without it the turn is offered the older kinds alone, unchanged, and
+prepares no card the older shape cannot carry (a task for another member, a
+task edit beyond its status, a card that needs the tick), so an older admin
+never shows "Draft ready" without its card. A revision answers in the older
+shape unless the request has `wide: true`, sent on the same condition.
 AI-made changes read "via Ask AI" on the lead's timeline.
 
 ## Browser behavior
@@ -222,7 +286,12 @@ panel retains receipts; Site/member changes and New chat discard cards. A
 confirmed write may finish after the panel closes, as an ordinary form save can.
 
 An uncertain network result offers Retry save with the same token, never a new
-model-generated action. Dismissing an uncertain result tells staff to check the
+model-generated action. A refusal no retry can get past (a daily cap, a change
+the member may no longer make) offers none. Focus follows each step for a
+keyboard: Edit moves it into the form, Update draft to the card's status line
+and then to Confirm, Confirm to the status line (a polite live region) through
+saving, saved or a refusal; a card that changes on its own takes no focus from
+elsewhere, and the side panel's composer gets focus back when an answer ends. Dismissing an uncertain result tells staff to check the
 lead; it does not claim nothing was saved. Expired cards require checking the
 lead before requesting a new draft. Permission loss clears private chat. Saved
 actions refresh the open lead and My tasks through a Site-scoped refresh event.

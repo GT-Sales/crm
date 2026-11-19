@@ -82,6 +82,11 @@ export interface BuildChatRequestInput {
    * `conversationId`.
    */
   newConversation?: boolean;
+  /**
+   * This admin shows every card kind (T12): sent only against a backend whose
+   * capabilities list `cardActions`, which then offers the new card kinds.
+   */
+  wide?: boolean;
 }
 
 export interface BuiltChatRequest {
@@ -196,6 +201,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         ...(input.newConversation === true ? { newConversation: true } : {}),
         ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
         ...(high ? { effort: 'high' as const } : {}),
+        ...(input.wide === true ? { wide: true as const } : {}),
       },
       trimmed: message.length !== input.message.length,
     };
@@ -213,6 +219,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
       })),
       ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
       ...(high ? { effort: 'high' as const } : {}),
+      ...(input.wide === true ? { wide: true as const } : {}),
     };
   }
 

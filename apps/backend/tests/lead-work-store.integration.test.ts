@@ -765,13 +765,13 @@ databaseTest('DatabaseLeadWorkStore', () => {
           ...input,
           emailContext: { ...input.emailContext, toAddress: 'changed@example.test' },
         }),
-      ).toEqual({ status: 'changed' });
+      ).toEqual({ status: 'changed', reason: 'recipient_changed' });
       expect(
         await mailWork.queueAiEmail({
           ...input,
           emailContext: { ...input.emailContext, fromAddress: 'changed@example.test' },
         }),
-      ).toEqual({ status: 'changed' });
+      ).toEqual({ status: 'changed', reason: 'sender_changed' });
       const [first, second] = await Promise.all([
         mailWork.queueAiEmail(input),
         mailWork.queueAiEmail(input),

@@ -111526,7 +111526,8 @@
                     }
                   },
                   "effort": { "type": "string", "enum": ["normal", "high"] },
-                  "newConversation": { "type": "boolean" }
+                  "newConversation": { "type": "boolean" },
+                  "wide": { "type": "boolean", "const": true }
                 },
                 "required": ["requestId", "message", "history"],
                 "additionalProperties": false

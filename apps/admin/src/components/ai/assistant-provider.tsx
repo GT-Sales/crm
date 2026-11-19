@@ -51,6 +51,7 @@ import {
   deleteAiAttachment,
   getAiAttachmentLink,
 } from '../../lib/api';
+import { dateTimeLabel } from '../../lib/dates';
 import { describeError, errorKind } from '../../lib/error-text';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
 import { createAttachmentLinkCache, type AttachmentLinkCache } from './attachment-links';
@@ -98,16 +99,39 @@ export function leadUpdateRefusalText(error: BackendError): string | undefined {
  * names changed since it was prepared, or fill-ins a template lacks.
  * Undefined for any other error. Nothing was saved in any of these cases.
  */
-export function cardRefusalText(error: BackendError): string | undefined {
+export function cardRefusalText(error: BackendError, now = new Date()): string | undefined {
   const reason = error.details?.['reason'];
+  const retryAfter = error.details?.['retryAfterSeconds'];
+  // T10: when the cap opens again, if the backend said.
+  const opensAt =
+    typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter > 0
+      ? dateTimeLabel(new Date(now.getTime() + retryAfter * 1000).toISOString())
+      : undefined;
   if (error.code === 'conflict' && reason === 'acknowledgement_required')
     return 'Not saved. Tick that you checked the other customers it names, then try again.';
   if (error.code === 'conflict' && reason === 'changed')
     return 'Not saved: this changed since the card was prepared. Check it and ask for a fresh draft.';
+  // T7: each reason a mail is no longer the one the card showed, in its own words.
+  if (error.code === 'conflict' && reason === 'recipient_changed')
+    return 'Not sent. The customer’s email address changed since the card was prepared. Check the lead and ask for a fresh draft.';
+  if (error.code === 'conflict' && reason === 'sender_changed')
+    return 'Not sent. The site’s sender address changed since the card was prepared. Check Settings → Email and ask for a fresh draft.';
+  if (error.code === 'conflict' && reason === 'template_changed')
+    return 'Not sent. The email template was changed since the card was prepared. Ask for a fresh draft to see the new text.';
+  if (error.code === 'conflict' && reason === 'text_changed')
+    return 'Not sent. The text the template fills in from the lead changed since the card was prepared. Check the lead and ask for a fresh draft.';
   if (error.code === 'ai_rate_limited' && reason === 'daily_changes')
-    return `Not saved. You have reached today’s limit of ${AI_CARD_LIMITS.changesPerMemberPerDay} changes made with Ask AI on this site. Make the change on its page, or try again tomorrow.`;
+    return `Not saved. You have reached today’s limit of ${AI_CARD_LIMITS.changesPerMemberPerDay} changes made with Ask AI on this site. Make the change on its page${
+      opensAt
+        ? `. You can make changes with Ask AI again from ${opensAt}.`
+        : ', or try again tomorrow.'
+    }`;
   if (error.code === 'ai_rate_limited' && reason === 'daily_mail')
-    return `Not sent. You have reached today’s limit of ${AI_CARD_LIMITS.mailPerMemberPerDay} emails sent with Ask AI on this site. Send it from the lead’s Mail tab, or try again tomorrow.`;
+    return `Not sent. You have reached today’s limit of ${AI_CARD_LIMITS.mailPerMemberPerDay} emails sent with Ask AI on this site. Send it from the lead’s Mail tab${
+      opensAt
+        ? `. You can send emails with Ask AI again from ${opensAt}.`
+        : ', or try again tomorrow.'
+    }`;
   const missing = error.details?.['missing'];
   if (error.code === 'conflict' && Array.isArray(missing) && missing.length > 0)
     return `Not sent. The lead lacks what the template fills in: ${missing
@@ -206,7 +230,12 @@ export type AiMessage = AiUserMessage | AiAssistantMessage;
 export interface AiActionView {
   /** The card in full when the backend sends `action_cards`, else the older proposal (which parses as one). */
   proposal: AiActionCard;
-  status: 'pending' | 'revising' | 'saving' | 'saved' | 'cancelled' | 'error';
+  /**
+   * `refused`: Confirm was refused for a reason a retry cannot get past (a
+   * daily cap, a change the member may no longer make); nothing was saved
+   * and the card offers no Retry save.
+   */
+  status: 'pending' | 'revising' | 'saving' | 'saved' | 'cancelled' | 'error' | 'refused';
   error?: string;
 }
 
@@ -521,8 +550,35 @@ const ACCESS_CODES = [
   'membership_pending',
 ];
 
+/**
+ * T8: the member keeps Ask AI but may no longer make this card's change: only
+ * the card is refused, and the conversation stays.
+ */
+function isCardNotPermitted(error: unknown): boolean {
+  return (
+    error instanceof BackendError &&
+    error.code === 'permission_denied' &&
+    error.details?.['reason'] === 'card_not_permitted'
+  );
+}
+
+const CARD_NOT_PERMITTED_TEXT =
+  'Not saved. You no longer have permission to make this change. Ask the owner if you need it; you can still ask Ask AI questions.';
+
+/** A refusal Retry save cannot get past: a daily cap (T10) or a change this member may not make (T8). */
+function isFinalCardRefusal(error: unknown): boolean {
+  return (
+    isCardNotPermitted(error) ||
+    (error instanceof BackendError &&
+      error.code === 'ai_rate_limited' &&
+      (error.details?.['reason'] === 'daily_changes' || error.details?.['reason'] === 'daily_mail'))
+  );
+}
+
 function isAccessLoss(error: unknown): boolean {
-  return error instanceof BackendError && ACCESS_CODES.includes(error.code);
+  return (
+    error instanceof BackendError && ACCESS_CODES.includes(error.code) && !isCardNotPermitted(error)
+  );
 }
 
 function toHistory(messages: readonly AiMessage[]): AiHistoryEntry[] {
@@ -757,6 +813,14 @@ export function AssistantProvider({
     [capabilities],
   );
   const highOffered = offeredEfforts.includes('high');
+  /**
+   * T12: a backend that lists `cardActions` sends every card kind in full,
+   * and this admin shows them all, so its questions say so (`wide`); an
+   * older backend, whose strict request does not know the key, never gets it.
+   */
+  const showsEveryCardRef = useRef(false);
+  showsEveryCardRef.current =
+    capabilities.status === 'ready' && capabilities.data.cardActions !== undefined;
   const storesConversations =
     capabilities.status === 'ready' &&
     capabilities.data.available &&
@@ -1055,6 +1119,7 @@ export function AssistantProvider({
               ...(fresh ? { newConversation: true } : {}),
             }),
         ...(userMessage.effort === undefined ? {} : { effort: userMessage.effort, efforts }),
+        ...(showsEveryCardRef.current ? { wide: true } : {}),
       });
       setHistoryTrimmed(built.trimmed);
       let titled = false;
@@ -2036,6 +2101,13 @@ export function AssistantProvider({
             setCapabilitiesState(failedCapabilities(sessionKey, capabilityFailureOf(error), error));
             return;
           }
+          if (isCardNotPermitted(error)) {
+            updateAction(messageId, actionId, {
+              status: 'refused',
+              error: CARD_NOT_PERMITTED_TEXT,
+            });
+            return;
+          }
           updateAction(messageId, actionId, {
             status: 'pending',
             error: `${describeError(error, 'update the draft')} The original draft is shown; nothing was saved.`,
@@ -2095,6 +2167,15 @@ export function AssistantProvider({
             setCapabilitiesState(failedCapabilities(sessionKey, capabilityFailureOf(error), error));
             return;
           }
+          if (isFinalCardRefusal(error) && error instanceof BackendError) {
+            updateAction(messageId, actionId, {
+              status: 'refused',
+              error: isCardNotPermitted(error)
+                ? CARD_NOT_PERMITTED_TEXT
+                : (cardRefusalText(error) ?? CARD_NOT_PERMITTED_TEXT),
+            });
+            return;
+          }
           const gate =
             error instanceof BackendError
               ? error.code === 'conflict' && error.details?.['reason'] === 'superseded'
@@ -2110,7 +2191,10 @@ export function AssistantProvider({
                   ? 'The lead changed or this update needs additional details. Check the lead page and request a fresh draft.'
                   : action.proposal.draft.kind === 'task_update'
                     ? 'The task changed since this draft. Check the Tasks page and request a fresh draft.'
-                    : 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
+                    : action.proposal.draft.kind === 'email' ||
+                        action.proposal.draft.kind === 'template_email'
+                      ? 'The email recipient or sender changed. Check the lead and ask for a fresh draft before sending.'
+                      : 'Not saved: this changed since the card was prepared. Check it and ask for a fresh draft.'
                 : error instanceof BackendError && error.code === 'plain_tasks_unavailable'
                   ? 'Tasks without a lead are not switched on for this site yet. Ask for the task on a lead.'
                   : error instanceof BackendError && error.code === 'feature_not_ready'

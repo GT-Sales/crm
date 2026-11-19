@@ -61,6 +61,10 @@ export function AssistantPanel() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // Set when the control the user pressed is replaced by the enabled composer.
   const focusComposerAfterStream = useRef(false);
+  // T4: set when a question is sent. The composer is disabled while the answer
+  // streams, which drops its focus; it gets it back when the answer ends,
+  // unless the person has moved on to something else meanwhile.
+  const focusComposerAfterAnswer = useRef(false);
   const [draft, setDraft] = useState('');
   const { scrollRef, atBottom, onScroll, jumpToLatest, resetToBottom } = useConversationScroll(
     messages,
@@ -89,7 +93,14 @@ export function AssistantPanel() {
   }, [isOpen, isMobile, resetToBottom]);
 
   useEffect(() => {
-    if (streaming || !focusComposerAfterStream.current) return;
+    if (streaming) return;
+    if (focusComposerAfterAnswer.current) {
+      focusComposerAfterAnswer.current = false;
+      const active = document.activeElement;
+      if (active === null || active === document.body || active === composerRef.current)
+        composerRef.current?.focus();
+    }
+    if (!focusComposerAfterStream.current) return;
     // The Stop button (or the disabled composer) was replaced: put the caret
     // back where the next question is typed.
     focusComposerAfterStream.current = false;
@@ -101,7 +112,7 @@ export function AssistantPanel() {
     const text = draft.trim();
     if (text.length === 0) return;
     stopGuard.markSent();
-    send(text);
+    if (send(text)) focusComposerAfterAnswer.current = true;
     setDraft('');
     setClipped(false);
     composerRef.current?.focus();
@@ -110,7 +121,7 @@ export function AssistantPanel() {
   function ask(question: string): void {
     if (!ready || streaming) return;
     stopGuard.markSent();
-    send(question);
+    if (send(question)) focusComposerAfterAnswer.current = true;
     composerRef.current?.focus();
   }
 

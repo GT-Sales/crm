@@ -26,7 +26,9 @@ import { z } from 'zod';
 
 import { signAiAction, type SignedAiAction } from '../src/ai/actions.js';
 import { DatabaseAiCardStore, leadEditVersion } from '../src/ai/card-store.js';
+import { DatabaseAiChatSchemaProbe } from '../src/ai/chat-schema.js';
 import type { AiAssistantConfig } from '../src/ai/config.js';
+import { DatabaseAiConversationStore } from '../src/ai/conversation-store.js';
 import type { AssistantEngine, EngineInput } from '../src/ai/engine.js';
 import { DatabaseAiReadService } from '../src/ai/read-service.js';
 import { DatabaseAiSiteContextStore } from '../src/ai/site-context.js';
@@ -36,6 +38,7 @@ import { DatabaseEmailSettingsStore } from '../src/email/settings-store.js';
 import { customerEmailEnvironmentFromEnv } from '../src/email/senders.js';
 import { DatabaseLeadStore } from '../src/leads/store.js';
 import { DatabaseLeadWorkStore } from '../src/leads/work-store.js';
+import { todayInToronto } from '../src/leads/stage-move.js';
 import { DatabasePlanStore } from '../src/plans/store.js';
 import { DatabasePropertyStore } from '../src/properties/store.js';
 import type { ReportStore } from '../src/reports/store.js';
@@ -150,12 +153,19 @@ const scriptSchema = z.array(z.object({ tool: z.string(), input: z.unknown() }))
 function scriptedEngine(
   results: { name: string; result: string }[],
   offered: string[][],
+  systems: string[] = [],
 ): AssistantEngine {
   return {
     kind: 'fake',
     async *stream(input: EngineInput) {
       offered.push(Object.keys(input.tools ?? {}));
-      const question = input.messages.at(-1)?.text ?? '';
+      systems.push(input.system);
+      // With a lead open, the message starts with its labelled data block; the steps follow it.
+      const message = input.messages.at(-1)?.text ?? '';
+      const end = '[End of open record]';
+      const question = message.includes(end)
+        ? message.slice(message.indexOf(end) + end.length)
+        : message;
       const steps = scriptSchema.parse(JSON.parse(question.slice(question.indexOf('['))));
       for (const call of steps) {
         if (!input.executeTool) throw new Error('executor missing');
@@ -176,6 +186,7 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
   let admin: ReturnType<typeof postgres>;
   let database: DatabaseClient;
   let work: DatabaseLeadWorkStore;
+  let reads: DatabaseAiReadService;
   let server: Server;
   let base: string;
   let freePlan: Plan;
@@ -183,6 +194,7 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
   let gatedPlan: Plan;
   const results: { name: string; result: string }[] = [];
   const offered: string[][] = [];
+  const systems: string[] = [];
   const mailEnvironment = customerEmailEnvironmentFromEnv({
     EMAIL_PROVIDER: 'fake',
     NODE_ENV: 'test',
@@ -196,15 +208,26 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       body: JSON.stringify(body),
     });
 
+  /**
+   * One question, as a newer admin asks it (`wide: true`, T12) unless `wide`
+   * is false; `context` is the lead open on the page.
+   */
   async function ask(
     steps: { tool: string; input: unknown }[],
     actor = OWNER,
     site = SITE,
+    options: { wide?: boolean; context?: string } = {},
   ): Promise<AiStreamPart[]> {
     results.length = 0;
     const response = await post(
       '/ai/chat',
-      { requestId: randomUUID(), message: JSON.stringify(steps), history: [] },
+      {
+        requestId: randomUUID(),
+        message: JSON.stringify(steps),
+        history: [],
+        ...(options.wide === false ? {} : { wide: true }),
+        ...(options.context ? { context: { leadId: options.context } } : {}),
+      },
       actor,
       site,
     );
@@ -408,6 +431,7 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       actorId: OWNER,
     });
     work = new DatabaseLeadWorkStore(database, mailEnvironment);
+    reads = new DatabaseAiReadService(database);
     const app = createApp({
       staff: {
         sessionVerifier: {
@@ -423,10 +447,15 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
         ai: {
           config,
           siteContext: new DatabaseAiSiteContextStore(database),
-          reads: new DatabaseAiReadService(database),
-          engine: scriptedEngine(results, offered),
+          reads,
+          engine: scriptedEngine(results, offered, systems),
           rateLimit: (input) => limiter.hit(input),
           cards: new DatabaseAiCardStore(database, mailEnvironment),
+          // The saved chat, for the turns that replay an earlier one (T11).
+          chat: {
+            schema: new DatabaseAiChatSchemaProbe(database),
+            conversations: new DatabaseAiConversationStore(database),
+          },
           now: clock.now,
         },
       },
@@ -478,6 +507,37 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       expect(finance.actions).toEqual([]);
     });
 
+    it('offers the new kinds only to an admin that says it can show them (T12)', async () => {
+      offered.length = 0;
+      await ask([], OWNER, SITE, { wide: false });
+      await ask([], OWNER, SITE);
+      const [older, newer] = offered;
+      const newKinds = ['prepareLeadEdit', 'getLeadEditOptions', 'prepareTemplateEmail'];
+      for (const name of [...newKinds, 'prepareArchive', 'prepareAutomationOff'])
+        expect(older).not.toContain(name);
+      // The older kinds are offered to both, unchanged.
+      for (const name of ['prepareNote', 'prepareTask', 'prepareEmail', 'prepareLeadUpdate'])
+        expect(older).toContain(name);
+      expect(newer).toEqual(expect.arrayContaining([...newKinds, 'prepareArchive']));
+      // A card the older admin could not show is not prepared for it either.
+      const leadId = await insertLead({ stage: 'pending' });
+      const parts = await ask(
+        [
+          {
+            tool: 'prepareTask',
+            input: { leadId, title: 'For Lee', dueDate: null, assignee: LEADS },
+          },
+          { tool: 'prepareTask', input: { leadId, title: 'Mine', dueDate: null, assignee: 'me' } },
+        ],
+        OWNER,
+        SITE,
+        { wide: false },
+      );
+      expect(JSON.parse(results[0]?.result ?? '{}')).toMatchObject({ status: 'not_available' });
+      expect(legacyOf(parts).map((card) => card.draft.kind)).toEqual(['task']);
+      expect(cardsOf(parts)).toHaveLength(1);
+    });
+
     it('offers the model only the tools of the kinds the member may use', async () => {
       offered.length = 0;
       await ask([], OWNER);
@@ -509,10 +569,18 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       ]);
       // A new kind is not in the older part, which an older admin reads.
       expect(legacyOf(parts)).toEqual([]);
+      // The dispatch date the move defaults to is written into the signed draft (T2).
       expect(card.draft).toEqual({
         kind: 'lead_edit',
         leadId,
-        changes: { stage: 'delivered', order: { courier: 'Canada Post', trackingNumber: 'TRK-1' } },
+        changes: {
+          stage: 'delivered',
+          order: {
+            courier: 'Canada Post',
+            trackingNumber: 'TRK-1',
+            dispatchedAt: todayInToronto(new Date()),
+          },
+        },
       });
       expect(card.leadEditContext?.rows).toEqual(
         expect.arrayContaining([
@@ -741,6 +809,106 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       expect(fresh.sideEffects).toEqual(['No automation runs for this move.']);
       expect((await confirm(fresh)).status).toBe(200);
       expect((await leadRow(leadId)).stage).toBe('cancelled');
+    });
+
+    it('moves the stage and changes the plan in one card, and confirms it (R1)', async () => {
+      const leadId = await insertLead({ order: orderOn(freePlan) });
+      const { card } = await oneCard([
+        {
+          tool: 'prepareLeadEdit',
+          input: {
+            leadId,
+            stage: 'delivered',
+            order: { courier: 'Canada Post', planId: otherPlan.id },
+          },
+        },
+      ]);
+      expect(card.sideEffects?.join(' ')).toMatch(/sends the “Dispatched” email/);
+      expect(card.sideEffects?.join(' ')).toMatch(/Re-freezes the plan/);
+      const saved = await confirm(card);
+      expect(saved.status).toBe(200);
+      const row = await leadRow(leadId);
+      expect(row.stage).toBe('delivered');
+      expect(row.orderDetails).toMatchObject({
+        planId: otherPlan.id,
+        plan: { name: 'Bigger plan' },
+      });
+      // Each alone confirms too, and the plan's effect is checked like the move's.
+      const planOnly = await insertLead({ stage: 'pending', order: orderOn(freePlan) });
+      const { card: plan } = await oneCard([
+        { tool: 'prepareLeadEdit', input: { leadId: planOnly, order: { planId: otherPlan.id } } },
+      ]);
+      await admin`update app.plans set name = 'Bigger plan, renamed' where id = ${otherPlan.id}`;
+      try {
+        expect(await errorOf(await confirm(plan))).toMatchObject({
+          status: 409,
+          details: { reason: 'changed' },
+        });
+      } finally {
+        await admin`update app.plans set name = 'Bigger plan' where id = ${otherPlan.id}`;
+      }
+      expect((await confirm(plan)).status).toBe(200);
+      const stageOnly = await insertLead({ order: orderOn(freePlan) });
+      const { card: move } = await oneCard([
+        {
+          tool: 'prepareLeadEdit',
+          input: { leadId: stageOnly, stage: 'delivered', order: { courier: 'UPS' } },
+        },
+      ]);
+      expect((await confirm(move)).status).toBe(200);
+    });
+
+    it('shows exactly what Confirm saves: the default date as today, and no unchanged detail (T2)', async () => {
+      const today = todayInToronto(new Date());
+      const leadId = await insertLead({ order: orderOn(freePlan) });
+      const { card } = await oneCard([
+        {
+          tool: 'prepareLeadEdit',
+          input: {
+            leadId,
+            stage: 'delivered',
+            order: { courier: 'Canada Post', trackingNumber: 'TRK123' },
+          },
+        },
+      ]);
+      const rows = card.leadEditContext?.rows ?? [];
+      expect(rows.map((row) => row.key)).toEqual([
+        'stage',
+        'order.courier',
+        'order.trackingNumber',
+        'order.dispatchedAt',
+      ]);
+      expect(rows.find((row) => row.key === 'order.dispatchedAt')).toMatchObject({
+        before: null,
+        after: expect.stringMatching(/ \(today\)$/),
+      });
+      // Nothing reads "Not set → Cleared": every row either changes or is required.
+      expect(rows.filter((row) => row.before === null && row.after === null)).toEqual([]);
+      // The date the card shows is the date it signs and saves.
+      expect(card.draft).toMatchObject({ changes: { order: { dispatchedAt: today } } });
+      expect((await confirm(card)).status).toBe(200);
+      expect((await leadRow(leadId)).orderDetails).toMatchObject({ dispatchedAt: today });
+
+      const activation = await insertLead({ stage: 'delivered', order: orderOn(freePlan) });
+      const { card: activated } = await oneCard([
+        { tool: 'prepareLeadEdit', input: { leadId: activation, stage: 'activated' } },
+      ]);
+      expect(activated.leadEditContext?.rows.map((row) => row.key)).toEqual([
+        'stage',
+        'order.activatedAt',
+      ]);
+      // The person can still type the number and account on the card.
+      expect(activated.leadEditContext?.inputs.map((entry) => entry.field)).toEqual([
+        'activatedAt',
+        'activationNumber',
+        'activationAccount',
+      ]);
+      // A courier still to be typed is shown as required, not as a change to nothing.
+      const noCourier = await insertLead({ order: orderOn(freePlan) });
+      const { card: needs } = await oneCard([
+        { tool: 'prepareLeadEdit', input: { leadId: noCourier, stage: 'delivered' } },
+      ]);
+      expect(needs.leadEditContext?.rows.map((row) => row.key)).toEqual(['stage', 'order.courier']);
     });
 
     it('says a move submits an unfinished checkout', async () => {
@@ -1012,6 +1180,66 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       });
     });
 
+    it('says which part of a template email changed when Send is refused (T7)', async () => {
+      const leadId = await insertLead({
+        stage: 'pending',
+        email: 'stale.customer@example.test',
+        form: { simNumber: '+1 778 555 0160' },
+      });
+      const prepare = async () =>
+        (
+          await oneCard([
+            { tool: 'prepareTemplateEmail', input: { leadId, template: 'sim_number_ready' } },
+          ])
+        ).card;
+      const text = await prepare();
+      await admin`
+        update app.leads set payload = jsonb_set(payload, '{payload,simNumber}', '"+1 778 555 0161"')
+        where id = ${leadId}
+      `;
+      expect(await errorOf(await confirm(text))).toMatchObject({
+        status: 409,
+        code: 'conflict',
+        details: { reason: 'text_changed' },
+      });
+      const recipient = await prepare();
+      await admin`update app.leads set email = 'moved.customer@example.test' where id = ${leadId}`;
+      expect(await errorOf(await confirm(recipient))).toMatchObject({
+        status: 409,
+        details: { reason: 'recipient_changed' },
+      });
+      const template = await prepare();
+      const current = (
+        await new DatabaseEmailSettingsStore(database).listTemplates({
+          workspaceId: SITE,
+          actorId: OWNER,
+        })
+      ).find((entry) => entry.key === 'sim_number_ready');
+      const saved = await new DatabaseEmailSettingsStore(database).putTemplate(
+        { workspaceId: SITE, actorId: OWNER, requestId: randomUUID() },
+        'sim_number_ready',
+        {
+          expectedVersion: current?.version ?? 0,
+          subject: 'Your number, again',
+          body: 'Your number is {SIM number}.',
+        },
+      );
+      expect(saved.kind).toBe('saved');
+      expect(await errorOf(await confirm(template))).toMatchObject({
+        status: 409,
+        details: { reason: 'template_changed' },
+      });
+      // A written email whose recipient changed says so too.
+      const { card: written } = await oneCard([
+        { tool: 'prepareEmail', input: { leadId, subject: 'Hello', body: 'Hello there.' } },
+      ]);
+      await admin`update app.leads set email = 'third.customer@example.test' where id = ${leadId}`;
+      expect(await errorOf(await confirm(written))).toMatchObject({
+        status: 409,
+        details: { reason: 'recipient_changed' },
+      });
+    });
+
     it('names the fill-ins a lead lacks instead of preparing a card', async () => {
       const leadId = await insertLead({ stage: 'pending' });
       const parts = await ask([
@@ -1209,6 +1437,127 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
     });
   });
 
+  describe('a revision keeps the mention check (R2)', () => {
+    const revise = async (card: AiActionCard, draft: unknown = card.draft) =>
+      post('/ai/actions/revise', { token: card.token, draft, wide: true });
+
+    it('checks a revision against every lead the first card was, past the 30th', async () => {
+      const own = await insertLead({ stage: 'pending', name: 'Robin Ownlead' });
+      for (let n = 1; n <= 35; n += 1)
+        await insertLead({ stage: 'pending', name: `Zed Person ${String(n).padStart(2, '0')}` });
+      const body = 'Call back. Same issue as Zed Person 01 and Zed Person 02.';
+      const { card } = await oneCard([
+        { tool: 'findLeads', input: { search: 'Zed Person', page: 1 } },
+        { tool: 'findLeads', input: { search: 'Zed Person', page: 2 } },
+        { tool: 'findLeads', input: { search: 'Zed Person', page: 3 } },
+        { tool: 'findLeads', input: { search: 'Zed Person', page: 4 } },
+        { tool: 'prepareNote', input: { leadId: own, body } },
+      ]);
+      expect(card.acknowledgementRequired).toBe(true);
+      // The person opens Edit and presses Update draft without changing the text.
+      const revised = await revise(card);
+      expect(revised.status).toBe(200);
+      const next = aiActionCardSchema.parse(await revised.json());
+      expect(next.mentions).toEqual(card.mentions);
+      expect(next.acknowledgementRequired).toBe(true);
+      expect(await errorOf(await confirm(next))).toMatchObject({
+        status: 409,
+        details: { reason: 'acknowledgement_required' },
+      });
+    });
+
+    it('keeps an archived lead the first card named', async () => {
+      const own = await insertLead({ stage: 'pending', name: 'Pat Ownlead' });
+      await insertLead({ stage: 'pending', name: 'Una Archived', archived: true });
+      const { card } = await oneCard([
+        { tool: 'findLeads', input: { search: 'Una Archived', view: 'archived' } },
+        { tool: 'prepareNote', input: { leadId: own, body: 'Same as Una Archived.' } },
+      ]);
+      expect(card.mentions).toEqual(['Una Archived']);
+      const next = aiActionCardSchema.parse(await (await revise(card)).json());
+      expect(next.mentions).toEqual(['Una Archived']);
+      expect(next.acknowledgementRequired).toBe(true);
+    });
+
+    it('refuses the revision when the leads cannot be looked up, as prepare refuses the card', async () => {
+      const own = await insertLead({ stage: 'pending', name: 'Pat Lookup' });
+      const other = await insertLead({ stage: 'pending', name: 'Vera Lookup' });
+      const { card } = await oneCard([
+        { tool: 'getLeadSummary', input: { leadId: other } },
+        { tool: 'prepareNote', input: { leadId: own, body: 'Same as Vera Lookup.' } },
+      ]);
+      expect(card.acknowledgementRequired).toBe(true);
+      const leadHint = reads.leadHint.bind(reads);
+      const mentionLabels = reads.mentionLabels.bind(reads);
+      reads.leadHint = async (scope, leadId) => {
+        if (leadId === other) throw new Error('lookup down');
+        return leadHint(scope, leadId);
+      };
+      reads.mentionLabels = async () => {
+        throw new Error('lookup down');
+      };
+      try {
+        const refused = await revise(card, { ...card.draft, body: 'Same as Vera Lookup!' });
+        expect(refused.status).toBe(503);
+      } finally {
+        reads.leadHint = leadHint;
+        reads.mentionLabels = mentionLabels;
+      }
+    });
+  });
+
+  describe('a lead read in an earlier turn of the same conversation (T11)', () => {
+    it('warns on an email naming it, and saves only with the tick', async () => {
+      const target = await insertLead({ stage: 'pending', name: 'Pat Laterturn' });
+      const other = await insertLead({ stage: 'pending', name: 'Ines Earlyturn' });
+      const conversationId = randomUUID();
+      const turn = async (steps: { tool: string; input: unknown }[], first: boolean) => {
+        results.length = 0;
+        const response = await post('/ai/chat', {
+          requestId: randomUUID(),
+          message: JSON.stringify(steps),
+          history: [],
+          wide: true,
+          conversationId,
+          ...(first ? { newConversation: true } : {}),
+        });
+        expect(response.status).toBe(200);
+        return (await response.text())
+          .split('\n\n')
+          .map((frame) =>
+            frame
+              .split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trim())
+              .join('\n'),
+          )
+          .filter((payload) => payload.length > 0 && payload !== '[DONE]')
+          .map((payload) => aiWirePartSchema.parse(JSON.parse(payload)).data);
+      };
+      // Turn 1 reads the other lead; its answer keeps that lead's source card.
+      await turn([{ tool: 'getLeadSummary', input: { leadId: other } }], true);
+      // Turn 2 reads nothing, and drafts an email to another lead naming it.
+      const parts = await turn(
+        [
+          {
+            tool: 'prepareEmail',
+            input: { leadId: target, subject: 'Your order', body: 'Like Ines Earlyturn, you…' },
+          },
+        ],
+        false,
+      );
+      const [email] = cardsOf(parts);
+      if (!email) throw new Error(`expected a card, got ${JSON.stringify(results)}`);
+      expect(email.mentions).toEqual(['Ines Earlyturn']);
+      expect(email.acknowledgementRequired).toBe(true);
+      expect(await errorOf(await confirm(email))).toMatchObject({
+        status: 409,
+        details: { reason: 'acknowledgement_required' },
+      });
+      expect((await confirm(email, { acknowledged: true })).status).toBe(200);
+    });
+  });
+
   describe('with the wider reads (integration of READS, GUARDS and WRITES)', () => {
     const sourcesOf = (parts: AiStreamPart[]) =>
       parts.flatMap((part) => (part.type === 'sources' ? part.sources : []));
@@ -1312,6 +1661,28 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       });
     });
 
+    it('tells the model the open lead is archived, so restoring it works from its page (T13)', async () => {
+      const leadId = await insertLead({ stage: 'pending', archived: true, name: 'Ari Archived' });
+      systems.length = 0;
+      const parts = await ask(
+        [{ tool: 'prepareArchive', input: { leadId, archived: false } }],
+        OWNER,
+        SITE,
+        {
+          context: leadId,
+        },
+      );
+      expect(systems[0]).toContain(`ID ${leadId}`);
+      expect(systems[0]).toMatch(/archived/i);
+      const [restore] = cardsOf(parts);
+      expect(restore?.draft).toEqual({ kind: 'lead_archive', leadId, archived: false });
+      // A restricted lead is still no open record at all.
+      const restricted = await insertLead({ stage: 'pending', archived: true, restricted: true });
+      systems.length = 0;
+      await ask([], OWNER, SITE, { context: restricted });
+      expect(systems[0]).not.toContain(restricted);
+    });
+
     it('tells the model a timeline entry was made via Ask AI', async () => {
       const leadId = await insertLead({ stage: 'pending', order: orderOn(freePlan) });
       const { card } = await oneCard([
@@ -1369,6 +1740,56 @@ databaseTest('Ask AI: wider cards (WRITES)', () => {
       const leadId = cards[0]?.draft.kind === 'lead_edit' ? cards[0].draft.leadId : '';
       expect((await leadRow(leadId)).archived).toBe(false);
       expect(await audits(leadId, 'ai.lead_edited')).toEqual([]);
+    });
+
+    it('refuses only the card when the member can no longer make the change but keeps Ask AI (T8)', async () => {
+      const leadId = await insertLead({ stage: 'pending' });
+      const { card } = await oneCard(
+        [{ tool: 'prepareNote', input: { leadId, body: 'Lee’s note' } }],
+        LEADS,
+      );
+      const before = ACCESS[SITE]?.[LEADS];
+      const site = ACCESS[SITE];
+      if (!before || !site) throw new Error('access');
+      // Lee's role is changed to Orders: Ask AI stays, lead changes go.
+      site[LEADS] = { ...before, roles: ['orders'] };
+      try {
+        expect(await errorOf(await confirm(card, {}, LEADS))).toMatchObject({
+          status: 403,
+          code: 'permission_denied',
+          details: { reason: 'card_not_permitted' },
+        });
+        const revised = await post(
+          '/ai/actions/revise',
+          { token: card.token, draft: { ...card.draft, body: 'Edited' }, wide: true },
+          LEADS,
+        );
+        expect(await errorOf(revised)).toMatchObject({
+          status: 403,
+          details: { reason: 'card_not_permitted' },
+        });
+        // Losing Ask AI altogether is answered as before, with no reason.
+        site[LEADS] = { ...before, status: 'revoked' };
+        const lost = await errorOf(await confirm(card, {}, LEADS));
+        expect(lost).toMatchObject({ status: 403, code: 'permission_denied' });
+        expect(lost.details).toBeUndefined();
+      } finally {
+        site[LEADS] = before;
+      }
+      expect(await audits(leadId, 'lead.note_added')).toEqual([]);
+    });
+
+    it('counts a mail its cap refuses against no other cap, and says when the cap opens (T10)', async () => {
+      const [, mail] = await cardsForEveryKind();
+      if (!mail) throw new Error('expected a card');
+      const day = `:${OWNER}:${SITE}`;
+      limiter.counts.set(`ai_mail_day${day}`, AI_CARD_LIMITS.mailPerMemberPerDay);
+      limiter.counts.set(`ai_card_day${day}`, 7);
+      expect(await errorOf(await confirm(mail))).toMatchObject({
+        status: 429,
+        details: { reason: 'daily_mail', retryAfterSeconds: 3600 },
+      });
+      expect(limiter.counts.get(`ai_card_day${day}`)).toBe(7);
     });
 
     it('caps a member’s confirmed changes and mail per day, failing closed', async () => {

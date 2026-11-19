@@ -361,7 +361,8 @@ export interface LeadWorkStore {
     },
   ): Promise<
     | { status: 'queued'; recordId: string }
-    | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' }
+    | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' }
+    | { status: 'changed'; reason: AiMailChange }
   >;
   queueCustomerEmail(input: QueueCustomerEmailInput): Promise<CustomerEmailOutcome>;
   /** Renders a template for an AI card's preview (M1); writes nothing. */
@@ -382,7 +383,8 @@ export interface LeadWorkStore {
     },
   ): Promise<
     | { status: 'queued'; recordId: string }
-    | { status: 'not_found' | 'trashed' | 'no_sender' | 'changed' }
+    | { status: 'not_found' | 'trashed' | 'no_sender' }
+    | { status: 'changed'; reason: AiMailChange }
     | { status: 'missing'; missing: Array<EmailFillInName | 'customer email'> }
   >;
   /** Queues a message staff wrote themselves to the lead's own address. */
@@ -432,6 +434,14 @@ export interface LeadWorkStore {
     pageSize: number,
   ): Promise<{ tasks: WorkspaceTask[]; total: number }>;
 }
+
+/**
+ * Why an AI card's mail is no longer the one it showed (T7): the customer's
+ * address, the site's sender, the template (saved again, or no longer
+ * usable), or the text it renders to from the lead.
+ */
+export type AiMailChange =
+  'recipient_changed' | 'sender_changed' | 'template_changed' | 'text_changed';
 
 export interface LockedLead {
   [key: string]: unknown;
@@ -1808,7 +1818,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     },
   ): Promise<
     | { status: 'queued'; recordId: string }
-    | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' | 'changed' }
+    | { status: 'not_found' | 'trashed' | 'no_sender' | 'missing' }
+    | { status: 'changed'; reason: AiMailChange }
   > {
     return this.database.withTenantTx(input, async (tx) => {
       const lead = await lockLead(tx, input.workspaceId, input.leadId);
@@ -1834,11 +1845,10 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
         !customerEmailJobPayloadSchema.shape.toAddress.safeParse(lead.email.trim()).success
       )
         return { status: 'missing' };
-      if (
-        lead.email.trim() !== input.emailContext.toAddress ||
-        site.sender.fromAddress !== input.emailContext.fromAddress
-      )
-        return { status: 'changed' };
+      if (lead.email.trim() !== input.emailContext.toAddress)
+        return { status: 'changed', reason: 'recipient_changed' };
+      if (site.sender.fromAddress !== input.emailContext.fromAddress)
+        return { status: 'changed', reason: 'sender_changed' };
       const payload = customerEmailJobPayloadSchema.parse({
         leadId: input.leadId,
         // A per-message custom-template transport label; never read as a saved template.
@@ -1989,7 +1999,8 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
     },
   ): Promise<
     | { status: 'queued'; recordId: string }
-    | { status: 'not_found' | 'trashed' | 'no_sender' | 'changed' }
+    | { status: 'not_found' | 'trashed' | 'no_sender' }
+    | { status: 'changed'; reason: AiMailChange }
     | { status: 'missing'; missing: Array<EmailFillInName | 'customer email'> }
   > {
     return this.database.withTenantTx(input, async (tx) => {
@@ -2020,16 +2031,18 @@ export class DatabaseLeadWorkStore implements LeadWorkStore {
           return { status: 'missing' as const, missing: ['customer email' as const] };
         if (composed.reason === 'missing_fill_in')
           return { status: 'missing' as const, missing: composed.missing ?? [] };
-        return { status: 'changed' as const };
+        return { status: 'changed' as const, reason: 'template_changed' as const };
       }
       const { payload } = composed;
-      if (
-        payload.templateVersion !== input.version ||
-        renderedMailDigest(payload.rendered) !== input.renderedDigest ||
-        payload.toAddress !== input.emailContext.toAddress ||
-        payload.sender.fromAddress !== input.emailContext.fromAddress
-      )
-        return { status: 'changed' as const };
+      // T7: each cause its own reason, so the card says what changed.
+      if (payload.toAddress !== input.emailContext.toAddress)
+        return { status: 'changed' as const, reason: 'recipient_changed' as const };
+      if (payload.sender.fromAddress !== input.emailContext.fromAddress)
+        return { status: 'changed' as const, reason: 'sender_changed' as const };
+      if (payload.templateVersion !== input.version)
+        return { status: 'changed' as const, reason: 'template_changed' as const };
+      if (renderedMailDigest(payload.rendered) !== input.renderedDigest)
+        return { status: 'changed' as const, reason: 'text_changed' as const };
       const queued = await queueComposedEmail(tx, {
         workspaceId: input.workspaceId,
         actorId: input.actorId,

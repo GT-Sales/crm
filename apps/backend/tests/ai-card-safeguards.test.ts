@@ -1,19 +1,27 @@
 import { tool } from 'ai';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { AI_CARD_KINDS, aiActionCardSchema, type AiActionCard } from '@gt-sales/contracts';
+import {
+  AI_CARD_KINDS,
+  aiActionCardSchema,
+  type AiActionCard,
+  type FlowStep,
+} from '@gt-sales/contracts';
 
 import {
   AI_CARD_ACTIONS,
   cardKindsFor,
   cardLeadLabel,
   dailyCapRefusal,
+  emailMentionText,
   leadsInToolResult,
   legacyProposalOf,
+  mentionedLeads,
   mentionedOtherLeads,
   SeenLeads,
   sideEffectsDigest,
 } from '../src/ai/card-safeguards.js';
+import { flowRunSentence } from '../src/ai/card-store.js';
 import type { StaffAccessSnapshot } from '../src/staff/authorization.js';
 import { assertAssistantToolPolicy } from '../src/ai/tool-policy.js';
 
@@ -159,6 +167,98 @@ describe('mentions of other customers (B1)', () => {
     ).toEqual(['Zara Quill']);
   });
 
+  describe('spelling variants of a name or reference (R3)', () => {
+    const others = [{ leadId: OTHER, name: 'Robin Example', reference: 'MS-9001' }];
+    const own = { leadId: LEAD, name: 'Sam Customer' };
+    const flagged = (body: string) => mentionedOtherLeads(body, others, own);
+
+    it('finds a reference written with a space, run together, or with other dashes', () => {
+      for (const body of [
+        'Order MS 9001 is late.',
+        'Order MS9001 is late.',
+        'Order MS‑9001 is late.', // non-breaking hyphen
+        'Order MS–9001 is late.', // en dash
+        'Order MS— 9001 is late.', // em dash and a space
+        'Order MS 9001 is late.', // non-breaking space
+        'Order ＭＳ－９００１ is late.', // full-width
+        'Order ms.9001 is late.',
+      ])
+        expect(flagged(body), body).toEqual(['MS-9001']);
+    });
+
+    it('finds the name reordered, hyphenated, accented or in look-alike letters', () => {
+      for (const body of [
+        'Same as Robin-Example.',
+        'Same as Example, Robin.',
+        'Same as EXAMPLE Robin.',
+        'Same as Rоbin Exаmple.', // Cyrillic о and а
+        'Same as Röbin Exámple.',
+        'Same as Robin Example.',
+        "Same as Robin Example's order.",
+      ])
+        expect(flagged(body), body).toEqual(['Robin Example']);
+    });
+
+    it('does not flag one common word, a part of a word, or the two names far apart', () => {
+      for (const body of [
+        'Robin will call you back.',
+        'The example is attached.',
+        'Robinson Examples are not the same.',
+        'Robin called. Here is a long note about nothing at all, as an example.',
+        'Order MS-90010 is late.',
+        'Items 9001 shipped.',
+      ])
+        expect(flagged(body), body).toEqual([]);
+    });
+
+    it('needs both a given name and a surname of three characters or more to match them apart', () => {
+      const short = [{ leadId: OTHER, name: 'Al Wu', reference: null }];
+      expect(mentionedOtherLeads('Wu, Al called.', short, own)).toEqual([]);
+      // The whole name, in order, still matches.
+      expect(mentionedOtherLeads('Al Wu called.', short, own)).toEqual(['Al Wu']);
+    });
+  });
+
+  describe('hidden characters where the subject meets the body (T5)', () => {
+    const others = [{ leadId: OTHER, name: 'Priya Sharma', reference: null }];
+    for (const [label, hidden] of [
+      ['zero-width space', '​'],
+      ['zero-width joiner', '‍'],
+      ['soft hyphen', '­'],
+    ] as const) {
+      it(`flags a name at the very start of the body with a ${label} inside it`, () => {
+        expect(
+          mentionedOtherLeads(
+            emailMentionText('Your order', `Pri${hidden}ya Sharma ordered too`),
+            others,
+            {
+              leadId: LEAD,
+              name: 'Pat',
+            },
+          ),
+        ).toEqual(['Priya Sharma']);
+        // A line break inside the body is a separator too.
+        expect(
+          mentionedOtherLeads(`Hello\nPri${hidden}ya Sharma ordered too`, others, {
+            leadId: LEAD,
+            name: 'Pat',
+          }),
+        ).toEqual(['Priya Sharma']);
+      });
+    }
+  });
+
+  it('says which leads it found, so a revision is checked against them first', () => {
+    const others = [
+      { leadId: OTHER, name: 'Zara Quill', reference: null },
+      { leadId: LEAD, name: 'Pat Target', reference: null },
+    ];
+    expect(mentionedLeads('About Pat Target.', others, { leadId: undefined, name: null })).toEqual({
+      names: ['Pat Target'],
+      leadIds: [LEAD],
+    });
+  });
+
   it('keeps every name a lead was seen under, its real one and the one a read cut short', () => {
     const seen = new SeenLeads();
     seen.record(
@@ -175,6 +275,65 @@ describe('mentions of other customers (B1)', () => {
       }),
     ).toEqual(['MS-9', 'Zara Quillfeather-Smythe']);
     expect(seen.ids()).toEqual([OTHER, LEAD]);
+  });
+});
+
+describe('what a flow does, in words (C3, T3)', () => {
+  const templates = new Map([
+    ['dispatched', 'Dispatched'],
+    ['activated', 'Activated'],
+  ]);
+  const flowSteps = (steps: FlowStep[]): FlowStep[] => steps;
+  const branch: FlowStep = {
+    id: 's_if',
+    kind: 'if_else',
+    // The condition's answer is not the card's to know; its shape does not matter here.
+    condition: { match: 'all', items: [] },
+    then: [
+      {
+        id: 's_task',
+        kind: 'create_task',
+        title: 'Call',
+        dueInDays: 1,
+        assignee: { kind: 'none' },
+      },
+    ],
+    else: [{ id: 's_mail', kind: 'send_email', template: 'activated' }],
+  };
+
+  it('keeps definite words for steps that always run', () => {
+    expect(
+      flowRunSentence({
+        name: 'Dispatched',
+        conditional: false,
+        steps: flowSteps([{ id: 's1', kind: 'send_email', template: 'dispatched' }]),
+        templates,
+        leadType: 'sim_order',
+      }),
+    ).toBe('“Dispatched” runs: sends the “Dispatched” email to the customer.');
+  });
+
+  it('says a branch’s steps may happen, depending on its conditions, never that both will', () => {
+    const sentence = flowRunSentence({
+      name: 'Verified follow-up',
+      conditional: false,
+      steps: flowSteps([branch]),
+      templates,
+      leadType: 'sim_order',
+    });
+    expect(sentence).toBe(
+      '“Verified follow-up” runs and may, depending on its conditions: create a task, send the “Activated” email to the customer.',
+    );
+    const mixed = flowRunSentence({
+      name: 'Mixed',
+      conditional: true,
+      steps: flowSteps([{ id: 's1', kind: 'send_email', template: 'dispatched' }, branch]),
+      templates,
+      leadType: 'sim_order',
+    });
+    expect(mixed).toBe(
+      '“Mixed” (when its conditions match) runs: sends the “Dispatched” email to the customer; and may, depending on its conditions: create a task, send the “Activated” email to the customer.',
+    );
   });
 });
 
@@ -231,19 +390,22 @@ describe('daily caps (C7)', () => {
     };
     expect(await dailyCapRefusal(allow, scope, 'note')).toBeUndefined();
     expect(await dailyCapRefusal(allow, scope, 'template_email')).toBeUndefined();
+    // Mail asks its own cap first: a mail its cap refuses is not counted as a change (T10).
     expect(keys).toEqual([
       `ai_card_day:${scope.actorId}:${scope.workspaceId}`,
-      `ai_card_day:${scope.actorId}:${scope.workspaceId}`,
       `ai_mail_day:${scope.actorId}:${scope.workspaceId}`,
+      `ai_card_day:${scope.actorId}:${scope.workspaceId}`,
     ]);
-    const refuseMail = async (input: { bucketKey: string }) => ({
-      allowed: !input.bucketKey.startsWith('ai_mail_day'),
-      retryAfterSeconds: 60,
-    });
+    keys.length = 0;
+    const refuseMail = async (input: { bucketKey: string }) => {
+      keys.push(input.bucketKey);
+      return { allowed: !input.bucketKey.startsWith('ai_mail_day'), retryAfterSeconds: 60 };
+    };
     expect(await dailyCapRefusal(refuseMail, scope, 'email')).toEqual({
       reason: 'daily_mail',
       retryAfterSeconds: 60,
     });
+    expect(keys).toEqual([`ai_mail_day:${scope.actorId}:${scope.workspaceId}`]);
     expect(await dailyCapRefusal(refuseMail, scope, 'lead_edit')).toBeUndefined();
     await expect(
       dailyCapRefusal(

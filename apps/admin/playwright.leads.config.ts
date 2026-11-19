@@ -36,6 +36,8 @@ export default defineConfig({
     'ai-assistant.spec.ts',
     'ai-chat.spec.ts',
     'automation-builder.spec.ts',
+    // Last on purpose (zz-): its leads must not change the counts the others assert.
+    'zz-ai-wide-cards.spec.ts',
   ],
   workers: 1,
   use: { ...basePlaywrightConfig.use, baseURL: `http://127.0.0.1:${ADMIN_PORT}` },

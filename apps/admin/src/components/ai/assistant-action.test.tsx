@@ -136,6 +136,23 @@ describe('a task move card', () => {
     card(move(null), 'saved');
     expect(screen.getByRole('status').textContent).toBe('Task moved.');
   });
+
+  it('says a task was updated when more than its stage changed (T9)', () => {
+    const edited = (draft: AiActionCard['draft']): AiActionCard => ({ ...move(null), draft });
+    wide(
+      edited({
+        kind: 'task_update',
+        taskId: TASK,
+        status: 'done',
+        title: 'Call the supplier back',
+      }),
+      'saved',
+    );
+    expect(screen.getByRole('status').textContent).toBe('Task updated.');
+    cleanup();
+    wide(edited({ kind: 'task_update', taskId: TASK, dueDate: '2026-12-01' }), 'saved');
+    expect(screen.getByRole('status').textContent).toBe('Task updated.');
+  });
 });
 
 const wideCard = (extra: Partial<AiActionCard> & Pick<AiActionCard, 'draft'>): AiActionCard => ({
@@ -215,6 +232,166 @@ describe('a stage move with dispatch details', () => {
       leadId: LEAD,
       changes: { stage: 'delivered', order: { courier: 'Purolator', trackingNumber: 'TRK-9' } },
     });
+  });
+});
+
+describe('what a stage move card shows (T2)', () => {
+  it('shows only the server’s rows, a required detail still to type as needed, never “Cleared”', () => {
+    wide(
+      wideCard({
+        draft: { kind: 'lead_edit', leadId: LEAD, changes: { stage: 'delivered' } },
+        leadEditContext: {
+          rows: [
+            { key: 'stage', label: 'Stage', before: 'Verified', after: 'Delivered' },
+            { key: 'order.courier', label: 'Courier', before: null, after: null },
+          ],
+          inputs: [
+            { field: 'courier', label: 'Courier', kind: 'text', required: true, current: null },
+            {
+              field: 'trackingNumber',
+              label: 'Tracking number',
+              kind: 'text',
+              required: false,
+              current: null,
+            },
+            {
+              field: 'dispatchedAt',
+              label: 'Dispatch date',
+              kind: 'date',
+              required: false,
+              current: null,
+            },
+          ],
+          needs: 'dispatch_details',
+        },
+      }),
+    );
+    const region = screen.getByRole('region', { name: 'Confirm lead change' });
+    expect(within(region).queryByText('Cleared')).toBeNull();
+    expect(within(region).queryByText('Tracking number')).toBeNull();
+    expect(within(region).queryByText('Dispatch date')).toBeNull();
+    expect(within(region).getByText('Courier (required)')).toBeTruthy();
+    expect(within(region).getByText('To enter with Edit')).toBeTruthy();
+  });
+
+  it('shows the default date as the day it is', () => {
+    wide(
+      wideCard({
+        draft: {
+          kind: 'lead_edit',
+          leadId: LEAD,
+          changes: { stage: 'delivered', order: { courier: 'UPS', dispatchedAt: '2026-11-20' } },
+        },
+        leadEditContext: {
+          rows: [
+            { key: 'stage', label: 'Stage', before: 'Verified', after: 'Delivered' },
+            { key: 'order.courier', label: 'Courier', before: null, after: 'UPS' },
+            {
+              key: 'order.dispatchedAt',
+              label: 'Dispatch date',
+              before: null,
+              after: '20 Nov 2026 (today)',
+            },
+          ],
+          inputs: [
+            { field: 'courier', label: 'Courier', kind: 'text', required: true, current: null },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText('20 Nov 2026 (today)')).toBeTruthy();
+    expect(screen.queryByText('Cleared')).toBeNull();
+  });
+});
+
+describe('Edit only where there is something to edit (T6)', () => {
+  it('offers no Edit on a quantity or plan card, which has nothing to type', () => {
+    wide(
+      wideCard({
+        draft: { kind: 'lead_edit', leadId: LEAD, changes: { order: { quantity: 2 } } },
+        leadEditContext: {
+          rows: [{ key: 'order.quantity', label: 'Quantity', before: '1', after: '2' }],
+          inputs: [],
+        },
+      }),
+    );
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeTruthy();
+  });
+
+  it('offers Edit on a move that carries details to type', () => {
+    wide(deliveryCard({ courier: 'Canada Post' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByLabelText('Courier')).toBeTruthy();
+  });
+});
+
+describe('keyboard focus through a card’s steps (T4)', () => {
+  const note = (status: AiActionView['status'], error?: string): AiActionView => ({
+    proposal: wideCard({ draft: { kind: 'note', leadId: LEAD, body: 'Called.' } }),
+    status,
+    ...(error ? { error } : {}),
+  });
+
+  function rendered(action: AiActionView) {
+    const onRevise = vi.fn();
+    const props = { onConfirm: vi.fn(), onCancel: vi.fn(), onRevise };
+    const view = render(<AssistantAction action={action} {...props} />);
+    return {
+      onRevise,
+      update: (next: AiActionView) => view.rerender(<AssistantAction action={next} {...props} />),
+    };
+  }
+
+  it('moves into the form on Edit, to the status while it updates, then to Confirm', () => {
+    const { update } = rendered(note('pending'));
+    const edit = screen.getByRole('button', { name: 'Edit' });
+    edit.focus();
+    fireEvent.click(edit);
+    expect(document.activeElement).toBe(screen.getByLabelText('Note text'));
+    fireEvent.click(screen.getByRole('button', { name: 'Update draft' }));
+    update(note('revising'));
+    expect(document.activeElement).toBe(screen.getByRole('status'));
+    update(note('pending'));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Confirm' }));
+  });
+
+  it('keeps focus on the status message, which is announced, through saving and saved', () => {
+    const { update } = rendered(note('pending'));
+    const confirmButton = screen.getByRole('button', { name: 'Confirm' });
+    confirmButton.focus();
+    fireEvent.click(confirmButton);
+    update(note('saving'));
+    const status = screen.getByRole('status');
+    expect(document.activeElement).toBe(status);
+    expect(status.getAttribute('aria-live') ?? 'polite').toBe('polite');
+    update(note('saved'));
+    expect(document.activeElement).toBe(screen.getByRole('status'));
+    expect(screen.getByRole('status').textContent).toBe('Note added.');
+  });
+
+  it('puts focus on the refusal’s words, and offers no Retry after a final refusal', () => {
+    const { update } = rendered(note('pending'));
+    screen.getByRole('button', { name: 'Confirm' }).focus();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    update(note('saving'));
+    update(note('refused', 'Not saved. You have reached today’s limit.'));
+    expect(document.activeElement).toBe(screen.getByRole('status'));
+    expect(screen.getByRole('status').textContent).toBe(
+      'Not saved. You have reached today’s limit.',
+    );
+    expect(screen.queryByRole('button', { name: 'Retry save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull();
+  });
+
+  it('takes no focus from elsewhere when the card changes on its own', () => {
+    const { update } = rendered(note('pending'));
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    update(note('error', 'Could not confirm the save.'));
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
   });
 });
 

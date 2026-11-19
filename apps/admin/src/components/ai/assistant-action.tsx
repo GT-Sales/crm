@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   aiCardDraftSchema,
   leadTaskStatusSchema,
@@ -50,12 +50,25 @@ const SAVED_TEXT: Record<Kind, string> = {
   task: 'Task created.',
   email: 'Email queued for delivery.',
   lead_update: 'Lead updated.',
-  task_update: 'Task moved.',
+  task_update: 'Task updated.',
   lead_edit: 'Lead updated.',
   template_email: 'Email queued for delivery.',
   lead_archive: 'Done.',
   automation_off: 'Automation switched off.',
 };
+
+/** What the card says once saved: a task whose stage alone changed was moved (T9). */
+function savedText(draft: AiCardDraft): string {
+  if (draft.kind === 'lead_archive') return draft.archived ? 'Lead archived.' : 'Lead restored.';
+  if (
+    draft.kind === 'task_update' &&
+    draft.title === undefined &&
+    draft.dueDate === undefined &&
+    draft.assignee === undefined
+  )
+    return 'Task moved.';
+  return SAVED_TEXT[draft.kind];
+}
 
 const dayLabel = (day: string | null | undefined): string =>
   day
@@ -93,10 +106,13 @@ function Change({
   label,
   before,
   after,
+  emptyAfter = 'Cleared',
 }: {
   label: string;
   before: string | null;
   after: string | null;
+  /** What an empty proposed value reads as: cleared, or a detail still to be typed. */
+  emptyAfter?: string;
 }) {
   return (
     <div className="min-w-0">
@@ -106,7 +122,7 @@ function Change({
         {before ?? 'Not set'}
         <span aria-hidden="true"> → </span>
         <span className="sr-only">. Proposed: </span>
-        <span className="text-foreground">{after ?? 'Cleared'}</span>
+        <span className="text-foreground">{after ?? emptyAfter}</span>
       </dd>
     </div>
   );
@@ -184,9 +200,42 @@ export function AssistantAction({
   ];
   const assigneeLabel = (value: string | undefined) =>
     choices.find((choice) => choice.value === value)?.label ?? 'A member';
-  // Cards the person cannot edit: the server's own mail, an archive and a switch.
+  // Cards the person cannot edit: the server's own mail, an archive and a
+  // switch, and a lead change with no detail to type (T6: never an empty form).
   const editable =
-    kind !== 'template_email' && kind !== 'lead_archive' && kind !== 'automation_off';
+    kind !== 'template_email' &&
+    kind !== 'lead_archive' &&
+    kind !== 'automation_off' &&
+    (kind !== 'lead_edit' || (editContext?.inputs.length ?? 0) > 0);
+  // T4: where focus goes after each step, so a keyboard user never lands on the page.
+  const regionRef = useRef<HTMLElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const editRef = useRef<HTMLButtonElement>(null);
+  const previous = useRef({ status, editing });
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = { status, editing };
+    if (before.status === status && before.editing === editing) return;
+    // Only when the person was working in this card (or its control vanished
+    // under them): a card that changes on its own takes no focus from elsewhere.
+    const active = document.activeElement;
+    const region = regionRef.current;
+    if (active !== null && active !== document.body && !region?.contains(active)) return;
+    if (editing) {
+      formRef.current?.querySelector<HTMLElement>('input, textarea, select')?.focus();
+      return;
+    }
+    if (status === 'pending') {
+      const next = [confirmRef.current, editRef.current].find(
+        (button) => button !== null && !button.disabled,
+      );
+      (next ?? statusRef.current)?.focus();
+      return;
+    }
+    statusRef.current?.focus();
+  }, [status, editing]);
   // A stage move's order details still to be typed on the card.
   const missingInputs =
     draft.kind === 'lead_edit'
@@ -241,6 +290,7 @@ export function AssistantAction({
 
   return (
     <section
+      ref={regionRef}
       aria-label={REGION_NAMES[kind]}
       className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-3 text-sm"
     >
@@ -265,6 +315,7 @@ export function AssistantAction({
       ) : null}
       {editing ? (
         <form
+          ref={formRef}
           className="space-y-3"
           onSubmit={(event) => {
             event.preventDefault();
@@ -517,25 +568,28 @@ export function AssistantAction({
           Edit, then Update draft, before you confirm.
         </p>
       ) : null}
-      <p role="status" className="text-xs text-muted-foreground">
+      <p
+        ref={statusRef}
+        role="status"
+        tabIndex={-1}
+        className="text-xs text-muted-foreground outline-none"
+      >
         {status === 'saved'
-          ? kind === 'lead_archive' && draft.kind === 'lead_archive'
-            ? draft.archived
-              ? 'Lead archived.'
-              : 'Lead restored.'
-            : SAVED_TEXT[kind]
-          : status === 'cancelled'
-            ? (action.error ?? 'Cancelled. Nothing was saved.')
-            : status === 'revising'
-              ? 'Updating draft…'
-              : status === 'saving'
-                ? 'Saving…'
-                : status === 'error'
-                  ? action.error
-                  : expired
-                    ? 'This draft expired. Nothing was saved. Check the lead, then ask for a fresh draft.'
-                    : (action.error ??
-                      `Nothing is saved until you confirm. Expires ${dateTimeLabel(proposal.expiresAt)}.`)}
+          ? savedText(draft)
+          : status === 'refused'
+            ? action.error
+            : status === 'cancelled'
+              ? (action.error ?? 'Cancelled. Nothing was saved.')
+              : status === 'revising'
+                ? 'Updating draft…'
+                : status === 'saving'
+                  ? 'Saving…'
+                  : status === 'error'
+                    ? action.error
+                    : expired
+                      ? 'This draft expired. Nothing was saved. Check the lead, then ask for a fresh draft.'
+                      : (action.error ??
+                        `Nothing is saved until you confirm. Expires ${dateTimeLabel(proposal.expiresAt)}.`)}
       </p>
       {!editing &&
       (status === 'pending' ||
@@ -544,6 +598,7 @@ export function AssistantAction({
         status === 'revising') ? (
         <div className="flex flex-wrap gap-2">
           <Button
+            ref={confirmRef}
             type="button"
             size="sm"
             disabled={status === 'saving' || status === 'revising' || streaming || blocked}
@@ -553,6 +608,7 @@ export function AssistantAction({
           </Button>
           {status === 'pending' && editable && !expired ? (
             <Button
+              ref={editRef}
               type="button"
               size="sm"
               variant="outline"
@@ -698,29 +754,29 @@ function CardBody({
       );
     }
     case 'lead_edit': {
+      // T2: exactly the rows the server computed and signed: each one changes,
+      // or is a detail the move requires (a courier still to be typed).
       const context = proposal.leadEditContext;
-      const shownKeys = new Set(context?.rows.map((row) => row.key));
+      const required = new Set(
+        (context?.inputs ?? [])
+          .filter((input) => input.required)
+          .map((input) => `order.${input.field}`),
+      );
       return (
         <dl className="space-y-2 rounded-lg bg-muted/60 p-2.5 text-xs">
-          {context?.rows.map((row) => (
-            <Change key={row.key} label={row.label} before={row.before} after={row.after} />
-          ))}
-          {/* The details a move carries, as the card would save them. */}
-          {context?.inputs
-            .filter((input) => !shownKeys.has(`order.${input.field}`))
-            .map((input) => {
-              const value = draft.changes.order?.[input.field];
-              return (
-                <Change
-                  key={input.field}
-                  label={input.required ? `${input.label} (required)` : input.label}
-                  before={input.current}
-                  after={
-                    value === undefined ? input.current : value === null ? null : String(value)
-                  }
-                />
-              );
-            })}
+          {context?.rows.map((row) =>
+            required.has(row.key) ? (
+              <Change
+                key={row.key}
+                label={`${row.label} (required)`}
+                before={row.before}
+                after={row.after}
+                emptyAfter="To enter with Edit"
+              />
+            ) : (
+              <Change key={row.key} label={row.label} before={row.before} after={row.after} />
+            ),
+          )}
         </dl>
       );
     }

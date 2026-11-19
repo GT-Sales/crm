@@ -480,6 +480,79 @@ describe('Ask AI panel', () => {
     expect(screen.queryByRole('button', { name: 'Ask AI' })).toBeNull();
   });
 
+  it('refuses only the card when the member may no longer make the change, keeping the chat (T8)', async () => {
+    propose();
+    mocks.confirmAiAction.mockRejectedValue(
+      new BackendError('permission_denied', 403, proposal.id, { reason: 'card_not_permitted' }),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    const panel = screen.getByRole('dialog', { name: 'Ask AI' });
+    expect(
+      await within(panel).findByText(
+        'Not saved. You no longer have permission to make this change. Ask the owner if you need it; you can still ask Ask AI questions.',
+      ),
+    ).toBeTruthy();
+    // The conversation and Ask AI stay; the card offers no save that cannot succeed.
+    expect(within(panel).getByText('Draft ready.')).toBeTruthy();
+    expect(within(panel).queryByRole('button', { name: 'Retry save' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Ask a question' })).toBeTruthy();
+  });
+
+  it('says when a daily cap opens again, and offers no Retry save that cannot succeed (T10)', async () => {
+    propose();
+    mocks.confirmAiAction.mockRejectedValue(
+      new BackendError('ai_rate_limited', 429, proposal.id, {
+        reason: 'daily_changes',
+        retryAfterSeconds: 3_600,
+      }),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('Add a note');
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    const panel = screen.getByRole('dialog', { name: 'Ask AI' });
+    const status = await within(panel).findByText(/limit of 200 changes/);
+    expect(status.textContent).toMatch(/You can make changes with Ask AI again from /);
+    expect(within(panel).queryByRole('button', { name: 'Retry save' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Confirm' })).toBeNull();
+  });
+
+  it('puts focus back in the composer when the answer to a sent question ends (T4)', async () => {
+    let finish: () => void = () => {};
+    const ended = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    mocks.askAiAssistant.mockImplementation(() =>
+      (async function* generate() {
+        yield { type: 'text', text: 'Thinking it over.' } satisfies AiStreamPart;
+        await ended;
+        yield { type: 'done' } satisfies AiStreamPart;
+      })(),
+    );
+    render(<Harness />);
+    await openPanel();
+    ask('What is due?');
+    await screen.findByText('Thinking it over.');
+    // The composer is disabled while the answer streams; a browser drops its
+    // focus to the page then (jsdom keeps it, so the drop is made here).
+    const dropped = document.createElement('div');
+    dropped.tabIndex = -1;
+    document.body.append(dropped);
+    dropped.focus();
+    dropped.remove();
+    expect(document.activeElement).toBe(document.body);
+    await act(async () => {
+      finish();
+      await ended;
+    });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Ask a question' })),
+    );
+  });
+
   it('shows a card from the full action_cards part, skips its older copy, and sends the tick', async () => {
     const full = {
       ...proposal,
@@ -976,6 +1049,17 @@ describe('the wider cards’ refusals in words', () => {
     expect(text('ai_rate_limited', { reason: 'daily_changes' })).toMatch(/limit of 200 changes/);
     expect(text('ai_rate_limited', { reason: 'daily_mail' })).toMatch(/limit of 50 emails/);
     expect(text('conflict', { missing: ['SIM number'] })).toMatch(/SIM number/);
+    // T7: each reason a mail is refused as stale has its own sentence.
+    expect(text('conflict', { reason: 'recipient_changed' })).toMatch(
+      /customer’s email address changed/,
+    );
+    expect(text('conflict', { reason: 'sender_changed' })).toMatch(/site’s sender address changed/);
+    expect(text('conflict', { reason: 'template_changed' })).toMatch(/template was changed/);
+    expect(text('conflict', { reason: 'text_changed' })).toMatch(
+      /text the template fills in from the lead changed/,
+    );
+    for (const reason of ['template_changed', 'text_changed'])
+      expect(text('conflict', { reason })).not.toMatch(/recipient or sender/);
     expect(text('conflict', { reason: 'superseded' })).toBeUndefined();
   });
 });

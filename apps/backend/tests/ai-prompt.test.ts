@@ -19,6 +19,31 @@ describe('the open-lead hint', () => {
     expect(system).toContain('labelled data block');
   });
 
+  it('names an archived open lead as archived, with its restore card only where offered (T13)', () => {
+    const prompt = (cardKinds: readonly string[]) =>
+      buildSystemPrompt({
+        siteName: 'Get Canada Sim',
+        leadTypes: ['sim_order'],
+        today: '2026-11-05',
+        timeZone: 'America/Toronto',
+        actionsAvailable: true,
+        cardKinds,
+        openLead: {
+          leadId: LEAD,
+          leadTypeLabel: 'SIM order',
+          stageLabel: 'Pending',
+          archived: true,
+        },
+      });
+    const offered = prompt(['note', 'lead_archive']);
+    expect(offered).toContain(
+      `archived lead open in the CRM: ID ${LEAD} · SIM order · Pending · archived`,
+    );
+    expect(offered).toContain('prepareArchive (archived false)');
+    expect(offered).not.toContain('read it with getLeadSummary');
+    expect(prompt(['note'])).toContain('Restoring it is done on its page.');
+  });
+
   it('neutralises line breaks, bidi and zero-width characters in a stage label', () => {
     const system = buildSystemPrompt({
       siteName: 'Site',

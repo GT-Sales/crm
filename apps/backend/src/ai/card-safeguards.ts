@@ -89,7 +89,7 @@ export interface SeenLead {
 }
 
 /** The most leads one turn remembers for B1; a page of reads stays far below it. */
-const MAX_SEEN_LEADS = 200;
+export const MAX_SEEN_LEADS = 200;
 
 /**
  * The leads a tool result names: every object in it with a `leadId` and a
@@ -198,49 +198,155 @@ export class SeenLeads {
  */
 const HIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
-const normalize = (value: string, hidden: ' ' | '' = ' '): string =>
-  value
+/**
+ * The characters that end a word in both readings: line breaks, tabs and the
+ * other spacing controls, and the line and paragraph separators. Removing one
+ * would glue two words together (T5: the subject's last word and the body's
+ * first), so they are always read as a space.
+ */
+const SEPARATING_CHARACTERS = /[\t\n\v\f\r\u0085\p{Zl}\p{Zp}]/gu;
+
+/**
+ * Letters of other scripts that read as Latin ones (lower case, after the
+ * case fold): the common Cyrillic and Greek look-alikes and a few Latin
+ * variants NFKC keeps. A body written with one still names the lead.
+ */
+const LOOK_ALIKES: Readonly<Record<string, string>> = {
+  а: 'a',
+  в: 'b',
+  е: 'e',
+  һ: 'h',
+  н: 'h',
+  і: 'i',
+  ј: 'j',
+  к: 'k',
+  ӏ: 'l',
+  м: 'm',
+  о: 'o',
+  р: 'p',
+  ԁ: 'd',
+  с: 'c',
+  ѕ: 's',
+  т: 't',
+  у: 'y',
+  х: 'x',
+  α: 'a',
+  β: 'b',
+  ε: 'e',
+  η: 'h',
+  ι: 'i',
+  κ: 'k',
+  μ: 'm',
+  ν: 'v',
+  ο: 'o',
+  ρ: 'p',
+  τ: 't',
+  υ: 'u',
+  χ: 'x',
+  ζ: 'z',
+  ı: 'i',
+  ɑ: 'a',
+  ɡ: 'g',
+};
+
+/**
+ * The words of `value` as the check compares them: Unicode compatibility
+ * forms folded (NFKC: full-width letters, a non-breaking space), hidden
+ * characters read as `hidden`, lower case, accents and look-alike letters
+ * folded, then split on everything that is not a letter or a digit, so every
+ * dash, space and punctuation mark separates words alike.
+ */
+function wordsOf(value: string, hidden: ' ' | ''): string[] {
+  const folded = value
     .normalize('NFKC')
+    .replace(SEPARATING_CHARACTERS, ' ')
     .replace(HIDDEN_CHARACTERS, hidden)
     .toLocaleLowerCase('en-CA')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\p{L}/gu, (letter) => LOOK_ALIKES[letter] ?? letter);
+  return folded.match(/[\p{L}\p{N}]+/gu) ?? [];
+}
 
-/** Whether `needle` stands in `haystack` as whole words (both normalized). */
-function containsWords(haystack: string, needle: string): boolean {
-  let from = 0;
-  for (;;) {
-    const at = haystack.indexOf(needle, from);
-    if (at < 0) return false;
-    const before = at === 0 ? '' : haystack.charAt(at - 1);
-    const after = haystack.charAt(at + needle.length);
-    const boundary = (character: string) => character === '' || !/[\p{L}\p{N}]/u.test(character);
-    if (boundary(before) && boundary(after)) return true;
-    from = at + 1;
+/** A reference read with only its letters and digits: "MS-9001", "MS 9001" and "ms9001" alike. */
+function referenceMentioned(words: readonly string[], reference: string): boolean {
+  if (reference.length < 3) return false;
+  for (let start = 0; start < words.length; start += 1) {
+    let joined = '';
+    for (let at = start; at < words.length && joined.length < reference.length; at += 1) {
+      joined += words[at];
+      if (!reference.startsWith(joined)) break;
+      if (joined === reference) return true;
+    }
   }
+  return false;
+}
+
+/** How many words apart a given name and a surname may stand ("Example, Robin", "Robin J. Example"). */
+const NAME_PROXIMITY = 2;
+
+/**
+ * A name as whole words: all of it in order, or its given name and surname
+ * (the first and last word, three characters or more each) within
+ * `NAME_PROXIMITY` words of each other in either order. One common word alone
+ * never matches a longer name.
+ */
+function nameMentioned(words: readonly string[], name: readonly string[]): boolean {
+  if (name.length === 0 || name.join(' ').length < 3) return false;
+  for (let start = 0; start + name.length <= words.length; start += 1)
+    if (name.every((word, offset) => words[start + offset] === word)) return true;
+  const given = name[0];
+  const surname = name.at(-1);
+  if (name.length < 2 || !given || !surname || given.length < 3 || surname.length < 3) return false;
+  for (let at = 0; at < words.length; at += 1) {
+    if (words[at] !== given) continue;
+    for (let near = Math.max(0, at - NAME_PROXIMITY); near <= at + NAME_PROXIMITY; near += 1)
+      if (near !== at && words[near] === surname) return true;
+  }
+  return false;
+}
+
+/** An email's subject and body as the check reads them: a line break that survives either reading between them (T5). */
+export function emailMentionText(subject: string, body: string): string {
+  return `${subject}\n\n${body}`;
 }
 
 /**
- * B1: the names and references of other leads that `body` mentions. A lead
- * of the card's own (`ownLeadId`), or one with the card lead's own name (the
- * same person's other request), is not "another customer". Names under three
- * characters are too common to tell apart and are left out.
+ * B1: the names and references of other leads that `body` mentions, and the
+ * ids of those leads. A lead of the card's own (`ownLeadId`), or one with the
+ * card lead's own name (the same person's other request), is not "another
+ * customer". A name or reference under three characters is too common to tell
+ * apart and is left out.
  */
-export function mentionedOtherLeads(
+export function mentionedLeads(
   body: string,
   others: readonly SeenLead[],
   own: { leadId: string | undefined; name: string | null },
-): string[] {
-  const texts = [normalize(body), normalize(body, '')];
-  const ownName = own.name ? normalize(own.name) : undefined;
+): { names: string[]; leadIds: string[] } {
+  const texts = [wordsOf(body, ' '), wordsOf(body, '')];
+  const ownName = own.name ? wordsOf(own.name, ' ').join(' ') : undefined;
   const names = new Set<string>();
+  const leadIds = new Set<string>();
   for (const lead of others) {
     if (lead.leadId === own.leadId) continue;
-    for (const value of [lead.reference, lead.name]) {
-      if (value === null) continue;
-      const needle = normalize(value);
-      if (needle.length < 3 || needle === ownName) continue;
-      if (texts.some((text) => containsWords(text, needle)))
+    const found: string[] = [];
+    if (lead.reference !== null) {
+      const reference = lead.reference;
+      const needles = new Set([wordsOf(reference, ' ').join(''), wordsOf(reference, '').join('')]);
+      if ([...needles].some((needle) => texts.some((words) => referenceMentioned(words, needle))))
+        found.push(reference);
+    }
+    if (lead.name !== null) {
+      const variants = [wordsOf(lead.name, ' '), wordsOf(lead.name, '')].filter(
+        (words) => words.join(' ') !== ownName,
+      );
+      if (variants.some((name) => texts.some((words) => nameMentioned(words, name))))
+        found.push(lead.name);
+    }
+    if (found.length === 0) continue;
+    leadIds.add(lead.leadId);
+    for (const value of found)
+      if (names.size < AI_CARD_LIMITS.maxMentionNames)
         names.add(
           value
             .normalize('NFKC')
@@ -249,10 +355,17 @@ export function mentionedOtherLeads(
             .trim()
             .slice(0, 160),
         );
-    }
-    if (names.size >= AI_CARD_LIMITS.maxMentionNames) break;
   }
-  return [...names].slice(0, AI_CARD_LIMITS.maxMentionNames);
+  return { names: [...names], leadIds: [...leadIds] };
+}
+
+/** B1: the names and references of other leads that `body` mentions (`mentionedLeads`). */
+export function mentionedOtherLeads(
+  body: string,
+  others: readonly SeenLead[],
+  own: { leadId: string | undefined; name: string | null },
+): string[] {
+  return mentionedLeads(body, others, own).names;
 }
 
 /** C3: the digest of a card's side effects, signed at prepare and compared at confirm. */
@@ -299,6 +412,11 @@ export type DailyCapRefusal = 'daily_changes' | 'daily_mail';
  * refused it, or undefined when it may go ahead. A limiter that cannot be
  * reached throws, and the caller refuses the confirmation (fail closed).
  * A retry of a saved card counts again: the limiter cannot know it is one.
+ *
+ * Mail asks its own, lower cap first, so a mail that cap refuses is not
+ * counted as a change (T10). The other way round cannot be told apart: a mail
+ * counted before the changes cap refuses it is past that cap anyway, and both
+ * caps are UTC days, so they open again at the same moment.
  */
 export async function dailyCapRefusal(
   rateLimit: (input: RateLimitInput) => Promise<RateLimitResult>,
@@ -306,6 +424,14 @@ export async function dailyCapRefusal(
   kind: AiCardKind,
 ): Promise<{ reason: DailyCapRefusal; retryAfterSeconds: number } | undefined> {
   const day = 24 * 60 * 60;
+  if (isMailCard(kind)) {
+    const mail = await rateLimit({
+      bucketKey: `ai_mail_day:${scope.actorId}:${scope.workspaceId}`,
+      windowSeconds: day,
+      maxCount: AI_CARD_LIMITS.mailPerMemberPerDay,
+    });
+    if (!mail.allowed) return { reason: 'daily_mail', retryAfterSeconds: mail.retryAfterSeconds };
+  }
   const changes = await rateLimit({
     bucketKey: `ai_card_day:${scope.actorId}:${scope.workspaceId}`,
     windowSeconds: day,
@@ -313,12 +439,5 @@ export async function dailyCapRefusal(
   });
   if (!changes.allowed)
     return { reason: 'daily_changes', retryAfterSeconds: changes.retryAfterSeconds };
-  if (!isMailCard(kind)) return undefined;
-  const mail = await rateLimit({
-    bucketKey: `ai_mail_day:${scope.actorId}:${scope.workspaceId}`,
-    windowSeconds: day,
-    maxCount: AI_CARD_LIMITS.mailPerMemberPerDay,
-  });
-  if (!mail.allowed) return { reason: 'daily_mail', retryAfterSeconds: mail.retryAfterSeconds };
   return undefined;
 }

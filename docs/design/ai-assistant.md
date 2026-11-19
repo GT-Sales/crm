@@ -40,7 +40,7 @@ Admin browser (Vercel)
 | Verified staff session                | The actor; a body-supplied actor id is rejected by the strict schema | `requireStaffSession` (staff router) + `aiChatRequestSchema`                                          |
 | Route `workspaceId` + live membership | The site                                                             | `loadAccess` + `decideAiAccess` in `routes/ai-assistant.ts`                                           |
 | Tool arguments                        | Untrusted proposals                                                  | Zod schemas in `ai/tools.ts`; every value validated                                                   |
-| Lead id / context                     | A hint, re-authorized on read                                        | `getLeadSummary` reads by id inside the tenant transaction                                            |
+| Lead id / context                     | A hint, re-authorized on read; an archived lead is named as archived | `getLeadSummary` reads by id inside the tenant transaction; the prompt's open-lead line (§4)          |
 | Browser chat history                  | Untrusted text                                                       | Re-validated; never produces a source card or an authorization                                        |
 | Stored conversation, attached files   | The member's own, under an owner policy; file content is data        | `ai/conversation-store.ts`, `ai/attachments.ts`; ai-chat.md §3                                        |
 | Records, names, notes                 | Untrusted data                                                       | `ai/record-text.ts` cleans every typed string; results carry a data notice; rendering is escaped text |
@@ -117,6 +117,14 @@ stored conversation, that conversation's own rows ([ai-chat.md](ai-chat.md) §5)
   followed by the SDK `[DONE]` terminator. `aiWirePartSchema` describes the wire.
 - The request may carry the optional `effort` (`high` only, and only where
   capabilities list it in `efforts`; §8); without it the turn is Normal.
+- The request may carry the optional `wide: true`, which the admin sends when
+  the capabilities list `cardActions`: only then is the turn offered the newer
+  card kinds ([ai-actions.md](ai-actions.md), "Wider cards"); without it the
+  older ones alone, and no card the older shape cannot carry.
+- `context.leadId` names the lead whose page is open. An active one is the
+  prompt's open lead (prompt version 16); an archived one is named as archived
+  (the reads leave it out, and restoring it is a card from its own page); a
+  restricted or gone one is no open lead at all.
 - The request may carry the optional `conversationId` and `attachmentIds` of a
   stored conversation; only then does the stream send a `conversation` part
   and `done.messageId`, and `history` must be empty because the server replays

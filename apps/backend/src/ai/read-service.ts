@@ -169,6 +169,16 @@ export interface AiReadService {
    * address. A lead not returned is not available.
    */
   leadLabels?(scope: Scope, leadIds: readonly string[]): Promise<Map<string, LeadHint>>;
+  /**
+   * B1: the real name and reference of each of these leads (at most 100), an
+   * archived one included, for the mention check alone; never sent to the
+   * model. A restricted or gone lead is not returned. A failure throws, and
+   * the card or revision that needed it is refused.
+   */
+  mentionLabels?(
+    scope: Scope,
+    leadIds: readonly string[],
+  ): Promise<Map<string, { name: string | null; reference: string | null }>>;
   /** Display names of the site's active members by actor id. */
   memberNames?(scope: Scope): Promise<Map<string, string | null>>;
 }
@@ -641,6 +651,32 @@ export class DatabaseAiReadService implements AiReadService {
           reference: parsed.external_ref,
           name: parsed.full_name,
         });
+      }
+      return labels;
+    });
+  }
+
+  mentionLabels(
+    scope: Scope,
+    leadIds: readonly string[],
+  ): Promise<Map<string, { name: string | null; reference: string | null }>> {
+    const ids = [...new Set(leadIds)].slice(0, 100);
+    if (ids.length === 0) return Promise.resolve(new Map());
+    return this.read(scope, async (tx) => {
+      const rows = await tx.execute<{ [key: string]: unknown }>(sql`
+        select l.id, l.lead_type, l.stage, l.external_ref, l.full_name
+        from app.leads l
+        where l.workspace_id = ${contextWorkspaceId}
+          and l.id in (${sql.join(
+            ids.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})
+          and l.customer_data_restricted_at is null
+      `);
+      const labels = new Map<string, { name: string | null; reference: string | null }>();
+      for (const row of rows) {
+        const parsed = leadHintRowSchema.parse(row);
+        labels.set(parsed.id, { name: parsed.full_name, reference: parsed.external_ref });
       }
       return labels;
     });

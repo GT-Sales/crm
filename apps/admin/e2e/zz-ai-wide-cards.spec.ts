@@ -168,6 +168,15 @@ async function ask(page: Page, text: string) {
 }
 
 const newChat = (page: Page) => page.getByRole('button', { name: 'New chat' }).click();
+
+/** Today in Toronto, `YYYY-MM-DD`: the date a stage move defaults to. */
+const torontoToday = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 const confirmButton = (card: ReturnType<Page['getByRole']>) =>
   card.getByRole('button', { name: 'Confirm', exact: true });
 
@@ -202,6 +211,10 @@ test('a stage move to Delivered carries the courier and tracking number on one c
     await expect(card).toContainText(text);
   }
   await expect(card.getByText('What else happens', { exact: true })).toBeVisible();
+  // T2: the card shows what Confirm saves: the dispatch date it defaults to is
+  // today, shown as that day, and no detail reads "Not set → Cleared".
+  await expect(card.getByText(/^\d{1,2} \w+ \d{4} \(today\)$/)).toBeVisible();
+  await expect(card).not.toContainText('Cleared');
   await expect(confirmButton(card)).toBeEnabled();
   // Nothing is saved before Confirm.
   expect((await leadOf(request, SIM, id)).lead.stage).toBe('verified');
@@ -210,7 +223,7 @@ test('a stage move to Delivered carries the courier and tracking number on one c
   const saved = (await leadOf(request, SIM, id)).lead;
   expect(saved.stage).toBe('delivered');
   expect(saved.order).toMatchObject({ courier: 'Canada Post', trackingNumber: 'TRK123' });
-  expect(saved.order?.dispatchedAt).toBeTruthy();
+  expect(saved.order?.dispatchedAt).toBe(torontoToday());
 
   // The result in the app: the lead page, and the timeline reads "via Ask AI".
   await page.getByRole('button', { name: 'Close Ask AI' }).click();
@@ -305,6 +318,11 @@ test('mark as activated: the activation number is typed on the card and saved', 
   const card = page.getByRole('region', { name: 'Confirm lead change' });
   await expect(card).toContainText('Delivered');
   await expect(card).toContainText('Activated');
+  // T2: the activation date it saves is today; the number and account it does
+  // not change are not listed until the person types them.
+  await expect(card.getByText(/^\d{1,2} \w+ \d{4} \(today\)$/)).toBeVisible();
+  await expect(card).not.toContainText('Activation number');
+  await expect(card).not.toContainText('Cleared');
   await card.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(card.getByRole('textbox', { name: 'Activation number' })).toBeVisible();
   await card.getByRole('textbox', { name: 'Activation number' }).fill('ACT-4455');
@@ -317,7 +335,7 @@ test('mark as activated: the activation number is typed on the card and saved', 
   const saved = (await leadOf(request, SIM, id)).lead;
   expect(saved.stage).toBe('activated');
   expect(saved.order).toMatchObject({ activationNumber: 'ACT-4455', activationAccount: 'acct-9' });
-  expect(saved.order?.activatedAt).toBeTruthy();
+  expect(saved.order?.activatedAt).toBe(torontoToday());
 
   await page.getByRole('button', { name: 'Close Ask AI' }).click();
   await page.reload();
@@ -346,6 +364,8 @@ test('set quantity, change plan, a form field and a custom property are each one
   let card = page.getByRole('region', { name: 'Confirm lead change' }).last();
   await expect(card).toContainText('Quantity');
   await expect(card).toContainText('Paid');
+  // T6: nothing on this card is typed by the person, so it offers no (empty) Edit.
+  await expect(card.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   expect((await leadOf(request, SIM, id)).lead.order?.quantity).toBe(1);
   await confirmButton(card).click();
   await expect(card.getByText('Lead updated.', { exact: true })).toBeVisible();
@@ -360,6 +380,7 @@ test('set quantity, change plan, a form field and a custom property are each one
   card = page.getByRole('region', { name: 'Confirm lead change' }).last();
   await expect(card).toContainText('Rogers 60GB');
   await expect(card).toContainText('Re-freezes the plan');
+  await expect(card.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await confirmButton(card).click();
   await expect(card.getByText('Lead updated.', { exact: true })).toBeVisible();
   const replanned = (await leadOf(request, SIM, id)).lead.order;
@@ -525,8 +546,9 @@ test('archive and restore are cards that say what else happens', async ({ page, 
   await page.goto(`/w/getcanadasim/leads?q=${encodeURIComponent(name)}`);
   await expect(page.getByRole('link', { name, exact: true })).toHaveCount(0);
 
-  await openAsk(page, 'getcanadasim');
-  await ask(page, `Restore the archived lead ${id}`);
+  // T13: from the archived lead's own page, which the model is told is archived.
+  await openAsk(page, 'getcanadasim', id);
+  await ask(page, 'Restore this lead');
   card = page.getByRole('region', { name: 'Confirm archive change' });
   await expect(card.getByRole('heading', { name: 'Restore the lead' })).toBeVisible();
   await confirmButton(card).click();
@@ -610,6 +632,48 @@ test('the owner can switch an automation off with a card; a member without integ
     ).toHaveCount(0);
     expect(await enabledOf(CW, 'order_received')).toBe(false);
   } finally {
+    await samContext.close();
+  }
+});
+
+test('a member who loses the change but keeps Ask AI sees the card refused and keeps the chat', async ({
+  browser,
+  request,
+}) => {
+  const id = await makeLead({ request, site: 'cw', name: `Rolechange ${run}` });
+  const setRole = async (role: 'leads' | 'orders') => {
+    const changed = await request.post('http://127.0.0.1:4100/__e2e/colleague-role', {
+      data: { role },
+    });
+    expect(changed.status()).toBe(200);
+  };
+  const samContext = await browser.newContext({ baseURL: LEAD_JOURNEYS_URL });
+  const samPage = await samContext.newPage();
+  await samPage.route(`${API}/**`, (route) =>
+    route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${SAM}` } }),
+  );
+  try {
+    await openAsk(samPage, 'canadawide', id);
+    await ask(samPage, 'Add a note: Sam called the customer');
+    const card = samPage.getByRole('region', { name: 'Confirm note' });
+    await expect(card).toContainText('Sam called the customer');
+    // The owner moves Sam from Leads to Orders while the card is open: Ask AI stays, notes go.
+    await setRole('orders');
+    await confirmButton(card).click();
+    await expect(card.getByRole('status')).toHaveText(
+      'Not saved. You no longer have permission to make this change. Ask the owner if you need it; you can still ask Ask AI questions.',
+    );
+    await expect(card.getByRole('button', { name: 'Retry save' })).toHaveCount(0);
+    // The conversation is kept and Ask AI still answers.
+    await expect(
+      samPage.getByText('Draft ready for confirmation. Nothing has been saved.'),
+    ).toBeVisible();
+    await expect(samPage.getByRole('textbox', { name: 'Ask a question' })).toBeEnabled();
+    expect(
+      (await leadOf(request, CW, id)).activities.filter((entry) => entry.kind === 'note'),
+    ).toEqual([]);
+  } finally {
+    await setRole('leads');
     await samContext.close();
   }
 });

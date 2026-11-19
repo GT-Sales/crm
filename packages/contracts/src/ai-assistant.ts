@@ -416,6 +416,14 @@ export const aiChatRequestSchema = z
      * `conversationId`.
      */
     newConversation: z.boolean().optional(),
+    /**
+     * True from an admin that shows every card kind in full (`action_cards`).
+     * The admin sends it only when the capabilities list `cardActions` (an
+     * older backend's strict request refuses the key). Absent, the turn is
+     * offered only the card kinds an older admin shows (note, task, email,
+     * lead update, task move) and prepares no card it could not show.
+     */
+    wide: z.literal(true).optional(),
   })
   .strict()
   .superRefine((request, context) => {

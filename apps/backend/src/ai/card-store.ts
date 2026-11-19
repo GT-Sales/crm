@@ -8,6 +8,7 @@ import {
   type TenantTransaction,
 } from '@gt-sales/db';
 import {
+  aiLeadEditChangesSchema,
   emailTemplateLabel,
   flowStepSchema,
   isLeadStage,
@@ -136,35 +137,92 @@ function shown(property: SiteProperty | undefined, value: unknown): string | nul
   return JSON.stringify(value).slice(0, 1000);
 }
 
-/** One step's effect in words; a step that does not read as one says only that the flow runs. */
+/**
+ * One step's effect in words, in the present ("sends …") or after "may"
+ * ("send …"). A branch is not one of them: `flowRunSentence` reads its steps
+ * as ones that may run.
+ */
 function stepWords(
-  step: FlowStep,
+  step: Exclude<FlowStep, { kind: 'if_else' }>,
   templates: ReadonlyMap<string, string>,
   leadType: string,
-): string[] {
+  form: 'present' | 'base',
+): string {
+  const verb = (present: string, base: string) => (form === 'present' ? present : base);
   switch (step.kind) {
     case 'send_email':
-      return [
-        `sends the “${templates.get(step.template) ?? emailTemplateLabel(step.template)}” email to the customer`,
-      ];
+      return `${verb('sends', 'send')} the “${templates.get(step.template) ?? emailTemplateLabel(step.template)}” email to the customer`;
     case 'create_task':
-      return ['creates a task'];
+      return `${verb('creates', 'create')} a task`;
     case 'assign_lead':
-      return ['assigns the lead'];
+      return `${verb('assigns', 'assign')} the lead`;
     case 'update_lead':
       return step.change.kind === 'stage'
-        ? [`moves the lead to ${leadStageLabel(leadType, step.change.stage)}`]
-        : ['changes a lead property'];
+        ? `${verb('moves', 'move')} the lead to ${leadStageLabel(leadType, step.change.stage)}`
+        : `${verb('changes', 'change')} a lead property`;
     case 'notify_staff':
-      return ['emails staff'];
+      return `${verb('emails', 'email')} staff`;
     case 'wait':
-      return ['waits, then continues'];
-    case 'if_else':
-      return [
-        ...step.then.flatMap((entry) => stepWords(entry, templates, leadType)),
-        ...step.else.flatMap((entry) => stepWords(entry, templates, leadType)),
-      ];
+      return `${verb('waits, then continues', 'wait, then continue')}`;
   }
+}
+
+/** A flow's steps split into those that always run and those inside a branch, which may. */
+function flowStepsByCertainty(steps: readonly FlowStep[]): {
+  always: Exclude<FlowStep, { kind: 'if_else' }>[];
+  maybe: Exclude<FlowStep, { kind: 'if_else' }>[];
+} {
+  const always: Exclude<FlowStep, { kind: 'if_else' }>[] = [];
+  const maybe: Exclude<FlowStep, { kind: 'if_else' }>[] = [];
+  const branchSteps = (entries: readonly FlowStep[]): void => {
+    for (const entry of entries) {
+      if (entry.kind === 'if_else') {
+        branchSteps(entry.then);
+        branchSteps(entry.else);
+      } else maybe.push(entry);
+    }
+  };
+  for (const step of steps) {
+    if (step.kind === 'if_else') {
+      branchSteps(step.then);
+      branchSteps(step.else);
+    } else always.push(step);
+  }
+  return { always, maybe };
+}
+
+/**
+ * C3, T3: what one flow does when the move sets it off, in one sentence. The
+ * steps that always run read as definite ("sends …"); a branch's steps read
+ * as ones that may run, depending on its conditions, since the card cannot
+ * know a condition's answer before the move. A flow whose trigger has
+ * conditions says it runs only when they match.
+ */
+export function flowRunSentence(input: {
+  name: string;
+  conditional: boolean;
+  steps: readonly FlowStep[] | undefined;
+  templates: ReadonlyMap<string, string>;
+  leadType: string;
+}): string {
+  const name = input.name.slice(0, 80);
+  const when = input.conditional ? ' (when its conditions match)' : '';
+  const { always, maybe } = flowStepsByCertainty(input.steps ?? []);
+  const words = (
+    steps: readonly Exclude<FlowStep, { kind: 'if_else' }>[],
+    form: 'present' | 'base',
+  ) => [...new Set(steps.map((step) => stepWords(step, input.templates, input.leadType, form)))];
+  const definite = words(always, 'present');
+  const possible = words(maybe, 'base');
+  const sentence =
+    definite.length === 0 && possible.length === 0
+      ? `“${name}”${when} runs: its steps.`
+      : definite.length === 0
+        ? `“${name}”${when} runs and may, depending on its conditions: ${possible.join(', ')}.`
+        : possible.length === 0
+          ? `“${name}”${when} runs: ${definite.join(', ')}.`
+          : `“${name}”${when} runs: ${definite.join(', ')}; and may, depending on its conditions: ${possible.join(', ')}.`;
+  return sentence.slice(0, 300);
 }
 
 function stepsOf(definition: unknown): FlowStep[] | undefined {
@@ -248,18 +306,97 @@ export async function stageMoveEffects(
         : undefined;
       names.set(key, emailTemplateLabel(key, stored?.name ?? null).slice(0, 80));
     }
-    const words = steps
-      ? [...new Set(steps.flatMap((step) => stepWords(step, names, lead.leadType)))]
-      : [];
-    const when = trigger.when === null ? '' : ' (when its conditions match)';
     runs.push(
-      `“${name}”${when} runs: ${words.length > 0 ? words.join(', ') : 'its steps'}.`.slice(0, 300),
+      flowRunSentence({
+        name,
+        conditional: trigger.when !== null,
+        steps,
+        templates: names,
+        leadType: lead.leadType,
+      }),
     );
   }
   effects.push(...runs, ...later);
   if (runs.length === 0 && later.length === 0) effects.push('No automation runs for this move.');
   return effects.slice(0, 20);
 }
+
+/** An active plan's name for the lead's type, or undefined when there is none by that id. */
+async function activePlanName(
+  tx: TenantTransaction,
+  workspaceId: string,
+  leadType: string,
+  planId: string,
+): Promise<string | undefined> {
+  const [plan] = await tx.execute<{ name: string }>(sql`
+    select p.name from app.plans p
+    where p.workspace_id = ${workspaceId} and p.id = ${planId}
+      and p.lead_type = ${leadType} and p.active
+  `);
+  return plan?.name;
+}
+
+/**
+ * C3 + B3: everything a lead edit sets off besides its own changes, in words:
+ * a stage move's effects (`stageMoveEffects`), then a plan change's re-freeze.
+ * The one function the card's preview and its confirmation both call (R1),
+ * so the digest signed at prepare is the one recomputed at Confirm. Undefined
+ * when the card's plan is no longer an active plan of the lead's type.
+ */
+export async function leadEditEffects(
+  tx: TenantTransaction,
+  workspaceId: string,
+  lead: { leadType: string; status: string; stage: string },
+  changes: AiLeadEditChanges,
+): Promise<string[] | undefined> {
+  const effects: string[] = [];
+  if (changes.stage !== undefined && changes.stage !== lead.stage)
+    effects.push(...(await stageMoveEffects(tx, workspaceId, lead, changes.stage)));
+  const planId = changes.order?.planId;
+  if (planId === null) effects.push('Clears the order’s plan and its frozen price.');
+  else if (planId !== undefined) {
+    const name = await activePlanName(tx, workspaceId, lead.leadType, planId);
+    if (name === undefined) return undefined;
+    effects.push(
+      `Re-freezes the plan: the order takes “${name.slice(0, 80)}” at its current name and price.`,
+    );
+  }
+  return effects.slice(0, 20);
+}
+
+const DAY_LABEL = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** A calendar day as the card shows it ("20 Nov 2026"), "(today)" when it is today in Toronto. */
+function dayShown(value: unknown, today: string): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return shown(undefined, value);
+  const label = DAY_LABEL.format(new Date(`${value}T12:00:00Z`));
+  return value === today ? `${label} (today)` : label;
+}
+
+/** The dispatch and activation details each gate's move carries on the card, in card order. */
+const GATE_INPUTS: Readonly<
+  Record<
+    'dispatch' | 'activation',
+    readonly { field: AiOrderDetailField; kind: 'text' | 'date'; required: boolean }[]
+  >
+> = {
+  dispatch: [
+    { field: 'courier', kind: 'text', required: true },
+    { field: 'trackingNumber', kind: 'text', required: false },
+    { field: 'dispatchedAt', kind: 'date', required: false },
+  ],
+  activation: [
+    { field: 'activatedAt', kind: 'date', required: false },
+    { field: 'activationNumber', kind: 'text', required: false },
+    { field: 'activationAccount', kind: 'text', required: false },
+  ],
+};
 
 /** What an archive or a restore sets off, in words (C3); the same every time. */
 export function archiveEffects(archived: boolean): string[] {
@@ -288,6 +425,12 @@ export type AiLeadEditPreview =
       context: AiLeadEditContext;
       sideEffects: string[];
       version: string;
+      /**
+       * The changes the card signs: the ones asked for, with the date a gate
+       * defaults to today written in (T2), so Confirm saves the day the card
+       * showed even after midnight.
+       */
+      changes: AiLeadEditChanges;
     }
   | { status: 'not_found' }
   | { status: 'no_change' }
@@ -429,10 +572,14 @@ export class DatabaseAiCardStore implements AiCardStore {
             property.storage === storage && (property.storageKey ?? property.key) === field,
         );
       const current = toLeadOrder(lead.orderDetails);
+      const today = todayInToronto(new Date());
       const rows: AiLeadEditContext['rows'] = [];
       const inputs: AiLeadEditContext['inputs'] = [];
+      /** Rows the card keeps although nothing changes: a detail the move requires. */
+      const required = new Set<string>();
       let needs: AiStageMoveNeed | undefined;
-      let sideEffects: string[] = [];
+      // What Confirm will save: the order edit as asked, with a gate's default date written in.
+      let signed: AiLeadEditChanges = changes;
 
       if (changes.stage !== undefined && changes.stage !== lead.stage) {
         if (!isLeadStage(lead.leadType, changes.stage))
@@ -443,7 +590,7 @@ export class DatabaseAiCardStore implements AiCardStore {
           to: changes.stage,
           current,
           edit: changes.order,
-          today: todayInToronto(new Date()),
+          today,
         });
         if (!move.ok) {
           if (move.refusal.status === 'illegal_stage_move')
@@ -452,6 +599,10 @@ export class DatabaseAiCardStore implements AiCardStore {
             move.refusal.status === 'dispatch_details_required'
               ? 'dispatch_details'
               : 'activation_details';
+        } else if (move.order !== undefined && move.order !== changes.order) {
+          // T2: the date the move defaults to is the card's, signed and shown as that day.
+          const withDefaults = aiLeadEditChangesSchema.safeParse({ ...changes, order: move.order });
+          if (withDefaults.success) signed = withDefaults.data;
         }
         const gates = stageGates(lead.leadType, changes.stage);
         if (gates.includes('documents')) {
@@ -463,25 +614,19 @@ export class DatabaseAiCardStore implements AiCardStore {
           // Never an override: the documents are approved on the lead page first.
           if (missing.length > 0) return { status: 'documents', missing };
         }
-        const detail = (field: AiOrderDetailField, kind: 'text' | 'date', required: boolean) => {
-          const value = current[field];
-          inputs.push({
-            field,
-            label: ORDER_DETAIL_LABELS[field],
-            kind,
-            required,
-            current: value === null ? null : String(value).slice(0, 200),
-          });
-        };
-        if (gates.includes('dispatch')) {
-          detail('courier', 'text', true);
-          detail('trackingNumber', 'text', false);
-          detail('dispatchedAt', 'date', false);
-        }
-        if (gates.includes('activation')) {
-          detail('activatedAt', 'date', false);
-          detail('activationNumber', 'text', false);
-          detail('activationAccount', 'text', false);
+        for (const gate of ['dispatch', 'activation'] as const) {
+          if (!gates.includes(gate)) continue;
+          for (const { field, kind, required: needed } of GATE_INPUTS[gate]) {
+            const value = current[field];
+            inputs.push({
+              field,
+              label: ORDER_DETAIL_LABELS[field],
+              kind,
+              required: needed,
+              current: value === null ? null : String(value).slice(0, 200),
+            });
+            if (needed) required.add(`order.${field}`);
+          }
         }
         rows.push({
           key: 'stage',
@@ -489,39 +634,48 @@ export class DatabaseAiCardStore implements AiCardStore {
           before: leadStageLabel(lead.leadType, lead.stage),
           after: leadStageLabel(lead.leadType, changes.stage),
         });
-        sideEffects = await stageMoveEffects(tx, input.workspaceId, lead, changes.stage);
       }
+      const sideEffects = await leadEditEffects(tx, input.workspaceId, lead, signed);
+      if (sideEffects === undefined) return { status: 'invalid', field: 'plan' };
 
-      for (const [field, value] of Object.entries(changes.order ?? {})) {
-        if (value === undefined) continue;
+      const currentOrder: Record<string, unknown> = Object.fromEntries(Object.entries(current));
+      const orderRow = (field: string, value: unknown) => {
         const property = propertyOf('order', field);
         const label = (property?.label ?? ORDER_FIELD_LABELS[field] ?? field).slice(0, 160);
-        if (field === 'planId') {
-          let after: string | null = null;
-          if (typeof value === 'string') {
-            const [plan] = await tx.execute<{ name: string }>(sql`
-              select p.name from app.plans p
-              where p.workspace_id = ${input.workspaceId} and p.id = ${value}
-                and p.lead_type = ${lead.leadType} and p.active
-            `);
-            if (!plan) return { status: 'invalid', field: 'plan' };
-            after = plan.name.slice(0, 1000);
-          }
-          rows.push({ key: 'order.planId', label, before: current.plan?.name ?? null, after });
-          sideEffects.push(
-            after === null
-              ? 'Clears the order’s plan and its frozen price.'
-              : `Re-freezes the plan: the order takes “${after.slice(0, 80)}” at its current name and price.`,
-          );
-          continue;
-        }
-        const before: unknown = Object.fromEntries(Object.entries(current))[field];
-        rows.push({
+        const date =
+          field === 'dispatchedAt' || field === 'activatedAt' || property?.kind === 'date';
+        const show = (entry: unknown) => (date ? dayShown(entry, today) : shown(property, entry));
+        return {
           key: `order.${field}`,
           label,
-          before: shown(property, before),
-          after: shown(property, value),
-        });
+          before: show(currentOrder[field]),
+          after: show(value),
+        };
+      };
+      for (const [field, value] of Object.entries(signed.order ?? {})) {
+        if (value === undefined) continue;
+        if (field === 'planId') {
+          const label = (propertyOf('order', field)?.label ?? 'Plan').slice(0, 160);
+          const after =
+            typeof value === 'string'
+              ? ((await activePlanName(tx, input.workspaceId, lead.leadType, value)) ?? null)
+              : null;
+          if (typeof value === 'string' && after === null)
+            return { status: 'invalid', field: 'plan' };
+          rows.push({
+            key: 'order.planId',
+            label,
+            before: current.plan?.name ?? null,
+            after: after?.slice(0, 1000) ?? null,
+          });
+          continue;
+        }
+        rows.push(orderRow(field, value));
+      }
+      // A detail the move requires and the card does not change is still shown, as it will be.
+      for (const key of required) {
+        const field = key.slice('order.'.length);
+        if (!rows.some((row) => row.key === key)) rows.push(orderRow(field, currentOrder[field]));
       }
       const form = formPayload(lead.payload);
       for (const [key, value] of Object.entries(changes.form ?? {})) {
@@ -550,14 +704,17 @@ export class DatabaseAiCardStore implements AiCardStore {
           after: shown(property, value),
         });
       }
-      // An order detail typed on the card fills its input rather than adding a row twice.
-      const unchanged = rows.filter((row) => row.key === 'stage' || row.before !== row.after);
-      if (unchanged.length === 0 && needs === undefined) return { status: 'no_change' };
+      // T2: a row is on the card only when it changes, or when the move requires it.
+      const shownRows = rows.filter(
+        (row) => row.key === 'stage' || required.has(row.key) || row.before !== row.after,
+      );
+      if (shownRows.length === 0 && needs === undefined) return { status: 'no_change' };
       return {
         status: 'ready',
-        context: { rows: unchanged.slice(0, 40), inputs, ...(needs ? { needs } : {}) },
-        sideEffects: sideEffects.slice(0, 20),
-        version: leadEditVersion(lead, changes),
+        context: { rows: shownRows.slice(0, 40), inputs, ...(needs ? { needs } : {}) },
+        sideEffects,
+        version: leadEditVersion(lead, signed),
+        changes: signed,
       };
     });
   }
@@ -595,13 +752,15 @@ export class DatabaseAiCardStore implements AiCardStore {
         if (lead.trashed) return { status: 'trashed' };
         // C4: anything the card touches changed since it was prepared.
         if (leadEditVersion(lead, input.changes) !== input.version) return { status: 'conflict' };
-        // C3: the move would now set off something the card did not show.
-        const { stage } = input.changes;
-        if (stage !== undefined && stage !== lead.stage) {
-          const effects = await stageMoveEffects(tx, input.workspaceId, lead, stage);
-          if (input.sideEffects === undefined || sideEffectsDigest(effects) !== input.sideEffects)
-            return { status: 'conflict' };
-        }
+        // C3: the edit would now set off something the card did not show,
+        // computed by the very function the card's preview used (R1).
+        const effects = await leadEditEffects(tx, input.workspaceId, lead, input.changes);
+        if (effects === undefined) return { status: 'conflict' };
+        if (
+          (effects.length > 0 || input.sideEffects !== undefined) &&
+          (input.sideEffects === undefined || sideEffectsDigest(effects) !== input.sideEffects)
+        )
+          return { status: 'conflict' };
         // C2: the signed draft is parsed with the staff route's own request schema.
         const body = updateWorkspaceLeadRequestSchema.safeParse(input.changes);
         if (!body.success) return { status: 'invalid', field: 'changes' };
