@@ -86,6 +86,14 @@ export interface EngineInput {
   readonly signal: AbortSignal;
   /** The turn's effort level; absent is `normal`, the assistant as it always was. */
   readonly effort?: AiEffort;
+  /**
+   * The site's model for this turn (Settings → AI models): the member's pick,
+   * or the site's saved default. It serves the turn at either effort level,
+   * and the Gateway is asked to route it only to hosts with tool calls
+   * (`has: ['tool-use']`). Absent, the deployment's models serve the turn
+   * exactly as before (`AI_GATEWAY_MODEL`, High's own when it has one).
+   */
+  readonly modelId?: string;
   /** Injected for the fake engine; the gateway engine lets the SDK execute tools. */
   readonly executeTool?: (name: string, input: unknown) => Promise<string>;
 }
@@ -184,6 +192,30 @@ export function outputTokenLimit(input: {
   return answer + (input.reasoning ? AI_ASSISTANT_LIMITS.maxReasoningTokensHigh : 0);
 }
 
+/**
+ * The Gateway's routing options for one turn: the host pin
+ * (`AI_GATEWAY_PROVIDERS`) for every model, and, for a model the site chose,
+ * hosts that support tool calls only (`GatewayProviderOptions.has`, which
+ * `@ai-sdk/gateway` 4.0.132 forwards in the request body with every other
+ * gateway option). A model no host can serve with tools is then refused by
+ * the Gateway, a typed provider failure, instead of answering without the
+ * CRM's reads. Absent when neither applies, so a turn on the deployment's own
+ * model is sent exactly as before.
+ */
+export function gatewayRouting(
+  providers: readonly string[] | undefined,
+  siteModel: boolean,
+): { gateway: { only?: string[]; order?: string[]; has?: 'tool-use'[] } } | undefined {
+  if (!providers && !siteModel) return undefined;
+  const toolUse: 'tool-use'[] = ['tool-use'];
+  return {
+    gateway: {
+      ...(providers ? { only: [...providers], order: [...providers] } : {}),
+      ...(siteModel ? { has: toolUse } : {}),
+    },
+  };
+}
+
 export function createGatewayEngine(
   options: {
     apiKey: string;
@@ -192,7 +224,8 @@ export function createGatewayEngine(
     /** High effort's model and reasoning; absent, a High turn is served like a Normal one's model. */
     highEffort?: AiHighEffortConfig;
   },
-  modelForTest?: LanguageModel,
+  /** Tests only: the model to call, or one per Gateway model id so the chosen id can be checked. */
+  modelForTest?: LanguageModel | ((modelId: string) => LanguageModel),
 ): AssistantEngine {
   return {
     kind: 'gateway',
@@ -209,10 +242,16 @@ export function createGatewayEngine(
       // (`@ai-sdk/gateway` 4.0.132 `GatewayLanguageModel.getArgs`), and the
       // provider maps it; a model that cannot reason warns and ignores it.
       const reasoning = high ? options.highEffort?.reasoning : undefined;
+      // The site's model when it has one, at either level; else the deployment's.
+      const modelId =
+        input.modelId ??
+        (high && options.highEffort ? options.highEffort.modelId : options.modelId);
+      const routing = gatewayRouting(options.providers, input.modelId !== undefined);
       const result = streamText({
         model:
-          modelForTest ??
-          gateway(high && options.highEffort ? options.highEffort.modelId : options.modelId),
+          typeof modelForTest === 'function'
+            ? modelForTest(modelId)
+            : (modelForTest ?? gateway(modelId)),
         system: input.system,
         messages: toModelMessages(input.messages),
         tools: input.tools,
@@ -228,14 +267,9 @@ export function createGatewayEngine(
         // route never retries a partially streamed answer.
         maxRetries: 1,
         abortSignal: input.signal,
-        // Pin the hosts that may serve the model (AI_GATEWAY_PROVIDERS).
-        ...(options.providers
-          ? {
-              providerOptions: {
-                gateway: { only: [...options.providers], order: [...options.providers] },
-              },
-            }
-          : {}),
+        // Pin the hosts that may serve the model (AI_GATEWAY_PROVIDERS), and
+        // for a site's model ask for hosts with tool calls.
+        ...(routing ? { providerOptions: routing } : {}),
         // SDK defaults log raw provider errors (potentially prompts and bodies).
         // The route records only its fixed error code.
         onError: () => {},

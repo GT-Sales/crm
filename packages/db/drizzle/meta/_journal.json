@@ -281,6 +281,13 @@
       "when": 1795070872298,
       "tag": "0039_ai_chat_erasure",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795161147368,
+      "tag": "0040_ai_model_settings",
+      "breakpoints": true
     }
   ]
 }

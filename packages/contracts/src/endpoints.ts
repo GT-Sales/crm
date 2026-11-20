@@ -176,6 +176,11 @@ import {
   listAiConversationsResponseSchema,
   renameAiConversationRequestSchema,
 } from './ai-conversations';
+import {
+  aiModelSettingsResponseSchema,
+  updateAiModelSettingsRequestSchema,
+  updateAiModelSettingsResponseSchema,
+} from './ai-models';
 import { analyticsQuerySchema, analyticsResponseSchema } from './analytics';
 import {
   leadBoardQuerySchema,
@@ -1134,6 +1139,27 @@ export const endpoints: readonly EndpointDef[] = [
     successStatus: 200,
     query: aiUsageQuerySchema,
     response: aiUsageResponseSchema,
+  },
+  {
+    operationId: 'getAiModelSettings',
+    method: 'GET',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/model-settings',
+    summary:
+      "The site's Ask AI models: the allowed list and default it saved, the Gateway catalogue's language models to choose from (name, vendor, short description, price per million tokens), the deployment's own models and hosts, and whether migration 0040 is applied; ids and names only (owner only, the AI usage page's action).",
+    auth: 'staff',
+    successStatus: 200,
+    response: aiModelSettingsResponseSchema,
+  },
+  {
+    operationId: 'updateAiModelSettings',
+    method: 'PUT',
+    path: '/api/v1/staff/workspaces/{workspaceId}/ai/model-settings',
+    summary:
+      "Save the site's Ask AI models: 1 to 8 Gateway ids, each checked against the catalogue read for the save, and the default among them (owner only). 400 `invalid_request` (`details.reason: 'model_unavailable'`) for an id the catalogue does not hold; 503 `ai_models_unavailable` (`details.reason` `storage` or `catalogue`).",
+    auth: 'staff',
+    successStatus: 200,
+    request: updateAiModelSettingsRequestSchema,
+    response: updateAiModelSettingsResponseSchema,
   },
 
   {

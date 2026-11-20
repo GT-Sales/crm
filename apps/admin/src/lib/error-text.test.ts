@@ -168,6 +168,26 @@ describe('describeError', () => {
     expect(errorKind(backend('internal_error', 503))).toBe('offline');
   });
 
+  it('says why Ask AI’s models could not be saved, by the refusal’s reason', () => {
+    const refused = (reason?: string) =>
+      new BackendError(
+        'ai_models_unavailable',
+        503,
+        REQUEST_ID,
+        reason === undefined ? undefined : { reason },
+      );
+    expect(errorKind(refused('storage'))).toBe('known');
+    expect(describeError(refused('storage'), 'save the models')).toBe(
+      'Model choice is not switched on for this CRM yet: it needs a database update. Ask AI keeps using its usual model.',
+    );
+    expect(describeError(refused('catalogue'), 'save the models')).toBe(
+      'The AI Gateway’s list of models could not be read just now, so the choice could not be checked. Try again in a minute.',
+    );
+    expect(describeError(refused(), 'save the models')).toBe(
+      'Ask AI’s models could not be saved just now. Try again in a minute; if it keeps happening, tell your admin.',
+    );
+  });
+
   it('has words for every code the backend can send, none of them a raw code', () => {
     for (const code of apiErrorCodeSchema.options) {
       const text = describeError(backend(code, 409), 'save the change');

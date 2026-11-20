@@ -107,6 +107,8 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   attachments_unavailable: 'Attaching files to Ask AI is not available here.',
   plain_tasks_unavailable:
     'Tasks without a lead are not available on this site yet. Add the task on a lead.',
+  ai_models_unavailable:
+    'Ask AI models cannot be saved just now; `details.reason` says why (`storage` or `catalogue`).',
   rate_limited: 'Too many requests just now. Try again shortly.',
   export_too_large:
     'Too many leads for one export; `details` gives the count and the most one export holds. Narrow the filters.',

@@ -1,5 +1,6 @@
 import {
   ActivityIcon,
+  BotIcon,
   LayersIcon,
   MailIcon,
   PlugIcon,
@@ -17,7 +18,7 @@ export interface SettingsNavItem {
   readonly path: string;
   readonly label: string;
   readonly icon: LucideIcon;
-  /** The page shows every member's usage and the backend refuses anyone else. */
+  /** Only the owner sees the page (AI usage, AI models); the backend refuses anyone else. */
   readonly ownerOnly?: true;
 }
 
@@ -36,6 +37,13 @@ const AI_USAGE: SettingsNavItem = {
   icon: SparklesIcon,
   ownerOnly: true,
 };
+/** The owner's choice of Ask AI's models; the backend refuses anyone else (the AI usage page's action). */
+const AI_MODELS: SettingsNavItem = {
+  path: '/ai-models',
+  label: 'AI models',
+  icon: BotIcon,
+  ownerOnly: true,
+};
 const INTEGRATIONS: SettingsNavItem = {
   path: '/integrations',
   label: 'Integrations',
@@ -47,13 +55,13 @@ const SETTINGS_LAYOUT: readonly NavGroup<SettingsNavItem>[] = [
   { id: 'workspace', label: 'Workspace', items: [GENERAL, TEAM] },
   { id: 'sales', label: 'Sales', items: [PLANS, FIELDS] },
   { id: 'communication', label: 'Communication', items: [EMAIL] },
-  { id: 'ai', label: 'AI', items: [AI_USAGE] },
+  { id: 'ai', label: 'AI', items: [AI_USAGE, AI_MODELS] },
   { id: 'system', label: 'System', items: [INTEGRATIONS, JOBS] },
 ];
 
 /**
  * The Settings sub-navigation for this person. An item keeps its own rule
- * (today only AI usage, owner only); a group whose items are all hidden is
+ * (today AI usage and AI models, owner only); a group whose items are all hidden is
  * dropped, so no heading is left over an empty list.
  */
 export function settingsNavGroups({

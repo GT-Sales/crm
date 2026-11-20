@@ -121,6 +121,13 @@ describe('streamAnswer and the High refusals', () => {
     refusal.error = new BackendError('invalid_request', 400, 'req-1');
     expect(await ask()).toBe('failed');
   });
+
+  it('names a model the site no longer allows', async () => {
+    refusal.error = new BackendError('invalid_request', 400, 'req-1', {
+      reason: 'model_unavailable',
+    });
+    expect(await ask()).toBe('model_unavailable');
+  });
 });
 
 describe('buildAiChatRequest and the card kinds the admin shows (T12)', () => {
@@ -133,6 +140,26 @@ describe('buildAiChatRequest and the card kinds the admin shows (T12)', () => {
     expect(aiChatRequestSchema.parse(wide).wide).toBe(true);
     const stored = buildAiChatRequest({ ...base, conversationId: CONVERSATION_ID, wide: true });
     expect(stored.request).toMatchObject({ conversationId: CONVERSATION_ID, wide: true });
+    expect(aiChatRequestSchema.safeParse(stored.request).success).toBe(true);
+  });
+});
+
+describe('buildAiChatRequest and the chosen model', () => {
+  it('names the model only when the provider passes one, on both kinds of request', () => {
+    const plain = buildAiChatRequest(base).request;
+    expect(plain).not.toHaveProperty('model');
+    const chosen = buildAiChatRequest({ ...base, model: 'vendor-a/model-one' }).request;
+    expect(chosen).toEqual({ ...plain, model: 'vendor-a/model-one' });
+    expect(aiChatRequestSchema.parse(chosen).model).toBe('vendor-a/model-one');
+    const stored = buildAiChatRequest({
+      ...base,
+      conversationId: CONVERSATION_ID,
+      model: 'vendor-a/model-one',
+    });
+    expect(stored.request).toMatchObject({
+      conversationId: CONVERSATION_ID,
+      model: 'vendor-a/model-one',
+    });
     expect(aiChatRequestSchema.safeParse(stored.request).success).toBe(true);
   });
 });

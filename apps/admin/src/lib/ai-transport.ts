@@ -38,7 +38,9 @@ export type AiUiError =
   /** High effort's own limits were reached (`ai_rate_limited`, `details.reason: 'high_effort'`). */
   | 'high_effort_limited'
   /** The site no longer offers High (`invalid_request`, `details.reason: 'effort_unavailable'`). */
-  | 'effort_unavailable';
+  | 'effort_unavailable'
+  /** The chosen model is no longer allowed on this site (`invalid_request`, `details.reason: 'model_unavailable'`). */
+  | 'model_unavailable';
 
 /** One earlier turn as text only: the model never receives stored tool data. */
 export interface AiHistoryEntry {
@@ -69,6 +71,12 @@ export interface BuildChatRequestInput {
    */
   effort?: AiEffort;
   efforts?: readonly AiEffort[];
+  /**
+   * The model the member chose, already checked against capabilities'
+   * `models` and left out for the site's default (the provider's
+   * `modelForRequest`): sent as it is, so an older backend never receives it.
+   */
+  model?: string;
   /**
    * A stored conversation's id. With it the server replays its own history,
    * so `history` is ignored and sent empty (the schema refuses anything else).
@@ -201,6 +209,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
         ...(input.newConversation === true ? { newConversation: true } : {}),
         ...(attachmentIds.length === 0 ? {} : { attachmentIds: [...attachmentIds] }),
         ...(high ? { effort: 'high' as const } : {}),
+        ...(input.model === undefined ? {} : { model: input.model }),
         ...(input.wide === true ? { wide: true as const } : {}),
       },
       trimmed: message.length !== input.message.length,
@@ -219,6 +228,7 @@ export function buildAiChatRequest(input: BuildChatRequestInput): BuiltChatReque
       })),
       ...(contextLeadId === undefined ? {} : { context: { leadId: contextLeadId } }),
       ...(high ? { effort: 'high' as const } : {}),
+      ...(input.model === undefined ? {} : { model: input.model }),
       ...(input.wide === true ? { wide: true as const } : {}),
     };
   }
@@ -342,6 +352,8 @@ export async function streamAnswer(input: StreamAnswerInput): Promise<AiUiError 
       }
       if (error.code === 'invalid_request' && refusalReason(error) === 'effort_unavailable')
         return 'effort_unavailable';
+      if (error.code === 'invalid_request' && refusalReason(error) === 'model_unavailable')
+        return 'model_unavailable';
       return uiErrorForBackendCode(error.code);
     }
     return 'failed';

@@ -170,6 +170,10 @@ export const domainErrorCodeSchema = z.enum([
   // A plain task (a task with no lead) asked of a database without migration
   // 0038 (503): the backend is deployed before the owner applies it.
   'plain_tasks_unavailable',
+  // Ask AI's model settings could not be saved (503): `details.reason`
+  // `storage` (migration 0040 not applied) or `catalogue` (the Gateway's model
+  // list could not be read). Never answered by the chat.
+  'ai_models_unavailable',
 ]);
 export type DomainErrorCode = z.infer<typeof domainErrorCodeSchema>;
 

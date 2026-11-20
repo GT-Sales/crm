@@ -46,6 +46,8 @@ export function aiErrorText(error: AiUiError, retryAfterSeconds?: number): strin
         : `High effort has reached its limit for now. Ask at Normal effort, or try again in ${waitInWords(retryAfterSeconds)}.`;
     case 'effort_unavailable':
       return 'High effort is no longer offered on this site. Press Retry to ask at Normal effort.';
+    case 'model_unavailable':
+      return 'That model is no longer offered on this site. Press Retry to ask with the site’s default model.';
     case 'unavailable':
       return 'Ask AI isn’t available for this site right now.';
     case 'session_expired':

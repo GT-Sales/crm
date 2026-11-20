@@ -1,7 +1,9 @@
 import { DatabaseAiTurnStore, type AiTurnStore } from '../ai/turn-store.js';
 import { createAiChatDependenciesFromEnv } from '../ai/chat-factory.js';
 import { DatabaseAiChatSchemaProbe } from '../ai/chat-schema.js';
-import type { AiChatDependencies } from './ai-assistant.js';
+import type { AiChatDependencies, AiModelDependencies } from './ai-assistant.js';
+import { createGatewayModelCatalogue } from '../ai/model-catalogue.js';
+import { DatabaseAiModelSettingsStore } from '../ai/model-settings-store.js';
 import { AutomationAuthoringStore } from '../ai/automation-authoring.js';
 import { createErrorTrackerFromEnv, type ErrorTracker } from '@gt-sales/adapters';
 import { Router, type Request, type Response } from 'express';
@@ -187,6 +189,11 @@ export interface StaffRouteDependencies {
      * most route tests) the assistant is memory-only, exactly as before.
      */
     chat?: AiChatDependencies;
+    /**
+     * Settings → AI models: the site's saved models and the Gateway catalogue.
+     * Absent (as in most route tests), every turn uses the deployment's model.
+     */
+    models?: AiModelDependencies;
     /** The wider cards' reads and the lead edit's write; absent, those kinds are not offered. */
     cards?: AiCardStore;
     now?: () => Date;
@@ -247,6 +254,13 @@ export function createDefaultStaffRouteDependencies(): StaffRouteDependencies {
       rateLimit: rateLimitHit,
       turns: new DatabaseAiTurnStore(undefined, aiSchema),
       chat: createAiChatDependenciesFromEnv(process.env, aiSchema),
+      models: {
+        settings: new DatabaseAiModelSettingsStore(),
+        // The catalogue needs the Gateway key; without one Settings says it is unavailable.
+        ...(aiConfig.enabled && aiConfig.apiKey !== undefined
+          ? { catalogue: createGatewayModelCatalogue(aiConfig.apiKey) }
+          : {}),
+      },
     },
   };
 }
@@ -1902,6 +1916,7 @@ export function createStaffRouter(dependencies: StaffRouteDependencies): Router 
       rateLimit: ai.rateLimit ?? rateLimitHit,
       ...(ai.turns === undefined ? {} : { turns: ai.turns }),
       ...(ai.chat === undefined ? {} : { chat: ai.chat }),
+      ...(ai.models === undefined ? {} : { models: ai.models }),
       ...(ai.now === undefined ? {} : { now: ai.now }),
       ...(ai.cards === undefined ? {} : { cards: ai.cards }),
       // C2: a lead edit is checked and saved against the site's own catalogue.

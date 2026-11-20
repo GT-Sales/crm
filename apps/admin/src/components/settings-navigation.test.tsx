@@ -47,7 +47,7 @@ it('groups the sections under Workspace, Sales, Communication, AI and System for
     { heading: 'Workspace', links: ['General', 'Team'] },
     { heading: 'Sales', links: ['Plans', 'Fields and layouts'] },
     { heading: 'Communication', links: ['Email'] },
-    { heading: 'AI', links: ['AI usage'] },
+    { heading: 'AI', links: ['AI usage', 'AI models'] },
     { heading: 'System', links: ['Integrations', 'Background jobs'] },
   ]);
   expect(screen.queryByText('Properties and record layouts')).toBeNull();
@@ -67,6 +67,15 @@ it('marks only the current page with aria-current', () => {
   expect(current).toEqual([usage]);
 });
 
+it('links AI models beside AI usage and marks it on its own page', () => {
+  mocks.pathname = '/w/canadawide/settings/ai-models';
+  render(<SettingsNavigation workspaceSlug="canadawide" />);
+  const models = screen.getByRole('link', { name: 'AI models' });
+  expect(models.getAttribute('href')).toBe('/w/canadawide/settings/ai-models');
+  expect(models.getAttribute('aria-current')).toBe('page');
+  expect(screen.getByRole('link', { name: 'AI usage' }).getAttribute('aria-current')).toBeNull();
+});
+
 it('marks General only on the settings root', () => {
   mocks.pathname = '/w/canadawide/settings';
   render(<SettingsNavigation workspaceSlug="canadawide" />);
@@ -84,6 +93,7 @@ it('drops the AI group, heading and all, for everyone but the owner: AI usage sh
     'System',
   ]);
   expect(screen.queryByRole('link', { name: 'AI usage' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'AI models' })).toBeNull();
   expect(screen.queryByText('AI', { selector: 'p' })).toBeNull();
   expect(screen.queryByRole('option', { name: 'AI usage' })).toBeNull();
   expect(screen.queryByRole('group', { name: 'AI' })).toBeNull();
@@ -114,7 +124,7 @@ it('offers a select with the same groups at phone width, showing the current pag
     { label: 'Workspace', options: ['General', 'Team'] },
     { label: 'Sales', options: ['Plans', 'Fields and layouts'] },
     { label: 'Communication', options: ['Email'] },
-    { label: 'AI', options: ['AI usage'] },
+    { label: 'AI', options: ['AI usage', 'AI models'] },
     { label: 'System', options: ['Integrations', 'Background jobs'] },
   ]);
 });
@@ -133,5 +143,6 @@ it('leaves AI usage out of the select for a limited role', () => {
   render(<SettingsNavigation workspaceSlug="canadawide" />);
   const select = screen.getByRole('combobox', { name: 'Settings section' });
   expect(within(select).queryByRole('option', { name: 'AI usage' })).toBeNull();
+  expect(within(select).queryByRole('option', { name: 'AI models' })).toBeNull();
   expect(within(select).queryByRole('group', { name: 'AI' })).toBeNull();
 });

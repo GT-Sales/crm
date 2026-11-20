@@ -228,6 +228,15 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   `chat-thread.tsx`, `chat-composer.tsx`, `attachment-*`; state in
   `assistant-provider.tsx`); Settings → AI usage at `settings/ai-usage` with
   `src/components/ai-usage/`.
+- Ask AI's model choice (docs/RUNBOOKS/ai-assistant.md §14): `apps/backend/src/ai/`
+  (`model-catalogue.ts` the Gateway catalogue and its cache,
+  `model-settings-store.ts` a site's `app.ai_model_settings` row and its audit,
+  `model-schema.ts` whether 0040 is applied; `engine.ts` serves a site's model
+  with `has: ['tool-use']`) with the owner's routes in `src/routes/ai-models.ts`
+  and the per-turn check in `src/routes/ai-assistant.ts`; contracts in
+  `packages/contracts/src/ai-models.ts`; Settings → AI models at
+  `settings/ai-models` with `src/components/ai-models/`, and the composer's
+  menu in `src/components/ai/model-control.tsx`.
 - Intake check: `apps/backend/src/intake-check/` (`check.ts` the run and its
   steps, `store.ts` the test site's reads and deletes, `alert-rule.ts` when
   the owner hears about it), the manual run in `src/routes/intake-check.ts`;
@@ -511,7 +520,12 @@ the assistant's current configuration (Settings → AI usage, owner only by
 on one question, chosen in the composer: `normal`, or `high`
 (`AI_HIGH_EFFORT_ENABLED`) with larger turn limits, its own model and rate
 limits and optional model reasoning, never wider reads or fewer checks;
-recorded in `ai_turns.effort` and on both stored messages (0037).
+recorded in `ai_turns.effort` and on both stored messages (0037). The
+**allowed models** are the Gateway models a site's owner lets members choose
+in the composer, up to 8, with one **default model** that answers a question
+nobody chose a model for (`app.ai_model_settings`, 0040, Settings → AI
+models); a chat's `model` must be in that saved list, and with nothing saved
+`AI_GATEWAY_MODEL` answers, as before.
 
 The **intake check** proves every 15 minutes that a website could still save a
 lead: the scheduler's task `intake_check` first refuses a site with any
