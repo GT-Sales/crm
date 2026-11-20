@@ -9,6 +9,7 @@ import {
   queueCustomerEmailRequestSchema,
   updateWorkspaceLeadRequestSchema,
 } from './lead-work';
+import { aiModelChoiceSchema, aiModelIdSchema, AI_MODEL_LIMITS } from './ai-models';
 import { automationKeySchema } from './automation-keys';
 import { leadFormEditSchema } from './lead-fields';
 import { leadOrderEditSchema } from './plans';
@@ -318,6 +319,15 @@ export const aiCapabilitiesResponseSchema = z.object({
    * then shows no effort control and sends no `effort`.
    */
   efforts: z.array(aiEffortSchema).max(AI_EFFORTS.length).optional(),
+  /**
+   * The models a member may choose for a question (Settings → AI models), the
+   * site's default first. Present only once migration 0040 is applied and the
+   * site has saved more than one model: absent, the composer shows no model
+   * picker and sends no `model` (an older backend never sends it).
+   */
+  models: z.array(aiModelChoiceSchema).min(2).max(AI_MODEL_LIMITS.maxAllowed).optional(),
+  /** The id among `models` that serves a question sent without `model`; only beside `models`. */
+  defaultModel: aiModelIdSchema.optional(),
   requestId: requestIdSchema,
 });
 
@@ -369,8 +379,9 @@ export type AiHistoryMessage = z.infer<typeof aiHistoryMessageSchema>;
 
 /**
  * The admin's chat request. `requestId` correlates the stream; it is not an
- * identity. Actor, site, roles, model and provider settings are never accepted
- * from the body — the route derives them.
+ * identity. Actor, site, roles and provider settings are never accepted from
+ * the body — the route derives them; `model` is only a pick among the site's
+ * allowed models, which the route checks against the list the owner saved.
  *
  * Without `conversationId` it is the original request, unchanged: the browser
  * sends the signed `history` and nothing is stored. With `conversationId` (a
@@ -406,6 +417,16 @@ export const aiChatRequestSchema = z
      * not offer it is `invalid_request` (`details.reason: 'effort_unavailable'`).
      */
     effort: aiEffortSchema.optional(),
+    /**
+     * The model the member chose for this question, one of capabilities'
+     * `models`. The admin sends it only when capabilities list `models` (an
+     * older backend's strict request refuses the key), and not for the
+     * default. It serves the question at either effort level. An id that is
+     * not in the site's saved list now is `invalid_request`
+     * (`details.reason: 'model_unavailable'`). Absent, the site's default
+     * serves it (the deployment's `AI_GATEWAY_MODEL` until one is saved).
+     */
+    model: aiModelIdSchema.optional(),
     /**
      * True on the first message of a chat the browser made (its id is the
      * browser's): the server creates the conversation under that id, or, for

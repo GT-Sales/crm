@@ -110,7 +110,8 @@ describe('High effort', () => {
         AI_HIGH_EFFORT_ENABLED: 'true',
         AI_GATEWAY_MODEL_HIGH: ' provider/thinker ',
       }).highEffort,
-    ).toEqual({ modelId: 'provider/thinker' });
+      // `ownModel`: High keeps it on a site that saved its own default model.
+    ).toEqual({ modelId: 'provider/thinker', ownModel: true });
     // Blank is unset.
     expect(
       loadAiAssistantConfig({ ...ON, AI_HIGH_EFFORT_ENABLED: 'true', AI_GATEWAY_MODEL_HIGH: '  ' })

@@ -70,6 +70,14 @@ import {
   type RenameAiConversationRequest,
 } from './ai-conversations';
 import {
+  aiModelSettingsResponseSchema,
+  updateAiModelSettingsRequestSchema,
+  updateAiModelSettingsResponseSchema,
+  type AiModelSettingsResponse,
+  type UpdateAiModelSettingsRequest,
+  type UpdateAiModelSettingsResponse,
+} from './ai-models';
+import {
   createDownloadLinkRequestSchema,
   createDownloadLinkResponseSchema,
   reviewFileRequestSchema,
@@ -915,6 +923,13 @@ export interface BackendClient {
     ): Promise<AiAttachmentLinkResponse>;
     /** The site's Ask AI usage per member: counts only (owner only). */
     getAiUsage(workspaceId: string, query?: AiUsageQueryInput): Promise<AiUsageResponse>;
+    /** The site's allowed Ask AI models and the Gateway catalogue to pick from (owner only). */
+    getAiModelSettings(workspaceId: string): Promise<AiModelSettingsResponse>;
+    /** Saves the site's allowed Ask AI models and default (owner only). */
+    updateAiModelSettings(
+      workspaceId: string,
+      body: UpdateAiModelSettingsRequest,
+    ): Promise<UpdateAiModelSettingsResponse>;
   };
 }
 
@@ -1971,6 +1986,19 @@ export function createBackendClient(options: BackendClientOptions): BackendClien
           path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/usage`,
           query: { period: aiUsageQuerySchema.parse(query ?? {}).period },
           responseSchema: aiUsageResponseSchema,
+        }),
+      getAiModelSettings: async (workspaceId) =>
+        call({
+          method: 'GET',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/model-settings`,
+          responseSchema: aiModelSettingsResponseSchema,
+        }),
+      updateAiModelSettings: async (workspaceId, body) =>
+        call({
+          method: 'PUT',
+          path: `/api/v1/staff/workspaces/${encode(workspaceId)}/ai/model-settings`,
+          body: updateAiModelSettingsRequestSchema.parse(body),
+          responseSchema: updateAiModelSettingsResponseSchema,
         }),
     },
   };

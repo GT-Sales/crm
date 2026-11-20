@@ -17,6 +17,7 @@ import { Button, Sheet, SheetContent, SheetTitle, Textarea, useIsMobile } from '
 import { AssistantMessage } from './assistant-message';
 import { useAssistant } from './assistant-provider';
 import { EffortControl, HIGH_EFFORT_HINT } from './effort-control';
+import { ModelControl } from './model-control';
 import {
   announcementFor,
   capabilityFailureText,
@@ -347,6 +348,7 @@ export function AssistantPanel() {
           {...composerKeys}
         />
         <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5">
+          <ModelControl disabled={!ready} />
           {effort.offered ? <EffortControl disabled={!ready} /> : null}
           {streaming ? (
             <Button

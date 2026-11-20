@@ -850,6 +850,9 @@ export {
 // Ask AI as a saved chat: stored conversations, attached files, owner usage
 export * from './ai-conversations';
 
+// Ask AI's model choice: the owner's allowed models and the Gateway catalogue
+export * from './ai-models';
+
 export * from './ai-automations';
 
 export * from './analytics';

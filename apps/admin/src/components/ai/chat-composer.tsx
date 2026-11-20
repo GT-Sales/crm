@@ -18,6 +18,7 @@ import { useComposerKeys, useStopGuard } from './assistant-shared';
 import { PendingAttachmentChip } from './attachment-chip';
 import { ComposerNotes, keptDraft } from './composer-notes';
 import { EffortControl, HIGH_EFFORT_HINT } from './effort-control';
+import { ModelControl } from './model-control';
 
 export interface ChatComposerHandle {
   focus(): void;
@@ -235,6 +236,7 @@ export const ChatComposer = forwardRef<
                 {count.toLocaleString()} / {maxMessageChars.toLocaleString()}
               </span>
             ) : null}
+            <ModelControl disabled={!ready} />
             <EffortControl disabled={!ready} />
             {streaming ? (
               <Button

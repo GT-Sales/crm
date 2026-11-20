@@ -25,6 +25,9 @@ import {
 } from '../ai/conversation-store.js';
 import type { AiUsageStore } from '../ai/usage-store.js';
 import { createAiConversationRoutes } from './ai-conversations.js';
+import { createAiModelRoutes } from './ai-models.js';
+import type { AiModelCatalogue } from '../ai/model-catalogue.js';
+import type { AiModelSettingsStore, StoredAiModelSettings } from '../ai/model-settings-store.js';
 import { createCrmGuideTool, runCrmGuide } from '../ai/crm-guide.js';
 import {
   aiActionRootId,
@@ -230,8 +233,38 @@ export interface AiAssistantRouteDependencies {
    * needs only its store (it reads `ai_turns`, which exists before 0034).
    */
   chat?: AiChatDependencies;
+  /**
+   * Settings → AI models (migration 0040). Absent, or before 0040 is applied,
+   * every turn is served by the deployment's models exactly as before,
+   * capabilities list no `models`, and a chat naming a `model` is refused.
+   */
+  models?: AiModelDependencies;
   now?: () => Date;
   reportFailure: PlanRouteDependencies['reportFailure'];
+}
+
+export interface AiModelDependencies {
+  /** The site's saved models; its own schema probe says whether 0040 is applied. */
+  settings: AiModelSettingsStore;
+  /** The Gateway catalogue, read by the owner's routes only; absent without a Gateway key. */
+  catalogue?: AiModelCatalogue;
+}
+
+/**
+ * The models a member may pick on this site now: the saved list, default
+ * first, when it holds more than one (one model needs no picker). Undefined
+ * before 0040, with nothing saved, or when the read fails (reported).
+ */
+export function pickableModels(
+  saved: StoredAiModelSettings | undefined,
+): { models: { id: string; label: string }[]; defaultModel: string } | undefined {
+  if (!saved || saved.allowedModels.length < 2) return undefined;
+  const first = saved.allowedModels.filter((model) => model.id === saved.defaultModel);
+  const rest = saved.allowedModels.filter((model) => model.id !== saved.defaultModel);
+  return {
+    models: [...first, ...rest].map((model) => ({ id: model.id, label: model.label })),
+    defaultModel: saved.defaultModel,
+  };
 }
 
 export interface AiChatDependencies {
@@ -342,12 +375,17 @@ function capabilityDocument(
   highEffort = false,
   plainTasks = false,
   cardActions: readonly string[] = [],
+  models?: ReturnType<typeof pickableModels>,
 ): AiCapabilitiesResponse {
   return aiCapabilitiesResponseSchema.parse({
     available: unavailable === undefined,
     // Only where High is on: absent, the composer shows no effort control
     // (and an older admin, which does not know the field, strips it).
     ...(highEffort && unavailable === undefined ? { efforts: [...AI_EFFORTS] } : {}),
+    // Only where the site saved more than one model: absent, no picker.
+    ...(models && unavailable === undefined
+      ? { models: models.models, defaultModel: models.defaultModel }
+      : {}),
     ...(automationAuthoring ? { automationAuthoring: true } : {}),
     ...(chat?.availability.conversations ? { conversations: true } : {}),
     ...(chat?.availability.attachments && chat.kinds.length > 0
@@ -697,6 +735,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
 
   router.use(createAiAutomationRoutes(dependencies));
   router.use(createAiConversationRoutes(dependencies));
+  router.use(createAiModelRoutes(dependencies));
 
   async function refuseDisabled(res: Response, requestId: string): Promise<void> {
     sendDomainError(res, requestId, 'ai_unavailable', 503);
@@ -750,6 +789,16 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
       const plainTasks =
         canAct &&
         (await plainTasksReady({ workspaceId: workspaceId.data, actorId: actor.actorId }));
+      // The site's models: a read that fails leaves the picker out, never the assistant.
+      const modelSettings = dependencies.models?.settings;
+      const models = modelSettings
+        ? await modelSettings
+            .get({ workspaceId: workspaceId.data, actorId: actor.actorId })
+            .then(pickableModels, (error: unknown) => {
+              dependencies.reportFailure(req, chatStoreFailure('ai_model_settings_failed', error));
+              return undefined;
+            })
+        : undefined;
       res.setHeader('cache-control', 'no-store');
       res.json(
         capabilityDocument(
@@ -767,6 +816,7 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
           dependencies.config.highEffort !== undefined,
           plainTasks,
           cardKindsHere(access, workspaceId.data),
+          models,
         ),
       );
     } catch (error) {
@@ -1377,6 +1427,43 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
         sendDomainError(res, req.id, 'invalid_request', 400, { reason: 'effort_unavailable' });
         return;
       }
+      // The site's models (Settings → AI models), read on every turn from the
+      // site's own row, never from the Gateway catalogue. A chosen model must
+      // be in the saved list now, else it is refused before any work, like
+      // High where it is not offered. A read that fails refuses a turn that
+      // named a model and serves any other on the deployment's model.
+      let savedModels: StoredAiModelSettings | undefined;
+      const modelSettings = dependencies.models?.settings;
+      if (modelSettings) {
+        try {
+          savedModels = await wait(
+            modelSettings.get({ workspaceId: workspaceId.data, actorId: actor.actorId }),
+          );
+        } catch (error) {
+          if (error instanceof AssistantProviderError) throw error;
+          dependencies.reportFailure(req, chatStoreFailure('ai_model_settings_failed', error));
+          if (body.model !== undefined) {
+            await refuseDisabled(res, req.id);
+            return;
+          }
+        }
+      }
+      if (
+        body.model !== undefined &&
+        !savedModels?.allowedModels.some((model) => model.id === body.model)
+      ) {
+        sendDomainError(res, req.id, 'invalid_request', 400, { reason: 'model_unavailable' });
+        return;
+      }
+      // The model the site chose for this turn: the member's pick at either
+      // level; else the saved default, except that a High turn keeps
+      // `AI_GATEWAY_MODEL_HIGH` when it names High's own model. Undefined, the
+      // deployment's models serve it exactly as before.
+      const siteModelId =
+        body.model ??
+        (savedModels && !(high && highEffort?.ownModel === true)
+          ? savedModels.defaultModel
+          : undefined);
 
       const site = await wait(
         dependencies.siteContext.siteContext({
@@ -2112,6 +2199,8 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               signal: controller.signal,
               // Only a High turn names its level, so a Normal turn's input is as it was.
               ...(high ? { effort } : {}),
+              // Only a site's chosen model is named; otherwise the input is as it was.
+              ...(siteModelId === undefined ? {} : { modelId: siteModelId }),
               executeTool: (name, input) =>
                 isToolName(name) || isWideReadName(name) || isAutomationRead(name)
                   ? executeRead(name, input).then((result) => {
@@ -2305,8 +2394,9 @@ export function createAiAssistantRoutes(dependencies: AiAssistantRouteDependenci
               workspaceId: workspaceId.data,
               actorId: actor.actorId,
               engine: engine.kind,
-              // The model that served the turn: High's own when it has one.
-              modelId: high ? highEffort?.modelId : dependencies.config.modelId,
+              // The model that served the turn: the site's choice, else High's
+              // own when it has one, else the deployment's.
+              modelId: siteModelId ?? (high ? highEffort?.modelId : dependencies.config.modelId),
               effort,
               promptVersion: AI_PROMPT_VERSION,
               outcome,

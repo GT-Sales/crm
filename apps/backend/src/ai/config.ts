@@ -90,6 +90,13 @@ export type AiHighEffortReasoning = (typeof AI_HIGH_EFFORT_REASONING_WORDS)[numb
 export interface AiHighEffortConfig {
   /** `AI_GATEWAY_MODEL_HIGH` when set, else `AI_GATEWAY_MODEL`: the exact Gateway model id. */
   readonly modelId: string;
+  /**
+   * True when `AI_GATEWAY_MODEL_HIGH` names High's model itself. Then a High
+   * question with no model chosen keeps that model on a site that saved its
+   * own default (Settings → AI models); without it, High follows the site's
+   * default like Normal does.
+   */
+  readonly ownModel?: true;
   /** `AI_HIGH_EFFORT_REASONING`, sent as the SDK's `reasoning` on High turns only. */
   readonly reasoning?: AiHighEffortReasoning;
 }
@@ -108,15 +115,21 @@ function parseHighEffort(
   if (env['AI_HIGH_EFFORT_ENABLED'] !== 'true') return undefined;
   const raw = env['AI_GATEWAY_MODEL_HIGH'];
   let highModel = modelId;
+  let ownModel = false;
   if (raw !== undefined && raw.trim() !== '') {
     const parsed = modelIdSchema.safeParse(raw);
     if (!parsed.success) return undefined;
     highModel = parsed.data;
+    ownModel = true;
   }
   const reasoning = reasoningSchema.safeParse(
     env['AI_HIGH_EFFORT_REASONING']?.trim().toLowerCase(),
   );
-  return { modelId: highModel, ...(reasoning.success ? { reasoning: reasoning.data } : {}) };
+  return {
+    modelId: highModel,
+    ...(ownModel ? { ownModel: true as const } : {}),
+    ...(reasoning.success ? { reasoning: reasoning.data } : {}),
+  };
 }
 
 /** The shortest `AI_ACTION_SIGNING_SECRET` accepted, in characters. */

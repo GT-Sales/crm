@@ -2797,12 +2797,50 @@ export const aiAttachments = appSchema
   )
   .enableRLS();
 
+/**
+ * The Ask AI models a site's owner allows (Settings → AI models, migration
+ * 0040): up to 8 Gateway model ids, each with the catalogue's name as its
+ * label when it was saved, and the one that serves a turn nobody chose a
+ * model for. One row per site, absent until the owner saves; absent, the
+ * deployment's `AI_GATEWAY_MODEL` serves every turn as before. The bounds
+ * repeat `AI_MODEL_LIMITS` in packages/contracts/src/ai-models.ts; the
+ * backend checks every id against the Gateway catalogue before it is written.
+ */
+export const aiModelSettings = appSchema
+  .table(
+    'ai_model_settings',
+    {
+      workspaceId: uuid('workspace_id')
+        .primaryKey()
+        .references(() => workspaces.id, { onDelete: 'cascade' }),
+      /** `[{ "id": "<vendor>/<model>", "label": "<catalogue name>" }]`, in the owner's order. */
+      allowedModels: jsonb('allowed_models').$type<{ id: string; label: string }[]>().notNull(),
+      defaultModel: text('default_model').notNull(),
+      updatedBy: uuid('updated_by').notNull(),
+      updatedAt: updatedAt(),
+    },
+    (table) => [
+      check(
+        'ai_model_settings_allowed_models_check',
+        sql`jsonb_typeof(${table.allowedModels}) = 'array' and jsonb_array_length(${table.allowedModels}) between 1 and 8 and octet_length(${table.allowedModels}::text) <= 4096`,
+      ),
+      check(
+        'ai_model_settings_default_model_check',
+        sql`length(${table.defaultModel}) between 1 and 120 and ${table.allowedModels} @> jsonb_build_array(jsonb_build_object('id', ${table.defaultModel}))`,
+      ),
+      tenantPolicy('ai_model_settings_tenant_policy', table.workspaceId),
+      backupReadPolicy('ai_model_settings'),
+    ],
+  )
+  .enableRLS();
+
 export const schema = {
   aiAutomationProposals,
   aiTurns,
   aiConversations,
   aiMessages,
   aiAttachments,
+  aiModelSettings,
   workspaces,
   memberships,
   roles,

@@ -14,6 +14,7 @@ import type { AiAutomationSimulateRequest } from '@gt-sales/contracts';
 import type {
   AiAttachmentLinkResponse,
   AiConversationResponse,
+  AiModelSettingsResponse,
   AiUsageQueryInput,
   AiUsageResponse,
   CreateAiAttachmentIntentRequest,
@@ -24,6 +25,8 @@ import type {
   GetAiConversationResponse,
   ListAiConversationsQueryInput,
   ListAiConversationsResponse,
+  UpdateAiModelSettingsRequest,
+  UpdateAiModelSettingsResponse,
 } from '@gt-sales/contracts';
 import {
   BackendError,
@@ -369,6 +372,23 @@ export async function getAiUsage(
   query?: AiUsageQueryInput,
 ): Promise<AiUsageResponse> {
   return client(accessToken).staff.getAiUsage(workspaceId, query);
+}
+
+/** Settings → AI models: the site's allowed models and the Gateway catalogue (owner only). */
+export async function getAiModelSettings(
+  accessToken: string,
+  workspaceId: string,
+): Promise<AiModelSettingsResponse> {
+  return client(accessToken).staff.getAiModelSettings(workspaceId);
+}
+
+/** Saves the site's allowed Ask AI models and its default (owner only). */
+export async function updateAiModelSettings(
+  accessToken: string,
+  workspaceId: string,
+  body: UpdateAiModelSettingsRequest,
+): Promise<UpdateAiModelSettingsResponse> {
+  return client(accessToken).staff.updateAiModelSettings(workspaceId, body);
 }
 
 export async function getLeadBoard(

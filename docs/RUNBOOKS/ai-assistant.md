@@ -68,6 +68,11 @@ Never paste a key into chat, a ticket, a commit or this file.
    left. DeepSeek V4 / V4.1 Flash are not on it.
 7. Current choice (2026-11-13): `openai/gpt-5-mini`, free tier, no
    `AI_GATEWAY_PROVIDERS`.
+8. Once migration 0040 is applied, a site's owner can also allow other models
+   and change the site's default in Settings → AI models, with no redeploy
+   (§14). `AI_GATEWAY_MODEL` stays required and stays the default of a site
+   that has saved none. Every model allowed there needs the same checks as
+   this one.
 
 ## 4. Spend and usage
 
@@ -527,3 +532,88 @@ Models; its turns, tokens and average answer time are there.
 | High answers end `budget_exceeded`                | The reasoning used the whole output limit (`xhigh`/`max` on a budget-sized provider), or the question needed more than 8 steps or 10 tool calls. Lower `AI_HIGH_EFFORT_REASONING`.                                                                                                                                                                                                                                                                                         |
 | Every High turn fails `provider_unavailable`      | The High model id or its hosts are wrong, or the provider refused the reasoning option: check the id in the Gateway catalogue; unset `AI_HIGH_EFFORT_REASONING` to see whether it is the option.                                                                                                                                                                                                                                                                           |
 | 429 for High only                                 | The High limits above (`ai_high_actor:`, `ai_high_site_day:`); `retry-after` says when.                                                                                                                                                                                                                                                                                                                                                                                    |
+
+## 14. Switching models (Settings → AI models)
+
+An owner chooses, per site, which Gateway models members may use in Ask AI
+and which one answers when nobody picks, without a redeploy. Everyone with Ask
+AI then picks a model per question in the composer, beside the effort control,
+from that list only. The daily limits (§4, §13), the prompt, the tools, the
+cards and their confirmation and the safety rules are the same whatever the
+model.
+
+### Switching it on
+
+1. Apply migration 0040 (docs/RUNBOOKS/database.md). Until then the page says
+   _Model choice is not switched on yet_, capabilities list no `models`, the
+   composer shows no model menu, a chat naming a `model` is refused
+   (`model_unavailable`) and every turn uses `AI_GATEWAY_MODEL` as before. The
+   backend notices the table within 5 minutes, with no redeploy.
+2. As the site's owner, open Settings → AI models (only the owner sees it; the
+   backend checks the AI usage page's action, `staff.remove`). The page
+   answers while Ask AI is off for the site, so the list can be prepared
+   first.
+3. Press **Edit models**, search the Gateway's language models by name, vendor
+   or id (each shows its vendor, short description and list price per million
+   tokens), tick up to 8, choose the **Default model**, and **Save models**.
+   The backend reads the catalogue again for the save and refuses an id it no
+   longer lists (_The AI Gateway no longer offers …_).
+4. With two or more models saved, members see the menu in the composer (the
+   full page and the side panel), the default first and tagged _Default_.
+   Their pick is kept in their browser per site; a pick the site no longer
+   allows falls back to the default. With one model saved there is no menu,
+   and that model answers every question.
+
+To go back to the deployment's model, save a list holding only
+`AI_GATEWAY_MODEL` (there is no "clear" button; the row is never deleted by the
+runtime role).
+
+### What to check before allowing a model
+
+- **Tool calls.** Ask AI reads the CRM through tools; the Gateway catalogue the
+  page shows carries no capability flags, so check the model's catalogue page.
+  A turn on a model the site chose asks the Gateway for hosts with tool use
+  (`has: ['tool-use']`); a model with none fails the turn with
+  `provider_unavailable` ("Ask AI could not answer just now") rather than
+  answering without the CRM's data. Try one question on it before telling
+  the team.
+- **Data handling.** Its hosts' retention and training terms in the Gateway's
+  endpoint list, as for `AI_GATEWAY_MODEL` (§3, §5). If
+  `AI_GATEWAY_PROVIDERS` is set, it pins every model, the chosen ones
+  included; the page lists those hosts, and a model none of them serves fails
+  every turn.
+- **Price.** The page shows the catalogue's list price per million input and
+  output tokens (US$); High turns use more of both (§13). The Gateway's spend
+  budget (§4) still caps the whole account.
+- **Attachments.** `AI_ATTACHMENT_KINDS` is one list for the deployment; a
+  model that does not take images or PDFs fails a turn that carries one.
+
+### How High works with a chosen model
+
+- A model a member picks serves the question at Normal and at High; High keeps
+  its larger budgets and `AI_HIGH_EFFORT_REASONING`.
+- With no model picked, Normal uses the site's default. High uses
+  `AI_GATEWAY_MODEL_HIGH` when it is set, else the site's default.
+
+### Reading which model answered
+
+Settings → AI usage, Models: each turn records the model that served it in
+`app.ai_turns.model` (and the `ai_turn` log line's `model`), so a picked model
+shows as its own row with its turns, tokens and failures. Answers in the chat
+do not say which model wrote them.
+
+### Audit and logs
+
+Each save writes `ai.models_updated` (entity `ai_model_settings`, the site's
+id) with the model ids before and after, never a label or a price. A read of
+the settings that fails is reported as `ai_model_settings_failed:<SQLSTATE>`;
+the chat then answers on the deployment's model and the composer shows no
+menu, except that a question naming a model is refused (`503 ai_unavailable`).
+
+| Symptom                                              | Check                                                                                                                                                                      |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Page says _Model choice is not switched on yet_      | Migration 0040 is not applied, or the runtime role lacks its grants (database runbook, verify selects).                                                                    |
+| Page says the Gateway's list _could not be loaded_   | The catalogue read failed (network, key). Ask AI keeps answering with the saved models; press Try again. A failure is remembered for a minute, a good read for 10 minutes. |
+| No model menu in the composer                        | The site saved fewer than two models, Ask AI is off for the site, 0040 is not applied, or the backend is older than the admin.                                             |
+| "That model is no longer offered on this site"       | The owner removed the member's pick; Retry asks on the default.                                                                                                            |
+| Every turn on one model fails `provider_unavailable` | No host serves it with tool calls, or none of the `AI_GATEWAY_PROVIDERS` hosts serves it, or the account cannot use it (free tier). Remove it from the list.               |

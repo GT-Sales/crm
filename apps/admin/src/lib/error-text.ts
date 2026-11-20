@@ -47,6 +47,7 @@ const SWITCHED_OFF_CODES = new Set([
   'ai_unavailable',
   'attachments_unavailable',
   'plain_tasks_unavailable',
+  'ai_models_unavailable',
 ]);
 
 /** An `attachment_rejected` refusal by its `details.reason`. */
@@ -58,6 +59,15 @@ const ATTACHMENT_REJECTED = {
   unknown: 'That file could not be attached. Choose it again, or try another file.',
 } as const;
 const RELOAD = 'Reload the page to see the latest, then try again.';
+
+/** A refused save of Settings → AI models (`ai_models_unavailable`), by its `details.reason`. */
+const AI_MODELS_UNAVAILABLE = {
+  storage:
+    'Model choice is not switched on for this CRM yet: it needs a database update. Ask AI keeps using its usual model.',
+  catalogue:
+    'The AI Gateway’s list of models could not be read just now, so the choice could not be checked. Try again in a minute.',
+  unknown: `Ask AI’s models could not be saved just now. ${TRY_AGAIN}`,
+} as const;
 
 /** A refused revision of an Ask AI task card (`conflict`), by its `details.reason`. */
 const TASK_CARD_CONFLICT: Readonly<Record<string, string>> = {
@@ -204,6 +214,7 @@ const KNOWN: Record<string, string | ((action: string) => string)> = {
   attachment_rejected: ATTACHMENT_REJECTED.unknown,
   attachments_unavailable:
     'Attaching files is switched off on this site right now. Send your question without the file.',
+  ai_models_unavailable: AI_MODELS_UNAVAILABLE.unknown,
 
   // Tracking
   tracking_expired: 'The tracking session expired. Start again.',
@@ -315,6 +326,10 @@ export function describeError(error: unknown, action: string): string {
         return ATTACHMENT_REJECTED.unknown;
     }
   }
+  if (kind === 'known' && code === 'ai_models_unavailable')
+    return reason === 'storage' || reason === 'catalogue'
+      ? AI_MODELS_UNAVAILABLE[reason]
+      : AI_MODELS_UNAVAILABLE.unknown;
   if (
     kind === 'known' &&
     code === 'conflict' &&

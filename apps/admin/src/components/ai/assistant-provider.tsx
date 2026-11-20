@@ -28,6 +28,7 @@ import {
   aiAssistantHistoryText,
   type AiCapabilitiesResponse,
   type AiEffort,
+  type AiModelChoice,
   type AiSource,
   type AiStreamPart,
   type AiActionCard,
@@ -54,6 +55,7 @@ import {
 import { dateTimeLabel } from '../../lib/dates';
 import { describeError, errorKind } from '../../lib/error-text';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
+import { useStoredChoice } from '../leads/view-preferences';
 import { createAttachmentLinkCache, type AttachmentLinkCache } from './attachment-links';
 import {
   checkAttachmentFile,
@@ -398,9 +400,47 @@ export interface AssistantEffort {
   set(value: AiEffort): void;
 }
 
+/**
+ * The model of the next message (Settings → AI models): offered only where
+ * capabilities list `models`, the site's default first. The member's pick is
+ * kept in this browser per site and falls back to the default when the site
+ * no longer allows it; the default itself is never sent, so it always means
+ * the site's default of the moment.
+ */
+export interface AssistantModel {
+  /** The site offers a choice now; otherwise there is no picker and nothing is sent. */
+  offered: boolean;
+  /** The allowed models, the site's default first. */
+  options: readonly AiModelChoice[];
+  /** The site's default model's id, when a choice is offered. */
+  defaultModel?: string;
+  /** The model the next message is asked with: the member's pick, or the default. */
+  value: string;
+  set(value: string): void;
+}
+
+/** Where the member's pick is kept in this browser, one key per site. */
+export function modelChoiceKey(workspaceId: string): string {
+  return `gt-ai-model:${workspaceId}`;
+}
+
+/**
+ * The `model` a question carries: the member's pick when the site still
+ * offers it and it is not the default, else nothing (the server's default).
+ */
+export function modelForRequest(
+  capabilities: Pick<AiCapabilitiesResponse, 'available' | 'models' | 'defaultModel'> | undefined,
+  choice: string,
+): string | undefined {
+  if (!capabilities?.available || capabilities.models === undefined) return undefined;
+  if (choice === capabilities.defaultModel) return undefined;
+  return capabilities.models.some((model) => model.id === choice) ? choice : undefined;
+}
+
 export interface AssistantContextValue {
   workspaceSlug: string;
   effort: AssistantEffort;
+  model: AssistantModel;
   automationApi: {
     save: (token: string) => ReturnType<typeof saveAiAutomation>;
     revise: (
@@ -813,6 +853,34 @@ export function AssistantProvider({
     [capabilities],
   );
   const highOffered = offeredEfforts.includes('high');
+  // The site's models, when it offers a choice (capabilities list `models`).
+  const offeredModels = useMemo<readonly AiModelChoice[]>(
+    () =>
+      capabilities.status === 'ready' && capabilities.data.available
+        ? (capabilities.data.models ?? [])
+        : [],
+    [capabilities],
+  );
+  const defaultModel =
+    capabilities.status === 'ready' && capabilities.data.available
+      ? capabilities.data.defaultModel
+      : undefined;
+  const modelIds = useMemo(() => offeredModels.map((entry) => entry.id), [offeredModels]);
+  // The member's pick, kept in this browser per site; a pick the site no
+  // longer allows reads as the default.
+  const [storedModel, setStoredModel] = useStoredChoice<string>(
+    modelChoiceKey(workspace.id),
+    modelIds,
+    defaultModel ?? '',
+  );
+  const modelChoice =
+    defaultModel !== undefined && !modelIds.includes(storedModel) ? defaultModel : storedModel;
+  /** The `model` the next question carries; read when a turn starts, like `wide`. */
+  const modelRequestRef = useRef<string | undefined>(undefined);
+  modelRequestRef.current = modelForRequest(
+    capabilities.status === 'ready' ? capabilities.data : undefined,
+    modelChoice,
+  );
   /**
    * T12: a backend that lists `cardActions` sends every card kind in full,
    * and this admin shows them all, so its questions say so (`wide`); an
@@ -1064,7 +1132,10 @@ export function AssistantProvider({
       commitSession({ ...current, messages, streaming: false });
       // The site no longer offers High: ask again, so the control goes. The
       // question waits for the member's Retry, which then asks at Normal.
-      if (result === 'effort_unavailable') setCapabilitiesReload((count) => count + 1);
+      // The same for a model the site no longer allows: the Retry asks with
+      // the default once the new list is read.
+      if (result === 'effort_unavailable' || result === 'model_unavailable')
+        setCapabilitiesReload((count) => count + 1);
     },
     [commitSession],
   );
@@ -1119,6 +1190,7 @@ export function AssistantProvider({
               ...(fresh ? { newConversation: true } : {}),
             }),
         ...(userMessage.effort === undefined ? {} : { effort: userMessage.effort, efforts }),
+        ...(modelRequestRef.current === undefined ? {} : { model: modelRequestRef.current }),
         ...(showsEveryCardRef.current ? { wide: true } : {}),
       });
       setHistoryTrimmed(built.trimmed);
@@ -2293,10 +2365,22 @@ export function AssistantProvider({
     [effortChoice, highOffered],
   );
 
+  const model = useMemo<AssistantModel>(
+    () => ({
+      offered: offeredModels.length > 1 && defaultModel !== undefined,
+      options: offeredModels,
+      ...(defaultModel === undefined ? {} : { defaultModel }),
+      value: modelChoice,
+      set: setStoredModel,
+    }),
+    [defaultModel, modelChoice, offeredModels, setStoredModel],
+  );
+
   const value = useMemo<AssistantContextValue>(
     () => ({
       workspaceSlug: workspace.slug,
       effort,
+      model,
       automationApi: {
         save: (token) => saveAiAutomation(accessToken, workspace.id, token),
         revise: (token, draft) => reviseAiAutomation(accessToken, workspace.id, token, draft),
@@ -2338,6 +2422,7 @@ export function AssistantProvider({
     [
       updateAutomationCard,
       effort,
+      model,
       activeLeadId,
       contextLeadId,
       historyTrimmed,

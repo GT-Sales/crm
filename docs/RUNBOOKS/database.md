@@ -30,7 +30,7 @@ pg_proc / pg_policies where schemaname = 'app'`.
 On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
 all applied, the Drizzle tracker holding rows 1 to 38, each verified against
 its file's SHA-256. 0038 and 0039 were applied on 2026-11-20, with their
-tracker rows (40 rows).
+tracker rows (40 rows). 0040 is the one prepared and waiting.
 
 ## Runtime role settings (2026-11-13)
 
@@ -1338,6 +1338,66 @@ select p.proname, p.prosecdef, p.proconfig,
      'delete_departed_ai_conversations')
  order by p.proname;              -- 5 rows: t, {search_path=""}, t, f
 select has_table_privilege('app_runtime', 'app.ai_messages', 'UPDATE');      -- f
+```
+
+## 0040_ai_model_settings (2026-11-20, prepared, not applied)
+
+Ask AI's model choice (Settings → AI models, docs/RUNBOOKS/ai-assistant.md
+§14): a site's owner allows up to 8 Vercel AI Gateway models and marks one as
+the site's default. Not applied by the deploy; the owner applies it through the
+SQL editor (it creates a table and grants), then inserts the Drizzle tracker
+row. The deploy and the migration may go in either order: an older backend
+never names the table, and this backend runs before 0040 (below).
+
+**0040 (generated, with a hand-written part).** One new table,
+`app.ai_model_settings`: `workspace_id` (primary key, foreign key to
+`app.workspaces`, `ON DELETE CASCADE`), `allowed_models jsonb` (an array of
+`{"id", "label"}`, 1–8 entries, at most 4 KiB), `default_model text` (1–120
+characters, and one of the ids in `allowed_models`, a check constraint),
+`updated_by uuid` and `updated_at`. Row security is enabled with the
+site-scoped `ai_model_settings_tenant_policy` (the same predicate as
+`workspace_email_settings`) and `ai_model_settings_backup_reader_read`; the
+hand-written part at the end FORCEs row security and grants the runtime role
+`SELECT, INSERT, UPDATE` (no `DELETE`: the row goes only with its site).
+`backup_reader` reads it through 0007's default privileges. Nothing is
+back-filled: every site starts with no row, which means the deployment's
+`AI_GATEWAY_MODEL`, exactly as before.
+
+- **To apply** (owner): run the file, then the tracker row (hash,
+  `created_at`): `0040_ai_model_settings`
+  `2bf58c6a01a279806aeefde4add6b47bce683fbac258c6cf2a88218536853804`,
+  `1795161147368`.
+- **Before it is applied**: Settings → AI models says model choice is not
+  switched on yet and cannot save (`PUT …/ai/model-settings` answers `503
+ai_models_unavailable`, `details.reason: 'storage'`), capabilities list no
+  `models`, the composer shows no model menu, a chat naming a `model` is
+  refused (`400 invalid_request`, `model_unavailable`) and every turn uses the
+  deployment's models (`ai/model-schema.ts` asks the catalogue, never the
+  journal).
+- **After applying**: the backend sees the table and its grants within 5
+  minutes, with no redeploy; the owner saves a list in Settings → AI models.
+  Each save writes an `ai.models_updated` audit event with the model ids only.
+- Rollback, after reverting the code: `DROP TABLE app.ai_model_settings;`.
+  Sites go back to `AI_GATEWAY_MODEL`. A backend that has seen the table keeps
+  reading it until it restarts; until then each read fails and is reported
+  (`ai_model_settings_failed`), turns with no model named run on the
+  deployment's model, and a question naming one is refused (`503
+ai_unavailable`).
+- Verify against the schema:
+
+```sql
+select c.relrowsecurity, c.relforcerowsecurity
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'app' and c.relname = 'ai_model_settings';             -- t, t
+select polname from pg_policy where polrelid = 'app.ai_model_settings'::regclass
+ order by polname;  -- ai_model_settings_backup_reader_read, ai_model_settings_tenant_policy
+select has_table_privilege('app_runtime', 'app.ai_model_settings', 'SELECT'),
+       has_table_privilege('app_runtime', 'app.ai_model_settings', 'INSERT'),
+       has_table_privilege('app_runtime', 'app.ai_model_settings', 'UPDATE'),
+       has_table_privilege('app_runtime', 'app.ai_model_settings', 'DELETE');  -- t, t, t, f
+select conname from pg_constraint where conrelid = 'app.ai_model_settings'::regclass
+ and contype = 'c' order by conname;
+  -- ai_model_settings_allowed_models_check, ai_model_settings_default_model_check
 ```
 
 ## Historical CanadaWide import (2026-10-27)
