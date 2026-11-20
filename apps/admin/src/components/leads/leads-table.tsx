@@ -24,7 +24,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@gt-sales/ui';
-import { ChevronDownIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronsLeftIcon, ChevronsRightIcon } from 'lucide-react';
 
 import { getStaffLeads, updateStaffLead } from '../../lib/api';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
@@ -275,6 +275,7 @@ export function LeadsTable({
   const rows = leads.data?.leads ?? [];
   const page = leads.data?.page ?? { page: query.page, pageSize: PAGE_SIZE, total: 0 };
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
+  const pagerBusy = !leads.data || Boolean(waiting) || leads.loading;
   const leadHref = (lead: LeadListItem) =>
     panel ? panel.href(lead.id) : `/w/${workspaceSlug}/leads/${lead.id}`;
   const openLead = (lead: LeadListItem) =>
@@ -760,29 +761,66 @@ export function LeadsTable({
         </table>
       </div>
 
-      <nav aria-label="Lead pages" className="flex items-center gap-3 text-sm">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={initialLoading || leads.loading || page.page <= 1}
-          onClick={() => onPage(Math.max(1, page.page - 1))}
-        >
-          Previous
-        </Button>
-        <span className={cn('text-muted-foreground', initialLoading && 'invisible')}>
-          Page {page.page} of {pages} · {page.total} lead{page.total === 1 ? '' : 's'}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={initialLoading || leads.loading || page.page >= pages}
-          onClick={() => onPage(page.page + 1)}
-        >
-          Next
-        </Button>
-      </nav>
+      {/* The count, or how many are ticked, on the left; the pager only when there is more than one page. */}
+      <div
+        data-slot="lead-list-footer"
+        className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm text-muted-foreground"
+      >
+        <p className={cn('tabular-nums', initialLoading && 'invisible')}>
+          {tickedCount > 0
+            ? `${countFormat.format(tickedCount)} of ${countFormat.format(page.total)} selected`
+            : `${countFormat.format(page.total)} lead${page.total === 1 ? '' : 's'}`}
+        </p>
+        {pages > 1 || page.page > 1 ? (
+          <nav aria-label="Lead pages" className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8"
+              aria-label="First page"
+              title="First page"
+              disabled={pagerBusy || page.page <= 1}
+              onClick={() => onPage(1)}
+            >
+              <ChevronsLeftIcon aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pagerBusy || page.page <= 1}
+              onClick={() => onPage(Math.max(1, Math.min(page.page - 1, pages)))}
+            >
+              Previous
+            </Button>
+            <span className="px-1.5 whitespace-nowrap tabular-nums">
+              Page {page.page} of {pages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pagerBusy || page.page >= pages}
+              onClick={() => onPage(page.page + 1)}
+            >
+              Next
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8"
+              aria-label="Last page"
+              title="Last page"
+              disabled={pagerBusy || page.page >= pages}
+              onClick={() => onPage(pages)}
+            >
+              <ChevronsRightIcon aria-hidden="true" />
+            </Button>
+          </nav>
+        ) : null}
+      </div>
     </div>
   );
 }

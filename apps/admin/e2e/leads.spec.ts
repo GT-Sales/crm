@@ -1721,7 +1721,8 @@ test('loading screens show layout skeletons until their data arrives', async ({
         return head - body;
       })
       .toBe(0);
-    await expect(page.getByText(/Page 1 of 1 · 0 leads/)).not.toBeVisible();
+    // The count waits for the list: no "0 leads" while it loads.
+    await expect(page.getByText('0 leads', { exact: true })).not.toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath('design-loading-leads.png'),
       animations: 'disabled',

@@ -205,6 +205,89 @@ describe('LeadsTable', () => {
     );
     expect(document.body.textContent ?? '').not.toMatch(/trash/i);
   });
+  describe('the footer', () => {
+    function footer() {
+      const element = document.querySelector<HTMLElement>('[data-slot="lead-list-footer"]');
+      if (!element) throw new Error('expected the footer');
+      return element;
+    }
+
+    it('keeps the count but hides the pager when everything is on one page', async () => {
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={query}
+          catalog={catalog}
+          canUseProperties
+          onPage={vi.fn()}
+        />,
+      );
+      await screen.findByRole('link', { name: 'Avery Example' });
+      expect(screen.queryByRole('navigation', { name: 'Lead pages' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+      expect(footer().textContent).toBe('1 lead');
+    });
+
+    it('offers first, previous, next and last when there are several pages', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [],
+        page: { page: 2, pageSize: 50, total: 1320 },
+        access: { contacts: true, manage: true },
+      });
+      const onPage = vi.fn();
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={{ ...query, page: 2 }}
+          catalog={catalog}
+          canUseProperties
+          onPage={onPage}
+        />,
+      );
+      const pager = await screen.findByRole('navigation', { name: 'Lead pages' });
+      expect(pager.textContent).toContain('Page 2 of 27');
+      expect(footer().firstElementChild?.textContent).toBe('1,320 leads');
+      fireEvent.click(within(pager).getByRole('button', { name: 'First page' }));
+      expect(onPage).toHaveBeenLastCalledWith(1);
+      fireEvent.click(within(pager).getByRole('button', { name: 'Previous' }));
+      expect(onPage).toHaveBeenLastCalledWith(1);
+      fireEvent.click(within(pager).getByRole('button', { name: 'Next' }));
+      expect(onPage).toHaveBeenLastCalledWith(3);
+      fireEvent.click(within(pager).getByRole('button', { name: 'Last page' }));
+      expect(onPage).toHaveBeenLastCalledWith(27);
+    });
+
+    it('keeps the pager on a page past the end, so the list can be found again', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [],
+        page: { page: 4, pageSize: 50, total: 3 },
+        access: { contacts: true, manage: true },
+      });
+      const onPage = vi.fn();
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={{ ...query, page: 4 }}
+          catalog={catalog}
+          canUseProperties
+          onPage={onPage}
+        />,
+      );
+      const pager = await screen.findByRole('navigation', { name: 'Lead pages' });
+      fireEvent.click(within(pager).getByRole('button', { name: 'First page' }));
+      expect(onPage).toHaveBeenLastCalledWith(1);
+    });
+  });
+
   describe('selecting leads', () => {
     const LEAD_1 = '90000000-0000-4000-8000-000000000001';
     const LEAD_2 = '90000000-0000-4000-8000-000000000002';
@@ -349,6 +432,10 @@ describe('LeadsTable', () => {
       expect([...latest.selected]).toEqual([LEAD_1]);
       const bar = screen.getByRole('status', { name: 'Selected leads' });
       expect(within(bar).getByText('1 selected')).toBeTruthy();
+      // The footer says how many of the list are ticked.
+      expect(
+        document.querySelector('[data-slot="lead-list-footer"]')?.firstElementChild?.textContent,
+      ).toBe('1 of 2 selected');
       // What can be done with the ticked leads sits in the bar.
       expect(within(bar).getByRole('button', { name: 'Export' })).toBeTruthy();
       // A click in the checkbox's cell, beside the box, opens nothing either.
