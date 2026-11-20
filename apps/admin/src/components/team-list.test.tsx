@@ -96,4 +96,37 @@ describe('TeamList', () => {
     await screen.findByRole('list', { name: 'Team' });
     expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull();
   });
+
+  it('shows each role as its own chip, with the commas kept for the wide table', async () => {
+    render(<TeamList workspaceSlug="canadawide" />);
+    const list = await screen.findByRole('list', { name: 'Team' });
+    const second = within(list).getAllByRole('listitem')[1] ?? list;
+    expect(within(second).getByText('Leads').className).toContain('max-md:rounded-md');
+    expect(within(second).getByText('Viewer').className).toContain('max-md:border');
+  });
+
+  it('lines the Access header up with its cells', async () => {
+    render(<TeamList workspaceSlug="canadawide" />);
+    const list = await screen.findByRole('list', { name: 'Team' });
+    const header = screen.getByText('Access');
+    const columns = (element: Element) =>
+      element.className.split(' ').find((name) => name.startsWith('md:grid-cols-'));
+    const headerRow = header.parentElement ?? header;
+    const row = within(list).getAllByRole('listitem')[1] ?? list;
+    // Fixed track widths, so every row and the header share the same columns.
+    expect(columns(row)).toBe(columns(headerRow));
+    expect(columns(row)).not.toContain('auto');
+    expect(header.className).toContain('text-right');
+    expect(
+      within(row).getByRole('button', { name: 'Remove Unnamed leads' }).parentElement?.className,
+    ).toContain('justify-end');
+  });
+
+  it('keeps Remove a plain button, not a menu, since it is the only action', async () => {
+    render(<TeamList workspaceSlug="canadawide" />);
+    await screen.findByRole('list', { name: 'Team' });
+    const remove = screen.getByRole('button', { name: 'Remove Unnamed leads' });
+    expect(remove.getAttribute('aria-haspopup')).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 });

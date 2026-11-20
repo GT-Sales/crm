@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { staffRoleNames, type StaffRoleName } from '@gt-sales/types';
-import { Button, Input, Label } from '@gt-sales/ui';
-import { Mail, Plus, Trash2, UserPlus } from 'lucide-react';
+import { Button, Input, Label, cn } from '@gt-sales/ui';
+import { ChevronDown, Mail, Plus, Trash2, UserPlus } from 'lucide-react';
 
 import { inviteStaff } from '../lib/api';
 import { describeError } from '../lib/error-text';
@@ -23,6 +23,9 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
   const [nextId, setNextId] = useState(2);
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // Below `md` the form starts folded behind a button; from `md` it is always open.
+  const [expanded, setExpanded] = useState(false);
+  const formId = useId();
 
   if (!workspace?.roles.includes('owner')) return null;
 
@@ -92,150 +95,176 @@ export function StaffInviteForm({ workspaceSlug }: { workspaceSlug: string }) {
   }
 
   return (
-    <form
-      onSubmit={submit}
-      aria-labelledby="invite-heading"
-      className="overflow-hidden rounded-xl border border-border/80 bg-card/30"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
-        <div>
-          <h2 id="invite-heading" className="text-sm font-medium text-foreground">
-            Invite new members by email address
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Choose the roles they need to work on this site.
-          </p>
-        </div>
-        <Button
-          type="submit"
-          size="sm"
-          aria-label="Create invitation"
-          disabled={busy || activeRows.length === 0}
-          className="gap-1.5"
-        >
-          <UserPlus className="size-3.5" aria-hidden="true" />
-          {busy ? 'Creating…' : 'Invite'}
-        </Button>
-      </div>
-
-      <div className="flex flex-col gap-4 p-5">
-        {rows.map((row, index) => {
-          const emailId = index === 0 ? 'invite-email' : `invite-email-${row.id}`;
-          const roleId = `invite-role-${row.id}`;
-          const primaryRole: StaffRoleName = row.roles[0] ?? 'viewer';
-          return (
-            <div key={row.id} className="flex flex-col gap-2.5">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,240px)]">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor={emailId} className="text-xs font-medium text-foreground">
-                    {index === 0 ? 'Staff email' : `Staff email ${index + 1}`}
-                  </Label>
-                  <div className="relative flex items-center">
-                    <Mail
-                      aria-hidden="true"
-                      className="pointer-events-none absolute left-3 size-4 text-muted-foreground"
-                    />
-                    <Input
-                      id={emailId}
-                      type="email"
-                      autoComplete="email"
-                      placeholder="jane@example.com"
-                      maxLength={254}
-                      required={index === 0}
-                      disabled={busy}
-                      value={row.email}
-                      onChange={(event) => updateRowEmail(row.id, event.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor={roleId} className="text-xs font-medium text-foreground">
-                    Role
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      id={roleId}
-                      disabled={busy}
-                      value={primaryRole}
-                      onChange={(event) => {
-                        const chosen = staffRoleNames.find((item) => item === event.target.value);
-                        if (chosen) updatePrimaryRole(row.id, chosen);
-                      }}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {staffRoleNames.map((role) => (
-                        <option key={role} value={role}>
-                          {ROLE_LABELS[role]}
-                        </option>
-                      ))}
-                    </select>
-                    {rows.length > 1 ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={busy}
-                        aria-label={`Remove invite row ${index + 1}`}
-                        onClick={() => removeRow(row.id)}
-                        className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="size-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              <fieldset className="flex flex-wrap items-center gap-2">
-                <legend className="sr-only">Additional roles</legend>
-                {staffRoleNames.map((role) => {
-                  const active = row.roles.includes(role);
-                  return (
-                    <label
-                      key={role}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                        active
-                          ? 'border-primary/50 bg-primary/10 font-medium text-foreground'
-                          : 'border-border/70 bg-background/40 text-muted-foreground hover:bg-muted/40'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={active}
-                        disabled={busy}
-                        onChange={() => toggleExtraRole(row.id, role)}
-                        className="size-3 accent-primary"
-                      />
-                      {ROLE_LABELS[role]}
-                    </label>
-                  );
-                })}
-              </fieldset>
-            </div>
-          );
-        })}
-
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+    <div className="flex flex-col gap-3">
+      <Button
+        type="button"
+        variant="outline"
+        aria-expanded={expanded}
+        aria-controls={formId}
+        onClick={() => setExpanded((value) => !value)}
+        className="w-full justify-between gap-1.5 md:hidden"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <UserPlus className="size-4" aria-hidden="true" />
+          Invite member
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className={cn(
+            'size-4 transition-transform motion-reduce:transition-none',
+            expanded && 'rotate-180',
+          )}
+        />
+      </Button>
+      <form
+        id={formId}
+        onSubmit={submit}
+        aria-labelledby="invite-heading"
+        className={cn(
+          'overflow-hidden rounded-xl border border-border/80 bg-card/30',
+          !expanded && 'max-md:hidden',
+        )}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
+          <div>
+            <h2 id="invite-heading" className="text-sm font-medium text-foreground">
+              Invite new members by email address
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Choose the roles they need to work on this site.
+            </p>
+          </div>
           <Button
-            type="button"
-            variant="outline"
+            type="submit"
             size="sm"
-            disabled={busy || rows.length >= 10}
-            onClick={addRow}
+            aria-label="Create invitation"
+            disabled={busy || activeRows.length === 0}
             className="gap-1.5"
           >
-            <Plus className="size-3.5" aria-hidden="true" />
-            Add more
+            <UserPlus className="size-3.5" aria-hidden="true" />
+            {busy ? 'Creating…' : 'Invite'}
           </Button>
-          {message ? (
-            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-              {message}
-            </p>
-          ) : null}
         </div>
-      </div>
-    </form>
+
+        <div className="flex flex-col gap-4 p-5">
+          {rows.map((row, index) => {
+            const emailId = index === 0 ? 'invite-email' : `invite-email-${row.id}`;
+            const roleId = `invite-role-${row.id}`;
+            const primaryRole: StaffRoleName = row.roles[0] ?? 'viewer';
+            return (
+              <div key={row.id} className="flex flex-col gap-2.5">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,240px)]">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={emailId} className="text-xs font-medium text-foreground">
+                      {index === 0 ? 'Staff email' : `Staff email ${index + 1}`}
+                    </Label>
+                    <div className="relative flex items-center">
+                      <Mail
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-3 size-4 text-muted-foreground"
+                      />
+                      <Input
+                        id={emailId}
+                        type="email"
+                        autoComplete="email"
+                        placeholder="jane@example.com"
+                        maxLength={254}
+                        required={index === 0}
+                        disabled={busy}
+                        value={row.email}
+                        onChange={(event) => updateRowEmail(row.id, event.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={roleId} className="text-xs font-medium text-foreground">
+                      Role
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        id={roleId}
+                        disabled={busy}
+                        value={primaryRole}
+                        onChange={(event) => {
+                          const chosen = staffRoleNames.find((item) => item === event.target.value);
+                          if (chosen) updatePrimaryRole(row.id, chosen);
+                        }}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {staffRoleNames.map((role) => (
+                          <option key={role} value={role}>
+                            {ROLE_LABELS[role]}
+                          </option>
+                        ))}
+                      </select>
+                      {rows.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={busy}
+                          aria-label={`Remove invite row ${index + 1}`}
+                          onClick={() => removeRow(row.id)}
+                          className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <fieldset className="flex flex-wrap items-center gap-2">
+                  <legend className="sr-only">Additional roles</legend>
+                  {staffRoleNames.map((role) => {
+                    const active = row.roles.includes(role);
+                    return (
+                      <label
+                        key={role}
+                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                          active
+                            ? 'border-primary/50 bg-primary/10 font-medium text-foreground'
+                            : 'border-border/70 bg-background/40 text-muted-foreground hover:bg-muted/40'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          disabled={busy}
+                          onChange={() => toggleExtraRole(row.id, role)}
+                          className="size-3 accent-primary"
+                        />
+                        {ROLE_LABELS[role]}
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              </div>
+            );
+          })}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || rows.length >= 10}
+              onClick={addRow}
+              className="gap-1.5"
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+              Add more
+            </Button>
+            {message ? (
+              <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+                {message}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </form>
+    </div>
   );
 }

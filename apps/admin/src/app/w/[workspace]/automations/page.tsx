@@ -1,6 +1,7 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gt-sales/ui';
+import { Card, CardContent } from '@gt-sales/ui';
 
 import { SiteAutomations } from '../../../../components/automations/automations-list';
+import { PageHeader } from '../../../../components/page-header';
 
 export default async function AutomationsPage({
   params,
@@ -9,20 +10,16 @@ export default async function AutomationsPage({
 }) {
   const { workspace } = await params;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle asChild>
-          <h1>Automations</h1>
-        </CardTitle>
-        <CardDescription>
-          The flows this site runs on its own when a lead is submitted, moves stage or waits too
-          long: emails to the customer, tasks and notes to staff. Each flow stays off until someone
-          with the Integrations permission switches it on.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <SiteAutomations workspaceSlug={workspace} />
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Automations"
+        description="Flows this site runs on its own when leads arrive, move or wait."
+      />
+      <Card>
+        <CardContent>
+          <SiteAutomations workspaceSlug={workspace} />
+        </CardContent>
+      </Card>
+    </div>
   );
 }
