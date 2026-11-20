@@ -148,7 +148,8 @@ The reconciliation row must show `rows_missing` and `stage_mismatches` at `0`
 The import runs one last time on switch day, when the checkout moves to the
 CRM; see [The final run (switch day)](#the-final-run-switch-day) below.
 
-**Nightly sync (since 2026-11-07).** Until switch day the old admin stays the
+**Nightly sync (2026-11-07 to the switch, around 2026-11-12; it no longer
+exists).** Until switch day the old admin stayed the
 working system (owner decision, "Option A"), and the CRM is kept current every
 night: pg_cron job `gcs-legacy-sync` runs `app.sync_getcanadasim_legacy()` at
 20:00 UTC (02:00 Bangladesh), the script above wrapped in a function
@@ -236,6 +237,10 @@ import is run: Supabase SQL editor, as `postgres`, one block at a time.
    touches a CRM order, since a CRM order's id is not in `public.orders`.
    **Do not run it again after switch day**: after the flip nothing flows
    from `public.orders` to the CRM, and staff work orders only in the CRM.
+   Once migration 0041 is applied the CRM's own orders are in
+   `public.orders` too ([After the switch](#after-the-switch-the-mirror-migration-0041)),
+   and a run would copy the old admin's notes, reminders and "opened" marks
+   onto them.
 4. Run the `RECONCILE` selects one at a time:
    1. `rows_missing` must be `0`, and `imported_orders` must equal
       `gcs_orders`.
@@ -302,3 +307,72 @@ seed gives 1152 and the next order is `MS-1153`. The change request
 counter is rehearsed the same way: the seed gives the highest `request_no`
 plus 9 (plus 1000 before a test request), a second seed never lowers it, and
 the CRM's next request number is the highest plus 10.
+
+## After the switch: the mirror (migration 0041)
+
+Get Canada Sim switched its checkout to the CRM around 2026-11-12 (`CRM_ORDERS`
+on; the seed and the final import above). Since then every new order is a
+`sim_order` lead of the `getcanadasim` site numbered `MS-<n>` from the site's
+counter, and nothing reached `public.orders`, so the old Get Canada Sim admin
+stopped at 2026-11-12 06:10 UTC. The owner keeps the old admin for now ("both
+the new CRM and the old admin should receive the orders"): migration 0041
+copies each order into `public.orders` the moment it is submitted, and its
+backfill copies the ones taken since the switch (docs/RUNBOOKS/database.md,
+0041). The CRM stays the system the website writes to.
+
+**When.** The website's checkout creates a draft (`incomplete`; a draft may
+have no name or email yet, and its documents are uploaded against it), saves
+it with `PATCH`, then submits it with a `PATCH` carrying `submit: true`; a
+one-shot create may submit at once; staff may rescue a draft by moving it on.
+The copy runs on the statement that makes the lead `submitted` (the INSERT of
+a submitted lead, or the UPDATE that changes its status), in the same
+transaction, with the order as it then stands. Drafts are never copied: the
+old table requires a name, email and phone, and the CRM erases an abandoned
+draft's details after 90 days. Once copied, the row is never written by the
+CRM again.
+
+**The mapping**, the import's turned around (`form` is the lead's
+`payload.payload`, `order` its `order_details`):
+
+| `public.orders`                                                                                | From the lead                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                                                                                           | the lead's id                                                                                                                                                            |
+| `order_no`                                                                                     | the number of `external_ref` `MS-<n>` (a lead without one is not copied)                                                                                                 |
+| `full_name`, `email`                                                                           | the lead's, trimmed (a lead without either is not copied)                                                                                                                |
+| `phone`                                                                                        | the lead's, trimmed, else `''` (the CRM's checkout does not require one; the column is NOT NULL)                                                                         |
+| `country_code`                                                                                 | the lead's                                                                                                                                                               |
+| `plan`                                                                                         | `form.planId` (the website's slug), else the frozen plan's "Website slug" (`order.plan.properties.custom_website_slug`)                                                  |
+| `delivery`                                                                                     | `form.delivery`, else `esim` (the column's default; only a rescued checkout can lack it)                                                                                 |
+| `arrival`, `permit_type`, `got_visa`, `flight_booked`, `canada_address`, `shipping_address`    | `form.arrivalDate`, `permitType`, `gotVisa`, `flightBooked`, `canadaAddress`, `shippingAddress` (the address in its own column, never in `notes`)                        |
+| `reference`, `notes`, `sim_number`                                                             | `form.reference`, `customerNotes`, `simNumber` (the last two only staff or the import set)                                                                               |
+| `status`                                                                                       | the stage: the same keys (`pending` for a new order); `paid` and `invoiced` are never written, since the payment status and carrier commission are order details         |
+| `commission_status`                                                                            | `order.carrierCommission`: `invoiced` → `invoiced`, `received` → `commission_received`, `clawback` → `claw_back`, else null                                              |
+| `created_at`, `archived_at`                                                                    | the lead's `created_at` and `deleted_at`                                                                                                                                 |
+| `partner_id`                                                                                   | the `public.partners` row whose `partner_no` is `<n>` when the lead's `attribution.partnerCode` is `PT-<n>` (the import's form), else null                               |
+| `passport_path`, `permit_path`, `sim_photo_path`, `billing_contract_path`                      | null: documents stay in the CRM (below)                                                                                                                                  |
+| `admin_note`, `partner_note`, reminders, `viewed_at`, `ip_address`, `order_edit_requests` rows | null or nothing: notes and tasks are the CRM's timeline, the CRM keeps no IP address, a CRM order's change requests are the CRM's; the old admin's "New" badge starts on |
+
+**Documents.** The CRM keeps the customer's files in the same Supabase bucket
+(`documents`), but as its own verified objects
+(`workspaces/<site>/candidate/…`). Pointing `passport_path` at them would let
+the old admin, which replaces a file in place under the same name, overwrite
+or delete the CRM's verified copy, and the copy runs before staff or the
+customer add later files. So the paths stay empty and nothing is copied: staff
+open an order's documents on the CRM's lead page.
+
+**Not synced after the order is created**, as for CanadaWide's mirror: the
+old admin's changes stay in `public.orders`, and the CRM's stage moves, edits,
+archive, documents, notes and a customer's erasure stay in the CRM. Staff
+should work each order in one place (the CRM). An erasure done in the CRM must
+be repeated by hand in the old admin.
+
+**Skips.** A row with the same id or the same `order_no` is left as it is
+and the CRM's write goes on; a legacy-side error is caught the same way.
+Each skip logs `getcanadasim legacy mirror: lead <id> not copied (<reason or
+SQLSTATE>)` at LOG level (Supabase → Logs → Postgres), with no customer data.
+The database runbook's verify select 3 lists any submitted order without its
+row.
+
+The rehearsal is `apps/backend/tests/getcanadasim-legacy-mirror.integration.test.ts`
+(replica tables in `tests/support/legacy-getcanadasim.ts`, shared with the
+import suite under its advisory lock).

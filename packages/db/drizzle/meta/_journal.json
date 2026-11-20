@@ -288,6 +288,13 @@
       "when": 1795161147368,
       "tag": "0040_ai_model_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795181538013,
+      "tag": "0041_getcanadasim_legacy_mirror",
+      "breakpoints": true
     }
   ]
 }

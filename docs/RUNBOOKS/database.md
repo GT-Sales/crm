@@ -1,8 +1,10 @@
 # Database runbook
 
 Project: Supabase `gtsales-crm` (`xykrphbgpwisqacpyeiv`, Mumbai). The CRM
-owns the `app` schema. Get Canada Sim's live tables stay in `public` until
-the cutover (docs/PLAN.md §7); nothing here touches them.
+owns the `app` schema. Get Canada Sim's and CanadaWide's old tables stay in
+`public` until the owner retires the old admin (docs/PLAN.md §7); no migration
+alters them, and only the two legacy mirrors (0002, 0041) insert rows into
+them.
 
 ## How migrations are tracked
 
@@ -30,7 +32,8 @@ pg_proc / pg_policies where schemaname = 'app'`.
 On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
 all applied, the Drizzle tracker holding rows 1 to 38, each verified against
 its file's SHA-256. 0038 and 0039 were applied on 2026-11-20, with their
-tracker rows (40 rows), then 0040 the same day (41 rows).
+tracker rows (40 rows), then 0040 the same day (41 rows). 0041 is prepared, not
+applied (below).
 
 ## Runtime role settings (2026-11-13)
 
@@ -1398,6 +1401,117 @@ select has_table_privilege('app_runtime', 'app.ai_model_settings', 'SELECT'),
 select conname from pg_constraint where conrelid = 'app.ai_model_settings'::regclass
  and contype = 'c' order by conname;
   -- ai_model_settings_allowed_models_check, ai_model_settings_default_model_check
+```
+
+## 0041_getcanadasim_legacy_mirror (2026-11-20, prepared, not applied)
+
+The old Get Canada Sim admin receives the CRM's SIM orders again. Since the
+checkout switched to the CRM (around 2026-11-12, `CRM_ORDERS` on) every new
+order is only an `app.leads` row, so the old admin, which reads
+`public.orders`, has shown no order since 2026-11-12 06:10 UTC (14 missing on
+2026-11-20). The owner keeps both for now: the CRM stays the system the
+website writes to, and the old admin gets a copy (docs/HANDOFF.md §2.4, "Get
+Canada Sim legacy mirror"). Hand-written (`drizzle-kit generate --custom`; its
+snapshot is 0040's); no table, column or grant changes, nothing in `public` is
+dropped or altered, only rows inserted.
+
+**What it adds.**
+
+- `app.copy_getcanadasim_legacy_order(app.leads)` returns boolean: the
+  mapping, the mirror image of `packages/db/sql/getcanadasim-legacy-import.sql`
+  (docs/RUNBOOKS/legacy-import.md, "After the switch: the mirror", has the
+  field list). It copies only a submitted, unrestricted `sim_order` of the
+  site whose slug is `getcanadasim`, with an `MS-<n>` reference and a name and
+  email, and only when `public.orders` exists; `insert … on conflict do
+nothing`, so a row with the same id or the same `order_no` is left as it
+  is. Any error on the legacy side (a check, a foreign key) is caught: the copy
+  is skipped and `getcanadasim legacy mirror: lead <id> not copied (…)` is
+  logged at LOG level with the SQLSTATE only, never a value (Supabase → Logs →
+  Postgres). Empty `search_path`, SECURITY INVOKER, owner the migration role;
+  EXECUTE revoked from PUBLIC, so only its owner runs it (the trigger below
+  and the backfill).
+- `app.mirror_getcanadasim_legacy_order()`, the trigger function: SECURITY
+  DEFINER, empty `search_path`, owner the migration role (`postgres`, which
+  has BYPASSRLS, so it can read the site and write `public.orders`), no grants,
+  exactly as 0002's `app.mirror_canadawide_legacy_lead()`.
+- Trigger `leads_mirror_getcanadasim_legacy` `AFTER INSERT OR UPDATE OF status
+ON app.leads FOR EACH ROW`: it calls the copy for a lead created submitted
+  and for an update that changes a lead's status into `submitted` (the
+  website's submitting `PATCH`, or a staff move that rescues a checkout). A
+  draft is never copied; nothing is written to `public.orders` after the copy.
+- **The backfill** (between `-- BACKFILL BEGIN` and `-- BACKFILL END`): the
+  same function over every submitted `getcanadasim` `sim_order` lead whose id
+  is not in `public.orders`, oldest first, as the orders stand at that moment
+  (a CRM order already moved to Verified arrives as `verified`). Re-runnable:
+  a second run copies nothing. Without `public.orders` it does nothing.
+
+**To apply** (owner, Supabase SQL editor as `postgres`), in one transaction:
+a guard (stop if the 0041 hash is already in `drizzle.__drizzle_migrations`,
+stop if 0040's, `2bf58c6a…3804`, is not), the file's statements without the
+`--> statement-breakpoint` lines, and the tracker row (hash, `created_at`):
+`0041_getcanadasim_legacy_mirror`
+`2377228abe27b8ae8bd1ba045792bd629d2a75fa67b151754585d29b77dcd80f`,
+`1795181538013` (42 rows). The deploy and the migration may go in either
+order: no code reads either function.
+
+- **Before it is applied**: the old admin shows no order since the switch.
+- **After applying**: the old admin's order list has the orders since the
+  switch, each under its `MS-` number and the CRM's lead id, at the stage it
+  stands in the CRM, and every order submitted from then on appears there the
+  moment it is submitted, at `pending`. Its "New" badge is on (`viewed_at`
+  empty). **Changes are not synced between the two after the order is
+  created**, in either direction: what staff change in the old admin stays
+  there, and stage moves, edits, documents, notes, tasks, the archive and a
+  customer's erasure in the CRM never reach `public.orders`. A customer's
+  erasure must therefore also be done by hand in the old admin.
+- **Old-side numbering.** The mirror writes `order_no` itself and never moves
+  `public.orders`' own `order_no` sequence, so anything still inserting
+  through that sequence (the old checkout, if `CRM_ORDERS` were turned off)
+  would soon reach a mirrored number and fail on the unique index. Before any
+  such insert, move the sequence past the CRM's counter as the switch-day
+  rollback does (docs/RUNBOOKS/legacy-import.md, "Rollback", step 2).
+- **Do not run the historical import again** (docs/RUNBOOKS/legacy-import.md,
+  "After the switch"): the mirrored orders are now in `public.orders`.
+- Rollback: `drop trigger leads_mirror_getcanadasim_legacy on app.leads;`
+  `drop function app.mirror_getcanadasim_legacy_order();`
+  `drop function app.copy_getcanadasim_legacy_order(app.leads);` and delete
+  the tracker row. The rows already copied stay in `public.orders`; the CRM is
+  unaffected either way.
+- Retire it, in a new migration, together with the trigger and both
+  functions, when the owner retires the old Get Canada Sim admin.
+- Verify against the schema:
+
+```sql
+-- 1. The trigger, enabled (O), and the two functions.
+select tgname, tgenabled from pg_trigger
+ where tgrelid = 'app.leads'::regclass and tgname = 'leads_mirror_getcanadasim_legacy';  -- O
+select p.proname, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) as owner, p.proacl
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'app'
+   and p.proname in ('copy_getcanadasim_legacy_order', 'mirror_getcanadasim_legacy_order');
+  -- copy_…: f, {search_path=""}, postgres, {postgres=X/postgres}
+  -- mirror_…: t, {search_path=""}, postgres, (null)
+select has_function_privilege('app_runtime', 'app.copy_getcanadasim_legacy_order(app.leads)',
+  'EXECUTE');                                                                -- f
+-- 2. The tracker row.
+select id, created_at from drizzle.__drizzle_migrations
+ where hash = '2377228abe27b8ae8bd1ba045792bd629d2a75fa67b151754585d29b77dcd80f';  -- 1795181538013
+-- 3. Every submitted Get Canada Sim order has its public.orders row. Expect no rows;
+--    any row here names the lead the copy skipped (and the Postgres log says why).
+select l.id, l.external_ref, l.stage, l.created_at
+  from app.leads l join app.workspaces w on w.id = l.workspace_id
+ where w.slug = 'getcanadasim' and l.lead_type = 'sim_order' and l.status = 'submitted'
+   and l.customer_data_restricted_at is null
+   and not exists (select 1 from public.orders o where o.id = l.id)
+ order by l.created_at;
+-- 4. The copies agree on the number: expect no rows.
+select l.id, l.external_ref, o.order_no
+  from app.leads l join public.orders o on o.id = l.id
+ where l.external_ref is distinct from 'MS-' || o.order_no;
+-- 5. The orders since the switch, as the old admin lists them (expect the 14
+--    of 2026-11-20 and any since, newest first).
+select o.order_no, o.status, o.created_at from public.orders o
+ where o.created_at >= '2026-11-12T06:10:00Z' order by o.created_at desc;
 ```
 
 ## Historical CanadaWide import (2026-10-27)
