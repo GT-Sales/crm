@@ -307,8 +307,8 @@ ids passes through, and it is a no-op where the legacy tables do not exist
 0005/0006 (`app.mirror_canadawide_legacy_identity`,
 `app.canadawide_legacy_identity_applies`) at the staff cutover (§5.2).
 
-**Get Canada Sim legacy mirror (migration 0041, temporary; prepared, not
-applied).** The second legacy mirror, for the old Get Canada Sim admin after
+**Get Canada Sim legacy mirror (migration 0041, temporary; applied
+2026-11-20).** The second legacy mirror, for the old Get Canada Sim admin after
 the checkout's switch to the CRM (around 2026-11-12). An AFTER INSERT OR
 UPDATE OF status trigger on `app.leads` copies each `sim_order` lead of the
 `getcanadasim` site into `public.orders` **at the moment it is submitted**
@@ -572,12 +572,13 @@ Reference client: `lib/crm.ts` in the CanadaWide repository.
   (properties, plans and Archive, order tools and customer email, customer
   tracking's backend, the source report and the intake check, automation flows)
   are live; PLAN.md §7 has the dates.
-- **Migrations 0000 to 0040** are applied in production (RUNBOOKS/database.md;
+- **Migrations 0000 to 0041** are applied in production (RUNBOOKS/database.md;
   0017 and 0018 on 2026-10-31 with their tracker rows, 0019 and 0020 with merge
   phase 8 step A, 0021 and 0022 on 2026-11-04, 0023 to 0026 on 2026-11-05). On
   2026-11-19 the database was checked: the Drizzle tracker holds rows 1 to 38,
   each verified against its file's hash. 0038 and 0039 were applied on 2026-11-20
-  with their tracker rows (40 rows), then 0040 the same day (41 rows).
+  with their tracker rows (40 rows), then 0040 the same day (41 rows) and 0041
+  (42 rows).
 - **The intake check** runs every 15 minutes since 2026-11-06 on the test site
   `intake-check` (`abf5dabe-5fcc-4976-a3d1-d4b1838dd39f`, no members, roles,
   keys, email settings or automations); `synthetic:check` is on the
@@ -638,7 +639,7 @@ tool holds the statement), add the tracker rows, verify against the catalog.
 | 15  | High effort (`AI_HIGH_EFFORT_ENABLED`)                                                                                 | Off until `AI_HIGH_EFFORT_ENABLED=true` is set on Railway, with `AI_GATEWAY_MODEL_HIGH` and `AI_HIGH_EFFORT_REASONING` if wanted (docs/ENV.md); not recorded as set. Until then the composer shows no effort control and Ask AI answers at Normal only. 0037, which records the level, is applied.                                                                                                               | RUNBOOKS/ai-assistant.md §13: choose the High model and reasoning word in the Gateway catalogue, set the variables, restart, check capabilities and Settings → AI usage.                                                                                                                                                                                                                                                      |
 | 16  | Migration `0039_ai_chat_erasure` (a customer's erasure reaches saved chats; departed members' chats are deleted)       | Applied on 2026-11-20 (40 tracker rows). Before it was, a turn about a restricted lead is never replayed to the model but its text stays stored and shown, each restriction run logs `ai_chat_erasure_function_missing`, and `document_cleanup` skips the cleanup of erased turns' files and of the chats of people gone from a site for 30 days. Applying it emptied the turns of every lead restricted so far. | RUNBOOKS/database.md, 0039: apply the file in the SQL editor, insert the tracker row, run the verify selects. Safe in either deploy order: the backend's probe sees it within 5 minutes, with no redeploy.                                                                                                                                                                                                                    |
 | 17  | Migration `0040_ai_model_settings` (Ask AI's model choice: Settings → AI models and the composer's model menu)         | Applied on 2026-11-20 (41 tracker rows; table, forced RLS, both policies, constraints and grants checked). Settings → AI models can save; until an owner saves more than one model the composer shows no model menu and every turn uses `AI_GATEWAY_MODEL` (and High's own model) as before.                                                                                                                     | The owner allows models in Settings → AI models (RUNBOOKS/ai-assistant.md §14).                                                                                                                                                                                                                                                                                                                                               |
-| 18  | Migration `0041_getcanadasim_legacy_mirror` (the old Get Canada Sim admin receives every submitted CRM order again)    | Prepared, not applied. Until it is, the old admin shows no order since 2026-11-12 06:10 UTC (14 missing on 2026-11-20). Applying it copies those orders into `public.orders` (the backfill) and every later one as it is submitted. Nothing is synced after that; documents, notes and reminders stay in the CRM.                                                                                                | RUNBOOKS/database.md, 0041: run the owner's apply script (guard, statements, tracker row) in the SQL editor, then the verify selects.                                                                                                                                                                                                                                                                                         |
+| 18  | Migration `0041_getcanadasim_legacy_mirror` (the old Get Canada Sim admin receives every submitted CRM order again)    | Applied on 2026-11-20 (42 tracker rows). The backfill copied the 13 submitted orders taken since the switch (MS-630 to MS-642); every submitted Get Canada Sim order then had its `public.orders` row (141 of 141), and each later one is copied as it is submitted. Nothing is synced after that; documents, notes and reminders stay in the CRM.                                                               | Retire the old admin when staff work only in the CRM; then remove the trigger and both functions in a new migration.                                                                                                                                                                                                                                                                                                          |
 
 ## 4. What is verified, and how
 
