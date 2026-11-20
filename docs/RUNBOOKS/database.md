@@ -29,7 +29,8 @@ pg_proc / pg_policies where schemaname = 'app'`.
 
 On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
 all applied, the Drizzle tracker holding rows 1 to 38, each verified against
-its file's SHA-256. 0038 is the one prepared and waiting.
+its file's SHA-256. 0038 and 0039 were applied on 2026-11-20, with their
+tracker rows (40 rows).
 
 ## Runtime role settings (2026-11-13)
 
@@ -1183,7 +1184,7 @@ select conname from pg_constraint
  where conname in ('ai_turns_effort_check', 'ai_messages_effort_check');      -- 2 rows
 ```
 
-## 0038_plain_tasks (2026-11-19, prepared, not applied)
+## 0038_plain_tasks (2026-11-19, applied 2026-11-20)
 
 A **plain task** is a task with no lead (the Tasks page's "New task", Ask
 AI's task card when the person names no lead). Not applied by the deploy; the
@@ -1244,7 +1245,7 @@ select pg_get_constraintdef(oid) from pg_constraint
   -- FOREIGN KEY (workspace_id, lead_id) REFERENCES app.leads(workspace_id, id) ON DELETE CASCADE
 ```
 
-## 0039_ai_chat_erasure (2026-11-19, prepared, not applied)
+## 0039_ai_chat_erasure (2026-11-19, applied 2026-11-20)
 
 Audit B2 and C13 (docs/design/ai-chat.md §13): a customer's data
 restriction reaches Ask AI's saved chats, and the chats of someone who left a
