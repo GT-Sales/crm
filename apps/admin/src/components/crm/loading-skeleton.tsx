@@ -155,7 +155,7 @@ function Metrics({ website = false }: { website?: boolean }) {
         'grid rounded-xl border bg-card',
         website
           ? 'crm-stat-grid min-[480px]:grid-cols-2 lg:grid-cols-3'
-          : 'crm-kpi-strip sm:grid-cols-2 lg:grid-cols-4',
+          : 'crm-kpi-strip crm-kpi-strip-compact grid-cols-2 lg:grid-cols-4',
       )}
     >
       {Array.from({ length: website ? 6 : 4 }, (_, index) => (
