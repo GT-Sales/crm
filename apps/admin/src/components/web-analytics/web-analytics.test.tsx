@@ -108,7 +108,7 @@ describe('WebAnalytics', () => {
     expect(await screen.findByText(/did not answer/)).toBeTruthy();
   });
 
-  it('says it is not connected, with a link to Integrations for an owner and no period control', async () => {
+  it('says it is not connected and how the owner connects it, with no period control', async () => {
     mocks.getWebAnalytics.mockResolvedValue({
       report: null,
       unavailable: 'not_configured',
@@ -117,24 +117,12 @@ describe('WebAnalytics', () => {
     render(<WebAnalytics workspaceSlug="getcanadasim" />);
     expect(await screen.findByText('Website analytics is not connected')).toBeTruthy();
     expect(
-      screen.getByRole('link', { name: 'Open Settings → Integrations' }).getAttribute('href'),
-    ).toBe('/w/getcanadasim/settings/integrations');
-    expect(screen.queryByText(/Ask an owner/)).toBeNull();
+      screen.getByText(/adding its address and an API key to the CRM’s server settings/),
+    ).toBeTruthy();
+    // Umami is set on the server, not in the admin: there is no screen to send anyone to.
+    expect(screen.queryByRole('link')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Period' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Last 7 days' })).toBeNull();
-  });
-
-  it('tells a member who is not an owner to ask one, without a link', async () => {
-    session.roles = ['leads'];
-    mocks.getWebAnalytics.mockResolvedValue({
-      report: null,
-      unavailable: 'not_configured',
-      requestId: REQUEST,
-    });
-    render(<WebAnalytics workspaceSlug="getcanadasim" />);
-    expect(await screen.findByText('Website analytics is not connected')).toBeTruthy();
-    expect(screen.getByText(/Ask an owner to connect it/)).toBeTruthy();
-    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('keeps the period control when Umami has no website linked', async () => {

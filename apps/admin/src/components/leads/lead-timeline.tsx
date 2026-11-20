@@ -328,8 +328,17 @@ export function groupByDay<T extends { createdAt: string }>(
   return groups;
 }
 
-/** How long ago, with the full date and time on hover and on keyboard focus. */
+/**
+ * How long ago for today's entries; for older ones the time of day, since the
+ * day heading above already names the date (so a phone, which has no hover,
+ * still sees when it happened). The full date and time on hover and focus.
+ */
 function EntryTime({ iso }: { iso: string }) {
+  const date = new Date(iso);
+  const label =
+    todayDay(date) === todayDay()
+      ? relativeTime(iso)
+      : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -338,7 +347,7 @@ function EntryTime({ iso }: { iso: string }) {
           tabIndex={0}
           className="mb-1 block w-fit rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {relativeTime(iso)}
+          {label}
         </time>
       </TooltipTrigger>
       <TooltipContent side="top" align="start">

@@ -541,6 +541,17 @@ describe('the timeline grouped by day', () => {
     ]);
   });
 
+  it('shows the time of day on entries before today, as the day heading already names the date', () => {
+    const region = renderTimeline();
+    const older = [...region.querySelectorAll('time')].find(
+      (time) => time.getAttribute('datetime') === yesterday.toISOString(),
+    );
+    if (!older) throw new Error('expected yesterday’s entry');
+    expect(older.textContent).toBe(
+      yesterday.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+    );
+  });
+
   it('shows how long ago only, with the full date and time on focus and in the markup', async () => {
     const region = renderTimeline();
     const times = region.querySelectorAll('time');

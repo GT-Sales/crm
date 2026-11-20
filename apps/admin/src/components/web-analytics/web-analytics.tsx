@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { WebAnalyticsDays, WebAnalyticsReport, WebAnalyticsTotals } from '@gt-sales/contracts';
-import { Button, Card, CardContent, cn, EmptyState } from '@gt-sales/ui';
+import { Card, CardContent, cn, EmptyState } from '@gt-sales/ui';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -300,8 +299,6 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
     [accessToken, workspaceId, days],
   );
   const analytics = useResource(load);
-  const isOwner =
-    workspaces.find((entry) => entry.slug === workspaceSlug)?.roles.includes('owner') ?? false;
   // A report for another period is not this period's: show the skeleton, not stale figures.
   const data =
     analytics.data?.report?.days === days || analytics.data?.report === null
@@ -318,18 +315,7 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
           <EmptyState
             icon={<ChartLineIcon />}
             title="Website analytics is not connected"
-            description={`Once it is, this page shows how many people visit the website, where they come from and what they look at.${
-              isOwner ? '' : ' Ask an owner to connect it.'
-            }`}
-            action={
-              isOwner ? (
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/w/${workspaceSlug}/settings/integrations`}>
-                    Open Settings → Integrations
-                  </Link>
-                </Button>
-              ) : undefined
-            }
+            description="Once it is, this page shows how many people visit the website, where they come from and what they look at. The owner connects Umami by adding its address and an API key to the CRM’s server settings."
           />
         </CardContent>
       </Card>

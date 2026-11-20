@@ -256,6 +256,8 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
 /** How the chips name the comparison: "vs previous" on screen, the full words for a screen reader. */
 type CompareWords = { short: string; long: string };
 
+const pointFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+
 function compareWords(compare: DashboardState['compare']): CompareWords {
   return compare === 'last_year'
     ? { short: 'last year', long: 'the same period last year' }
@@ -376,13 +378,14 @@ function Kpis({
   const { kpis } = data;
   const rate = (won: number, created: number) => (created > 0 ? won / created : 0);
   const rateValue = rate(kpis.won.current, kpis.newLeads.current);
-  // Whole percentage points, so the chip compares what the tile shows.
+  // Tenths of a percentage point, as integers: the tile shows one decimal
+  // place, so the chip compares exactly what the two tiles would show.
   const conversion = {
-    current: Math.round(rateValue * 100),
+    current: Math.round(rateValue * 1000),
     previous:
       kpis.won.previous === null || kpis.newLeads.previous === null
         ? null
-        : Math.round(rate(kpis.won.previous, kpis.newLeads.previous) * 100),
+        : Math.round(rate(kpis.won.previous, kpis.newLeads.previous) * 1000),
   };
   const typeHref = leadType ? leadsHref(workspaceSlug, { type: leadType }) : undefined;
 
@@ -419,7 +422,7 @@ function Kpis({
           <Delta
             value={conversion}
             compare={compare}
-            format={(points) => `${numberFormat.format(points)} pts`}
+            format={(tenths) => `${pointFormat.format(tenths / 10)} pts`}
           />
         </Kpi>
         <Kpi

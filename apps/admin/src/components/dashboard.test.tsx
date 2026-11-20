@@ -436,6 +436,21 @@ describe('Dashboard KPI comparison chips', () => {
     expect(chip('New orders')).not.toBeNull();
   });
 
+  it('compares the conversion rate to the decimal place the tile shows', async () => {
+    // 12.5 % (5 of 40) against 12.4 % (31 of 250): the tiles differ, so the chip must too.
+    resetMocks({
+      ...counts,
+      kpis: {
+        ...counts.kpis,
+        newLeads: { current: 40, previous: 250 },
+        won: { current: 5, previous: 31 },
+      },
+    });
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'New orders' });
+    expect(chip('Conversion rate')?.textContent).toContain('+0.1 pts vs previous');
+  });
+
   it('lays the four tiles out two by two on phones', async () => {
     const view = render(<Dashboard workspaceSlug="getcanadasim" />);
     await screen.findByRole('heading', { name: 'New orders' });

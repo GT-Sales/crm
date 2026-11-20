@@ -644,7 +644,11 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
             className="m-auto"
             icon={<SearchIcon />}
             title="No customers match"
-            description="Check the spelling, or try part of the name."
+            description={
+              pages > 1
+                ? 'Only this page of customers is searched. Try the other pages, or press New email to find anyone on the site.'
+                : 'Check the spelling, or try part of the name.'
+            }
             action={
               <Button type="button" size="sm" variant="outline" onClick={() => setFilter('')}>
                 Clear search
