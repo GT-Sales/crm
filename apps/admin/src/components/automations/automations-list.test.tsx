@@ -170,6 +170,57 @@ describe('SiteAutomations', () => {
     expect(within(row(ORDER_RECEIVED)).getByText('Never')).toBeTruthy();
   });
 
+  it('keeps one switch per flow and gives each row its phone labels', async () => {
+    mocks.listAutomations.mockResolvedValue(
+      answer({
+        automations: [
+          builtIn('order_received', { lastRunAt: '2026-11-19T10:00:00.000Z', runCount: 1 }),
+          builtIn('sim_order_dispatched', { runCount: 3 }),
+        ],
+      }),
+    );
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    const flows = await table();
+    // The phone cards are the same rows, so there is exactly one switch each.
+    expect(within(flows).getAllByRole('switch')).toHaveLength(2);
+    const cells = within(row(ORDER_RECEIVED)).getAllByRole('cell');
+    expect(cells[4]?.textContent).toBe('1');
+    expect(cells[4]?.getAttribute('data-suffix')).toBe(' run');
+    expect(cells[3]?.className).toContain("max-md:before:content-['Last_run_']");
+    expect(within(row(DISPATCHED)).getAllByRole('cell')[4]?.getAttribute('data-suffix')).toBe(
+      ' runs',
+    );
+    // Below md the header row is for screen readers only and the rows stack.
+    expect(row(ORDER_RECEIVED).className).toContain('max-md:flex');
+    expect(within(flows).getAllByRole('columnheader')[0]?.closest('thead')?.className).toContain(
+      'max-md:sr-only',
+    );
+  });
+
+  it('shows a chip only for a flow that needs something, and a muted dash otherwise', async () => {
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    await table();
+    const healthy = within(row(ORDER_RECEIVED));
+    expect(healthy.getByText('—').getAttribute('aria-hidden')).toBe('true');
+    expect(healthy.getByText('Nothing needs attention')).toBeTruthy();
+    expect(within(row(DISPATCHED)).queryByText('—')).toBeNull();
+    expect(within(row('Verified follow-up')).queryByText('—')).toBeNull();
+  });
+
+  it('shows the permission note beside the switches only to a member who cannot manage', async () => {
+    const { unmount } = render(<SiteAutomations workspaceSlug="canadawide" />);
+    await table();
+    expect(
+      screen.queryByText('This needs the Integrations permission (the owner has it).'),
+    ).toBeNull();
+    unmount();
+    mocks.listAutomations.mockResolvedValue(answer({ canManage: false }));
+    render(<SiteAutomations workspaceSlug="canadawide" />);
+    expect(
+      await screen.findByText('This needs the Integrations permission (the owner has it).'),
+    ).toBeTruthy();
+  });
+
   it('disables the switch of a flow with no active version, saying why', async () => {
     render(<SiteAutomations workspaceSlug="canadawide" />);
     await table();

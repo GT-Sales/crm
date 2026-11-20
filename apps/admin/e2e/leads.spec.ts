@@ -1809,6 +1809,9 @@ test('settings separates profile, team invitations and website integrations', as
   await sections.selectOption({ label: 'Team' });
   await expect(page).toHaveURL('/w/getcanadasim/settings/team');
   await expect(sections).toHaveValue('/w/getcanadasim/settings/team');
+  // On a phone the invite form is folded behind "Invite member".
+  await expect(page.getByLabel('Staff email')).toBeHidden();
+  await page.getByRole('button', { name: 'Invite member' }).click();
   await expect(page.getByLabel('Staff email')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
