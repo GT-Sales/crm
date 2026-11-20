@@ -93,7 +93,15 @@ import { LeadsTable, NO_LEAD_SELECTION, type LeadSelection } from './leads-table
 import { SavedViewSwitcher } from './saved-view-switcher';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { LEAD_WORK_SAVED } from '../../lib/lead-work-events';
-import { BOARD_CARD_FIELDS, TABLE_COLUMNS, useStoredList } from './view-preferences';
+import {
+  BOARD_CARD_FIELDS,
+  TABLE_COLUMNS,
+  TABLE_DENSITIES,
+  TABLE_DENSITY_KEY,
+  useStoredChoice,
+  useStoredList,
+  type TableDensity,
+} from './view-preferences';
 import {
   allLeadsQuery,
   appliedViewState,
@@ -835,6 +843,12 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     `gt-board-fields:${workspaceId ?? ''}:${activeBoardType}`,
   );
 
+  const [density, setDensity] = useStoredChoice<TableDensity>(
+    TABLE_DENSITY_KEY,
+    TABLE_DENSITIES,
+    'comfortable',
+  );
+
   function toggleListEntry(current: string[], save: (next: string[]) => void, key: string) {
     save(current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   }
@@ -1335,6 +1349,17 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         ) : (
           <>
             <div className="space-y-2 border-t pt-3">
+              <h3 className="text-xs font-medium text-muted-foreground">Rows</h3>
+              <div className="flex flex-wrap gap-1.5">
+                <CheckRow
+                  id="table-density-compact"
+                  label="Compact rows"
+                  checked={density === 'compact'}
+                  onToggle={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}
+                />
+              </div>
+            </div>
+            <div className="space-y-2 border-t pt-3">
               <h3 className="text-xs font-medium text-muted-foreground">Table columns</h3>
               <div className="flex flex-wrap gap-1.5">
                 {TABLE_COLUMNS.filter((col) => !(query.type && col.key === 'type')).map((col) => (
@@ -1373,6 +1398,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           </>
         )}
         {viewChanged ||
+        density !== 'comfortable' ||
         boardOrder.length > 0 ||
         boardCollapsed.length > 0 ||
         boardHidden.length > 0 ||
@@ -1381,6 +1407,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
             <MenuItem
               onClick={() => {
                 update({ layout: 'table', sort: undefined, columns: undefined, hide: [] });
+                setDensity('comfortable');
                 setBoardOrder([]);
                 setBoardCollapsed([]);
                 setBoardHidden([]);
@@ -1800,6 +1827,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
                 ? { selection, onSelectionChange: setSelection, selectionBar: false }
                 : {})}
               onLoaded={onTableLoaded}
+              density={density}
               panel={{
                 openId: query.lead,
                 href: (leadId) => `${pathname}${inboxSearch({ ...query, lead: leadId })}`,

@@ -24,7 +24,16 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@gt-sales/ui';
-import { ChevronDownIcon, ChevronsLeftIcon, ChevronsRightIcon } from 'lucide-react';
+import {
+  ChevronDownIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  MoreHorizontalIcon,
+  PanelRightOpenIcon,
+  UserPlusIcon,
+} from 'lucide-react';
 
 import { getStaffLeads, updateStaffLead } from '../../lib/api';
 import { notifyLeadWorkSaved } from '../../lib/lead-work-events';
@@ -42,6 +51,7 @@ import { assigneeName, memberName } from '../../lib/people';
 import { describeError } from '../../lib/error-text';
 import { PropertyValueText } from '../properties/property-value';
 import type { InboxQuery } from './inbox-query';
+import type { TableDensity } from './view-preferences';
 import { TableRowsSkeleton } from '../crm/loading-skeleton';
 import {
   CountdownLabel,
@@ -59,7 +69,13 @@ const PAGE_SIZE = 50;
 // A roomy list: 14px text, the lead's name over its email or phone, a soft
 // rule between rows and no pinned column; wide tables scroll sideways whole.
 const HEAD_CELL = 'px-3 py-3 text-left font-medium whitespace-nowrap';
-const CELL = 'px-3 py-3';
+/** The row padding: about 61px rows, or about 44px in compact rows (View options). */
+const CELL_Y = { comfortable: 'py-3', compact: 'py-1' } as const;
+/**
+ * Below `md` a row is two lines in the Lead cell (name and stage, then type,
+ * assignee, source and last activity); the other columns are for wider screens.
+ */
+const WIDE = 'hidden md:table-cell';
 
 export const DUE_TONE_CLASS = {
   overdue: 'text-rose-700 dark:text-rose-300',
@@ -114,16 +130,18 @@ function SortableHeader({
   currentSort,
   canSort,
   onSort,
+  className,
 }: {
   label: string;
   field: string;
   currentSort: string | undefined;
   canSort: boolean;
   onSort?(next: string | undefined): void;
+  className?: string;
 }) {
   if (!canSort || !onSort) {
     return (
-      <th scope="col" className={HEAD_CELL}>
+      <th scope="col" className={cn(HEAD_CELL, className)}>
         {label}
       </th>
     );
@@ -138,7 +156,7 @@ function SortableHeader({
           onSort(cycleLeadSort(currentSort, field));
         }
       }}
-      className={HEAD_CELL}
+      className={cn(HEAD_CELL, className)}
     >
       <button
         type="button"
@@ -151,6 +169,71 @@ function SortableHeader({
         </span>
       </button>
     </th>
+  );
+}
+
+/**
+ * A row's `…` menu: open the lead (here or in a new tab), assign it to the
+ * viewer, copy the email. Only what the row already has data and permission
+ * for. Shown on hover and focus, and always on a touch screen; its clicks
+ * never reach the row.
+ */
+function RowActions({
+  name,
+  pageHref,
+  email,
+  canAssignToMe,
+  onOpen,
+  onAssignToMe,
+  onCopyEmail,
+}: {
+  name: string;
+  pageHref: string;
+  email?: string;
+  canAssignToMe: boolean;
+  onOpen(): void;
+  onAssignToMe(): void;
+  onCopyEmail(email: string): void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Actions for ${name}`}
+          className="size-7 text-muted-foreground opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100"
+          onClick={stopRowClick}
+        >
+          <MoreHorizontalIcon aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={stopRowClick}>
+        <DropdownMenuItem onSelect={onOpen}>
+          <PanelRightOpenIcon aria-hidden="true" />
+          Open lead
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <a href={pageHref} target="_blank" rel="noopener noreferrer">
+            <ExternalLinkIcon aria-hidden="true" />
+            Open in new tab
+          </a>
+        </DropdownMenuItem>
+        {canAssignToMe ? (
+          <DropdownMenuItem onSelect={onAssignToMe}>
+            <UserPlusIcon aria-hidden="true" />
+            Assign to me
+          </DropdownMenuItem>
+        ) : null}
+        {email ? (
+          <DropdownMenuItem onSelect={() => onCopyEmail(email)}>
+            <CopyIcon aria-hidden="true" />
+            Copy email
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -178,6 +261,7 @@ export function LeadsTable({
   selectionActions,
   selectionBar = true,
   onLoaded,
+  density = 'comfortable',
 }: {
   workspaceSlug: string;
   workspaceId: string;
@@ -214,6 +298,8 @@ export function LeadsTable({
   selectionBar?: boolean;
   /** Told how many leads match the filters, and which are on the page, each time a page arrives. */
   onLoaded?(info: { total: number; rowIds: readonly string[] }): void;
+  /** Row padding, the viewer's choice in View options. */
+  density?: TableDensity;
 }) {
   const router = useRouter();
   const load = useMemo(
@@ -310,12 +396,15 @@ export function LeadsTable({
   const canQuickEdit = leads.data?.access.manage === true && !query.archived;
   const [quickBusy, setQuickBusy] = useState<string>();
   const [quickMessage, setQuickMessage] = useState<string>();
+  const [quickNote, setQuickNote] = useState<string>();
+  const self = members.find((member) => member.isSelf);
   async function quickUpdate(
     lead: LeadListItem,
     body: { stage: string } | { assignedActorId: string | null },
   ) {
     setQuickBusy(lead.id);
     setQuickMessage(undefined);
+    setQuickNote(undefined);
     try {
       await updateStaffLead(accessToken, workspaceId, lead.id, body);
       notifyLeadWorkSaved(workspaceId, lead.id);
@@ -328,6 +417,16 @@ export function LeadsTable({
       setQuickMessage(refusal ?? describeError(error, 'save the change'));
     } finally {
       setQuickBusy(undefined);
+    }
+  }
+  async function copyEmail(email: string) {
+    setQuickMessage(undefined);
+    setQuickNote(undefined);
+    try {
+      await navigator.clipboard.writeText(email);
+      setQuickNote('Email copied.');
+    } catch {
+      setQuickMessage('The browser did not allow copying. Open the lead and copy it from there.');
     }
   }
   function quickStage(lead: LeadListItem, to: string) {
@@ -359,9 +458,11 @@ export function LeadsTable({
     onSelectionChange({ selected: next, allMatching: false });
   }
 
+  const cell = cn('px-3', CELL_Y[density]);
   const columnCount =
     Number(selecting) +
     1 +
+    1 /* row actions */ +
     Number(!query.type && showCol('type')) +
     optionalColumns.filter(showCol).length +
     Number(showingCountdown) +
@@ -420,8 +521,16 @@ export function LeadsTable({
           {quickMessage}
         </p>
       ) : null}
+      {quickNote ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {quickNote}
+        </p>
+      ) : null}
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[880px] text-sm" aria-busy={initialLoading || leads.loading}>
+        <table
+          className="w-full text-sm md:min-w-[880px]"
+          aria-busy={initialLoading || leads.loading}
+        >
           <thead>
             <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
               {selecting ? (
@@ -443,27 +552,28 @@ export function LeadsTable({
                 onSort={onSort}
               />
               {query.type || !showCol('type') ? null : (
-                <th scope="col" className={HEAD_CELL}>
+                <th scope="col" className={cn(HEAD_CELL, WIDE)}>
                   Type
                 </th>
               )}
               {showCol('stage') ? (
-                <th scope="col" className={HEAD_CELL}>
+                <th scope="col" className={cn(HEAD_CELL, WIDE)}>
                   Stage
                 </th>
               ) : null}
               {showCol('assignee') ? (
-                <th scope="col" className={HEAD_CELL}>
+                <th scope="col" className={cn(HEAD_CELL, WIDE)}>
                   Assignee
                 </th>
               ) : null}
               {showCol('nextTask') ? (
-                <th scope="col" className={HEAD_CELL}>
+                <th scope="col" className={cn(HEAD_CELL, WIDE)}>
                   Next task
                 </th>
               ) : null}
               {countdownField && showCol('countdown') ? (
                 <SortableHeader
+                  className={WIDE}
                   label={countdownField.label}
                   field={`prop.${countdownField.key}`}
                   currentSort={query.sort}
@@ -473,6 +583,7 @@ export function LeadsTable({
               ) : null}
               {propertyColumns.map((key) => (
                 <SortableHeader
+                  className={WIDE}
                   key={key}
                   label={propertyColumnLabel(query.type, key, catalog)}
                   field={`prop.${key}`}
@@ -482,12 +593,13 @@ export function LeadsTable({
                 />
               ))}
               {showCol('source') ? (
-                <th scope="col" className={HEAD_CELL}>
+                <th scope="col" className={cn(HEAD_CELL, WIDE)}>
                   Source
                 </th>
               ) : null}
               {showCol('created') ? (
                 <SortableHeader
+                  className={WIDE}
                   label="Created"
                   field="createdAt"
                   currentSort={query.sort}
@@ -497,11 +609,12 @@ export function LeadsTable({
               ) : null}
               {showCol('activity') ? (
                 query.archived ? (
-                  <th scope="col" className={HEAD_CELL}>
+                  <th scope="col" className={cn(HEAD_CELL, WIDE)}>
                     Archived
                   </th>
                 ) : (
                   <SortableHeader
+                    className={WIDE}
                     label="Last activity"
                     field="updatedAt"
                     currentSort={query.sort}
@@ -510,6 +623,9 @@ export function LeadsTable({
                   />
                 )
               ) : null}
+              <th scope="col" className={cn('w-10 px-2', WIDE)}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -554,7 +670,7 @@ export function LeadsTable({
                   <tr
                     key={lead.id}
                     aria-current={panel?.openId === lead.id ? 'true' : undefined}
-                    className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 aria-[current=true]:bg-muted/60"
+                    className="group/row cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 aria-[current=true]:bg-muted/60"
                     onClick={(event) => {
                       // Let a real link, a modifier-click or a text selection behave natively;
                       // the checkbox cell ticks the row and opens nothing.
@@ -569,7 +685,10 @@ export function LeadsTable({
                     }}
                   >
                     {selecting ? (
-                      <td data-row-select className="w-10 cursor-default py-3 pr-0 pl-3">
+                      <td
+                        data-row-select
+                        className={cn('w-10 cursor-default pr-0 pl-3', CELL_Y[density])}
+                      >
                         <Checkbox
                           aria-label={`Select ${leadDisplayName(lead.contact)}`}
                           checked={isTicked(lead.id)}
@@ -578,7 +697,7 @@ export function LeadsTable({
                         />
                       </td>
                     ) : null}
-                    <td className={cn(CELL, 'max-w-[260px]')}>
+                    <td className={cn(cell, 'w-full max-w-0 md:w-auto md:max-w-[260px]')}>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Link
                           href={leadHref(lead)}
@@ -600,20 +719,41 @@ export function LeadsTable({
                           {leadDisplayName(lead.contact)}
                         </Link>
                         {lead.isNew ? <NewBadge /> : null}
+                        {showCol('stage') ? (
+                          <span className="ml-auto shrink-0 pl-2 md:hidden">
+                            <StageBadge leadType={lead.leadType} stage={lead.stage} />
+                          </span>
+                        ) : null}
                       </span>
                       {secondary ? (
-                        <span className="block truncate text-xs text-muted-foreground">
+                        <span className="hidden truncate text-xs text-muted-foreground md:block">
                           {secondary}
                         </span>
                       ) : null}
+                      <span
+                        data-slot="lead-row-phone-meta"
+                        className="mt-0.5 block truncate text-xs text-muted-foreground md:hidden"
+                      >
+                        {[
+                          query.type ? undefined : leadTypeLabel(lead.leadType),
+                          assignee ?? 'Unassigned',
+                          readableSource(lead.source),
+                          relativeTime(lastChange),
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
                     </td>
                     {query.type || !showCol('type') ? null : (
-                      <td className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}>
+                      <td className={cn(cell, WIDE, 'whitespace-nowrap text-muted-foreground')}>
                         {leadTypeLabel(lead.leadType)}
                       </td>
                     )}
                     {showCol('stage') ? (
-                      <td className={CELL} {...(canQuickEdit ? { 'data-row-select': true } : {})}>
+                      <td
+                        className={cn(cell, WIDE)}
+                        {...(canQuickEdit ? { 'data-row-select': true } : {})}
+                      >
                         {canQuickEdit && allowedStageMoves(lead.leadType, lead.stage).length > 0 ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger
@@ -645,7 +785,7 @@ export function LeadsTable({
                     ) : null}
                     {showCol('assignee') ? (
                       <td
-                        className={cn(CELL, 'max-w-[180px]')}
+                        className={cn(cell, WIDE, 'max-w-[180px]')}
                         {...(canQuickEdit ? { 'data-row-select': true } : {})}
                       >
                         {canQuickEdit ? (
@@ -694,7 +834,7 @@ export function LeadsTable({
                       </td>
                     ) : null}
                     {showCol('nextTask') ? (
-                      <td className={cn(CELL, 'whitespace-nowrap')}>
+                      <td className={cn(cell, WIDE, 'whitespace-nowrap')}>
                         {lead.nextTaskDueAt ? (
                           <span className={DUE_TONE_CLASS[dueTone(lead.nextTaskDueAt)]}>
                             {dueLabel(lead.nextTaskDueAt)}
@@ -708,7 +848,7 @@ export function LeadsTable({
                       </td>
                     ) : null}
                     {countdownField && showCol('countdown') ? (
-                      <td className={cn(CELL, 'whitespace-nowrap')}>
+                      <td className={cn(cell, WIDE, 'whitespace-nowrap')}>
                         {lead.countdownDate ? (
                           <>
                             <span className="block">{dayLabel(lead.countdownDate)}</span>
@@ -722,7 +862,7 @@ export function LeadsTable({
                     {propertyColumns.map((key) => {
                       const property = propertyColumnProperty(lead.leadType, key, catalog);
                       return (
-                        <td key={key} className={cn(CELL, 'max-w-[200px] truncate')}>
+                        <td key={key} className={cn(cell, WIDE, 'max-w-[200px] truncate')}>
                           <PropertyValueText
                             property={property ?? { kind: 'text' }}
                             value={lead.properties?.[key]}
@@ -731,7 +871,7 @@ export function LeadsTable({
                       );
                     })}
                     {showCol('source') ? (
-                      <td className={cn(CELL, 'max-w-[180px] truncate')}>
+                      <td className={cn(cell, WIDE, 'max-w-[180px] truncate')}>
                         <span className="text-muted-foreground" title={lead.source}>
                           {readableSource(lead.source)}
                         </span>
@@ -739,7 +879,7 @@ export function LeadsTable({
                     ) : null}
                     {showCol('created') ? (
                       <td
-                        className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}
+                        className={cn(cell, WIDE, 'whitespace-nowrap text-muted-foreground')}
                         title={dateTimeLabel(lead.createdAt)}
                       >
                         {relativeTime(lead.createdAt)}
@@ -747,12 +887,32 @@ export function LeadsTable({
                     ) : null}
                     {showCol('activity') ? (
                       <td
-                        className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}
+                        className={cn(cell, WIDE, 'whitespace-nowrap text-muted-foreground')}
                         title={dateTimeLabel(lastChange)}
                       >
                         {relativeTime(lastChange)}
                       </td>
                     ) : null}
+                    <td className={cn('w-10 px-2 text-right', CELL_Y[density], WIDE)}>
+                      <RowActions
+                        name={leadDisplayName(lead.contact)}
+                        pageHref={`/w/${workspaceSlug}/leads/${lead.id}`}
+                        email={lead.contact.email ?? undefined}
+                        canAssignToMe={
+                          canQuickEdit &&
+                          self !== undefined &&
+                          lead.assignedActorId !== self.actorId &&
+                          quickBusy !== lead.id
+                        }
+                        onOpen={() => openLead(lead)}
+                        onAssignToMe={() =>
+                          self
+                            ? void quickUpdate(lead, { assignedActorId: self.actorId })
+                            : undefined
+                        }
+                        onCopyEmail={(email) => void copyEmail(email)}
+                      />
+                    </td>
                   </tr>
                 );
               })

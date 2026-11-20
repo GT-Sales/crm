@@ -743,6 +743,59 @@ describe('LeadsInbox', () => {
     expect(screen.queryByRole('region', { name: 'Active filters' })).toBeNull();
   });
 
+  it('keeps Compact rows as this browser’s own view preference, and Reset view undoes it', async () => {
+    mocks.getStaffLeads.mockResolvedValue({
+      leads: [
+        {
+          id: '90000000-0000-4000-8000-000000000001',
+          workspaceId: WORKSPACE,
+          leadType: 'internet',
+          status: 'submitted',
+          stage: 'new',
+          contact: { fullName: 'Avery Example', email: 'avery@example.test' },
+          contactId: null,
+          assignedActorId: null,
+          externalRef: null,
+          source: 'direct',
+          attribution: {},
+          consentVersion: null,
+          openTaskCount: 0,
+          nextTaskDueAt: null,
+          countdownDate: null,
+          deletedAt: null,
+          createdAt: '2026-10-20T09:00:00.000Z',
+          updatedAt: '2026-10-21T10:00:00.000Z',
+        },
+      ],
+      page: { page: 1, pageSize: 50, total: 1 },
+      access: { contacts: true, manage: true },
+    });
+    navigation.search = 'type=internet';
+    const leadCell = () => screen.getByRole('link', { name: 'Avery Example' }).closest('td');
+    const first = render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('link', { name: 'Avery Example' });
+    expect(leadCell()?.className).toContain('py-3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    const compact = await screen.findByRole('checkbox', { name: 'Compact rows' });
+    expect(compact.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(compact);
+    expect(compact.getAttribute('aria-checked')).toBe('true');
+    expect(leadCell()?.className).toContain('py-1');
+    expect(window.localStorage.getItem('gt-leads-table-density')).toBe('compact');
+    // A personal preference, like the board's: not in the URL or a saved view.
+    expect(navigation.replace).not.toHaveBeenCalled();
+    first.unmount();
+
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    await screen.findByRole('link', { name: 'Avery Example' });
+    await waitFor(() => expect(leadCell()?.className).toContain('py-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset view' }));
+    await waitFor(() => expect(leadCell()?.className).toContain('py-3'));
+    expect(window.localStorage.getItem('gt-leads-table-density')).toBe('comfortable');
+  });
+
   it('cycles column header sorting ascending → descending → default with aria-sort', async () => {
     navigation.search = 'type=internet&cols=city';
     const view = render(<LeadsInbox workspaceSlug="canadawide" />);
