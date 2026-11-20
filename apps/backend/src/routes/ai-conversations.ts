@@ -22,6 +22,8 @@ import { z } from 'zod';
 
 import type { AiAttachmentService } from '../ai/attachments.js';
 import type { AiConversationStore } from '../ai/conversation-store.js';
+import type { AiCatalogueResult } from '../ai/model-catalogue.js';
+import { priceAiUsage, usagePriceList } from '../ai/usage-cost.js';
 import type { VerifiedStaffSession } from '../auth/session.js';
 import { sendDomainError } from '../http/domain-errors.js';
 import { sendStaffAuthError } from '../http/staff-errors.js';
@@ -51,6 +53,13 @@ import {
 
 /** The action that guards Settings → Team member management (owner only, no permission grants it). */
 export const AI_USAGE_ACTION = 'staff.remove' as const;
+
+/**
+ * How long the usage page waits for the Gateway catalogue before it answers
+ * without a cost. The read goes on and fills the catalogue's cache for the
+ * next visit.
+ */
+export const AI_USAGE_CATALOGUE_WAIT_MS = 3000;
 
 function session(req: { staffSession?: VerifiedStaffSession }): VerifiedStaffSession | undefined {
   return req.staffSession;
@@ -421,10 +430,39 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
   }
 
   /**
+   * The catalogue's current list prices for the usage page's cost: the
+   * cached catalogue (Settings → AI models' own), waited for at most
+   * `AI_USAGE_CATALOGUE_WAIT_MS`. Read whenever a Gateway key is configured,
+   * also while Ask AI is switched off, so the history this page shows keeps
+   * its cost; unavailable without a key, on a failure or a slow answer. The
+   * usage is answered either way.
+   */
+  async function listPrices(): Promise<AiCatalogueResult> {
+    const source = dependencies.models?.catalogue;
+    if (!source) return { status: 'unavailable' };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        source.models(),
+        new Promise<AiCatalogueResult>((resolve) => {
+          timer = setTimeout(() => resolve({ status: 'unavailable' }), AI_USAGE_CATALOGUE_WAIT_MS);
+        }),
+      ]);
+    } catch {
+      return { status: 'unavailable' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * The owner's usage view: counts per member, never content. Guarded by the
    * Team page's member-management action, not by the assistant's own access,
    * and readable while Ask AI is switched off: it is the history of what was
-   * used, beside what is configured now.
+   * used, beside what is configured now. The approximate cost prices the
+   * store's token breakdown at the catalogue's current list prices
+   * (`usage-cost.ts`); a catalogue that cannot be read leaves it unpriced,
+   * never fails the page.
    */
   router.get('/workspaces/:workspaceId/ai/usage', async (req, res) => {
     try {
@@ -448,12 +486,23 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
       }
       const period = query.data.period ?? 30;
       const scope = { workspaceId: workspaceId.data, actorId: actor.actorId };
-      const result = await usage.usage(scope, period);
+      // The prices are asked for beside the database read; neither waits on the other.
+      const prices = listPrices();
+      const { tokens, ...result } = await usage.usage(scope, period);
+      // A store that does not break tokens down by model sends no cost.
+      const cost = tokens
+        ? priceAiUsage(
+            tokens,
+            (result.daily ?? []).map((day) => day.day),
+            usagePriceList(await prices),
+          )
+        : undefined;
       res.json(
         aiUsageResponseSchema.parse({
           period,
           ...result,
           assistant: await assistantState(scope),
+          ...(cost ? { cost } : {}),
           requestId: req.id,
         }),
       );

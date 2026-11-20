@@ -28,6 +28,7 @@ import type { AiTurnLog } from '../src/ai/logging.js';
 import {
   CachedModelCatalogue,
   catalogueModels,
+  catalogueRead,
   pricePerMillion,
   type AiModelCatalogue,
   type GatewayCatalogueEntry,
@@ -146,7 +147,7 @@ function scriptedCatalogue(result: 'ok' | 'unavailable' = 'ok') {
     async models(options = {}) {
       calls.push(options);
       return result === 'ok'
-        ? { status: 'ok', models: catalogueModels(entries) }
+        ? { status: 'ok', ...catalogueRead(entries) }
         : { status: 'unavailable' };
     },
   };

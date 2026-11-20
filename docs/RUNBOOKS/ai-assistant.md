@@ -350,11 +350,14 @@ from when 0034 is applied. Top to bottom:
   on once 0034 and 0035 are applied; _File uploads_ lists the kinds of
   `AI_ATTACHMENT_KINDS` that are usable.
 - **Totals**: turns, completed, failed (and its share of turns), the average
-  answer time of completed turns, tokens in and out, tool calls. A turn that
-  is neither completed nor failed was stopped by the member or ended because
-  they lost access.
-- **Turns per day** and **Tokens per day**: one bar per Toronto day, failed
-  turns in red. A day with no bar had no turn.
+  answer time of completed turns, tokens in and out, tool calls, and the
+  **Approximate cost** (below). A turn that is neither completed nor failed
+  was stopped by the member or ended because they lost access.
+- **Approximate cost by model**: each model's tokens in and out, the list
+  prices per million tokens used and its cost; _Not priced_ marks turns that
+  were left out (below).
+- **Turns per day**, **Tokens per day** and **Approximate cost per day**: one
+  bar per Toronto day, failed turns in red. A day with no bar had no turn.
 - **Models**: every model that served a turn in the period, with its own
   counts and average answer time. _Current_ marks the configured model, so a
   change of `AI_GATEWAY_MODEL` shows as two rows. _Unknown_ is a turn that
@@ -362,7 +365,38 @@ from when 0034 is applied. Top to bottom:
   deployment and never appears in production.
 - **Why turns failed**: failed turns by reason, with the recorded code beside
   each.
-- **People**: turns, tokens and the last use per member.
+- **People**: turns, tokens, the approximate cost and the last use per
+  member.
+
+#### What the approximate cost is
+
+The backend sums each model's input and output tokens from `app.ai_turns`
+(per model, per Toronto day and per member, in the period) and prices them at
+the Vercel AI Gateway catalogue's **current list price** for that model
+(`apps/backend/src/ai/usage-cost.ts`): the per-token price strings the
+catalogue sends are read as exact decimals and multiplied in integers, and
+only the figures shown are rounded (to micro-dollars on the wire, to cents on
+the page; a non-zero amount under a cent reads "< $0.01"). It is a guide to
+what Ask AI is spending, not a bill:
+
+- It uses **today's** list prices, not the price on the day of each turn, so
+  a price change moves the whole period's figure.
+- It leaves out cached-token discounts (every input token is priced at the
+  full input price) and cache-write charges, retries the provider billed, and
+  anything outside Ask AI that uses the same key.
+- Turns with no model recorded (rows from before the model was recorded),
+  on the test engine, or on a model the catalogue no longer lists or lists
+  without a price are **not priced**: the page counts them ("3 turns not
+  priced") and leaves them out of the figure rather than guessing.
+- History is the last 90 days only (`ai_turns` is pruned after 90).
+- The **Vercel AI Gateway invoice** (Gateway dashboard, Usage) is the real
+  figure; compare with it when the two disagree.
+
+The catalogue is the one Settings → AI models reads (cached 10 minutes, a
+failure 1 minute); the usage page waits at most 3 seconds for it. Without a
+Gateway key, or when the catalogue cannot be read, the page shows the usage as before with one line:
+"Approximate cost is not available right now". An older backend sends no
+cost and the page shows none.
 
 | Reason (code)                                                         | What it means and what to do                                                                                                                                                                                                                                               |
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

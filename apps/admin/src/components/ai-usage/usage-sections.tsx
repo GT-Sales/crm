@@ -16,7 +16,7 @@ export const CELL = 'px-3 py-2.5';
 export const NUMBER = 'text-right tabular-nums';
 
 /** A card with the dashboard's heading row: an icon, a title and one line under it. */
-function SectionCard({
+export function SectionCard({
   id,
   title,
   description,

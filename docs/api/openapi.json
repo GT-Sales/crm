@@ -113230,7 +113230,7 @@
     "/api/v1/staff/workspaces/{workspaceId}/ai/usage": {
       "get": {
         "operationId": "getAiUsage",
-        "summary": "The site's Ask AI usage over the last 7, 30 (default) or 90 Toronto calendar days: turns and tokens per member, how turns ended, the models that served them, a daily series, failure reasons and the assistant's current configuration; counts and configuration names only, never content (owner only, the Team page's action).",
+        "summary": "The site's Ask AI usage over the last 7, 30 (default) or 90 Toronto calendar days: turns and tokens per member, how turns ended, the models that served them, a daily series, failure reasons, the assistant's current configuration and an approximate cost at the Gateway catalogue's current list prices (per model, day and member; turns it cannot price are counted, never guessed); counts, amounts and configuration names only, never content (owner only, the Team page's action).",
         "tags": ["staff"],
         "security": [{ "staffSession": [] }],
         "parameters": [
@@ -113495,6 +113495,157 @@
                         "required": ["code", "turns"],
                         "additionalProperties": false
                       }
+                    },
+                    "cost": {
+                      "type": "object",
+                      "properties": {
+                        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+                        "basis": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,59}$" },
+                        "priced": { "type": "boolean" },
+                        "reason": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,59}$" },
+                        "totalMicroUsd": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "pricedTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "unpricedTurns": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "models": {
+                          "maxItems": 50,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "turns": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "inputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "outputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "model": {
+                                "anyOf": [
+                                  { "type": "string", "minLength": 1, "maxLength": 200 },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "engine": { "type": "string", "minLength": 1, "maxLength": 20 },
+                              "label": {
+                                "anyOf": [
+                                  { "type": "string", "minLength": 1, "maxLength": 80 },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "inputPricePerMillion": {
+                                "anyOf": [
+                                  { "type": "string", "pattern": "^\\d{1,7}(\\.\\d{1,12})?$" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "outputPricePerMillion": {
+                                "anyOf": [
+                                  { "type": "string", "pattern": "^\\d{1,7}(\\.\\d{1,12})?$" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "costMicroUsd": {
+                                "anyOf": [
+                                  { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                                  { "type": "null" }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "turns",
+                              "inputTokens",
+                              "outputTokens",
+                              "model",
+                              "engine",
+                              "label",
+                              "inputPricePerMillion",
+                              "outputPricePerMillion",
+                              "costMicroUsd"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "daily": {
+                          "maxItems": 90,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "day": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                              "costMicroUsd": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "unpricedTurns": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": ["day", "costMicroUsd", "unpricedTurns"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "members": {
+                          "maxItems": 1000,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "actorId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "costMicroUsd": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "unpricedTurns": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": ["actorId", "costMicroUsd", "unpricedTurns"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "currency",
+                        "basis",
+                        "priced",
+                        "totalMicroUsd",
+                        "pricedTurns",
+                        "unpricedTurns",
+                        "models",
+                        "daily",
+                        "members"
+                      ],
+                      "additionalProperties": false
                     },
                     "requestId": {
                       "type": "string",

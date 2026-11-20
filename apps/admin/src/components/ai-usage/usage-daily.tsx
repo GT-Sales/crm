@@ -1,10 +1,11 @@
 'use client';
 
-import type { AiUsageDay } from '@gt-sales/contracts';
+import type { AiUsageCost, AiUsageDay } from '@gt-sales/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { bucketLabel, ChartCard, numberFormat } from '../analytics/charts';
+import { usd } from './usage-format';
 
 /**
  * Turns and tokens per day of the period. Each `day` is a Toronto calendar
@@ -59,9 +60,14 @@ function Legend({ items }: { items: readonly { label: string; color: string }[] 
 function StackedDays({
   rows,
   series,
+  format = (value: number) => numberFormat.format(value),
+  integers = true,
 }: {
   rows: readonly Record<string, string | number>[];
   series: readonly { key: string; label: string; color: string }[];
+  /** How a value reads on the axis and in the tooltip; whole counts by default. */
+  format?: (value: number) => string;
+  integers?: boolean;
 }) {
   const { ref, width } = useWidth();
   return (
@@ -77,17 +83,17 @@ function StackedDays({
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} />
         <YAxis
-          allowDecimals={false}
+          allowDecimals={!integers}
           tick={axisTick}
           tickLine={false}
           axisLine={false}
           width={56}
-          tickFormatter={(value: number) => numberFormat.format(value)}
+          tickFormatter={(value: number) => format(value)}
         />
         <Tooltip
           contentStyle={tooltipStyle}
           cursor={{ fill: 'var(--muted)', opacity: 0.5 }}
-          formatter={(value) => numberFormat.format(Number(value))}
+          formatter={(value) => format(Number(value))}
         />
         {series.map((entry, index) => (
           <Bar
@@ -107,7 +113,51 @@ function StackedDays({
 
 const FAILED = 'var(--crm-danger)';
 
-export function UsageDaily({ daily }: { daily: readonly AiUsageDay[] }) {
+/**
+ * The approximate cost per day, drawn in micro-dollars and labelled as money;
+ * the hidden table names each day's cost and the turns it leaves out.
+ */
+function CostPerDay({ cost }: { cost: AiUsageCost }) {
+  const rows = cost.daily.map((day) => ({
+    label: usageDayLabel(day.day),
+    costMicroUsd: day.costMicroUsd,
+  }));
+  return (
+    <ChartCard
+      id="chart-ai-cost"
+      title="Approximate cost per day"
+      description={`≈ ${usd(cost.totalMicroUsd, cost.currency)} at current list prices, by day in Toronto`}
+      empty={
+        cost.daily.every((day) => day.costMicroUsd === 0) ? 'No cost in this period' : undefined
+      }
+      className="xl:col-span-2"
+      summary={{
+        columns: ['Day', 'Approximate cost', 'Turns not priced'],
+        rows: cost.daily.map((day) => [
+          usageDayLabel(day.day),
+          usd(day.costMicroUsd, cost.currency),
+          day.unpricedTurns,
+        ]),
+      }}
+    >
+      <StackedDays
+        rows={rows}
+        series={[{ key: 'costMicroUsd', label: 'Approximate cost', color: 'var(--chart-2)' }]}
+        format={(value) => usd(value, cost.currency)}
+        integers={false}
+      />
+    </ChartCard>
+  );
+}
+
+export function UsageDaily({
+  daily,
+  cost,
+}: {
+  daily: readonly AiUsageDay[];
+  /** The priced cost, when the backend sent one; adds the cost per day. */
+  cost?: AiUsageCost | undefined;
+}) {
   const turns = daily.reduce((sum, day) => sum + day.turns, 0);
   const tokens = daily.reduce((sum, day) => sum + day.inputTokens + day.outputTokens, 0);
   const empty = turns === 0 ? 'No activity in this period' : undefined;
@@ -156,6 +206,7 @@ export function UsageDaily({ daily }: { daily: readonly AiUsageDay[] }) {
           ]}
         />
       </ChartCard>
+      {cost && cost.daily.length > 0 ? <CostPerDay cost={cost} /> : null}
     </section>
   );
 }

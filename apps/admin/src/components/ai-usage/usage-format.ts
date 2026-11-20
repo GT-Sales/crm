@@ -45,3 +45,38 @@ export function engineLabel(engine: string): string | undefined {
   if (engine === 'fake') return 'Test engine';
   return engine;
 }
+
+const moneyFormats = new Map<string, Intl.NumberFormat>();
+
+/** One currency format per currency and number of decimals, kept. */
+function moneyFormat(currency: string, maxDecimals = 2): Intl.NumberFormat {
+  const key = `${currency}:${String(maxDecimals)}`;
+  let format = moneyFormats.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: maxDecimals,
+    });
+    moneyFormats.set(key, format);
+  }
+  return format;
+}
+
+/**
+ * Whole micro-dollars as money ("$4.12"), rounded half up to the cent in
+ * integers; a non-zero amount under half a cent is "< $0.01", never "$0.00".
+ */
+export function usd(microUsd: number, currency = 'USD'): string {
+  const cents = Math.floor((microUsd + 5_000) / 10_000);
+  const format = moneyFormat(currency);
+  if (cents === 0 && microUsd > 0) return `< ${format.format(0.01)}`;
+  return format.format(cents / 100);
+}
+
+/** A list price per million tokens, sent as an exact decimal string ("2.5" is "$2.50"). */
+export function perMillion(text: string, currency = 'USD'): string {
+  const decimals = text.includes('.') ? (text.split('.')[1]?.length ?? 0) : 0;
+  return moneyFormat(currency, Math.min(20, Math.max(2, decimals))).format(Number(text));
+}

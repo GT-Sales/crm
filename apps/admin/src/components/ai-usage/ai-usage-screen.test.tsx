@@ -4,7 +4,7 @@ import type { AiUsageResponse } from '@gt-sales/contracts';
 
 import { AiUsageScreen, sortMembers } from './ai-usage-screen';
 import { failureReason } from './failure-reasons';
-import { answerTime } from './usage-format';
+import { answerTime, perMillion, usd } from './usage-format';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
 const REQUEST = '00000000-0000-4000-8000-000000000001';
@@ -564,5 +564,233 @@ describe('AiUsageScreen, High effort', () => {
     expect(screen.queryByText('High effort turns')).toBeNull();
     expect(screen.queryByRole('columnheader', { name: 'High' })).toBeNull();
     expect(container.querySelectorAll('.crm-kpi-strip')).toHaveLength(2);
+  });
+});
+
+describe('AiUsageScreen, approximate cost', () => {
+  /** Alpha at $2.50 / $15 per million; Beta at $0.15 / $0.60; the test engine's turn unpriced. */
+  function priced(overrides: Partial<NonNullable<AiUsageResponse['cost']>> = {}): AiUsageResponse {
+    return monitoring({
+      cost: {
+        currency: 'USD',
+        basis: 'current_list_prices',
+        priced: true,
+        // 9,000 × $2.50/M + 3,000 × $15/M = $0.0675; 2,990 × $0.15/M + 449 × $0.60/M = $0.0007179.
+        totalMicroUsd: 68_218,
+        pricedTurns: 7,
+        unpricedTurns: 1,
+        models: [
+          {
+            model: 'acme/alpha',
+            engine: 'gateway',
+            label: 'Acme Alpha',
+            turns: 4,
+            inputTokens: 9_000,
+            outputTokens: 3_000,
+            inputPricePerMillion: '2.5',
+            outputPricePerMillion: '15',
+            costMicroUsd: 67_500,
+          },
+          {
+            model: 'acme/beta',
+            engine: 'gateway',
+            label: 'Acme Beta',
+            turns: 3,
+            inputTokens: 2_990,
+            outputTokens: 449,
+            inputPricePerMillion: '0.15',
+            outputPricePerMillion: '0.6',
+            costMicroUsd: 718,
+          },
+          {
+            model: null,
+            engine: 'fake',
+            label: null,
+            turns: 1,
+            inputTokens: 10,
+            outputTokens: 1,
+            inputPricePerMillion: null,
+            outputPricePerMillion: null,
+            costMicroUsd: null,
+          },
+        ],
+        daily: week().map((day, index) => ({
+          day: day.day,
+          costMicroUsd: index === 6 ? 60_000 : index === 1 ? 0 : 1_000 + index,
+          unpricedTurns: index === 6 ? 1 : 0,
+        })),
+        members: [
+          { actorId: member(2).actorId, costMicroUsd: 60_000, unpricedTurns: 0 },
+          { actorId: member(1).actorId, costMicroUsd: 8_218, unpricedTurns: 0 },
+          { actorId: member(3).actorId, costMicroUsd: 0, unpricedTurns: 1 },
+        ],
+        ...overrides,
+      },
+    });
+  }
+
+  function costRow(text: string): HTMLElement {
+    const table = screen.getByRole('table', { name: /Approximate cost per model/ });
+    const found = within(table)
+      .getAllByRole('row')
+      .find((candidate) => candidate.querySelector('th')?.textContent?.includes(text));
+    if (!found) throw new Error(`no cost row ${text}`);
+    return found;
+  }
+
+  beforeEach(() => {
+    mocks.getAiUsage.mockReset();
+    mocks.getAiUsage.mockResolvedValue(priced());
+  });
+
+  it('writes money in US dollars, a tiny non-zero amount as "< $0.01"', () => {
+    expect([0, 1, 4_999, 5_000, 68_218, 4_120_000, 1_234_567_890].map((m) => usd(m))).toEqual([
+      '$0.00',
+      '< $0.01',
+      '< $0.01',
+      '$0.01',
+      '$0.07',
+      '$4.12',
+      '$1,234.57',
+    ]);
+    expect(perMillion('2.5')).toBe('$2.50');
+    expect(perMillion('0.075')).toBe('$0.075');
+    expect(perMillion('0.000000123')).toBe('$0.000000123');
+  });
+
+  it('shows the period’s approximate cost beside the totals, with the turns it could not price', async () => {
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    expect(tile('Approximate cost')).toEqual({ value: '≈ $0.07', note: '1 turn not priced' });
+    // Nine tiles: three rows of three.
+    expect(document.querySelectorAll('.crm-kpi-strip')).toHaveLength(3);
+  });
+
+  it('lists each model’s label, tokens, list prices and cost, and says what the figure leaves out', async () => {
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    const section = await screen.findByRole('region', { name: 'Approximate cost by model' });
+    const alpha = costRow('Acme Alpha');
+    expect(within(alpha).getByText('acme/alpha').tagName).toBe('CODE');
+    expect(Array.from(alpha.querySelectorAll('td'), (cell) => cell.textContent)).toEqual([
+      '9,000',
+      '3,000',
+      '$2.50',
+      '$15.00',
+      '$0.07',
+    ]);
+    expect(costRow('Acme Beta').querySelectorAll('td')[4]?.textContent).toBe('< $0.01');
+    const unknown = costRow('Unknown');
+    expect(within(unknown).getByText('Test engine')).toBeTruthy();
+    expect(Array.from(unknown.querySelectorAll('td'), (cell) => cell.textContent)).toEqual([
+      '10',
+      '1',
+      '—',
+      '—',
+      'Not priced',
+    ]);
+    const text = section.textContent ?? '';
+    expect(text).toContain('≈ $0.07 in the last 7 days');
+    expect(text).toContain('current list prices');
+    expect(text).toContain('cached-token discounts');
+    expect(text).toContain('retries');
+    expect(text).toContain('outside Ask AI');
+    expect(text).toContain('Vercel AI Gateway invoice');
+    expect(text).toContain('last 90 days');
+    expect(text).toContain('1 turn could not be priced');
+  });
+
+  it('adds the cost per day and per member', async () => {
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    const days = screen.getByRole('table', { name: 'Approximate cost per day' });
+    expect(within(days).getAllByRole('row')).toHaveLength(8);
+    const today = within(days).getByRole('rowheader', { name: 'Nov 18' }).closest('tr');
+    expect(Array.from(today?.querySelectorAll('td') ?? [], (cell) => cell.textContent)).toEqual([
+      '$0.06',
+      '1',
+    ]);
+
+    const people = screen.getByRole('table', { name: /usage per member/ });
+    expect(
+      within(people)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      'Member',
+      'Turns',
+      'Tokens in',
+      'Tokens out',
+      'Total tokens',
+      'Approx. cost',
+      'Last used',
+    ]);
+    expect(row('Big User').querySelectorAll('td')[4]?.textContent).toBe('$0.06');
+    expect(row('Small User').querySelectorAll('td')[4]?.textContent).toBe('$0.01');
+    expect(row('Unnamed member').querySelectorAll('td')[4]?.textContent).toBe(
+      '$0.001 turn not priced',
+    );
+  });
+
+  it('hides the cost with one line when the price list cannot be read, and keeps the usage', async () => {
+    mocks.getAiUsage.mockResolvedValue(
+      priced({
+        priced: false,
+        reason: 'catalogue_unavailable',
+        totalMicroUsd: 0,
+        pricedTurns: 0,
+        unpricedTurns: 8,
+        models: [],
+        daily: [],
+        members: [],
+      }),
+    );
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    expect(
+      screen.getByText(
+        'Approximate cost is not available right now: the AI Gateway’s price list could not be read.',
+      ),
+    ).toBeTruthy();
+    expect(tile('Turns').value).toBe('8');
+    expect(screen.queryByText('Approximate cost')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Approximate cost by model' })).toBeNull();
+    expect(screen.queryByRole('table', { name: 'Approximate cost per day' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Approx. cost' })).toBeNull();
+    expect(document.querySelectorAll('.crm-kpi-strip')).toHaveLength(2);
+  });
+
+  it('says when no turn could be priced, and still lists the models', async () => {
+    mocks.getAiUsage.mockResolvedValue(
+      priced({
+        priced: false,
+        reason: 'no_priced_turns',
+        totalMicroUsd: 0,
+        pricedTurns: 0,
+        unpricedTurns: 8,
+        models: priced().cost!.models.map((model) => ({
+          ...model,
+          inputPricePerMillion: null,
+          outputPricePerMillion: null,
+          costMicroUsd: null,
+        })),
+      }),
+    );
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    const section = await screen.findByRole('region', { name: 'Approximate cost by model' });
+    expect(section.textContent).toContain('None of the 8 turns in this period could be priced');
+    expect(costRow('Acme Alpha').querySelectorAll('td')[4]?.textContent).toBe('Not priced');
+    expect(screen.queryByText('Approximate cost')).toBeNull();
+    const people = screen.getByRole('table', { name: /usage per member/ });
+    expect(within(people).queryByRole('columnheader', { name: 'Approx. cost' })).toBeNull();
+    expect(screen.queryByRole('table', { name: 'Approximate cost per day' })).toBeNull();
+  });
+
+  it('changes nothing for a backend that sends no cost', async () => {
+    mocks.getAiUsage.mockResolvedValue(monitoring());
+    render(<AiUsageScreen workspaceSlug="canadawide" />);
+    await screen.findByText('Big User');
+    expect(screen.queryByText(/Approximate cost/)).toBeNull();
+    expect(screen.queryByText(/Approx\. cost/)).toBeNull();
+    expect(document.querySelectorAll('.crm-kpi-strip')).toHaveLength(2);
   });
 });
