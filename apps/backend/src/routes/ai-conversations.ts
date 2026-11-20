@@ -432,13 +432,14 @@ export function createAiConversationRoutes(dependencies: AiAssistantRouteDepende
   /**
    * The catalogue's current list prices for the usage page's cost: the
    * cached catalogue (Settings → AI models' own), waited for at most
-   * `AI_USAGE_CATALOGUE_WAIT_MS`. Unavailable without a Gateway key, while
-   * Ask AI is off for the deployment, on a failure or a slow answer; the
+   * `AI_USAGE_CATALOGUE_WAIT_MS`. Read whenever a Gateway key is configured,
+   * also while Ask AI is switched off, so the history this page shows keeps
+   * its cost; unavailable without a key, on a failure or a slow answer. The
    * usage is answered either way.
    */
   async function listPrices(): Promise<AiCatalogueResult> {
     const source = dependencies.models?.catalogue;
-    if (!dependencies.config.enabled || !source) return { status: 'unavailable' };
+    if (!source) return { status: 'unavailable' };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([

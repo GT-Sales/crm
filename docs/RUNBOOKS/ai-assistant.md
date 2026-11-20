@@ -394,8 +394,7 @@ what Ask AI is spending, not a bill:
 
 The catalogue is the one Settings → AI models reads (cached 10 minutes, a
 failure 1 minute); the usage page waits at most 3 seconds for it. Without a
-Gateway key, while Ask AI is switched off for the deployment, or when the
-catalogue cannot be read, the page shows the usage as before with one line:
+Gateway key, or when the catalogue cannot be read, the page shows the usage as before with one line:
 "Approximate cost is not available right now". An older backend sends no
 cost and the page shows none.
 

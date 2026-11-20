@@ -614,7 +614,16 @@ describe('GET /workspaces/:id/ai/usage, the cost', () => {
     });
   });
 
-  it('answers without prices when the catalogue throws, and with no Gateway key or Ask AI off', async () => {
+  it('keeps the cost while Ask AI is switched off, the Gateway key being configured', async () => {
+    const harness = await start({ enabled: false });
+    const response = await harness.get();
+    expect(response.status).toBe(200);
+    const cost = aiUsageResponseSchema.parse(await response.json()).cost;
+    expect(cost?.priced).toBe(true);
+    expect(cost?.reason).toBeUndefined();
+  });
+
+  it('answers without prices when the catalogue throws, and with no Gateway key', async () => {
     for (const options of [
       {
         catalogue: {
@@ -622,7 +631,6 @@ describe('GET /workspaces/:id/ai/usage, the cost', () => {
         },
       },
       { catalogue: 'none' as const },
-      { enabled: false },
     ]) {
       const harness = await start(options);
       const response = await harness.get();
