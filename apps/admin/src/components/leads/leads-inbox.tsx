@@ -22,6 +22,7 @@ import {
   leadTypeEntry,
   leadTypeLabel,
   SAVED_VIEW_LIMIT,
+  type AssignableMember,
   type FilterableLeadProperty,
   type LeadExportFilter,
   type LeadFieldOption,
@@ -73,7 +74,6 @@ import { todayDay } from '../../lib/dates';
 import { memberName } from '../../lib/people';
 import { describeError } from '../../lib/error-text';
 import { errorReason, useResource } from '../../lib/use-resource';
-import { FilterChip } from '../crm/filter-chip';
 import { MenuItem, MenuPanel } from '../crm/menu';
 import { SidePanel } from '../crm/side-panel';
 import { dollarsToCents } from '../properties/property-value';
@@ -243,6 +243,45 @@ function takeLegacyHiddenColumns(workspaceId: string): LeadTableColumn[] | undef
   } catch {
     return undefined;
   }
+}
+
+/**
+ * One applied filter, "Field: value ×", in the CRM chip style. Its button
+ * names the filter whole ("Remove filter Stage: New"), so two filters on one
+ * property are told apart.
+ */
+function ActiveFilterChip({
+  label,
+  value,
+  onRemove,
+}: {
+  label: string;
+  value: string;
+  onRemove(): void;
+}) {
+  return (
+    <span className="inline-flex h-6 max-w-full items-center gap-1 rounded-[4px] border border-crm-chip-border bg-crm-chip pr-0.5 pl-2 text-[12px] text-crm-chip-foreground">
+      <span className="shrink-0 font-medium">{label}:</span>
+      <span className="min-w-0 truncate">{value}</span>
+      <button
+        type="button"
+        aria-label={`Remove filter ${label}: ${value}`}
+        title={`Remove filter ${label}: ${value}`}
+        className="grid size-5 shrink-0 place-items-center rounded-[3px] outline-none hover:bg-crm-chip-border/50 focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onRemove}
+      >
+        <XIcon aria-hidden="true" className="size-3" />
+      </button>
+    </span>
+  );
+}
+
+/** An assignee filter as the chip names it: `Me`, `Unassigned` or the member. */
+function assigneeFilterWords(value: string, members: readonly AssignableMember[]): string {
+  if (value === 'me') return 'Me';
+  if (value === 'none') return 'Unassigned';
+  const member = members.find((entry) => entry.actorId === value);
+  return member ? memberName(member) : 'A teammate';
 }
 
 /** One checkbox row of a menu panel, labelled by its text. */
@@ -824,6 +863,59 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
     Number(Boolean(query.stage)) +
     Number(Boolean(query.assignee)) +
     Number(Boolean(query.due));
+  /**
+   * Every filter that narrows the list, one chip each under the toolbar, in the
+   * Filters menu's own words; removing one changes the query as unticking it
+   * in the menu does. The search text and the type tabs show themselves.
+   */
+  const appliedFilters: { key: string; label: string; value: string; remove(): void }[] = [
+    ...(query.stage && !onBoard
+      ? [
+          {
+            key: 'stage',
+            label: 'Stage',
+            value: stages.find((entry) => entry.key === query.stage)?.label ?? query.stage,
+            remove: () => update({ stage: undefined }),
+          },
+        ]
+      : []),
+    ...(query.assignee
+      ? [
+          {
+            key: 'assignee',
+            label: 'Assignee',
+            value: assigneeFilterWords(query.assignee, members),
+            remove: () => update({ assignee: undefined }),
+          },
+        ]
+      : []),
+    ...(query.due && !query.archived
+      ? [
+          {
+            key: 'due',
+            label: 'Follow-ups',
+            value: 'Due',
+            remove: () => update({ due: false }),
+          },
+        ]
+      : []),
+    ...(canUseProperties
+      ? activeWhere.map((filter, index) => {
+          const { label, condition } = propertyFilterParts(query.type, filter, catalog);
+          return {
+            key: `${filter.key}-${filter.op}-${index}`,
+            label,
+            value: condition,
+            remove: () => removePropertyFilter(index),
+          };
+        })
+      : []),
+  ];
+  const filtersLabel =
+    appliedFilters.length > 0 ? `Filters, ${appliedFilters.length} applied` : 'Filters';
+  function clearAppliedFilters() {
+    update({ where: undefined, stage: undefined, assignee: undefined, due: false });
+  }
   const viewChanged =
     query.layout === 'board' ||
     Boolean(query.sort) ||
@@ -837,19 +929,22 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
           type="button"
           variant="outline"
           size="icon"
-          aria-label="Filters"
-          title="Filters"
+          aria-label={filtersLabel}
+          title={filtersLabel}
           className={TOOLBAR_BUTTON}
         >
           <FilterIcon aria-hidden="true" className={TOOLBAR_ICON} />
           <span aria-hidden="true" className={TOOLBAR_LABEL}>
             Filter
           </span>
-          {filterCount > 0 ? (
+          {appliedFilters.length > 0 ? (
             <span
               aria-hidden="true"
-              className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
-            />
+              data-slot="filter-count"
+              className="absolute -top-1.5 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground tabular-nums ring-2 ring-background"
+            >
+              {appliedFilters.length}
+            </span>
           ) : null}
         </Button>
       </PopoverTrigger>
@@ -864,9 +959,7 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
             <button
               type="button"
               className="text-xs text-muted-foreground hover:text-foreground"
-              onClick={() =>
-                update({ where: undefined, stage: undefined, assignee: undefined, due: false })
-              }
+              onClick={clearAppliedFilters}
             >
               Reset filters
             </button>
@@ -1514,21 +1607,6 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
       </Button>
     ) : null;
 
-  const chips =
-    canUseProperties && activeWhere.length > 0
-      ? activeWhere.map((filter, index) => {
-          const { label, condition } = propertyFilterParts(query.type, filter, catalog);
-          return (
-            <FilterChip
-              key={`${filter.key}-${filter.op}-${index}`}
-              label={label}
-              value={condition}
-              onRemove={() => removePropertyFilter(index)}
-            />
-          );
-        })
-      : null;
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap">
@@ -1630,22 +1708,31 @@ export function LeadsInbox({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       </div>
 
-      {chips ? (
+      {appliedFilters.length > 0 ? (
         <div
           role="region"
           aria-label="Active filters"
           className="flex flex-wrap items-center gap-2"
         >
-          {chips}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={clearAllFilters}
-            className="h-7 px-2 text-xs"
-          >
-            Clear filters
-          </Button>
+          {appliedFilters.map((filter) => (
+            <ActiveFilterChip
+              key={filter.key}
+              label={filter.label}
+              value={filter.value}
+              onRemove={filter.remove}
+            />
+          ))}
+          {appliedFilters.length > 1 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={clearAppliedFilters}
+              className="h-7 px-2 text-xs"
+            >
+              Clear all
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

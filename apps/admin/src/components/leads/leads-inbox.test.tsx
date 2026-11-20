@@ -492,7 +492,7 @@ describe('LeadsInbox', () => {
     );
     expect(await screen.findByText('No follow-ups due today or earlier.')).toBeTruthy();
     // The type's own count, and pressed while on.
-    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Filters, \d+ applied$/ }));
     const on = await screen.findByRole('button', { name: /Follow-ups due\s*1/ });
     expect(on.getAttribute('aria-pressed')).toBe('true');
   });
@@ -652,21 +652,95 @@ describe('LeadsInbox', () => {
     view.unmount();
     render(<LeadsInbox workspaceSlug="canadawide" />);
     const remove = await screen.findByRole('button', {
-      name: 'Remove filter Visa / permit type',
+      name: 'Remove filter Visa / permit type: is Study permit',
     });
     expect(remove.parentElement?.textContent).toBe('Visa / permit type:is Study permit');
     // The chips row appears under the filter row only while a filter is on.
     const chipsRow = screen.getByRole('region', { name: 'Active filters' });
     expect(chipsRow.contains(remove)).toBe(true);
-    expect(within(chipsRow).getByRole('button', { name: 'Clear filters' })).toBeTruthy();
+    // One filter is removed by its own chip; "Clear all" waits for a second.
+    expect(within(chipsRow).queryByRole('button', { name: 'Clear all' })).toBeNull();
     expect(
-      chipsRow.previousElementSibling?.contains(screen.getByRole('button', { name: 'Filters' })),
+      chipsRow.previousElementSibling?.contains(
+        screen.getByRole('button', { name: 'Filters, 1 applied' }),
+      ),
     ).toBe(true);
 
     fireEvent.click(remove);
     expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=sim_order', {
       scroll: false,
     });
+  });
+
+  it('shows a chip per applied filter and counts them on the Filter button', async () => {
+    navigation.search = 'type=internet&stage=contacted&assignee=me&due=1';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const chips = await screen.findByRole('region', { name: 'Active filters' });
+    const button = screen.getByRole('button', { name: 'Filters, 3 applied' });
+    expect(button.querySelector('[data-slot="filter-count"]')?.textContent).toBe('3');
+    expect(
+      within(chips)
+        .getAllByRole('button', { name: /^Remove filter/ })
+        .map((remove) => remove.getAttribute('aria-label')),
+    ).toEqual([
+      'Remove filter Stage: Contacted',
+      'Remove filter Assignee: Me',
+      'Remove filter Follow-ups: Due',
+    ]);
+    // Two or more: one button clears them all, and leaves the type as it is.
+    fireEvent.click(within(chips).getByRole('button', { name: 'Clear all' }));
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=internet', {
+      scroll: false,
+    });
+  });
+
+  it('removes a filter from its chip exactly as unticking it in the menu does', async () => {
+    const start = 'type=internet&stage=contacted&assignee=me&page=2';
+    navigation.search = start;
+    const first = render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove filter Stage: Contacted' }));
+    const fromChip = navigation.replace.mock.lastCall;
+    expect(fromChip?.[0]).toBe('/w/canadawide/leads?type=internet&assignee=me');
+    first.unmount();
+
+    navigation.replace.mockClear();
+    navigation.search = start;
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Filters, 2 applied' }));
+    fireEvent.change(await screen.findByLabelText('Stage'), { target: { value: '' } });
+    expect(navigation.replace.mock.lastCall).toEqual(fromChip);
+  });
+
+  it('names a teammate on the assignee chip, and offers Clear all only for two or more', async () => {
+    const SAM = '20000000-0000-4000-8000-000000000002';
+    mocks.listWorkspaceMembers.mockResolvedValue({
+      members: [
+        {
+          membershipId: '30000000-0000-4000-8000-000000000002',
+          actorId: SAM,
+          displayName: 'Sam',
+          roles: ['leads'],
+          isSelf: false,
+        },
+      ],
+    });
+    navigation.search = `type=internet&assignee=${SAM}`;
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const remove = await screen.findByRole('button', { name: 'Remove filter Assignee: Sam' });
+    expect(screen.getByRole('button', { name: 'Filters, 1 applied' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Clear all' })).toBeNull();
+    fireEvent.click(remove);
+    expect(navigation.replace).toHaveBeenLastCalledWith('/w/canadawide/leads?type=internet', {
+      scroll: false,
+    });
+  });
+
+  it('does not count the search text or the type tab as filters', async () => {
+    navigation.search = 'type=internet&q=blake';
+    render(<LeadsInbox workspaceSlug="canadawide" />);
+    const button = await screen.findByRole('button', { name: 'Filters' });
+    expect(button.querySelector('[data-slot="filter-count"]')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Active filters' })).toBeNull();
   });
 
   it('cycles column header sorting ascending → descending → default with aria-sort', async () => {
@@ -1070,7 +1144,7 @@ describe('LeadsInbox', () => {
       navigation.search = READY_URL;
       const view = render(<LeadsInbox workspaceSlug="canadawide" />);
       await trigger(/Ready to call/);
-      fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+      fireEvent.click(screen.getByRole('button', { name: /^Filters, \d+ applied$/ }));
       fireEvent.change(screen.getByLabelText('Assignee'), { target: { value: 'none' } });
       expect(navigation.replace).toHaveBeenLastCalledWith(
         `/w/canadawide/leads?type=internet&view=${READY.id}&assignee=none&hide=source`,
@@ -1093,7 +1167,7 @@ describe('LeadsInbox', () => {
       navigation.search = READY_URL;
       const view = render(<LeadsInbox workspaceSlug="canadawide" />);
       await trigger(/Ready to call/);
-      fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+      fireEvent.click(screen.getByRole('button', { name: /^Filters, \d+ applied$/ }));
       fireEvent.change(screen.getByLabelText('Assignee'), { target: { value: 'none' } });
       view.rerender(<LeadsInbox workspaceSlug="canadawide" />);
       const state = { ...READY.state, assignee: 'none' };
@@ -1680,9 +1754,10 @@ describe('LeadsInbox export', () => {
     await screen.findByRole('link', { name: 'Avery Example' });
     // The toolbar's button sits with the other menus.
     const button = screen.getByRole('button', { name: 'Export' });
-    expect(screen.getByRole('button', { name: 'Filters' }).parentElement?.contains(button)).toBe(
-      true,
-    );
+    // Two filters narrow the list, the stage and a property; the search is not a filter.
+    expect(
+      screen.getByRole('button', { name: 'Filters, 2 applied' }).parentElement?.contains(button),
+    ).toBe(true);
     fireEvent.click(button);
 
     const dialog = await screen.findByRole('dialog', { name: 'Export leads to Excel' });

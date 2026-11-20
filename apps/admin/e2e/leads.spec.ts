@@ -39,7 +39,11 @@ function trackErrors(page: Page): string[] {
 
 /** Icon menus retain their contents while a setting changes. */
 async function openInboxMenu(page: Page, name: 'Filters' | 'View options' | 'Saved views') {
-  const button = page.getByRole('button', { name, exact: true });
+  // The Filters button says how many filters are applied: "Filters, 2 applied".
+  const button = page.getByRole('button', {
+    name: name === 'Filters' ? /^Filters(, \d+ applied)?$/ : name,
+    exact: name !== 'Filters',
+  });
   if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
 }
 
