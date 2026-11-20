@@ -375,12 +375,97 @@ export const aiUsageFailureSchema = z.object({
 export type AiUsageFailure = z.infer<typeof aiUsageFailureSchema>;
 
 /**
+ * A whole number of micro-dollars (US$ 0.000001). Rounded half up from the
+ * exact sum; a non-zero amount under half a micro-dollar is sent as 1, so a
+ * cost that is not zero never reads as zero.
+ */
+const microUsdSchema = z.int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * A Gateway list price in US dollars per million tokens, as an exact decimal
+ * string ("2.5", "0.075"): the per-token price the cost was worked out with,
+ * times a million, never a float.
+ */
+const usdPerMillionSchema = z.string().regex(/^\d{1,7}(\.\d{1,12})?$/, 'usd per million');
+
+/**
+ * Why nothing could be priced: the Gateway catalogue could not be read
+ * (`catalogue_unavailable`), or no turn of the period was served by a model
+ * the catalogue prices (`no_priced_turns`). Read as a plain code, so a
+ * reason added later never fails an older admin.
+ */
+export const AI_USAGE_COST_REASONS = ['catalogue_unavailable', 'no_priced_turns'] as const;
+export type AiUsageCostReason = (typeof AI_USAGE_COST_REASONS)[number];
+
+/**
+ * One (engine, model) pair's approximate cost in the period, most costly
+ * first. `label` is the catalogue's name for the model; the prices are the
+ * catalogue's current list prices; `costMicroUsd` is null when the turns
+ * could not be priced (no model recorded, not a Gateway turn, or a model the
+ * catalogue does not list or price).
+ */
+export const aiUsageCostModelSchema = aiUsageCountsSchema.extend({
+  model: z.string().min(1).max(200).nullable(),
+  engine: z.string().min(1).max(20),
+  label: z.string().min(1).max(80).nullable(),
+  inputPricePerMillion: usdPerMillionSchema.nullable(),
+  outputPricePerMillion: usdPerMillionSchema.nullable(),
+  costMicroUsd: microUsdSchema.nullable(),
+});
+export type AiUsageCostModel = z.infer<typeof aiUsageCostModelSchema>;
+
+/** One Toronto day's approximate cost (every day of the series) and the turns left unpriced. */
+export const aiUsageCostDaySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'calendar day'),
+  costMicroUsd: microUsdSchema,
+  unpricedTurns: usageCount,
+});
+export type AiUsageCostDay = z.infer<typeof aiUsageCostDaySchema>;
+
+/** One member's approximate cost in the period and their turns left unpriced. */
+export const aiUsageCostMemberSchema = z.object({
+  actorId: z.uuid(),
+  costMicroUsd: microUsdSchema,
+  unpricedTurns: usageCount,
+});
+export type AiUsageCostMember = z.infer<typeof aiUsageCostMemberSchema>;
+
+/**
+ * The approximate cost of the period's turns: each model's input and output
+ * tokens at the Gateway catalogue's current list price (`basis`
+ * `current_list_prices`, not the price on the day of the turn), summed
+ * exactly and rounded only here. It leaves out cached-token discounts,
+ * retries the provider billed and anything outside Ask AI; the Gateway's
+ * invoice is the real figure. Turns that could not be priced are counted in
+ * `unpricedTurns`, never guessed. `priced` is false when nothing could be
+ * priced, with a `reason`; a period without turns is priced at zero.
+ * Absent from an older backend, and from one whose store does not break the
+ * tokens down by model.
+ */
+export const aiUsageCostSchema = z.object({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  basis: z.string().regex(/^[a-z][a-z0-9_]{0,59}$/),
+  priced: z.boolean(),
+  reason: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{0,59}$/)
+    .optional(),
+  totalMicroUsd: microUsdSchema,
+  pricedTurns: usageCount,
+  unpricedTurns: usageCount,
+  models: z.array(aiUsageCostModelSchema).max(AI_USAGE_MAX_MODELS),
+  daily: z.array(aiUsageCostDaySchema).max(Math.max(...AI_USAGE_PERIODS)),
+  members: z.array(aiUsageCostMemberSchema).max(1000),
+});
+export type AiUsageCost = z.infer<typeof aiUsageCostSchema>;
+
+/**
  * The site's Ask AI usage over the period: totals and one row per member who
  * used it, and (from a backend that sends them) the assistant's current
- * configuration, the models that served turns, the day-by-day series and the
- * failure reasons. The period is the last `period` calendar days in
- * `America/Toronto`, today included. Not strict, so an older admin strips
- * the fields it does not know.
+ * configuration, the models that served turns, the day-by-day series, the
+ * failure reasons and the approximate cost. The period is the last `period`
+ * calendar days in `America/Toronto`, today included. Not strict, so an older
+ * admin strips the fields it does not know.
  */
 export const aiUsageResponseSchema = z.object({
   period: aiUsagePeriodSchema,
@@ -393,6 +478,7 @@ export const aiUsageResponseSchema = z.object({
     .max(Math.max(...AI_USAGE_PERIODS))
     .optional(),
   failures: z.array(aiUsageFailureSchema).max(AI_USAGE_MAX_FAILURE_CODES).optional(),
+  cost: aiUsageCostSchema.optional(),
   requestId: requestIdSchema,
 });
 export type AiUsageResponse = z.infer<typeof aiUsageResponseSchema>;

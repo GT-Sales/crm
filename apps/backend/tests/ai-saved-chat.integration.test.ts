@@ -46,6 +46,7 @@ import {
   type AiChatSchemaProbe,
 } from '../src/ai/chat-schema.js';
 import type { AiAssistantConfig } from '../src/ai/config.js';
+import { catalogueRead, type AiModelCatalogue } from '../src/ai/model-catalogue.js';
 import { AttachmentByteBudget } from '../src/ai/attachment-budget.js';
 import {
   DatabaseAiConversationStore,
@@ -362,6 +363,8 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
       usageSchema?: AiChatSchemaProbe;
       /** The probe the turn and its rows read; the database's own by default. */
       schema?: AiChatSchemaProbe;
+      /** The Gateway catalogue the usage page prices from; none (no key) by default. */
+      catalogue?: AiModelCatalogue;
     } = {},
   ) {
     if (server) await new Promise<void>((resolve) => server?.close(() => resolve()));
@@ -390,6 +393,18 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
               kinds: options.kinds ?? ['image', 'pdf', 'text'],
             }),
           },
+          ...(options.catalogue
+            ? {
+                models: {
+                  settings: {
+                    available: async () => false,
+                    get: async () => undefined,
+                    save: async () => ({ status: 'unavailable' as const }),
+                  },
+                  catalogue: options.catalogue,
+                },
+              }
+            : {}),
         },
       },
     });
@@ -2410,6 +2425,117 @@ databaseTest('Ask AI saved chat (conversations, attachments, usage)', () => {
         // A failed turn that recorded no code.
         { code: 'unknown', turns: 1 },
       ]);
+    });
+
+    it('prices the period per model, Toronto day and member at the catalogue’s list prices', async () => {
+      await seedPeriods();
+      // Without a Gateway key there is no catalogue: the usage stands, unpriced.
+      const unpriced = await usageOf(7);
+      expect(unpriced.totals.turns).toBe(8);
+      expect(unpriced.cost).toMatchObject({
+        priced: false,
+        reason: 'catalogue_unavailable',
+        unpricedTurns: 8,
+      });
+
+      // $1 in / $2 out per million for Alpha, $0.50 / $1.50 for Beta.
+      await startApp({
+        catalogue: {
+          models: async () => ({
+            status: 'ok',
+            ...catalogueRead([
+              { id: ALPHA, name: 'Acme Alpha', pricing: { input: '0.000001', output: '0.000002' } },
+              { id: BETA, name: 'Acme Beta', pricing: { input: '5e-7', output: '0.0000015' } },
+            ]),
+          }),
+        },
+      });
+      const weekly = await usageOf(7);
+      expect(weekly.cost).toMatchObject({
+        currency: 'USD',
+        basis: 'current_list_prices',
+        priced: true,
+        // Alpha: 1252 in, 107 out = 1252 + 214 µ$; Beta: 700 in, 70 out = 350 + 105 µ$.
+        totalMicroUsd: 1921,
+        pricedTurns: 7,
+        // The test engine's turn, with no model.
+        unpricedTurns: 1,
+      });
+      expect(weekly.cost?.models).toEqual([
+        {
+          model: ALPHA,
+          engine: 'gateway',
+          label: 'Acme Alpha',
+          turns: 4,
+          inputTokens: 1252,
+          outputTokens: 107,
+          inputPricePerMillion: '1',
+          outputPricePerMillion: '2',
+          costMicroUsd: 1466,
+        },
+        {
+          model: BETA,
+          engine: 'gateway',
+          label: 'Acme Beta',
+          turns: 3,
+          inputTokens: 700,
+          outputTokens: 70,
+          inputPricePerMillion: '0.5',
+          outputPricePerMillion: '1.5',
+          costMicroUsd: 455,
+        },
+        {
+          model: null,
+          engine: 'fake',
+          label: null,
+          turns: 1,
+          inputTokens: 10,
+          outputTokens: 1,
+          inputPricePerMillion: null,
+          outputPricePerMillion: null,
+          costMicroUsd: null,
+        },
+      ]);
+      // Every day of the series, the 23:30 turn on yesterday's Toronto date.
+      expect(weekly.cost?.daily).toEqual([
+        { day: torontoDay(6), costMicroUsd: 6, unpricedTurns: 0 },
+        { day: torontoDay(5), costMicroUsd: 0, unpricedTurns: 0 },
+        { day: torontoDay(4), costMicroUsd: 0, unpricedTurns: 0 },
+        { day: torontoDay(3), costMicroUsd: 0, unpricedTurns: 0 },
+        { day: torontoDay(2), costMicroUsd: 195, unpricedTurns: 0 },
+        { day: torontoDay(1), costMicroUsd: 1660, unpricedTurns: 0 },
+        { day: torontoDay(0), costMicroUsd: 60, unpricedTurns: 1 },
+      ]);
+      expect(weekly.cost?.members).toEqual([
+        { actorId: MEMBER_A, costMicroUsd: 1466, unpricedTurns: 1 },
+        { actorId: MEMBER_B, costMicroUsd: 455, unpricedTurns: 0 },
+      ]);
+      const total = weekly.cost?.daily.reduce((sum, day) => sum + day.costMicroUsd, 0);
+      expect(total).toBe(weekly.cost?.totalMicroUsd);
+
+      // 30 days add Alpha's 5000 in / 500 out (6000 µ$) and Beta's 1 in / 1 out (2 µ$).
+      const month = await usageOf(30);
+      expect(month.cost?.totalMicroUsd).toBe(1921 + 6000 + 2);
+      expect(month.cost?.daily).toHaveLength(30);
+      expect(month.cost?.daily.find((day) => day.day === torontoDay(10))?.costMicroUsd).toBe(6000);
+      // Before 0034 the input tokens count as 0, so only the output is priced.
+      await startApp({
+        usageSchema: fixedAiChatSchema({ inputTokens: false }),
+        catalogue: {
+          models: async () => ({
+            status: 'ok',
+            ...catalogueRead([
+              { id: ALPHA, name: 'Acme Alpha', pricing: { input: '0.000001', output: '0.000002' } },
+            ]),
+          }),
+        },
+      });
+      const older = await usageOf(7);
+      // Alpha's 107 out at $2/M; Beta is not listed now: its 3 turns are unpriced.
+      expect(older.cost).toMatchObject({ totalMicroUsd: 214, pricedTurns: 4, unpricedTurns: 4 });
+      for (const token of ['a', 'b', 'viewer']) {
+        expect((await read(token)).response.status).toBe(403);
+      }
     });
 
     it('answers zeros, a full series and no average for a period with no turns', async () => {

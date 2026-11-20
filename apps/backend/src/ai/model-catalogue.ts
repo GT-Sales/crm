@@ -34,8 +34,24 @@ export interface GatewayCatalogueEntry {
   readonly modelType?: string | null;
 }
 
+/**
+ * A model's list prices exactly as the Gateway sent them: US dollars per
+ * token as decimal strings, never turned into a float. The usage page prices
+ * tokens with them (`usage-cost.ts`); Settings shows `AiCatalogueModel`'s
+ * rounded per-million numbers.
+ */
+export interface AiModelListPrice {
+  readonly input: string;
+  readonly output: string;
+}
+
 export type AiCatalogueResult =
-  | { readonly status: 'ok'; readonly models: readonly AiCatalogueModel[] }
+  | {
+      readonly status: 'ok';
+      readonly models: readonly AiCatalogueModel[];
+      /** The raw prices of the models in `models` that have any, by id. Server-side only. */
+      readonly prices: ReadonlyMap<string, AiModelListPrice>;
+    }
   | { readonly status: 'unavailable' };
 
 export interface AiModelCatalogue {
@@ -72,7 +88,16 @@ export function pricePerMillion(perToken: string | undefined): number | null {
 
 /** The catalogue entries Settings may offer, in the catalogue's order, bounded. */
 export function catalogueModels(entries: readonly GatewayCatalogueEntry[]): AiCatalogueModel[] {
+  return catalogueRead(entries).models;
+}
+
+/** The models Settings may offer and, for the same models, their raw list prices. */
+export function catalogueRead(entries: readonly GatewayCatalogueEntry[]): {
+  models: AiCatalogueModel[];
+  prices: Map<string, AiModelListPrice>;
+} {
   const models: AiCatalogueModel[] = [];
+  const prices = new Map<string, AiModelListPrice>();
   const seen = new Set<string>();
   for (const entry of entries) {
     if (models.length >= AI_MODEL_LIMITS.maxCatalogue) break;
@@ -90,8 +115,11 @@ export function catalogueModels(entries: readonly GatewayCatalogueEntry[]): AiCa
       inputPricePerMillion: pricePerMillion(entry.pricing?.input),
       outputPricePerMillion: pricePerMillion(entry.pricing?.output),
     });
+    const pricing = entry.pricing;
+    if (pricing && typeof pricing.input === 'string' && typeof pricing.output === 'string')
+      prices.set(id.data, { input: pricing.input, output: pricing.output });
   }
-  return models;
+  return { models, prices };
 }
 
 /**
@@ -130,7 +158,7 @@ export class CachedModelCatalogue implements AiModelCatalogue {
     let result: AiCatalogueResult;
     try {
       const metadata = await this.fetchEntries();
-      result = { status: 'ok', models: catalogueModels(metadata.models) };
+      result = { status: 'ok', ...catalogueRead(metadata.models) };
     } catch {
       // The Gateway's error may repeat its request; only that it failed is kept.
       result = { status: 'unavailable' };

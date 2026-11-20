@@ -17,6 +17,7 @@ import { percentFormat } from '../analytics/charts';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
 import { useStaffSession } from '../staff-session-provider';
 import { ScrollEdge } from './scroll-edge';
+import { CostByModel, CostUnavailable, costShown, costTile, MemberCost } from './usage-cost';
 import { UsageDaily } from './usage-daily';
 import { answerTime, count, lastUsed, totalTokens } from './usage-format';
 import {
@@ -53,10 +54,11 @@ export function sortMembers(members: readonly AiUsageMember[]): AiUsageMember[] 
 
 /**
  * Settings → AI usage, the owner's Ask AI monitoring page, top to bottom:
- * how the assistant is set up now, the period's totals, turns and tokens per
- * day, the models that served turns, why turns failed, and each member's
- * use, over the last 7, 30 or 90 calendar days in Toronto. Counts, codes and
- * configuration names only, never a question or an answer. The backend
+ * how the assistant is set up now, the period's totals and approximate cost,
+ * the cost per model, turns, tokens and cost per day, the models that served
+ * turns, why turns failed, and each member's use, over the last 7, 30 or 90
+ * calendar days in Toronto. Counts, amounts, codes and configuration names
+ * only, never a question or an answer. The backend
  * answers the owner alone, so anyone else who reaches the page is told so;
  * an older backend without the route reads as "not available yet", and one
  * that sends only the totals and members gets the page as it was (no
@@ -205,7 +207,14 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
   const members = useMemo(() => sortMembers(usage.members), [usage.members]);
   // A backend that counts High turns sends them on every member.
   const highColumn = usage.members.some((member) => member.highEffortTurns !== undefined);
-  const tiles = totalTiles(totals);
+  const { cost } = usage;
+  // A priced cost is one more figure beside the totals, per day and per member.
+  const priced = costShown(cost) ? cost : undefined;
+  const memberCosts = useMemo(
+    () => new Map((priced?.members ?? []).map((entry) => [entry.actorId, entry])),
+    [priced],
+  );
+  const tiles = [...totalTiles(totals), ...(priced ? [costTile(priced)] : [])];
   const perRow = tiles.length > 4 && tiles.length % 4 === 1 ? 3 : 4;
   const strips = Array.from({ length: Math.ceil(tiles.length / perRow) }, (_, index) =>
     tiles.slice(index * perRow, index * perRow + perRow),
@@ -239,9 +248,12 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
             {`Today and the ${String(usage.period - 1)} days before it, as calendar days in Toronto.`}
           </p>
         ) : null}
+        {cost ? <CostUnavailable cost={cost} /> : null}
       </section>
 
-      {usage.daily ? <UsageDaily daily={usage.daily} /> : null}
+      {cost ? <CostByModel cost={cost} period={usage.period} /> : null}
+
+      {usage.daily ? <UsageDaily daily={usage.daily} cost={priced} /> : null}
 
       {usage.models ? (
         <ModelsTable
@@ -293,6 +305,11 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
                   <th scope="col" className={cn(HEAD_CELL, 'text-right')}>
                     Total tokens
                   </th>
+                  {priced ? (
+                    <th scope="col" className={cn(HEAD_CELL, 'text-right')}>
+                      Approx. cost
+                    </th>
+                  ) : null}
                   <th scope="col" className={cn(HEAD_CELL, 'text-right')}>
                     Last used
                   </th>
@@ -325,6 +342,11 @@ function Usage({ usage, busy }: { usage: AiUsageResponse; busy: boolean }) {
                     <td className={cn(CELL, NUMBER, 'font-medium')}>
                       {count.format(totalTokens(member))}
                     </td>
+                    {priced ? (
+                      <td className={cn(CELL, NUMBER, 'whitespace-nowrap')}>
+                        <MemberCost cost={priced} entry={memberCosts.get(member.actorId)} />
+                      </td>
+                    ) : null}
                     <td className={cn(CELL, NUMBER, 'whitespace-nowrap text-muted-foreground')}>
                       <time dateTime={member.lastUsedAt} title={dateTimeLabel(member.lastUsedAt)}>
                         {lastUsed(member.lastUsedAt)}

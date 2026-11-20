@@ -593,6 +593,127 @@ describe('usage of High effort', () => {
   });
 });
 
+describe('usage cost', () => {
+  const ACTOR = '20000000-0000-4000-8000-000000000001';
+  const base = {
+    period: 7,
+    totals: { turns: 3, inputTokens: 1_500_000, outputTokens: 200_000 },
+    members: [
+      {
+        actorId: ACTOR,
+        displayName: 'Sam',
+        turns: 3,
+        inputTokens: 1_500_000,
+        outputTokens: 200_000,
+        lastUsedAt: '2026-11-18T15:00:00.000Z',
+      },
+    ],
+    requestId: REQUEST_ID,
+  };
+  const cost = {
+    currency: 'USD',
+    basis: 'current_list_prices',
+    priced: true,
+    totalMicroUsd: 4_050_000,
+    pricedTurns: 2,
+    unpricedTurns: 1,
+    models: [
+      {
+        model: 'vendor-a/model-one',
+        engine: 'gateway',
+        label: 'Model One',
+        turns: 2,
+        inputTokens: 1_000_000,
+        outputTokens: 100_000,
+        inputPricePerMillion: '2.5',
+        outputPricePerMillion: '15',
+        costMicroUsd: 4_000_000,
+      },
+      {
+        model: null,
+        engine: 'gateway',
+        label: null,
+        turns: 1,
+        inputTokens: 500_000,
+        outputTokens: 100_000,
+        inputPricePerMillion: null,
+        outputPricePerMillion: null,
+        costMicroUsd: null,
+      },
+    ],
+    daily: [{ day: '2026-11-18', costMicroUsd: 4_000_000, unpricedTurns: 1 }],
+    members: [{ actorId: ACTOR, costMicroUsd: 4_000_000, unpricedTurns: 1 }],
+  };
+
+  it('carries the cost in micro-dollars, per model, day and member, with the unpriced turns', () => {
+    const parsed = aiUsageResponseSchema.parse({ ...base, cost });
+    expect(parsed.cost).toEqual(cost);
+    // Nothing priced: the reason, zero amounts and empty rows.
+    const unavailable = {
+      ...cost,
+      priced: false,
+      reason: 'catalogue_unavailable',
+      totalMicroUsd: 0,
+      pricedTurns: 0,
+      unpricedTurns: 3,
+      models: [],
+      daily: [],
+      members: [],
+    };
+    expect(aiUsageResponseSchema.parse({ ...base, cost: unavailable }).cost).toEqual(unavailable);
+    // A reason or basis added later is still read.
+    expect(
+      aiUsageResponseSchema.parse({ ...base, cost: { ...unavailable, reason: 'new_reason' } }).cost
+        ?.reason,
+    ).toBe('new_reason');
+  });
+
+  it('refuses floats, negative amounts, float prices and rows past the bounds', () => {
+    const model = cost.models[0];
+    for (const bad of [
+      { ...cost, totalMicroUsd: 4.05 },
+      { ...cost, totalMicroUsd: -1 },
+      { ...cost, totalMicroUsd: Number.MAX_SAFE_INTEGER + 2 },
+      { ...cost, currency: 'usd' },
+      { ...cost, reason: 'Catalogue Down' },
+      { ...cost, unpricedTurns: 0.5 },
+      { ...cost, models: [{ ...model, inputPricePerMillion: 2.5 }] },
+      { ...cost, models: [{ ...model, inputPricePerMillion: '2.5e-1' }] },
+      { ...cost, models: [{ ...model, outputPricePerMillion: '-1' }] },
+      { ...cost, models: [{ ...model, costMicroUsd: 1.5 }] },
+      { ...cost, models: Array(51).fill(model) },
+      { ...cost, daily: [{ day: '18/11/2026', costMicroUsd: 0, unpricedTurns: 0 }] },
+      { ...cost, daily: Array(91).fill(cost.daily[0]) },
+      { ...cost, members: [{ actorId: 'not-a-uuid', costMicroUsd: 0, unpricedTurns: 0 }] },
+    ]) {
+      expect(
+        aiUsageResponseSchema.safeParse({ ...base, cost: bad }).success,
+        JSON.stringify(bad).slice(0, 200),
+      ).toBe(false);
+    }
+  });
+
+  it('this admin reads an older backend’s answer with no cost, and an older admin strips it', () => {
+    expect(aiUsageResponseSchema.parse(base)).not.toHaveProperty('cost');
+    const olderSchema = z.object({
+      period: z.literal([7, 30, 90]),
+      totals: z.object({ turns: z.int(), inputTokens: z.int(), outputTokens: z.int() }),
+      members: z.array(
+        z.object({
+          actorId: z.uuid(),
+          displayName: z.string().nullable(),
+          turns: z.int(),
+          inputTokens: z.int(),
+          outputTokens: z.int(),
+          lastUsedAt: z.string(),
+        }),
+      ),
+      requestId: z.string(),
+    });
+    expect(olderSchema.parse({ ...base, cost })).toEqual(base);
+  });
+});
+
 describe('a stored message’s effort level', () => {
   const stored = {
     id: ID,

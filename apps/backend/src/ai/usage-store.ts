@@ -13,11 +13,13 @@ import {
 
 import { todayInToronto } from '../leads/stage-move.js';
 import { DatabaseAiChatSchemaProbe, type AiChatSchemaProbe } from './chat-schema.js';
+import type { AiUsageTokenBreakdown } from './usage-cost.js';
 
 /**
  * The owner's Ask AI usage view, from `app.ai_turns`: totals and how turns
  * ended, one row per member, one per (engine, model) that served turns, a
- * day-by-day series and the failure reasons. The one read of the saved chat
+ * day-by-day series, the failure reasons and the tokens per model by day and
+ * by member that the approximate cost is priced from (`usage-cost.ts`). The one read of the saved chat
  * that spans members, and it returns numbers and bounded codes only:
  * `ai_turns` holds no question, answer or file, and conversations are never
  * read here. `ai_turns` has a tenant policy, so the owner's own transaction
@@ -36,6 +38,11 @@ export interface AiUsageResult {
   models?: AiUsageModel[];
   daily?: AiUsageDay[];
   failures?: AiUsageFailure[];
+  /**
+   * The same turns' tokens per (engine, model) by Toronto day and by member,
+   * exact, for the approximate cost (`usage-cost.ts`). Never sent as it is.
+   */
+  tokens?: AiUsageTokenBreakdown;
 }
 
 export interface AiUsageStore {
@@ -54,6 +61,23 @@ const FAILURE_CODE_PATTERN = '^[a-z][a-z0-9_]{0,59}$';
 const toInt = (value: string | number | null): number => (value === null ? 0 : Number(value));
 const toAverage = (value: string | number | null): number | null =>
   value === null ? null : Number(value);
+
+/** A token row's counts, the sums kept exact as bigints. */
+function tokenCounts(row: {
+  engine: string;
+  model: string | null;
+  turns: string;
+  inputTokens: string;
+  outputTokens: string;
+}) {
+  return {
+    engine: row.engine,
+    model: row.model,
+    turns: toInt(row.turns),
+    inputTokens: BigInt(row.inputTokens),
+    outputTokens: BigInt(row.outputTokens),
+  };
+}
 
 export class DatabaseAiUsageStore implements AiUsageStore {
   private readonly schema: AiChatSchemaProbe;
@@ -194,6 +218,31 @@ export class DatabaseAiUsageStore implements AiUsageStore {
         limit ${AI_USAGE_MAX_FAILURE_CODES}
       `);
 
+      // Tokens per (engine, model) by Toronto day and by member, for the
+      // cost: the same turns, summed exactly (bigint text, read as bigint).
+      const tokenRows = await tx.execute<{
+        byDay: boolean;
+        engine: string;
+        model: string | null;
+        day: string | null;
+        actorId: string | null;
+        turns: string;
+        inputTokens: string;
+        outputTokens: string;
+      }>(sql`
+        select grouping(t.actor_id) <> 0 as "byDay", t.engine, nullif(t.model, '') as model,
+          to_char((t.created_at at time zone ${zone})::date, 'YYYY-MM-DD') as day,
+          t.actor_id as "actorId", count(*)::text as turns,
+          coalesce(sum(${inputTokens}), 0)::text as "inputTokens",
+          coalesce(sum(t.output_tokens), 0)::text as "outputTokens"
+        from app.ai_turns t
+        where ${inPeriod}
+        group by grouping sets (
+          (t.engine, t.model, (t.created_at at time zone ${zone})::date),
+          (t.engine, t.model, t.actor_id)
+        )
+      `);
+
       const [totalRow] = modelRows.filter((row) => row.total);
       const models = modelRows
         .filter((row): row is typeof row & { engine: string; lastUsedAt: string } => !row.total)
@@ -244,6 +293,16 @@ export class DatabaseAiUsageStore implements AiUsageStore {
           code: row.code,
           turns: toInt(row.turns),
         })),
+        tokens: {
+          byDay: tokenRows
+            .filter((row): row is typeof row & { day: string } => row.byDay && row.day !== null)
+            .map((row) => ({ ...tokenCounts(row), day: row.day })),
+          byMember: tokenRows
+            .filter(
+              (row): row is typeof row & { actorId: string } => !row.byDay && row.actorId !== null,
+            )
+            .map((row) => ({ ...tokenCounts(row), actorId: row.actorId })),
+        },
       };
     });
   }

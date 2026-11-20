@@ -218,7 +218,7 @@ DATABASE_SSL_MODE=disable EMAIL_CONTACT_HASH_SECRET=<≥16 chars>`. CI
   (`conversation-store.ts` a member's conversations and messages,
   `attachment-store.ts` and `attachments.ts` the files' rows, upload,
   verification, links and sweep, `attachment-budget.ts` the memory bound,
-  `usage-store.ts` the owner's usage, `chat-schema.ts` whether 0034–0037 are
+  `usage-store.ts` the owner's usage and `usage-cost.ts` its approximate cost, `chat-schema.ts` whether 0034–0037 are
   applied, `chat-factory.ts` the wiring) with the routes in
   `src/routes/ai-conversations.ts`, mounted from `src/routes/ai-assistant.ts`,
   which runs a stored turn; contracts in
@@ -516,7 +516,10 @@ its conversation, and an unsent one is swept a day later by the scheduler's
 `document_cleanup` task. **AI usage** is turns, tokens, models, outcomes and
 failure codes per member, model and Toronto day from `app.ai_turns`, beside
 the assistant's current configuration (Settings → AI usage, owner only by
-`staff.remove`), never content. An **effort level** is how hard Ask AI works
+`staff.remove`), never content. Its **approximate cost** prices each model's
+tokens at the Gateway catalogue's current list prices, exactly, in whole
+micro-dollars; turns it cannot price are counted, never guessed, and the
+Gateway's invoice is the real figure. An **effort level** is how hard Ask AI works
 on one question, chosen in the composer: `normal`, or `high`
 (`AI_HIGH_EFFORT_ENABLED`) with larger turn limits, its own model and rate
 limits and optional model reasoning, never wider reads or fewer checks;
