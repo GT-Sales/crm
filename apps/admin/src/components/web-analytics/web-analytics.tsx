@@ -1,11 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { WebAnalyticsDays, WebAnalyticsReport, WebAnalyticsTotals } from '@gt-sales/contracts';
-import { Card, CardContent, cn } from '@gt-sales/ui';
+import { Button, Card, CardContent, cn, EmptyState } from '@gt-sales/ui';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  ChartLineIcon,
   ClockIcon,
   EyeIcon,
   LogOutIcon,
@@ -28,9 +30,7 @@ const PERIODS: readonly { days: WebAnalyticsDays; label: string }[] = [
   { days: 90, label: '90 days' },
 ];
 
-const UNAVAILABLE: Record<'not_configured' | 'no_website' | 'unreachable', string> = {
-  not_configured:
-    'Website analytics is not connected yet. The owner connects Umami by adding its address and an API key to the CRM’s settings.',
+const UNAVAILABLE: Record<'no_website' | 'unreachable', string> = {
   no_website: 'This site has no Umami website linked yet, so there is no traffic to show for it.',
   unreachable: 'Umami did not answer just now. Try again in a minute.',
 };
@@ -300,6 +300,8 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
     [accessToken, workspaceId, days],
   );
   const analytics = useResource(load);
+  const isOwner =
+    workspaces.find((entry) => entry.slug === workspaceSlug)?.roles.includes('owner') ?? false;
   // A report for another period is not this period's: show the skeleton, not stale figures.
   const data =
     analytics.data?.report?.days === days || analytics.data?.report === null
@@ -307,6 +309,32 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
       : undefined;
 
   if (!accessToken || !workspaceId) return null;
+
+  // Without Umami the period control would do nothing: say so instead.
+  if (data?.unavailable === 'not_configured') {
+    return (
+      <Card>
+        <CardContent>
+          <EmptyState
+            icon={<ChartLineIcon />}
+            title="Website analytics is not connected"
+            description={`Once it is, this page shows how many people visit the website, where they come from and what they look at.${
+              isOwner ? '' : ' Ask an owner to connect it.'
+            }`}
+            action={
+              isOwner ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/w/${workspaceSlug}/settings/integrations`}>
+                    Open Settings → Integrations
+                  </Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -349,7 +377,9 @@ export function WebAnalytics({ workspaceSlug }: { workspaceSlug: string }) {
       ) : (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            <p role="status">{UNAVAILABLE[data.unavailable ?? 'unreachable']}</p>
+            <p role="status">
+              {UNAVAILABLE[data.unavailable === 'no_website' ? 'no_website' : 'unreachable']}
+            </p>
           </CardContent>
         </Card>
       )}

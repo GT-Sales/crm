@@ -10,10 +10,14 @@ vi.mock('../../lib/api', async (original) => ({
   getWebAnalytics: mocks.getWebAnalytics,
 }));
 const WORKSPACE = '10000000-0000-4000-8000-000000000101';
+const session = vi.hoisted(() => {
+  const roles: string[] = ['owner'];
+  return { roles };
+});
 vi.mock('../staff-session-provider', () => ({
   useStaffSession: () => ({
     accessToken: 'staff-token',
-    workspaces: [{ id: WORKSPACE, slug: 'getcanadasim' }],
+    workspaces: [{ id: WORKSPACE, slug: 'getcanadasim', roles: session.roles }],
   }),
 }));
 // The line chart measures its box, which a test page does not have.
@@ -23,6 +27,7 @@ vi.mock('../analytics/charts', async (original) => ({
 }));
 
 afterEach(() => {
+  session.roles = ['owner'];
   cleanup();
   vi.clearAllMocks();
 });
@@ -93,16 +98,7 @@ describe('WebAnalytics', () => {
     );
   });
 
-  it('says plainly when there is nothing to read', async () => {
-    mocks.getWebAnalytics.mockResolvedValueOnce({
-      report: null,
-      unavailable: 'not_configured',
-      requestId: REQUEST,
-    });
-    const first = render(<WebAnalytics workspaceSlug="getcanadasim" />);
-    expect(await screen.findByText(/not connected yet/)).toBeTruthy();
-    first.unmount();
-
+  it('says plainly when Umami did not answer', async () => {
     mocks.getWebAnalytics.mockResolvedValueOnce({
       report: null,
       unavailable: 'unreachable',
@@ -110,6 +106,46 @@ describe('WebAnalytics', () => {
     });
     render(<WebAnalytics workspaceSlug="getcanadasim" />);
     expect(await screen.findByText(/did not answer/)).toBeTruthy();
+  });
+
+  it('says it is not connected, with a link to Integrations for an owner and no period control', async () => {
+    mocks.getWebAnalytics.mockResolvedValue({
+      report: null,
+      unavailable: 'not_configured',
+      requestId: REQUEST,
+    });
+    render(<WebAnalytics workspaceSlug="getcanadasim" />);
+    expect(await screen.findByText('Website analytics is not connected')).toBeTruthy();
+    expect(
+      screen.getByRole('link', { name: 'Open Settings → Integrations' }).getAttribute('href'),
+    ).toBe('/w/getcanadasim/settings/integrations');
+    expect(screen.queryByText(/Ask an owner/)).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Period' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Last 7 days' })).toBeNull();
+  });
+
+  it('tells a member who is not an owner to ask one, without a link', async () => {
+    session.roles = ['leads'];
+    mocks.getWebAnalytics.mockResolvedValue({
+      report: null,
+      unavailable: 'not_configured',
+      requestId: REQUEST,
+    });
+    render(<WebAnalytics workspaceSlug="getcanadasim" />);
+    expect(await screen.findByText('Website analytics is not connected')).toBeTruthy();
+    expect(screen.getByText(/Ask an owner to connect it/)).toBeTruthy();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('keeps the period control when Umami has no website linked', async () => {
+    mocks.getWebAnalytics.mockResolvedValue({
+      report: null,
+      unavailable: 'no_website',
+      requestId: REQUEST,
+    });
+    render(<WebAnalytics workspaceSlug="getcanadasim" />);
+    expect(await screen.findByText(/no Umami website linked/)).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Period' })).toBeTruthy();
   });
 
   it('reads a length of time', () => {

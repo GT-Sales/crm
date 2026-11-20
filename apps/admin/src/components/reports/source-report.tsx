@@ -16,6 +16,7 @@ import { describeError } from '../../lib/error-text';
 import { useResource } from '../../lib/use-resource';
 import { useStaffSession } from '../staff-session-provider';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
+import { PageHeader } from '../page-header';
 
 const HEAD_CELL = 'px-3 py-2 font-medium';
 const CELL = 'px-3 py-2.5';
@@ -96,12 +97,10 @@ export function SourceReport({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Sources</h1>
-        <p className="text-sm text-muted-foreground">
-          Leads per source: how many came in, were submitted and made it.
-        </p>
-      </div>
+      <PageHeader
+        title="Sources"
+        description="Leads per source: how many came in, were submitted and made it."
+      />
 
       {leadType ? (
         <div className="flex flex-wrap items-center gap-3">

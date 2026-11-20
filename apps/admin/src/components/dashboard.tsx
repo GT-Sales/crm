@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  analyticsDelta,
   analyticsFunnel,
   leadStageLabel,
   leadTypeLabel,
@@ -21,11 +20,13 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  EmptyState,
 } from '@gt-sales/ui';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   BellRingIcon,
+  ChartLineIcon,
   CircleCheckIcon,
   CoinsIcon,
   InboxIcon,
@@ -47,7 +48,6 @@ import { busiest } from '../lib/stats-windows';
 import { describeError } from '../lib/error-text';
 import { useResource } from '../lib/use-resource';
 import {
-  COMPARE_LABELS,
   analyticsQueryOf,
   dashboardSearch,
   leadsHref,
@@ -237,7 +237,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
             data={data}
             leadType={leadType}
             workspaceSlug={workspaceSlug}
-            compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
+            compare={compareWords(state.compare)}
           />
           <Charts data={data} leadType={leadType} workspaceSlug={workspaceSlug} members={members}>
             <FollowUpsDue workspaceSlug={workspaceSlug} due={followUps} />
@@ -245,7 +245,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
           <OperationalKpis
             data={data}
             workspaceSlug={workspaceSlug}
-            compareLabel={COMPARE_LABELS[state.compare].toLowerCase()}
+            compare={compareWords(state.compare)}
           />
         </div>
       ) : null}
@@ -253,36 +253,54 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
   );
 }
 
-/** ▲ 12.5 % or ▼ 3 % against the comparison; nothing when there is no base. */
+/** How the chips name the comparison: "vs previous" on screen, the full words for a screen reader. */
+type CompareWords = { short: string; long: string };
+
+function compareWords(compare: DashboardState['compare']): CompareWords {
+  return compare === 'last_year'
+    ? { short: 'last year', long: 'the same period last year' }
+    : { short: 'previous', long: 'the previous period' };
+}
+
+/**
+ * A small chip beside a figure: "+3 vs previous", "−2 vs previous" or "No
+ * change". Green for up, red for down, muted for no change. Every figure on
+ * the dashboard is one where more is better, so none is inverted. Nothing when
+ * there is no comparison, or when both periods are 0.
+ */
 function Delta({
   value,
-  compareLabel,
-  invert = false,
+  compare,
+  format = (amount) => numberFormat.format(amount),
 }: {
   value: AnalyticsCompared | { current: number; previous: number | null };
-  compareLabel: string;
-  invert?: boolean;
+  compare: CompareWords;
+  /** Writes a positive difference; counts by default. */
+  format?: (amount: number) => string;
 }) {
-  const delta = analyticsDelta(value.current, value.previous);
-  // Nothing to compare with (no comparison, or an empty earlier period): say nothing.
-  if (value.previous === null || delta === null) return null;
-  const up = delta > 0;
-  const good = delta === 0 ? undefined : up !== invert;
+  if (value.previous === null || (value.current === 0 && value.previous === 0)) return null;
+  const diff = value.current - value.previous;
+  const up = diff > 0;
   const Icon = up ? ArrowUpIcon : ArrowDownIcon;
+  const amount = format(Math.abs(diff));
   return (
     <p
+      data-slot="kpi-delta"
       className={cn(
-        'flex items-center gap-1 text-xs font-medium',
-        good === true && 'text-emerald-700 dark:text-emerald-400',
-        good === false && 'text-rose-700 dark:text-rose-400',
-        good === undefined && 'text-muted-foreground',
+        'flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums',
+        diff === 0 && 'bg-muted text-muted-foreground',
+        up && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+        diff < 0 && 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
       )}
     >
-      {delta === 0 ? null : <Icon className="size-3.5" aria-hidden="true" />}
-      <span>
-        <span className="sr-only">{up ? 'Up' : delta === 0 ? 'Unchanged' : 'Down'} </span>
-        {percentFormat.format(Math.abs(delta))}
-        <span className="font-normal text-muted-foreground"> vs {compareLabel}</span>
+      {diff === 0 ? null : <Icon className="size-3" aria-hidden="true" />}
+      <span className="sr-only">
+        {diff === 0
+          ? `No change from ${compare.long}`
+          : `${amount} ${up ? 'more' : 'fewer'} than ${compare.long}`}
+      </span>
+      <span aria-hidden="true">
+        {diff === 0 ? 'No change' : `${up ? '+' : '\u2212'}${amount} vs ${compare.short}`}
       </span>
     </p>
   );
@@ -292,17 +310,18 @@ function Kpi({
   label,
   value,
   hint,
-  previous,
   icon: Icon = InboxIcon,
   href,
+  compact = false,
   children,
 }: {
   label: string;
   value: string;
   hint?: string;
-  previous?: string | undefined;
   icon?: LucideIcon;
   href?: string;
+  /** In the four-tile strip: smaller on phones, where the tiles sit two by two. */
+  compact?: boolean;
   children?: ReactNode;
 }) {
   const body = (
@@ -311,17 +330,24 @@ function Kpi({
         <Icon className="size-4 shrink-0" aria-hidden="true" />
         {label}
       </h2>
-      {previous || hint ? (
-        <p className="text-xs text-muted-foreground">
-          {previous ? `${previous} in comparison period` : hint}
-        </p>
+      {hint ? (
+        <p className={cn('text-xs text-muted-foreground', compact && 'max-sm:sr-only')}>{hint}</p>
       ) : null}
-      <p className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{value}</p>
+      <p
+        className={cn(
+          'font-semibold tracking-tight tabular-nums sm:text-3xl',
+          compact ? 'text-xl' : 'text-2xl',
+        )}
+      >
+        {value}
+      </p>
       {children}
     </>
   );
   return (
-    <div className="crm-stat flex min-w-0 flex-col gap-2 px-5 py-3">
+    <div
+      className={cn('crm-stat flex min-w-0 flex-col gap-2 py-3', compact ? 'px-3 sm:px-5' : 'px-5')}
+    >
       {href ? (
         <Link
           href={href}
@@ -340,63 +366,64 @@ function Kpis({
   data,
   leadType,
   workspaceSlug,
-  compareLabel,
+  compare,
 }: {
   data: AnalyticsResponse;
   leadType: string | undefined;
   workspaceSlug: string;
-  compareLabel: string;
+  compare: CompareWords;
 }) {
   const { kpis } = data;
   const rate = (won: number, created: number) => (created > 0 ? won / created : 0);
+  const rateValue = rate(kpis.won.current, kpis.newLeads.current);
+  // Whole percentage points, so the chip compares what the tile shows.
   const conversion = {
-    current: rate(kpis.won.current, kpis.newLeads.current),
+    current: Math.round(rateValue * 100),
     previous:
       kpis.won.previous === null || kpis.newLeads.previous === null
         ? null
-        : rate(kpis.won.previous, kpis.newLeads.previous),
+        : Math.round(rate(kpis.won.previous, kpis.newLeads.previous) * 100),
   };
   const typeHref = leadType ? leadsHref(workspaceSlug, { type: leadType }) : undefined;
 
   return (
     <section aria-label="Key figures" className="flex flex-col gap-4">
-      <div className="crm-kpi-strip grid rounded-xl border bg-card sm:grid-cols-2 lg:grid-cols-4">
+      <div className="crm-kpi-strip crm-kpi-strip-compact grid grid-cols-2 rounded-xl border bg-card lg:grid-cols-4">
         <Kpi
+          compact
           label={leadType === 'sim_order' ? 'New orders' : 'New leads'}
           value={numberFormat.format(kpis.newLeads.current)}
-          previous={
-            kpis.newLeads.previous === null
-              ? undefined
-              : numberFormat.format(kpis.newLeads.previous)
-          }
           hint="Created in the period, cancellations aside"
           {...(typeHref ? { href: typeHref } : {})}
         >
-          <Delta value={kpis.newLeads} compareLabel={compareLabel} />
+          <Delta value={kpis.newLeads} compare={compare} />
         </Kpi>
         <Kpi
+          compact
           icon={CircleCheckIcon}
           label="Won"
           value={numberFormat.format(kpis.won.current)}
-          previous={kpis.won.previous === null ? undefined : numberFormat.format(kpis.won.previous)}
           hint={
             leadType === 'sim_order' ? 'Activated or completed in the period' : 'Won in the period'
           }
         >
-          <Delta value={kpis.won} compareLabel={compareLabel} />
+          <Delta value={kpis.won} compare={compare} />
         </Kpi>
         <Kpi
+          compact
           icon={PercentIcon}
           label="Conversion rate"
-          value={percentFormat.format(conversion.current)}
-          previous={
-            conversion.previous === null ? undefined : percentFormat.format(conversion.previous)
-          }
+          value={percentFormat.format(rateValue)}
           hint="Won ÷ new in the period"
         >
-          <Delta value={conversion} compareLabel={compareLabel} />
+          <Delta
+            value={conversion}
+            compare={compare}
+            format={(points) => `${numberFormat.format(points)} pts`}
+          />
         </Kpi>
         <Kpi
+          compact
           icon={BellRingIcon}
           label="Open follow-ups"
           value={numberFormat.format(kpis.followUps.due)}
@@ -417,11 +444,11 @@ function Kpis({
 function OperationalKpis({
   data,
   workspaceSlug,
-  compareLabel,
+  compare,
 }: {
   data: AnalyticsResponse;
   workspaceSlug: string;
-  compareLabel: string;
+  compare: CompareWords;
 }) {
   const { kpis, commission } = data;
   const received = data.statuses.commission.find((entry) => entry.key === 'received')?.total ?? 0;
@@ -445,7 +472,7 @@ function OperationalKpis({
               value={numberFormat.format(kpis.paid.current)}
               hint="Created in the period and marked paid"
             >
-              <Delta value={kpis.paid} compareLabel={compareLabel} />
+              <Delta value={kpis.paid} compare={compare} />
             </Kpi>
           ) : null}
           {showCarrier ? (
@@ -472,7 +499,11 @@ function OperationalKpis({
               value={moneyFormat.format(commission.earnedMinor.current / 100)}
               hint="On leads won in the period (won date: first move to a won stage, else created)"
             >
-              <Delta value={commission.earnedMinor} compareLabel={compareLabel} />
+              <Delta
+                value={commission.earnedMinor}
+                compare={compare}
+                format={(minor) => moneyFormat.format(minor / 100)}
+              />
             </Kpi>
             <Kpi
               icon={CoinsIcon}
@@ -559,7 +590,15 @@ function Charts({
           id="chart-trend"
           title="New leads over time"
           description={`New leads per ${data.group}`}
-          empty={trendTotal === 0 ? 'No new leads in this period.' : undefined}
+          emptyState={
+            trendTotal === 0 ? (
+              <EmptyState
+                icon={<ChartLineIcon />}
+                title="No new leads in this period"
+                description="Try a longer period to see the trend."
+              />
+            ) : undefined
+          }
           summary={{
             columns: ['Bucket', 'This period', ...(comparing ? ['Comparison'] : [])],
             rows: data.trend.map((entry) => [

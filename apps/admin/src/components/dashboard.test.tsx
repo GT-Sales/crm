@@ -199,11 +199,8 @@ describe('Dashboard analytics', () => {
     });
     const created = kpi('New orders');
     expect(created?.textContent).toContain('12');
-    // 12 against 8: up 50 %.
-    expect(created?.textContent).toContain('Up 50%');
-    expect(kpi('Won')?.textContent).toContain('Down 25%');
+    expect(created?.textContent).toContain('12');
     expect(kpi('Conversion rate')?.textContent).toContain('25%');
-    expect(kpi('Paid')?.textContent).toContain('0%');
     expect(kpi('Open follow-ups')?.textContent).toContain('2 overdue');
     expect(kpi('Carrier commission')?.textContent).toContain('2 received');
     expect(kpi('Carrier commission')?.textContent).toContain('10 outstanding');
@@ -220,7 +217,8 @@ describe('Dashboard analytics', () => {
       '.crm-stat',
     );
     expect(earned?.textContent).toContain('$1,500.00');
-    expect(earned?.textContent).toContain('Up 50%');
+    expect(earned?.textContent).toContain('+$500.00 vs previous');
+    expect(earned?.textContent).toContain('$500.00 more than the previous period');
     expect(kpi('Expected commission')?.textContent).toContain('$420.50');
     expect(kpi('Won without a commission')?.textContent).toContain('1');
     expect(screen.getByRole('heading', { name: 'Commission earned over time' })).toBeTruthy();
@@ -387,6 +385,87 @@ describe('Dashboard analytics', () => {
     mocks.getAnalytics.mockRejectedValue(new Error('boom'));
     render(<Dashboard workspaceSlug="getcanadasim" />);
     expect((await screen.findByRole('alert')).textContent).toMatch(/couldn't load the dashboard/);
+  });
+});
+
+describe('Dashboard KPI comparison chips', () => {
+  beforeEach(() => resetMocks());
+
+  const chip = (name: string) => kpi(name)?.querySelector('[data-slot="kpi-delta"]') ?? null;
+
+  it('shows the difference against the previous period, with the exact words for a screen reader', async () => {
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'New orders' });
+    // 12 against 8.
+    expect(chip('New orders')?.textContent).toContain('+4 vs previous');
+    expect(chip('New orders')?.textContent).toContain('4 more than the previous period');
+    expect(chip('New orders')?.className).toContain('text-emerald-700');
+    // 3 against 4.
+    expect(chip('Won')?.textContent).toContain('\u22121 vs previous');
+    expect(chip('Won')?.textContent).toContain('1 fewer than the previous period');
+    expect(chip('Won')?.className).toContain('text-rose-700');
+    // Conversion: 25 % against 50 %, in points.
+    expect(chip('Conversion rate')?.textContent).toContain('\u221225 pts vs previous');
+    // 5 against 5.
+    expect(chip('Paid')?.textContent).toContain('No change');
+    expect(chip('Paid')?.className).toContain('text-muted-foreground');
+    expect(kpi('New orders')?.textContent).not.toContain('comparison period');
+  });
+
+  it('says "last year" when comparing with the same period last year', async () => {
+    navigation.search = 'compare=last_year';
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'New orders' });
+    expect(chip('New orders')?.textContent).toContain('+4 vs last year');
+    expect(chip('New orders')?.textContent).toContain('more than the same period last year');
+  });
+
+  it('hides the chip when both periods are 0 and when nothing is compared', async () => {
+    resetMocks({
+      ...counts,
+      kpis: {
+        ...counts.kpis,
+        won: { current: 0, previous: 0 },
+        paid: { current: 5, previous: null },
+      },
+    });
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'New orders' });
+    expect(chip('Won')).toBeNull();
+    expect(chip('Paid')).toBeNull();
+    expect(chip('New orders')).not.toBeNull();
+  });
+
+  it('lays the four tiles out two by two on phones', async () => {
+    const view = render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'New orders' });
+    const strip = view.container.querySelector('.crm-kpi-strip-compact');
+    expect(strip?.className).toContain('grid-cols-2');
+    expect(strip?.className).toContain('lg:grid-cols-4');
+    expect(strip?.querySelectorAll('.crm-stat')).toHaveLength(4);
+  });
+});
+
+describe('Dashboard empty chart', () => {
+  beforeEach(() => resetMocks());
+
+  it('shows an empty state instead of a flat line when every point is 0', async () => {
+    resetMocks({
+      ...counts,
+      trend: [
+        { bucket: FROM, current: 0, previous: 0 },
+        { bucket: addDays(FROM, 1), current: 0, previous: 0 },
+      ],
+    });
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    expect(await screen.findByText('No new leads in this period')).toBeTruthy();
+    expect(screen.getByText('Try a longer period to see the trend.')).toBeTruthy();
+  });
+
+  it('draws the chart when there is data', async () => {
+    render(<Dashboard workspaceSlug="getcanadasim" />);
+    await screen.findByRole('heading', { name: 'New orders' });
+    expect(screen.queryByText('No new leads in this period')).toBeNull();
   });
 });
 
