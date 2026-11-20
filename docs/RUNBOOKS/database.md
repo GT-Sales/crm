@@ -30,7 +30,7 @@ pg_proc / pg_policies where schemaname = 'app'`.
 On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
 all applied, the Drizzle tracker holding rows 1 to 38, each verified against
 its file's SHA-256. 0038 and 0039 were applied on 2026-11-20, with their
-tracker rows (40 rows).
+tracker rows (40 rows). 0040 is the one prepared and waiting.
 
 ## Runtime role settings (2026-11-13)
 

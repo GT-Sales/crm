@@ -545,7 +545,7 @@ Reference client: `lib/crm.ts` in the CanadaWide repository.
   phase 8 step A, 0021 and 0022 on 2026-11-04, 0023 to 0026 on 2026-11-05). On
   2026-11-19 the database was checked: the Drizzle tracker holds rows 1 to 38,
   each verified against its file's hash. 0038 and 0039 were applied on 2026-11-20
-  with their tracker rows (40 rows).
+  with their tracker rows (40 rows). 0040 waits in §3.2.
 - **The intake check** runs every 15 minutes since 2026-11-06 on the test site
   `intake-check` (`abf5dabe-5fcc-4976-a3d1-d4b1838dd39f`, no members, roles,
   keys, email settings or automations); `synthetic:check` is on the
