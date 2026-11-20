@@ -444,7 +444,7 @@ export function LeadsBoard({
         id={boardId}
         // Columns reach down to the scroll bar pinned at the bottom of the window, so a
         // whole column is a drop target however few cards it holds.
-        className="-mx-6 flex min-h-[calc(100dvh-13.5rem)] snap-x scroll-px-6 gap-3 overflow-x-auto px-6 pb-4"
+        className="-mx-4 flex min-h-[calc(100dvh-13.5rem)] snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-4 md:-mx-6 md:scroll-px-6 md:px-6"
         aria-label={`${query.type} board`}
         role="region"
       >

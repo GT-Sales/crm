@@ -398,7 +398,7 @@ export function TasksBoard({
     <div
       role="region"
       aria-label={groupBy === 'status' ? 'Tasks board by status' : 'Tasks board by date'}
-      className="-mx-6 flex snap-x scroll-px-6 gap-3 overflow-x-auto px-6 pb-4"
+      className="-mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-4 md:-mx-6 md:scroll-px-6 md:px-6"
     >
       {BOARD_COLUMNS[groupBy].map((column) => {
         const entries = columnTasks(tasks, column, today);

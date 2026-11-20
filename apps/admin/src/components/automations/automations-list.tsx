@@ -461,7 +461,7 @@ export function AutomationsList({
             >
               <TableCell className="max-w-80 whitespace-normal max-md:flex max-md:max-w-none max-md:basis-full max-md:items-start max-md:gap-2 max-md:p-0">
                 <Link
-                  className="min-w-0 font-medium underline-offset-2 hover:underline max-md:line-clamp-2 max-md:break-words"
+                  className="min-w-0 font-medium underline-offset-2 hover:underline max-md:break-words"
                   href={`/w/${workspaceSlug}/automations/${flow.key}`}
                 >
                   {flow.name}

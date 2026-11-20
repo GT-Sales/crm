@@ -181,7 +181,7 @@ export function Dashboard({ workspaceSlug }: { workspaceSlug: string }) {
           {firstName ? `Welcome back, ${firstName}!` : 'Welcome back!'}
         </h2>
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <p className="min-w-0 flex-1 text-base text-muted-foreground">
+          <p className="min-w-0 flex-1 basis-64 text-base text-muted-foreground">
             {followUps.data ? (
               <>
                 You have{' '}
