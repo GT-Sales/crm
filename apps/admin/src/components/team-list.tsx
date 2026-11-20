@@ -147,21 +147,20 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
         <LoadingSkeleton label="Loading the team…" variant="list" />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border/80 bg-card/30">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs font-medium text-muted-foreground sm:grid-cols-[minmax(0,1.4fr)_minmax(120px,1fr)_auto_auto]">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs font-medium text-muted-foreground md:grid-cols-[minmax(0,1.4fr)_minmax(120px,1fr)_88px_112px]">
             <span>Members ({filteredMembers.length})</span>
-            <span className="hidden sm:block">Role</span>
-            <span className="hidden sm:block">Status</span>
+            <span className="hidden md:block">Role</span>
+            <span className="hidden md:block">Status</span>
             <span className="text-right">Access</span>
           </div>
 
           <ul aria-label="Team" className="divide-y divide-border/70">
             {filteredMembers.map((member) => {
               const name = memberName(member);
-              const rolesLabel = member.roles.map((role) => ROLE_LABELS[role]).join(', ');
               return (
                 <li
                   key={member.membershipId}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/20 sm:grid-cols-[minmax(0,1.4fr)_minmax(120px,1fr)_auto_auto]"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 text-sm transition-colors hover:bg-muted/20 md:gap-y-0 md:grid-cols-[minmax(0,1.4fr)_minmax(120px,1fr)_88px_112px]"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div
@@ -184,22 +183,26 @@ export function TeamList({ workspaceSlug }: { workspaceSlug: string }) {
                           {staff.email}
                         </span>
                       ) : null}
-                      <span className="truncate text-xs text-muted-foreground sm:hidden">
-                        {rolesLabel}
-                      </span>
                     </div>
                   </div>
 
-                  <div className="hidden min-w-0 text-xs text-muted-foreground sm:block">
-                    {rolesLabel}
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground max-md:col-start-1 max-md:pl-12 md:block">
+                    {member.roles.map((role, index) => (
+                      <span key={role}>
+                        {index > 0 ? <span className="max-md:hidden">, </span> : null}
+                        <span className="max-md:inline-block max-md:rounded-md max-md:border max-md:border-border/70 max-md:bg-muted/40 max-md:px-2 max-md:py-0.5 max-md:text-foreground">
+                          {ROLE_LABELS[role]}
+                        </span>
+                      </span>
+                    ))}
                   </div>
 
-                  <div className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                  <div className="hidden items-center gap-1.5 text-xs text-muted-foreground md:flex">
                     <ShieldCheck className="size-4 text-muted-foreground" aria-hidden="true" />
                     <span>Active</span>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2 max-md:col-start-2 max-md:row-span-2 max-md:row-start-1">
                     {isOwner && !member.isSelf ? (
                       <Button
                         type="button"

@@ -327,4 +327,83 @@ describe('Mailbox', () => {
       "Your role doesn't show customer emails",
     );
   });
+
+  it('filters the loaded customers by name as you type, with no new request', async () => {
+    answer();
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    const list = await screen.findByRole('list', { name: 'Customers written to' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    const calls = mocks.listMailbox.mock.calls.length;
+
+    const search = screen.getByRole('textbox', { name: 'Search customers' });
+    fireEvent.change(search, { target: { value: ' marc ' } });
+    const narrowed = screen.getByRole('list', { name: 'Customers written to' });
+    expect(within(narrowed).getAllByRole('listitem')).toHaveLength(1);
+    expect(narrowed.textContent).toContain('Marco Rossi');
+    expect(mocks.listMailbox.mock.calls.length).toBe(calls);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(search).toHaveProperty('value', '');
+    expect(
+      within(screen.getByRole('list', { name: 'Customers written to' })).getAllByRole('listitem'),
+    ).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
+  });
+
+  it('says no customers match, and clears the search from there', async () => {
+    answer();
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByRole('list', { name: 'Customers written to' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search customers' }), {
+      target: { value: 'zzz' },
+    });
+    expect(screen.getByText('No customers match')).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Customers written to' })).toBeNull();
+    // The input's own clear button and the empty state's.
+    const clear = screen.getAllByRole('button', { name: 'Clear search' });
+    expect(clear).toHaveLength(2);
+    const emptyStateClear = clear[1];
+    if (!emptyStateClear) throw new Error('expected the empty state button');
+    fireEvent.click(emptyStateClear);
+    expect(screen.getByRole('list', { name: 'Customers written to' })).toBeTruthy();
+  });
+
+  it('offers no search while there is nothing to search', async () => {
+    mocks.listMailbox.mockResolvedValueOnce(page([]));
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByText('No emails have been sent to customers yet.');
+    expect(screen.queryByRole('textbox', { name: 'Search customers' })).toBeNull();
+    expect(screen.getByText('Press New email to write the first one.')).toBeTruthy();
+  });
+
+  it('puts a way to start a new email in the empty right pane', async () => {
+    answer();
+    mocks.getStaffLeads.mockResolvedValue({ leads: [] });
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByRole('list', { name: 'Customers written to' });
+    expect(screen.getByText('Choose a customer to read their emails')).toBeTruthy();
+    expect(screen.getByText(/Customer replies go to this site/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Write an email' }));
+    expect(screen.getByLabelText('Write to')).toBeTruthy();
+  });
+
+  it('on a phone shows the list first, then the thread with a way back', async () => {
+    answer();
+    const first = render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByRole('list', { name: 'Customers written to' });
+    // No customer open: the list pane is not hidden, no thread.
+    expect(screen.getByRole('complementary', { name: 'Customers' }).className).not.toContain(
+      'hidden',
+    );
+    expect(screen.queryByRole('button', { name: 'Back to the list' })).toBeNull();
+    first.unmount();
+
+    mocks.lead.current = NADIA;
+    render(<Mailbox workspaceSlug="getcanadasim" />);
+    await screen.findByRole('region', { name: 'Emails to Nadia Khan' });
+    // A customer open: the list pane steps aside below lg and the thread has a back button.
+    expect(screen.getByRole('complementary', { name: 'Customers' }).className).toContain('hidden');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the list' }));
+    expect(mocks.replace).toHaveBeenCalledWith('/w/getcanadasim/mail', { scroll: false });
+  });
 });

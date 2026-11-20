@@ -122,6 +122,37 @@ const DETAILS_SIDEBAR =
   '[&_[data-slot=card]]:rounded-none [&_[data-slot=card]]:border-0 [&_[data-slot=card]]:bg-transparent [&_[data-slot=card]]:shadow-none ' +
   '[&_.flex.flex-col.gap-4]:gap-0 [&_.flex.flex-col.gap-4]:divide-y';
 
+export interface KeyFact {
+  label: string;
+  value: ReactNode;
+}
+
+/**
+ * The handful of facts staff look for first, as one strip of cells. The cells
+ * wrap and grow to fill their row (a basis of 9rem each), so no row is ever
+ * left with an empty cell, whatever the width and however many facts there are.
+ */
+export function KeyFacts({ facts }: { facts: readonly KeyFact[] }) {
+  return (
+    <dl
+      role="group"
+      aria-label="Key facts"
+      className="flex flex-wrap gap-px overflow-hidden rounded-lg border bg-border text-sm"
+    >
+      {facts.map((fact) => (
+        <div
+          key={fact.label}
+          data-slot="key-fact"
+          className="min-w-0 flex-[1_1_9rem] bg-card px-3 py-2"
+        >
+          <dt className="text-xs text-muted-foreground">{fact.label}</dt>
+          <dd className="truncate font-medium">{fact.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[8.5rem_minmax(0,1fr)] gap-3 py-1.5 text-sm">
@@ -655,7 +686,7 @@ export function LeadRecord({
     .sort((a, b) => (a.dueAt ?? '').localeCompare(b.dueAt ?? ''))[0];
   const openTaskCount = tasks.filter((task) => isActiveTaskStatus(task.status)).length;
   const unreviewed = documents.filter((document) => document.review === null).length;
-  const keyFacts: { label: string; value: ReactNode }[] = access.contacts
+  const keyFacts: KeyFact[] = access.contacts
     ? [
         ...(planName ? [{ label: 'Plan', value: planName }] : []),
         ...(countdownField && countdownDay
@@ -690,24 +721,7 @@ export function LeadRecord({
         { label: 'Source', value: readableSource(lead.source) },
       ]
     : [];
-  const keyFactsRow =
-    keyFacts.length > 1 ? (
-      <dl
-        role="group"
-        aria-label="Key facts"
-        className={cn(
-          'grid gap-px overflow-hidden rounded-lg border bg-border text-sm',
-          inPanel ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6',
-        )}
-      >
-        {keyFacts.map((fact) => (
-          <div key={fact.label} className="min-w-0 bg-card px-3 py-2">
-            <dt className="text-xs text-muted-foreground">{fact.label}</dt>
-            <dd className="truncate font-medium">{fact.value}</dd>
-          </div>
-        ))}
-      </dl>
-    ) : null;
+  const keyFactsRow = keyFacts.length > 1 ? <KeyFacts facts={keyFacts} /> : null;
   const anchorId = (target: LeadAttentionTarget) => `lead-${lead.id}-${target}`;
   // In the panel a card may sit on another tab: open it first, then scroll
   // once that tab has rendered. Focus moves to the card for keyboard users.
@@ -731,9 +745,103 @@ export function LeadRecord({
 
   const activeTab = !access.contacts && panelTab !== 'files' ? 'home' : panelTab;
   const showOverview = !inPanel || activeTab === 'home';
+  const headerChips = (
+    <>
+      <span className="rounded-md bg-muted/60 px-2 py-1 font-medium text-foreground">
+        {leadTypeLabel(lead.leadType)}
+      </span>
+      {lead.externalRef ? (
+        <span className="max-w-full break-words rounded-md border px-2 py-1 font-mono text-[11px]">
+          {lead.externalRef}
+        </span>
+      ) : null}
+      <span>
+        Received{' '}
+        <time dateTime={lead.createdAt} title={dateTimeLabel(lead.createdAt)}>
+          {relativeTime(lead.createdAt)}
+        </time>
+      </span>
+    </>
+  );
+  const stageSelect = (
+    <NativeSelect
+      value={lead.stage}
+      disabled={saving}
+      className={inPanel ? undefined : 'sm:h-8 sm:w-52'}
+      onChange={(event) => changeStage(event.target.value)}
+    >
+      {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
+      {stageChoices.map((entry) => (
+        <option key={entry.key} value={entry.key}>
+          {entry.label}
+        </option>
+      ))}
+    </NativeSelect>
+  );
+  const assigneeSelect = (
+    <NativeSelect
+      value={lead.assignedActorId ?? ''}
+      disabled={saving}
+      className={inPanel ? undefined : 'sm:h-8 sm:w-52'}
+      onChange={(event) => void update({ assignedActorId: event.target.value || null })}
+    >
+      <option value="">Unassigned</option>
+      {self ? <option value={self.actorId}>{memberName(self)} (you)</option> : null}
+      {members
+        .filter((member) => !member.isSelf)
+        .map((member) => (
+          <option key={member.actorId} value={member.actorId}>
+            {memberName(member)}
+          </option>
+        ))}
+      {lead.assignedActorId &&
+      !members.some((member) => member.actorId === lead.assignedActorId) ? (
+        <option value={lead.assignedActorId}>Former teammate</option>
+      ) : null}
+    </NativeSelect>
+  );
+  // The panel keeps its boxed controls; the page puts them in one quiet row under the
+  // title, label beside control from `sm` and stacked in two columns on a phone.
+  const workControls = inPanel ? (
+    <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3">
+      {canWrite ? (
+        <>
+          <label className="flex min-w-0 flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Stage</span>
+            {stageSelect}
+          </label>
+          <label className="flex min-w-0 flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Assignee</span>
+            {assigneeSelect}
+          </label>
+        </>
+      ) : (
+        <StageBadge leadType={lead.leadType} stage={lead.stage} />
+      )}
+    </div>
+  ) : canWrite ? (
+    <div
+      data-slot="lead-work-controls"
+      className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2"
+    >
+      <label className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Stage</span>
+        {stageSelect}
+      </label>
+      <label className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Assignee</span>
+        {assigneeSelect}
+      </label>
+    </div>
+  ) : (
+    <div data-slot="lead-work-controls">
+      <StageBadge leadType={lead.leadType} stage={lead.stage} />
+    </div>
+  );
+
   const header = (
     <div
-      className={cn('flex flex-col gap-4', !inPanel && 'rounded-2xl border bg-card p-5 md:p-6')}
+      className={cn('flex flex-col', inPanel ? 'gap-4' : 'gap-3 rounded-2xl border bg-card p-5')}
       data-slot="lead-record-header"
     >
       {inPanel ? null : (
@@ -745,42 +853,35 @@ export function LeadRecord({
           leads
         </Link>
       )}
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+      <div
+        className={cn('flex flex-wrap gap-x-4 gap-y-3', inPanel ? 'items-start' : 'items-center')}
+      >
         <span
-          className={cn(
-            'flex shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary',
-            inPanel ? 'size-10 text-sm' : 'size-12 text-base',
-          )}
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
           aria-hidden="true"
         >
           {initials(leadDisplayName(lead.contact))}
         </span>
-        <div className="min-w-0 flex-1">
-          <Title
-            className={cn(
-              'break-words font-semibold tracking-tight',
-              inPanel ? 'text-xl leading-7' : 'text-2xl',
-            )}
-          >
-            {leadDisplayName(lead.contact)}
-          </Title>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="rounded-md bg-muted/60 px-2 py-1 font-medium text-foreground">
-              {leadTypeLabel(lead.leadType)}
-            </span>
-            {lead.externalRef ? (
-              <span className="max-w-full break-words rounded-md border px-2 py-1 font-mono text-[11px]">
-                {lead.externalRef}
-              </span>
-            ) : null}
-            <span>
-              Received{' '}
-              <time dateTime={lead.createdAt} title={dateTimeLabel(lead.createdAt)}>
-                {relativeTime(lead.createdAt)}
-              </time>
-            </span>
+        {inPanel ? (
+          <div className="min-w-0 flex-1">
+            <Title className="text-xl leading-7 font-semibold tracking-tight break-words">
+              {leadDisplayName(lead.contact)}
+            </Title>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {headerChips}
+            </div>
           </div>
-        </div>
+        ) : (
+          // Name, type, reference and received time on one line; they wrap on a phone.
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
+            <Title className="text-2xl font-semibold tracking-tight break-words">
+              {leadDisplayName(lead.contact)}
+            </Title>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {headerChips}
+            </div>
+          </div>
+        )}
         <div
           className={cn('flex flex-wrap items-center gap-2', inPanel ? 'w-full' : 'justify-end')}
         >
@@ -832,58 +933,7 @@ export function LeadRecord({
       </div>
       {showOverview ? (
         <>
-          <div
-            className={cn(
-              'grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3',
-              !inPanel && 'sm:max-w-xl',
-            )}
-          >
-            {canWrite ? (
-              <>
-                <label className="flex min-w-0 flex-col gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Stage</span>
-                  <NativeSelect
-                    value={lead.stage}
-                    disabled={saving}
-                    onChange={(event) => changeStage(event.target.value)}
-                  >
-                    {stageListed ? null : <option value={lead.stage}>{lead.stage}</option>}
-                    {stageChoices.map((entry) => (
-                      <option key={entry.key} value={entry.key}>
-                        {entry.label}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </label>
-                <label className="flex min-w-0 flex-col gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Assignee</span>
-                  <NativeSelect
-                    value={lead.assignedActorId ?? ''}
-                    disabled={saving}
-                    onChange={(event) =>
-                      void update({ assignedActorId: event.target.value || null })
-                    }
-                  >
-                    <option value="">Unassigned</option>
-                    {self ? <option value={self.actorId}>{memberName(self)} (you)</option> : null}
-                    {members
-                      .filter((member) => !member.isSelf)
-                      .map((member) => (
-                        <option key={member.actorId} value={member.actorId}>
-                          {memberName(member)}
-                        </option>
-                      ))}
-                    {lead.assignedActorId &&
-                    !members.some((member) => member.actorId === lead.assignedActorId) ? (
-                      <option value={lead.assignedActorId}>Former teammate</option>
-                    ) : null}
-                  </NativeSelect>
-                </label>
-              </>
-            ) : (
-              <StageBadge leadType={lead.leadType} stage={lead.stage} />
-            )}
-          </div>
+          {workControls}
           {keyFactsRow}
           <LeadAttentionStrip items={attention} onJump={jumpTo} />
         </>

@@ -68,14 +68,22 @@ export function changeError(error: unknown, action = 'save the change'): string 
 export function StatusChip({
   flow,
   hideNotActivated = false,
+  fallback = false,
 }: {
   flow: FlowSummary;
+  /** In the list: a muted dash when the flow needs nothing, so the column is not blank. */
+  fallback?: boolean;
   /** The flow page says "Not activated" beside it already. */
   hideNotActivated?: boolean;
 }): JSX.Element | null {
   const chip = flowStatusChip(flow);
   if (!chip || (hideNotActivated && flow.activeVersion === null && !flow.needsAttention)) {
-    return null;
+    return fallback ? (
+      <span className="text-muted-foreground">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Nothing needs attention</span>
+      </span>
+    ) : null;
   }
   return (
     <Badge
@@ -175,7 +183,7 @@ export function FlowSwitch({
 
 function BuiltInBadge(): JSX.Element {
   return (
-    <Badge variant="secondary" className="ml-2">
+    <Badge variant="secondary" className="ml-2 max-md:ml-0 max-md:shrink-0">
       Built in
     </Badge>
   );
@@ -340,12 +348,13 @@ function ArchivedFlows({
               <ul aria-label="Archived flows" className="divide-y rounded-md border text-sm">
                 {state.flows.map((flow) => (
                   <li key={flow.key} className="flex items-center gap-3 px-3 py-2">
-                    <span className="mr-auto">{flow.name}</span>
+                    <span className="mr-auto min-w-0 break-words">{flow.name}</span>
                     {canManage ? (
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
+                        className="shrink-0"
                         aria-label={`Restore ${flow.name}`}
                         onClick={() => void restore(flow.key)}
                       >
@@ -384,7 +393,8 @@ function ArchivedFlows({
 }
 
 /**
- * The site's flows as a table: the name (a link to its page, "Built in" for
+ * The site's flows as a table (a stack of compact cards below `md`, from the
+ * same markup, so each switch exists once): the name (a link to its page, "Built in" for
  * the six), when it runs in words, its switch, when it last ran, how many
  * times, and its status chip. Above it, one notice per overlap warning and the
  * no-sender notice; with `canManage`, "New flow"; below, "Archived flows".
@@ -431,9 +441,9 @@ export function AutomationsList({
           </p>
         )}
       </div>
-      <Table>
+      <Table className="max-md:block">
         <caption className="sr-only">Automation flows</caption>
-        <TableHeader>
+        <TableHeader className="max-md:sr-only">
           <TableRow>
             <TableHead scope="col">Name</TableHead>
             <TableHead scope="col">When</TableHead>
@@ -443,22 +453,25 @@ export function AutomationsList({
             <TableHead scope="col">Status</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <TableBody className="max-md:block">
           {data.automations.map((flow) => (
-            <TableRow key={flow.key}>
-              <TableCell className="max-w-80 whitespace-normal">
+            <TableRow
+              key={flow.key}
+              className="max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-3 max-md:gap-y-2 max-md:px-1 max-md:py-3"
+            >
+              <TableCell className="max-w-80 whitespace-normal max-md:flex max-md:max-w-none max-md:basis-full max-md:items-start max-md:gap-2 max-md:p-0">
                 <Link
-                  className="font-medium underline-offset-2 hover:underline"
+                  className="min-w-0 font-medium underline-offset-2 hover:underline max-md:break-words"
                   href={`/w/${workspaceSlug}/automations/${flow.key}`}
                 >
                   {flow.name}
                 </Link>
                 {flow.origin === 'builtin' ? <BuiltInBadge /> : null}
               </TableCell>
-              <TableCell className="whitespace-normal">
+              <TableCell className="whitespace-normal max-md:basis-full max-md:p-0 max-md:text-muted-foreground">
                 {flow.trigger ? describeTrigger(flow.trigger, names) : 'No trigger yet'}
               </TableCell>
-              <TableCell>
+              <TableCell className="max-md:p-0">
                 <FlowSwitch
                   flow={flow}
                   canManage={data.canManage}
@@ -466,7 +479,7 @@ export function AutomationsList({
                   onToggle={onToggle}
                 />
               </TableCell>
-              <TableCell>
+              <TableCell className="max-md:p-0 max-md:text-muted-foreground max-md:before:content-['Last_run_']">
                 {flow.lastRunAt === null ? (
                   'Never'
                 ) : (
@@ -475,9 +488,14 @@ export function AutomationsList({
                   </time>
                 )}
               </TableCell>
-              <TableCell>{flow.runCount}</TableCell>
-              <TableCell className="whitespace-normal">
-                <StatusChip flow={flow} />
+              <TableCell
+                data-suffix={flow.runCount === 1 ? ' run' : ' runs'}
+                className="max-md:p-0 max-md:text-muted-foreground max-md:after:content-[attr(data-suffix)]"
+              >
+                {flow.runCount}
+              </TableCell>
+              <TableCell className="whitespace-normal max-md:ml-auto max-md:p-0">
+                <StatusChip flow={flow} fallback />
               </TableCell>
             </TableRow>
           ))}

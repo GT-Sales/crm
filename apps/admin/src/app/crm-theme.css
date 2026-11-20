@@ -318,6 +318,15 @@
 .crm-kpi-strip > .crm-stat + .crm-stat {
   border-top: 1px solid var(--border);
 }
+/* The dashboard's four tiles sit two by two on phones. */
+@media (max-width: 639px) {
+  .crm-kpi-strip-compact > .crm-stat:nth-child(2) {
+    border-top: 0;
+  }
+  .crm-kpi-strip-compact > .crm-stat:nth-child(even) {
+    border-left: 1px solid var(--border);
+  }
+}
 @media (min-width: 640px) {
   .crm-kpi-strip:not(.crm-kpi-strip-secondary) > .crm-stat:nth-child(2) {
     border-top: 0;

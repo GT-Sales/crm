@@ -21,7 +21,7 @@ import { downloadNavigation } from '../../lib/file-links';
 import { catalogFromModel } from '../properties/use-property-model';
 import { REVEAL_SECONDS } from './identity-check';
 import { PropertySections } from '../properties/property-sections';
-import { LeadRecord } from './lead-record';
+import { KeyFacts, LeadRecord } from './lead-record';
 
 const WORKSPACE = '10000000-0000-4000-8000-000000000001';
 const LEAD = '90000000-0000-4000-8000-000000000001';
@@ -2032,5 +2032,75 @@ describe('LeadRecord order section', () => {
     await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
     await waitFor(() => expect(mocks.getPropertyModel).toHaveBeenCalled());
     expect(screen.queryByRole('region', { name: 'Order' })).toBeNull();
+  });
+});
+
+describe('KeyFacts', () => {
+  const fact = (index: number) => ({ label: `Fact ${index}`, value: `Value ${index}` });
+
+  it.each([1, 3, 6])(
+    'lays out %i facts as wrapping cells that grow to fill their row, never a fixed grid',
+    (count) => {
+      render(<KeyFacts facts={Array.from({ length: count }, (_, index) => fact(index + 1))} />);
+      const strip = screen.getByRole('group', { name: 'Key facts' });
+      // A fixed column count left the gap colour showing as a grey block in empty cells.
+      expect(strip.className).not.toMatch(/grid/);
+      expect(strip.className).toContain('flex-wrap');
+      const cells = strip.querySelectorAll('[data-slot="key-fact"]');
+      expect(cells).toHaveLength(count);
+      for (const cell of cells) {
+        // Each cell grows from a common basis, so the last row is always filled.
+        expect(cell.className).toContain('flex-[1_1_9rem]');
+        expect(cell.className).toContain('bg-card');
+      }
+      expect(within(strip).getByText(`Value ${count}`)).toBeTruthy();
+    },
+  );
+});
+
+describe('LeadRecord header', () => {
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listWorkspaceMembers.mockResolvedValue({ members, requestId: NOW });
+    mocks.getStaffLead.mockResolvedValue(response());
+  });
+
+  it('puts the name, type and received time on the row with the actions, and the controls under it unboxed', async () => {
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    const name = await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    const titleRow = name.parentElement?.parentElement;
+    if (!titleRow) throw new Error('expected the title row');
+    expect(within(titleRow).getByText('Internet')).toBeTruthy();
+    expect(within(titleRow).getByText(/^Received/)).toBeTruthy();
+    expect(within(titleRow).getByRole('button', { name: 'Copy info' })).toBeTruthy();
+    expect(within(titleRow).getByRole('button', { name: 'Archive' })).toBeTruthy();
+    // Stage and Assignee keep their labels, in one row of their own with no box around it.
+    const stage = screen.getByRole('combobox', { name: 'Stage' });
+    const assignee = screen.getByRole('combobox', { name: 'Assignee' });
+    const controls = stage.closest('[data-slot="lead-work-controls"]');
+    expect(controls?.contains(assignee)).toBe(true);
+    expect(titleRow.contains(stage)).toBe(false);
+    expect(controls?.className).not.toMatch(/\bborder\b/);
+    expect(controls?.className).toContain('sm:flex');
+    // The key facts follow straight after.
+    expect(controls?.nextElementSibling).toBe(screen.getByRole('group', { name: 'Key facts' }));
+  });
+
+  it('shows the stage alone, without controls, to a role that cannot change the lead', async () => {
+    mocks.getStaffLead.mockResolvedValue(response({ access: { contacts: true, manage: false } }));
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} />);
+    await screen.findByRole('heading', { level: 1, name: 'Avery Example' });
+    expect(screen.queryByRole('combobox', { name: 'Stage' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Assignee' })).toBeNull();
+    const controls = document.querySelector('[data-slot="lead-work-controls"]');
+    expect(controls?.textContent).toBe('New');
+  });
+
+  it('keeps the boxed Stage and Assignee controls in the side panel', async () => {
+    render(<LeadRecord workspaceSlug="canadawide" leadId={LEAD} variant="panel" />);
+    await screen.findByRole('heading', { level: 2, name: 'Avery Example' });
+    const stage = screen.getByRole('combobox', { name: 'Stage' });
+    expect(stage.closest('[data-slot="lead-work-controls"]')).toBeNull();
+    expect(stage.closest('label')?.parentElement?.className).toContain('border');
   });
 });

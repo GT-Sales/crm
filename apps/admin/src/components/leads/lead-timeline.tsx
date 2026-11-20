@@ -11,7 +11,14 @@ import {
   type LeadDetail,
   type PropertyCatalog,
 } from '@gt-sales/contracts';
-import { Button, Textarea } from '@gt-sales/ui';
+import {
+  Button,
+  Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@gt-sales/ui';
 import {
   ArchiveIcon,
   ArrowRightIcon,
@@ -30,7 +37,7 @@ import {
 } from 'lucide-react';
 
 import { addLeadNote } from '../../lib/api';
-import { dateTimeLabel, relativeTime } from '../../lib/dates';
+import { dateTimeLabel, relativeTime, todayDay } from '../../lib/dates';
 import { actorName, memberName } from '../../lib/people';
 import { describeError } from '../../lib/error-text';
 import { documentTypeLabel } from '../plans/document-types';
@@ -283,6 +290,73 @@ function describeEntry(
   }
 }
 
+/**
+ * The heading a timeline day sits under, by the viewer's own calendar:
+ * `Today`, `Yesterday`, then the date (`Mon, Oct 26`, with the year when it
+ * is not this year's).
+ */
+export function timelineDayLabel(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const day = todayDay(date);
+  if (day === todayDay(now)) return 'Today';
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (day === todayDay(yesterday)) return 'Yesterday';
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  });
+}
+
+/**
+ * Entries in the order given, cut into runs that fall on the same day. Runs
+ * follow the entries' order, so the timeline reads exactly as before, with a
+ * heading wherever the day changes.
+ */
+export function groupByDay<T extends { createdAt: string }>(
+  entries: readonly T[],
+  now: Date = new Date(),
+): { day: string; label: string; entries: T[] }[] {
+  const groups: { day: string; label: string; entries: T[] }[] = [];
+  for (const entry of entries) {
+    const day = todayDay(new Date(entry.createdAt));
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) last.entries.push(entry);
+    else groups.push({ day, label: timelineDayLabel(entry.createdAt, now), entries: [entry] });
+  }
+  return groups;
+}
+
+/**
+ * How long ago for today's entries; for older ones the time of day, since the
+ * day heading above already names the date (so a phone, which has no hover,
+ * still sees when it happened). The full date and time on hover and focus.
+ */
+function EntryTime({ iso }: { iso: string }) {
+  const date = new Date(iso);
+  const label =
+    todayDay(date) === todayDay()
+      ? relativeTime(iso)
+      : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <time
+          dateTime={iso}
+          tabIndex={0}
+          className="mb-1 block w-fit rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {label}
+        </time>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start">
+        {dateTimeLabel(iso)}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function TimelineMarker() {
   return (
     <span aria-hidden="true" className="relative flex w-3 shrink-0 justify-center">
@@ -343,6 +417,93 @@ export function LeadTimeline({
     }
   }
 
+  // An open carried over from the old admin tells staff nothing.
+  const shown = activities
+    .filter((activity) => mode === 'timeline' || activity.kind === 'note')
+    .filter(
+      (activity) =>
+        !(
+          activity.kind === 'system' &&
+          activity.event === 'opened' &&
+          activity.actorId === LEGACY_IMPORT_ACTOR_ID
+        ),
+    );
+
+  function entry(activity: LeadActivity) {
+    const approvingMember =
+      activity.viaAi && !activity.automation
+        ? members.find((member) => member.actorId === activity.actorId)
+        : undefined;
+    const { icon, text, actor } = describe(
+      activity,
+      lead.leadType,
+      members,
+      catalog,
+      workspaceSlug,
+    );
+    // A data migration (the 0012 stage clean-up) says in words what it changed.
+    const body = activity.kind === 'system' ? activity.body : undefined;
+    return (
+      <li
+        key={activity.id}
+        className={
+          mode === 'timeline'
+            ? 'group/timeline relative flex gap-4 pb-7 last:pb-0'
+            : 'relative flex gap-3 pb-5 last:pb-0'
+        }
+      >
+        {mode === 'timeline' ? (
+          <TimelineMarker />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
+          >
+            {icon}
+          </span>
+        )}
+        <div
+          className={mode === 'timeline' ? 'min-w-0 flex-1 text-sm' : 'min-w-0 flex-1 pt-1 text-sm'}
+        >
+          {mode === 'timeline' ? <EntryTime iso={activity.createdAt} /> : null}
+          <p className={actor === null ? 'first-letter:uppercase' : undefined}>
+            {actor === null ? null : (
+              <>
+                <span className="font-medium">
+                  {/* The customer asked, through the website; the import only carried it over. */}
+                  {activity.kind === 'system' && activity.event === 'change_requested'
+                    ? 'Customer'
+                    : approvingMember
+                      ? memberName(approvingMember)
+                      : actorName(activity.actorId, members)}
+                  {activity.viaAi && !activity.automation ? (
+                    <span className="text-xs font-normal text-primary"> · via Ask AI</span>
+                  ) : null}
+                </span>{' '}
+              </>
+            )}
+            <span className="text-muted-foreground">{text}</span>{' '}
+            {mode === 'notes' ? (
+              <time
+                dateTime={activity.createdAt}
+                title={dateTimeLabel(activity.createdAt)}
+                className="text-xs text-muted-foreground"
+              >
+                · {relativeTime(activity.createdAt)}
+              </time>
+            ) : null}
+          </p>
+          {activity.kind === 'note' ? (
+            <p className="mt-2 rounded-md border bg-card px-3 py-2 whitespace-pre-wrap">
+              {activity.body}
+            </p>
+          ) : null}
+          {body ? <p className="mt-1 text-muted-foreground">{body}</p> : null}
+        </div>
+      </li>
+    );
+  }
+
   return (
     <section aria-labelledby={`${id}-heading`} className="flex flex-col gap-4">
       <h2 id={`${id}-heading`} className="text-base font-semibold">
@@ -378,123 +539,48 @@ export function LeadTimeline({
         </form>
       ) : null}
 
-      <ol className="flex flex-col">
-        {/* An open carried over from the old admin tells staff nothing. */}
-        {activities
-          .filter((activity) => mode === 'timeline' || activity.kind === 'note')
-          .filter(
-            (activity) =>
-              !(
-                activity.kind === 'system' &&
-                activity.event === 'opened' &&
-                activity.actorId === LEGACY_IMPORT_ACTOR_ID
-              ),
-          )
-          .map((activity) => {
-            const approvingMember =
-              activity.viaAi && !activity.automation
-                ? members.find((member) => member.actorId === activity.actorId)
-                : undefined;
-            const { icon, text, actor } = describe(
-              activity,
-              lead.leadType,
-              members,
-              catalog,
-              workspaceSlug,
-            );
-            // A data migration (the 0012 stage clean-up) says in words what it changed.
-            const body = activity.kind === 'system' ? activity.body : undefined;
-            return (
-              <li
-                key={activity.id}
-                className={
-                  mode === 'timeline'
-                    ? 'group/timeline relative flex gap-4 pb-7 last:pb-0'
-                    : 'relative flex gap-3 pb-5 last:pb-0'
-                }
-              >
-                {mode === 'timeline' ? (
-                  <TimelineMarker />
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground [&_svg]:size-3.5"
-                  >
-                    {icon}
-                  </span>
-                )}
-                <div
-                  className={
-                    mode === 'timeline' ? 'min-w-0 flex-1 text-sm' : 'min-w-0 flex-1 pt-1 text-sm'
-                  }
-                >
-                  {mode === 'timeline' ? (
-                    <time
-                      dateTime={activity.createdAt}
-                      title={dateTimeLabel(activity.createdAt)}
-                      className="mb-1 block text-xs text-muted-foreground"
-                    >
-                      {dateTimeLabel(activity.createdAt)} · {relativeTime(activity.createdAt)}
-                    </time>
-                  ) : null}
-                  <p className={actor === null ? 'first-letter:uppercase' : undefined}>
-                    {actor === null ? null : (
-                      <>
-                        <span className="font-medium">
-                          {/* The customer asked, through the website; the import only carried it over. */}
-                          {activity.kind === 'system' && activity.event === 'change_requested'
-                            ? 'Customer'
-                            : approvingMember
-                              ? memberName(approvingMember)
-                              : actorName(activity.actorId, members)}
-                          {activity.viaAi && !activity.automation ? (
-                            <span className="text-xs font-normal text-primary"> · via Ask AI</span>
-                          ) : null}
+      {mode === 'timeline' ? (
+        <TooltipProvider delayDuration={300}>
+          <div className="flex flex-col gap-5">
+            {groupByDay([
+              ...shown.map((activity) => ({
+                createdAt: activity.createdAt,
+                id: activity.id,
+                node: entry(activity),
+              })),
+              {
+                createdAt: lead.createdAt,
+                id: 'website',
+                node: (
+                  <li key="website" className="group/timeline relative flex gap-4">
+                    <TimelineMarker />
+                    <div className="min-w-0 flex-1 text-sm">
+                      <EntryTime iso={lead.createdAt} />
+                      <p>
+                        <span className="font-medium">Website</span>{' '}
+                        <span className="text-muted-foreground">
+                          sent this {lead.status === 'submitted' ? 'lead' : 'draft'}
                         </span>{' '}
-                      </>
-                    )}
-                    <span className="text-muted-foreground">{text}</span>{' '}
-                    {mode === 'notes' ? (
-                      <time
-                        dateTime={activity.createdAt}
-                        title={dateTimeLabel(activity.createdAt)}
-                        className="text-xs text-muted-foreground"
-                      >
-                        · {relativeTime(activity.createdAt)}
-                      </time>
-                    ) : null}
-                  </p>
-                  {activity.kind === 'note' ? (
-                    <p className="mt-2 rounded-md border bg-card px-3 py-2 whitespace-pre-wrap">
-                      {activity.body}
-                    </p>
-                  ) : null}
-                  {body ? <p className="mt-1 text-muted-foreground">{body}</p> : null}
-                </div>
-              </li>
-            );
-          })}
-        {mode === 'notes' ? null : (
-          <li className="group/timeline relative flex gap-4">
-            <TimelineMarker />
-            <div className="min-w-0 flex-1 text-sm">
-              <time
-                dateTime={lead.createdAt}
-                title={dateTimeLabel(lead.createdAt)}
-                className="mb-1 block text-xs text-muted-foreground"
-              >
-                {dateTimeLabel(lead.createdAt)} · {relativeTime(lead.createdAt)}
-              </time>
-              <p>
-                <span className="font-medium">Website</span>{' '}
-                <span className="text-muted-foreground">
-                  sent this {lead.status === 'submitted' ? 'lead' : 'draft'}
-                </span>{' '}
-              </p>
-            </div>
-          </li>
-        )}
-      </ol>
+                      </p>
+                    </div>
+                  </li>
+                ),
+              },
+            ]).map((group, index) => (
+              <div key={`${group.day}-${index}`} className="flex flex-col gap-3">
+                <h3 id={`${id}-day-${index}`} className="text-xs font-medium text-muted-foreground">
+                  {group.label}
+                </h3>
+                <ol aria-labelledby={`${id}-day-${index}`} className="flex flex-col">
+                  {group.entries.map((item) => item.node)}
+                </ol>
+              </div>
+            ))}
+          </div>
+        </TooltipProvider>
+      ) : (
+        <ol className="flex flex-col">{shown.map((activity) => entry(activity))}</ol>
+      )}
       {mode === 'notes' && !activities.some((activity) => activity.kind === 'note') ? (
         <p className="text-sm text-muted-foreground">No notes yet.</p>
       ) : null}

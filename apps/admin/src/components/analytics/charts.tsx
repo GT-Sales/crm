@@ -72,6 +72,7 @@ export function ChartCard({
   description,
   summary,
   empty,
+  emptyState,
   className,
   drawingIsAccessible = false,
   action,
@@ -87,6 +88,8 @@ export function ChartCard({
   summary: { columns: readonly string[]; rows: readonly (readonly (string | number)[])[] };
   /** Shown instead of the chart when there is nothing to draw. */
   empty?: string | undefined;
+  /** Shown instead of the chart, in place of `empty`, as a full empty state. */
+  emptyState?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -109,7 +112,9 @@ export function ChartCard({
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
         <CardContent className="min-w-0 px-5 py-5">
-          {empty ? (
+          {emptyState ? (
+            emptyState
+          ) : empty ? (
             <p className="py-8 text-center text-sm text-muted-foreground">{empty}</p>
           ) : (
             <div aria-hidden={drawingIsAccessible ? undefined : true}>{children}</div>

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { leadTypeLabel, type MailboxItem } from '@gt-sales/contracts';
-import { Badge, Button, cn, Input, Label, Textarea } from '@gt-sales/ui';
+import { Badge, Button, cn, EmptyState, Input, Label, Textarea } from '@gt-sales/ui';
 import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
@@ -12,6 +12,7 @@ import {
   MailIcon,
   PenLineIcon,
   ReplyIcon,
+  SearchIcon,
   SendIcon,
   SparklesIcon,
   XIcon,
@@ -496,6 +497,8 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
   /** A customer picked by search, who may have no mail yet and so no row in the list. */
   const [picked, setPicked] = useState<Person>();
   const [version, setVersion] = useState(0);
+  const [filter, setFilter] = useState('');
+  const filterId = useId();
   const load = useMemo(
     () =>
       accessToken && workspaceId
@@ -535,6 +538,11 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
   if (!people.data) return <LoadingSkeleton label="Loading mail…" variant="mail" />;
 
   const { items } = people.data;
+  // The customers already loaded, narrowed by what was typed; no new request.
+  const needle = filter.trim().toLowerCase();
+  const shown = needle
+    ? items.filter((item) => (item.lead.name ?? 'Unnamed customer').toLowerCase().includes(needle))
+    : items;
   const pages = Math.max(1, Math.ceil(people.data.page.total / people.data.page.pageSize));
   const choose = (next: string | undefined) =>
     router.replace(next ? `${pathname}?lead=${next}` : pathname, { scroll: false });
@@ -587,16 +595,69 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
             {describeError(people.failure, 'refresh the mail')}
           </p>
         ) : null}
-        {items.length === 0 ? (
-          <div className="m-auto flex flex-col items-center gap-2 p-6 text-center">
-            <MailIcon className="size-6 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">
-              No emails have been sent to customers yet.
-            </p>
+        {items.length > 0 ? (
+          <div className="relative border-b px-3 py-2">
+            <Label htmlFor={filterId} className="sr-only">
+              Search customers
+            </Label>
+            <SearchIcon
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-5.5 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              id={filterId}
+              value={filter}
+              autoComplete="off"
+              placeholder="Search customers"
+              className="pr-9 pl-8"
+              onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && filter) {
+                  event.stopPropagation();
+                  setFilter('');
+                }
+              }}
+            />
+            {filter ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Clear search"
+                className="absolute top-1/2 right-4 size-7 -translate-y-1/2"
+                onClick={() => setFilter('')}
+              >
+                <XIcon aria-hidden="true" className="size-4" />
+              </Button>
+            ) : null}
           </div>
+        ) : null}
+        {items.length === 0 ? (
+          <EmptyState
+            className="m-auto"
+            icon={<MailIcon />}
+            title="No emails have been sent to customers yet."
+            description="Press New email to write the first one."
+          />
+        ) : shown.length === 0 ? (
+          <EmptyState
+            className="m-auto"
+            icon={<SearchIcon />}
+            title="No customers match"
+            description={
+              pages > 1
+                ? 'Only this page of customers is searched. Try the other pages, or press New email to find anyone on the site.'
+                : 'Check the spelling, or try part of the name.'
+            }
+            action={
+              <Button type="button" size="sm" variant="outline" onClick={() => setFilter('')}>
+                Clear search
+              </Button>
+            }
+          />
         ) : (
           <ul aria-label="Customers written to" className="min-h-0 flex-1 divide-y overflow-y-auto">
-            {items.map((item) => {
+            {shown.map((item) => {
               const name = item.lead.name ?? 'Unnamed customer';
               const active = item.lead.id === leadId;
               return (
@@ -701,17 +762,22 @@ export function Mailbox({ workspaceSlug }: { workspaceSlug: string }) {
           }}
         />
       ) : (
-        <div className="hidden flex-col items-center justify-center gap-2 p-6 text-center lg:flex">
-          <MailIcon className="size-7 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">
-            Choose a customer to read the emails sent to them, or press New email.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {people.data.repliesEnabled
+        <EmptyState
+          className="hidden lg:flex"
+          icon={<MailIcon />}
+          title="Choose a customer to read their emails"
+          description={
+            people.data.repliesEnabled
               ? 'When a customer replies to one of these emails, the reply appears in their conversation.'
-              : 'Customer replies go to this site’s reply-to mailbox, not here.'}
-          </p>
-        </div>
+              : 'Customer replies go to this site’s reply-to mailbox, not here.'
+          }
+          action={
+            <Button type="button" size="sm" onClick={() => setFinding(true)}>
+              <PenLineIcon aria-hidden="true" className="size-3.5" />
+              Write an email
+            </Button>
+          }
+        />
       )}
     </div>
   );

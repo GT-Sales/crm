@@ -41,6 +41,7 @@ export {
   DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
 } from './components/dropdown-menu';
+export { EmptyState, type EmptyStateProps } from './components/empty-state';
 export { FileDrop, FILE_DROP_DEFAULT_NOTE, type FileDropProps } from './components/file-drop';
 export {
   FormField,
