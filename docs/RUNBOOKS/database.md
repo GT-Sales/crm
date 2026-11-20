@@ -30,7 +30,7 @@ pg_proc / pg_policies where schemaname = 'app'`.
 On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
 all applied, the Drizzle tracker holding rows 1 to 38, each verified against
 its file's SHA-256. 0038 and 0039 were applied on 2026-11-20, with their
-tracker rows (40 rows). 0040 is the one prepared and waiting.
+tracker rows (40 rows), then 0040 the same day (41 rows).
 
 ## Runtime role settings (2026-11-13)
 
@@ -1340,7 +1340,7 @@ select p.proname, p.prosecdef, p.proconfig,
 select has_table_privilege('app_runtime', 'app.ai_messages', 'UPDATE');      -- f
 ```
 
-## 0040_ai_model_settings (2026-11-20, prepared, not applied)
+## 0040_ai_model_settings (2026-11-20, applied 2026-11-20)
 
 Ask AI's model choice (Settings → AI models, docs/RUNBOOKS/ai-assistant.md
 §14): a site's owner allows up to 8 Vercel AI Gateway models and marks one as
