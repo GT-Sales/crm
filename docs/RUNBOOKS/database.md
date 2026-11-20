@@ -32,8 +32,7 @@ pg_proc / pg_policies where schemaname = 'app'`.
 On 2026-11-19 the hosted database was checked: migrations 0000 to 0037 are
 all applied, the Drizzle tracker holding rows 1 to 38, each verified against
 its file's SHA-256. 0038 and 0039 were applied on 2026-11-20, with their
-tracker rows (40 rows), then 0040 the same day (41 rows). 0041 is prepared, not
-applied (below).
+tracker rows (40 rows), then 0040 the same day (41 rows) and 0041 (42 rows).
 
 ## Runtime role settings (2026-11-13)
 
@@ -1403,7 +1402,7 @@ select conname from pg_constraint where conrelid = 'app.ai_model_settings'::regc
   -- ai_model_settings_allowed_models_check, ai_model_settings_default_model_check
 ```
 
-## 0041_getcanadasim_legacy_mirror (2026-11-20, prepared, not applied)
+## 0041_getcanadasim_legacy_mirror (2026-11-20, applied 2026-11-20)
 
 The old Get Canada Sim admin receives the CRM's SIM orders again. Since the
 checkout switched to the CRM (around 2026-11-12, `CRM_ORDERS` on) every new
