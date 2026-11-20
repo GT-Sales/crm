@@ -484,3 +484,86 @@ describe('board rules', () => {
     expect(shown).toContain('Book the installer');
   });
 });
+
+describe('the Tasks page with nothing to show', () => {
+  it('says the viewer is all caught up, in words that fit the scope, with a way to add a task', async () => {
+    serve([], []);
+    render(<MyTasks workspaceSlug="canadawide" />);
+    const empty = (await screen.findByText('You’re all caught up')).closest(
+      '[data-slot="empty-state"]',
+    );
+    if (!(empty instanceof HTMLElement)) throw new Error('expected the empty state');
+    expect(empty.textContent).toContain('Nothing due. Tasks you are given show up here.');
+    fireEvent.click(within(empty).getByRole('button', { name: 'Add a task' }));
+    expect(await screen.findByRole('form', { name: 'New task' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unassigned' }));
+    expect(await screen.findByText('No unassigned tasks to pick up.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Everyone' }));
+    expect(await screen.findByText('No open tasks on this site.')).toBeTruthy();
+  });
+
+  it('offers no Add a task to a role that cannot change tasks', async () => {
+    serve([], [], false);
+    render(<MyTasks workspaceSlug="canadawide" />);
+    await screen.findByText('You’re all caught up');
+    expect(screen.queryByRole('button', { name: 'Add a task' })).toBeNull();
+  });
+
+  it('says so above an empty board, whose columns keep their own Add task', async () => {
+    serve([], []);
+    window.localStorage.setItem(TASKS_VIEW_KEY, 'board');
+    render(<MyTasks workspaceSlug="canadawide" />);
+    await screen.findByRole('region', { name: 'Tasks board by status' });
+    expect(await screen.findByText('You’re all caught up')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add a task' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add task to To do' })).toBeTruthy();
+  });
+
+  it('shows skeleton cards, not a word, while the Done column loads', async () => {
+    mocks.listStaffTasks.mockImplementation(
+      (_token: string, _workspace: string, query: ListWorkspaceTasksQuery) =>
+        query.status === 'done' ? new Promise(() => {}) : Promise.resolve(response([today])),
+    );
+    window.localStorage.setItem(TASKS_VIEW_KEY, 'board');
+    render(<MyTasks workspaceSlug="canadawide" />);
+    const loading = await screen.findByRole('status', { name: 'Loading the done tasks…' });
+    expect(loading.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Loading…')).toBeNull();
+    expect(column(/^Done,/).contains(loading)).toBe(true);
+  });
+});
+
+describe('a task row’s cross', () => {
+  it('waits for hover or focus in the list, and always shows on a touch screen', async () => {
+    render(<MyTasks workspaceSlug="canadawide" />);
+    const cancel = await screen.findByRole('button', { name: 'Cancel “Send the contract”' });
+    for (const name of [
+      'opacity-0',
+      'group-hover/task:opacity-100',
+      'group-focus-within/task:opacity-100',
+      'focus-visible:opacity-100',
+      'pointer-coarse:opacity-100',
+    ]) {
+      expect(cancel.className).toContain(name);
+    }
+    expect(cancel.closest('li')?.className).toContain('group/task');
+  });
+
+  it('keeps each group header’s count, with only Overdue in red', async () => {
+    render(<MyTasks workspaceSlug="canadawide" />);
+    await screen.findByText('Call back about the install');
+    const headers = screen
+      .getAllByRole('heading', { level: 2 })
+      .map((heading) => heading.closest('summary'))
+      .filter((summary): summary is HTMLElement => summary !== null);
+    expect(headers.map((summary) => summary.textContent)).toEqual([
+      'Overdue1',
+      'Today1',
+      'Upcoming1',
+      'No due date1',
+    ]);
+    expect(headers.filter((summary) => /rose/.test(summary.className))).toHaveLength(1);
+    expect(headers[0]?.className).toMatch(/rose/);
+  });
+});

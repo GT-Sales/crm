@@ -35,6 +35,15 @@ const TABLE_COLUMN_LABELS: Record<TableColumnKey, string> = {
 export const TABLE_COLUMNS: readonly { key: TableColumnKey; label: string }[] =
   LEAD_TABLE_COLUMNS.map((key) => ({ key, label: TABLE_COLUMN_LABELS[key] }));
 
+/**
+ * The table's row padding: comfortable (about 61px rows) or compact (about
+ * 44px). A personal choice kept in this browser (`useStoredChoice`), like the
+ * Tasks page's List or Board.
+ */
+export const TABLE_DENSITIES = ['comfortable', 'compact'] as const;
+export type TableDensity = (typeof TABLE_DENSITIES)[number];
+export const TABLE_DENSITY_KEY = 'gt-leads-table-density';
+
 function readStoredList(key: string): string[] {
   if (typeof window === 'undefined') return [];
   try {

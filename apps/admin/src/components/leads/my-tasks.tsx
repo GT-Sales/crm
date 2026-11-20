@@ -8,13 +8,14 @@ import {
   type ListWorkspaceTasksResponse,
   type WorkspaceTask,
 } from '@gt-sales/contracts';
-import { Button, cn } from '@gt-sales/ui';
+import { Button, cn, EmptyState } from '@gt-sales/ui';
 import {
   CalendarClockIcon,
   CalendarDaysIcon,
   CalendarOffIcon,
   CalendarPlusIcon,
   ChevronDownIcon,
+  CircleCheckIcon,
   PlusIcon,
 } from 'lucide-react';
 
@@ -45,6 +46,7 @@ import { assigneeName } from '../../lib/people';
 import { useLeadWorkspace } from './use-lead-workspace';
 import { useStoredChoice } from './view-preferences';
 import { LoadingSkeleton } from '../crm/loading-skeleton';
+import { PageHeader } from '../page-header';
 
 type Scope = 'me' | 'none' | 'all';
 type View = 'list' | 'board';
@@ -56,6 +58,12 @@ export const TASKS_VIEW_KEY = 'gt-tasks-view';
 export const TASKS_GROUP_KEY = 'gt-tasks-board-group';
 /** How many recently done tasks the board's Done column loads. */
 const DONE_LOAD = 50;
+/** What an empty list or board says under "You’re all caught up", by whose tasks are shown. */
+const EMPTY_LINES: Record<Scope, string> = {
+  me: 'Nothing due. Tasks you are given show up here.',
+  none: 'No unassigned tasks to pick up.',
+  all: 'No open tasks on this site.',
+};
 const DATE_GROUP_STYLES = {
   overdue: {
     icon: CalendarClockIcon,
@@ -381,64 +389,62 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">My tasks</h1>
-          <p className="text-sm text-muted-foreground">
-            Follow-ups on this site’s leads and tasks with no lead, soonest first.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canWrite ? (
-            <Button
-              ref={addButton}
-              type="button"
-              size="sm"
-              aria-keyshortcuts="C"
-              onClick={() => openComposer('top')}
-            >
-              <PlusIcon className="size-4" aria-hidden="true" />
-              Add task
-              <kbd
-                aria-hidden="true"
-                className="hidden rounded border border-primary-foreground/40 px-1 font-sans text-[10px] sm:inline"
+      <PageHeader
+        title="My tasks"
+        description="Follow-ups on this site’s leads and tasks with no lead, soonest first."
+        actions={
+          <>
+            {canWrite ? (
+              <Button
+                ref={addButton}
+                type="button"
+                size="sm"
+                aria-keyshortcuts="C"
+                onClick={() => openComposer('top')}
               >
-                C
-              </kbd>
-            </Button>
-          ) : null}
-          <Segmented<Scope>
-            label="Whose tasks"
-            value={scope}
-            onChange={setScope}
-            options={[
-              ['me', 'Assigned to me'],
-              ['none', 'Unassigned'],
-              ['all', 'Everyone'],
-            ]}
-          />
-          <Segmented<View>
-            label="View"
-            value={view}
-            onChange={setView}
-            options={[
-              ['list', 'List'],
-              ['board', 'Board'],
-            ]}
-          />
-          {view === 'board' ? (
-            <Segmented<BoardGroupBy>
-              label="Group by"
-              value={groupBy}
-              onChange={setGroupBy}
+                <PlusIcon className="size-4" aria-hidden="true" />
+                Add task
+                <kbd
+                  aria-hidden="true"
+                  className="hidden rounded border border-primary-foreground/40 px-1 font-sans text-[10px] sm:inline"
+                >
+                  C
+                </kbd>
+              </Button>
+            ) : null}
+            <Segmented<Scope>
+              label="Whose tasks"
+              value={scope}
+              onChange={setScope}
               options={[
-                ['status', 'Status'],
-                ['date', 'Date'],
+                ['me', 'Assigned to me'],
+                ['none', 'Unassigned'],
+                ['all', 'Everyone'],
               ]}
             />
-          ) : null}
-        </div>
-      </div>
+            <Segmented<View>
+              label="View"
+              value={view}
+              onChange={setView}
+              options={[
+                ['list', 'List'],
+                ['board', 'Board'],
+              ]}
+            />
+            {view === 'board' ? (
+              <Segmented<BoardGroupBy>
+                label="Group by"
+                value={groupBy}
+                onChange={setGroupBy}
+                options={[
+                  ['status', 'Status'],
+                  ['date', 'Date'],
+                ]}
+              />
+            ) : null}
+          </>
+        }
+      />
 
       {canWrite && composer === 'top' ? composerFor('top') : null}
 
@@ -470,6 +476,15 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
               Drag cards to move them, or use a card’s menu.
             </p>
           ) : null}
+          {boardTasks.length === 0 ? (
+            // Each column keeps its own Add task, so the board's empty state needs none.
+            <EmptyState
+              icon={<CircleCheckIcon />}
+              title="You’re all caught up"
+              description={EMPTY_LINES[scope]}
+              className="py-4"
+            />
+          ) : null}
           <TasksBoard
             tasks={boardTasks}
             groupBy={groupBy}
@@ -486,13 +501,20 @@ export function MyTasks({ workspaceSlug }: { workspaceSlug: string }) {
           />
         </>
       ) : list.length === 0 ? (
-        <p className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
-          {scope === 'me'
-            ? 'Nothing due. Tasks you are given show up here.'
-            : scope === 'none'
-              ? 'No unassigned tasks.'
-              : 'No open tasks on this site.'}
-        </p>
+        <EmptyState
+          icon={<CircleCheckIcon />}
+          title="You’re all caught up"
+          description={EMPTY_LINES[scope]}
+          action={
+            canWrite ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => openComposer('top')}>
+                <PlusIcon className="size-4" aria-hidden="true" />
+                Add a task
+              </Button>
+            ) : undefined
+          }
+          className="rounded-lg border bg-card"
+        />
       ) : (
         <>
           <p className="text-sm text-muted-foreground" aria-live="polite">

@@ -39,7 +39,11 @@ function trackErrors(page: Page): string[] {
 
 /** Icon menus retain their contents while a setting changes. */
 async function openInboxMenu(page: Page, name: 'Filters' | 'View options' | 'Saved views') {
-  const button = page.getByRole('button', { name, exact: true });
+  // The Filters button says how many filters are applied: "Filters, 2 applied".
+  const button = page.getByRole('button', {
+    name: name === 'Filters' ? /^Filters(, \d+ applied)?$/ : name,
+    exact: name !== 'Filters',
+  });
   if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
 }
 
@@ -1717,7 +1721,8 @@ test('loading screens show layout skeletons until their data arrives', async ({
         return head - body;
       })
       .toBe(0);
-    await expect(page.getByText(/Page 1 of 1 · 0 leads/)).not.toBeVisible();
+    // The count waits for the list: no "0 leads" while it loads.
+    await expect(page.getByText('0 leads', { exact: true })).not.toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath('design-loading-leads.png'),
       animations: 'disabled',

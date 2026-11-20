@@ -104,7 +104,9 @@ export function TaskRow({
     <li
       className={cn(
         'flex gap-3',
-        compact ? 'min-h-11 items-start px-3 py-2 hover:bg-muted/30' : 'items-start py-2',
+        compact
+          ? 'group/task min-h-11 items-start px-3 py-2 hover:bg-muted/30'
+          : 'items-start py-2',
       )}
     >
       <input
@@ -155,7 +157,13 @@ export function TaskRow({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-7 text-muted-foreground"
+          className={cn(
+            'size-7 text-muted-foreground',
+            // In a list of many (My tasks) the cross waits for hover or focus; a
+            // touch screen has no hover, so there it always shows.
+            compact &&
+              'opacity-0 transition-opacity group-focus-within/task:opacity-100 group-hover/task:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100',
+          )}
           disabled={busy}
           onClick={() => onStatus('cancelled')}
           aria-label={`Cancel “${task.title}”`}

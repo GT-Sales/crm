@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  Skeleton,
 } from '@gt-sales/ui';
 import { AlertCircleIcon, CheckIcon, EllipsisIcon, PlusIcon } from 'lucide-react';
 
@@ -458,7 +459,15 @@ export function TasksBoard({
                 {describeError(doneState.failure ?? doneState.error, 'load the done tasks')}
               </p>
             ) : isDone && doneState.loading && entries.length === 0 ? (
-              <p className="px-1 py-4 text-center text-xs text-muted-foreground">Loading…</p>
+              <div
+                role="status"
+                aria-label="Loading the done tasks…"
+                className="flex flex-col gap-2"
+              >
+                <span className="sr-only">Loading the done tasks…</span>
+                <Skeleton className="h-16 rounded-xl" />
+                <Skeleton className="h-16 rounded-xl" />
+              </div>
             ) : entries.length === 0 ? (
               addColumn === column ? null : (
                 <p className="px-1 py-4 text-center text-xs text-muted-foreground">No tasks</p>

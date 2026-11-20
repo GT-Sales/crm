@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPropertyCatalog, type PropertyRow } from '@gt-sales/contracts';
 
+import { relativeTime } from '../../lib/dates';
+import { readableSource } from '../../lib/source-label';
 import type { InboxQuery } from './inbox-query';
 import { LeadsTable, NO_LEAD_SELECTION, type LeadSelection } from './leads-table';
 
@@ -205,6 +207,288 @@ describe('LeadsTable', () => {
     );
     expect(document.body.textContent ?? '').not.toMatch(/trash/i);
   });
+  describe('on a phone', () => {
+    it('shows each lead as two lines: name and stage, then type, assignee, source and activity', async () => {
+      const onOpen = vi.fn();
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={{ ...query, type: undefined, hide: [], columns: undefined }}
+          catalog={catalog}
+          canUseProperties
+          onPage={vi.fn()}
+          panel={{ href: (id) => `/w/canadawide/leads?lead=${id}`, onOpen }}
+        />,
+      );
+      const name = await screen.findByRole('link', { name: 'Avery Example' });
+      const leadCell = name.closest('td');
+      if (!leadCell) throw new Error('expected the lead cell');
+      // Line one: the name and, below md only, the stage chip.
+      const phoneStage = within(leadCell).getByText('New').closest('.md\\:hidden');
+      expect(phoneStage).toBeTruthy();
+      expect(name.parentElement?.contains(phoneStage ?? null)).toBe(true);
+      // Line two, below md only: type, assignee, source and last activity.
+      const meta = leadCell.querySelector('[data-slot="lead-row-phone-meta"]');
+      expect(meta?.className).toContain('md:hidden');
+      expect(meta?.textContent).toBe(
+        [
+          'Internet',
+          'Unassigned',
+          readableSource('direct'),
+          relativeTime('2026-10-21T10:00:00.000Z'),
+        ].join(' · '),
+      );
+      // The email line and every other column are for wider screens; the table fits a phone.
+      expect(screen.getByText('avery@example.com').className).toMatch(/(^| )hidden( |$)/);
+      const row = leadCell.closest('tr');
+      const others = [...(row?.querySelectorAll('td') ?? [])].filter((td) => td !== leadCell);
+      expect(others.length).toBeGreaterThan(5);
+      for (const td of others) expect(td.className).toContain('hidden md:table-cell');
+      const table = name.closest('table');
+      expect(table?.className).toContain('md:min-w-[880px]');
+      expect(table?.className).not.toMatch(/(^| )min-w-/);
+      // The whole row still opens the lead.
+      if (meta) fireEvent.click(meta);
+      expect(onOpen).toHaveBeenCalledWith('90000000-0000-4000-8000-000000000001');
+    });
+  });
+
+  describe('row actions', () => {
+    const SELF = '20000000-0000-4000-8000-000000000001';
+    const me = {
+      membershipId: '30000000-0000-4000-8000-000000000001',
+      actorId: SELF,
+      displayName: 'Takib',
+      roles: ['owner' as const],
+      isSelf: true,
+    };
+    const onOpen = vi.fn();
+
+    function table(members = [me]) {
+      return render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={members}
+          query={query}
+          catalog={catalog}
+          canUseProperties
+          onPage={vi.fn()}
+          panel={{ href: (id) => `/w/canadawide/leads?lead=${id}`, onOpen }}
+        />,
+      );
+    }
+
+    async function openMenu() {
+      const trigger = await screen.findByRole('button', { name: 'Actions for Avery Example' });
+      // Its own click never reaches the row.
+      fireEvent.click(trigger);
+      expect(onOpen).not.toHaveBeenCalled();
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      return screen.findByRole('menu');
+    }
+
+    beforeEach(() => {
+      onOpen.mockReset();
+      mocks.updateStaffLead.mockReset();
+      mocks.updateStaffLead.mockResolvedValue({ requestId: 'req_test' });
+    });
+
+    it('shows on hover and focus, and always on a touch screen', async () => {
+      table();
+      const trigger = await screen.findByRole('button', { name: 'Actions for Avery Example' });
+      for (const name of [
+        'opacity-0',
+        'group-hover/row:opacity-100',
+        'group-focus-within/row:opacity-100',
+        'focus-visible:opacity-100',
+        'pointer-coarse:opacity-100',
+      ]) {
+        expect(trigger.className).toContain(name);
+      }
+      expect(trigger.closest('tr')?.className).toContain('group/row');
+    });
+
+    it('opens the lead, here or in a new tab, assigns it to the viewer and copies the email', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      table();
+      let menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Open lead', 'Open in new tab', 'Assign to me', 'Copy email']);
+      const newTab = within(menu).getByRole('menuitem', { name: 'Open in new tab' });
+      expect(newTab.getAttribute('href')).toBe(
+        '/w/canadawide/leads/90000000-0000-4000-8000-000000000001',
+      );
+      expect(newTab.getAttribute('target')).toBe('_blank');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open lead' }));
+      // Once, from the menu: the click does not also reach the row.
+      expect(onOpen).toHaveBeenCalledTimes(1);
+
+      onOpen.mockReset();
+      menu = await openMenu();
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Assign to me' }));
+      await waitFor(() =>
+        expect(mocks.updateStaffLead).toHaveBeenCalledWith(
+          'staff-token',
+          WORKSPACE,
+          '90000000-0000-4000-8000-000000000001',
+          { assignedActorId: SELF },
+        ),
+      );
+      expect(onOpen).not.toHaveBeenCalled();
+
+      menu = await openMenu();
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy email' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('avery@example.com'));
+      expect((await screen.findByRole('status')).textContent).toBe('Email copied.');
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it('leaves out Assign to me for a lead already the viewer’s, or without lead management', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        ...(await mocks.getStaffLeads()),
+        leads: [
+          {
+            ...(await mocks.getStaffLeads()).leads[0],
+            assignedActorId: SELF,
+            contact: { fullName: 'Avery Example' },
+          },
+        ],
+      });
+      const view = table();
+      let menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Open lead', 'Open in new tab']);
+      view.unmount();
+
+      mocks.getStaffLeads.mockResolvedValue({
+        ...(await mocks.getStaffLeads()),
+        leads: [{ ...(await mocks.getStaffLeads()).leads[0], assignedActorId: null }],
+        access: { contacts: true, manage: false },
+      });
+      table();
+      menu = await openMenu();
+      expect(within(menu).queryByRole('menuitem', { name: 'Assign to me' })).toBeNull();
+    });
+  });
+
+  it('pads rows less in compact rows', async () => {
+    const view = render(
+      <LeadsTable
+        workspaceSlug="canadawide"
+        workspaceId={WORKSPACE}
+        accessToken="staff-token"
+        members={[]}
+        query={query}
+        catalog={catalog}
+        canUseProperties
+        onPage={vi.fn()}
+        density="compact"
+      />,
+    );
+    const cell = (await screen.findByRole('link', { name: 'Avery Example' })).closest('td');
+    expect(cell?.className).toContain('py-1');
+    expect(cell?.className).not.toContain('py-3');
+    for (const td of cell?.closest('tr')?.querySelectorAll('td') ?? []) {
+      expect(td.className).not.toContain('py-3');
+    }
+    view.unmount();
+  });
+
+  describe('the footer', () => {
+    function footer() {
+      const element = document.querySelector<HTMLElement>('[data-slot="lead-list-footer"]');
+      if (!element) throw new Error('expected the footer');
+      return element;
+    }
+
+    it('keeps the count but hides the pager when everything is on one page', async () => {
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={query}
+          catalog={catalog}
+          canUseProperties
+          onPage={vi.fn()}
+        />,
+      );
+      await screen.findByRole('link', { name: 'Avery Example' });
+      expect(screen.queryByRole('navigation', { name: 'Lead pages' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+      expect(footer().textContent).toBe('1 lead');
+    });
+
+    it('offers first, previous, next and last when there are several pages', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [],
+        page: { page: 2, pageSize: 50, total: 1320 },
+        access: { contacts: true, manage: true },
+      });
+      const onPage = vi.fn();
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={{ ...query, page: 2 }}
+          catalog={catalog}
+          canUseProperties
+          onPage={onPage}
+        />,
+      );
+      const pager = await screen.findByRole('navigation', { name: 'Lead pages' });
+      expect(pager.textContent).toContain('Page 2 of 27');
+      expect(footer().firstElementChild?.textContent).toBe('1,320 leads');
+      fireEvent.click(within(pager).getByRole('button', { name: 'First page' }));
+      expect(onPage).toHaveBeenLastCalledWith(1);
+      fireEvent.click(within(pager).getByRole('button', { name: 'Previous' }));
+      expect(onPage).toHaveBeenLastCalledWith(1);
+      fireEvent.click(within(pager).getByRole('button', { name: 'Next' }));
+      expect(onPage).toHaveBeenLastCalledWith(3);
+      fireEvent.click(within(pager).getByRole('button', { name: 'Last page' }));
+      expect(onPage).toHaveBeenLastCalledWith(27);
+    });
+
+    it('keeps the pager on a page past the end, so the list can be found again', async () => {
+      mocks.getStaffLeads.mockResolvedValue({
+        leads: [],
+        page: { page: 4, pageSize: 50, total: 3 },
+        access: { contacts: true, manage: true },
+      });
+      const onPage = vi.fn();
+      render(
+        <LeadsTable
+          workspaceSlug="canadawide"
+          workspaceId={WORKSPACE}
+          accessToken="staff-token"
+          members={[]}
+          query={{ ...query, page: 4 }}
+          catalog={catalog}
+          canUseProperties
+          onPage={onPage}
+        />,
+      );
+      const pager = await screen.findByRole('navigation', { name: 'Lead pages' });
+      fireEvent.click(within(pager).getByRole('button', { name: 'First page' }));
+      expect(onPage).toHaveBeenLastCalledWith(1);
+    });
+  });
+
   describe('selecting leads', () => {
     const LEAD_1 = '90000000-0000-4000-8000-000000000001';
     const LEAD_2 = '90000000-0000-4000-8000-000000000002';
@@ -349,6 +633,10 @@ describe('LeadsTable', () => {
       expect([...latest.selected]).toEqual([LEAD_1]);
       const bar = screen.getByRole('status', { name: 'Selected leads' });
       expect(within(bar).getByText('1 selected')).toBeTruthy();
+      // The footer says how many of the list are ticked.
+      expect(
+        document.querySelector('[data-slot="lead-list-footer"]')?.firstElementChild?.textContent,
+      ).toBe('1 of 2 selected');
       // What can be done with the ticked leads sits in the bar.
       expect(within(bar).getByRole('button', { name: 'Export' })).toBeTruthy();
       // A click in the checkbox's cell, beside the box, opens nothing either.

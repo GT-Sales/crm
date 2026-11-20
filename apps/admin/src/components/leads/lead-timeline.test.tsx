@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   leadActivitySchema,
@@ -7,7 +7,14 @@ import {
   type LeadDetail,
 } from '@gt-sales/contracts';
 
-import { changeRequestText, LeadTimeline, pendingChangeRequest } from './lead-timeline';
+import { dateTimeLabel } from '../../lib/dates';
+import {
+  changeRequestText,
+  groupByDay,
+  LeadTimeline,
+  pendingChangeRequest,
+  timelineDayLabel,
+} from './lead-timeline';
 
 vi.mock('../../lib/api', () => ({ addLeadNote: vi.fn() }));
 
@@ -405,5 +412,149 @@ describe('LeadTimeline', () => {
       expect(rejected?.textContent).toContain("You rejected the customer's change request #71");
       expect(approved?.textContent).toContain("You approved the customer's change request #70");
     });
+  });
+});
+
+describe('timeline days', () => {
+  // Local noon, so the day never depends on the machine's time zone.
+  const now = new Date(2026, 10, 20, 12, 0);
+  const at = (month: number, day: number, hour = 12, year = 2026) =>
+    new Date(year, month, day, hour).toISOString();
+
+  it('names a day Today, Yesterday, or by its date with the year only when it is another year', () => {
+    expect(timelineDayLabel(at(10, 20, 0), now)).toBe('Today');
+    expect(timelineDayLabel(at(10, 20, 23), now)).toBe('Today');
+    expect(timelineDayLabel(at(10, 19, 23), now)).toBe('Yesterday');
+    const older = timelineDayLabel(at(9, 26), now);
+    expect(older).toBe(
+      new Date(at(9, 26)).toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      }),
+    );
+    expect(older).not.toMatch(/2026/);
+    expect(timelineDayLabel(at(11, 31, 12, 2025), now)).toMatch(/2025/);
+  });
+
+  it('cuts entries into runs of one day, keeping their order', () => {
+    const entries = [
+      { id: 'a', createdAt: at(10, 20, 11) },
+      { id: 'b', createdAt: at(10, 20, 9) },
+      { id: 'c', createdAt: at(10, 19, 18) },
+      { id: 'd', createdAt: at(9, 2) },
+      { id: 'e', createdAt: at(9, 1) },
+    ];
+    const groups = groupByDay(entries, now);
+    expect(groups.map((group) => group.label)).toEqual([
+      'Today',
+      'Yesterday',
+      timelineDayLabel(at(9, 2), now),
+      timelineDayLabel(at(9, 1), now),
+    ]);
+    expect(groups.flatMap((group) => group.entries.map((entry) => entry.id))).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+      'e',
+    ]);
+  });
+});
+
+describe('the timeline grouped by day', () => {
+  const SELF = '20000000-0000-4000-8000-000000000001';
+  const today = new Date();
+  const todayAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 30);
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 15);
+  const lead: LeadDetail = {
+    id: '90000000-0000-4000-8000-000000000001',
+    workspaceId: '10000000-0000-4000-8000-000000000001',
+    leadType: 'internet',
+    status: 'submitted',
+    stage: 'new',
+    contact: {},
+    contactId: null,
+    assignedActorId: null,
+    externalRef: null,
+    source: 'direct',
+    attribution: {},
+    consentVersion: null,
+    openTaskCount: 0,
+    nextTaskDueAt: null,
+    deletedAt: null,
+    createdAt: '2025-03-04T12:00:00.000Z',
+    updatedAt: '2025-03-04T12:00:00.000Z',
+    form: null,
+  };
+  const note = (id: string, createdAt: Date, body: string) =>
+    leadActivitySchema.parse({
+      id: `92000000-0000-4000-8000-${id.padStart(12, '0')}`,
+      actorId: SELF,
+      createdAt: createdAt.toISOString(),
+      kind: 'note',
+      body,
+    });
+
+  function renderTimeline() {
+    render(
+      <LeadTimeline
+        lead={lead}
+        activities={[note('1', todayAt, 'Called back'), note('2', yesterday, 'Left a voicemail')]}
+        members={[
+          {
+            membershipId: '30000000-0000-4000-8000-000000000001',
+            actorId: SELF,
+            displayName: 'Takib',
+            roles: ['owner'],
+            isSelf: true,
+          },
+        ]}
+        canWrite={false}
+        accessToken="staff-token"
+        workspaceSlug="canadawide"
+        onNoteAdded={vi.fn()}
+      />,
+    );
+    return screen.getByRole('region', { name: 'Timeline' });
+  }
+
+  it('puts the entries under Today, Yesterday and the date, newest first as before', () => {
+    const region = renderTimeline();
+    const days = within(region).getAllByRole('heading', { level: 3 });
+    expect(days.map((day) => day.textContent)).toEqual([
+      'Today',
+      'Yesterday',
+      timelineDayLabel(lead.createdAt),
+    ]);
+    expect(within(region).getByRole('list', { name: 'Today' }).textContent).toContain(
+      'Called back',
+    );
+    expect(within(region).getByRole('list', { name: 'Yesterday' }).textContent).toContain(
+      'Left a voicemail',
+    );
+    const items = within(region).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('Called back'),
+      expect.stringContaining('Left a voicemail'),
+      expect.stringContaining('Website sent this lead'),
+    ]);
+  });
+
+  it('shows how long ago only, with the full date and time on focus and in the markup', async () => {
+    const region = renderTimeline();
+    const times = region.querySelectorAll('time');
+    expect(times).toHaveLength(3);
+    const first = times[0];
+    if (!first) throw new Error('expected a time');
+    expect(first.getAttribute('datetime')).toBe(todayAt.toISOString());
+    // The relative time alone: the absolute date is no longer repeated on every entry.
+    expect(first.textContent).not.toContain(dateTimeLabel(todayAt.toISOString()));
+    expect(first.textContent).toMatch(/ago|just now/);
+    expect(first.tabIndex).toBe(0);
+    fireEvent.focus(first);
+    expect((await screen.findByRole('tooltip')).textContent).toContain(
+      dateTimeLabel(todayAt.toISOString()),
+    );
   });
 });
