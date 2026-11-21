@@ -117,8 +117,9 @@ line gives the routes and the action needed.
 - **Team, keys, jobs** (`/invitations`, `/memberships/:id`,
   `/service-credentials[/:id]`, `/jobs`, `/jobs/:id/{retry,resolve}`;
   `staff.invite`, `staff.remove`, `integration.manage`). A site key is shown
-  once and stored hashed, with its scopes and lead types. There is no route
-  yet to change an existing key's lead types (RUNBOOKS/database.md). Removing
+  once and stored hashed, with its scopes and lead types; `PATCH
+/service-credentials/:id` changes an active key's lead types (audit event
+  `service_credential.lead_types_updated`). Removing
   a member is serialised so a site always keeps an owner.
 - **Ask AI** (`/ai/capabilities`, `/ai/chat`, `/ai/actions/{confirm,revise}`,
   `/ai/automations/*`, `/ai/conversations`, `/ai/attachments/*`;

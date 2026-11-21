@@ -95,9 +95,8 @@ ENV.md and set on Railway, Vercel or GitHub.
   CanadaWide `internet`, `mobility`, `contact_message`; Get Canada Sim
   `partner_application`, `sim_order`, `contact_message`. `contact_message`
   was added by hand after the backfill so a contact form is not refused.
-  Editing an existing key's lead types in the admin is not built yet (it is
-  being added separately); until then use
-  [RUNBOOKS/database.md](RUNBOOKS/database.md#site-keys-and-their-lead-types-0043-0044).
+  An owner changes a key's lead types in Settings → Integrations ("Edit lead
+  types").
 - **Histories.** All CanadaWide leads and Get Canada Sim's orders and partner
   applications from before the CRM, with notes, reminders as tasks, SIM
   numbers, change request history and document copies, are in the CRM
@@ -133,6 +132,9 @@ ENV.md and set on Railway, Vercel or GitHub.
   On 2026-11-21 no existing order needed the backfill. _How:_
   [RUNBOOKS/database.md](RUNBOOKS/database.md#0048-not-applied-yet): paste in
   the SQL editor, with its tracker row (49 rows).
+- **Migration 0049** (an index for the new-leads count). Not applied; it
+  follows 0048 so the tracker stays in order. Nothing depends on it. _How:_
+  [RUNBOOKS/database.md](RUNBOOKS/database.md#0049-not-applied-yet).
 - **Does either site have a contact form?** `contact_message` is on all four
   active keys as a precaution. _How:_ Confirm; remove the type from a key that
   does not need it.
@@ -212,7 +214,6 @@ submission so a retry never makes a second order.
 
 **Engineering work**
 
-- **Editing a site key's lead types in the admin** (being added separately).
 - **Cross-site inbox, contact page, split and merge of contacts** (not
   started): one query per site the member belongs to, a page with one
   person's leads across sites, audited split/merge.

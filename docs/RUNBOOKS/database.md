@@ -87,6 +87,7 @@ checked against their files' hashes on 2026-11-19). **0048 is not applied**
 | 0046         | `leads.submitted_at` (order tracking dates an order by its submission)                                                                                          | 2026-11-21, pre-deploy  |
 | 0047         | One current file per lead and document type (`files_one_current_per_slot`)                                                                                      | 2026-11-21, post-deploy |
 | 0048         | The Get Canada Sim mirror also copies a rescued order once its name and email are complete                                                                      | **Not applied**         |
+| 0049         | `lead_activities_opened_idx`: which leads have been opened (the sidebar count and the New badge stay fast as the timeline grows)                                | **Not applied**         |
 
 "By 2026-11-19" means the migration was found applied when the whole
 database was checked that day. What each migration contains is its SQL file
@@ -143,6 +144,18 @@ as `create or replace`, then `drop trigger leads_mirror_getcanadasim_legacy on
 app.leads;` and 0041's `create trigger`; delete the tracker row. Rows already
 copied stay in `public.orders`.
 
+### 0049, not applied yet
+
+`0049_lead_activities_opened_index`: one partial index on
+`app.lead_activities (workspace_id, lead_id)` for the `opened` system
+entries. No query changed, so it goes in before or after the deploy; the
+planner simply starts using it. `CREATE INDEX` holds a SHARE lock on the
+timeline while it builds (writes wait, reads go on), well under a second at
+today's size. Apply it **after 0048**, so the tracker rows stay in journal
+order, with its tracker row: hash
+`70b094dad2eea8c7659805780d7598e7f35616e0bfa7e58446e12d144f19076c`,
+`created_at` `1795303383597` (50 rows).
+
 ## Operating notes for applied migrations
 
 ### Site keys and their lead types (0043, 0044)
@@ -155,15 +168,10 @@ form is not refused (CanadaWide: `internet`, `mobility`, `contact_message`;
 Get Canada Sim: `partner_application`, `sim_order`, `contact_message`).
 Revoked keys were left as backfilled.
 
-The admin cannot yet change an existing key's lead types. Either issue a new
-key with the right types and revoke the old one, or:
+An owner changes an active key's lead types in Settings → Integrations
+("Edit lead types"). To read every active key's list:
 
 ```sql
--- The values must be registered lead types.
-update app.service_credentials
-   set lead_types = array['internet','mobility','contact_message']
- where id = '<key id from Settings → Integrations>';
-
 select w.slug, c.id, c.lead_types from app.service_credentials c
   join app.workspaces w on w.id = c.workspace_id where c.revoked_at is null order by w.slug;
 ```

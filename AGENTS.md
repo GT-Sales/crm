@@ -133,10 +133,15 @@ Backend paths are under `apps/backend/src/`, admin paths under
   `leads/site-counter.ts`, `leads/idempotency.ts`, `leads/draft-changes.ts`,
   `website/` (credential auth, limits, bot check), `routes/website.ts`.
   Contracts and admin: `leads.ts`, `lead-types.ts`, `website-auth.ts`.
-- **Staff lead work**: `leads/work-store.ts` (writes),
-  `leads/staff-queries.ts` (reads: plain SQL with explicit aliases),
+- **Staff lead work**: writes in `leads/work-store.ts` (the store),
+  `leads/work-writes.ts` (its steps) and `leads/work-types.ts` (its
+  contract); reads, plain SQL with explicit aliases, in
+  `leads/staff-queries.ts` (list and board), `leads/lead-filters.ts` (filter
+  conditions) and `leads/lead-work-queries.ts` (lead page, tasks, timeline);
   `leads/stage-move.ts`, `leads/documents-check.ts`, `leads/order.ts`,
-  `leads/task-schema.ts`, `routes/staff.ts`. Contracts and admin:
+  `leads/task-schema.ts`. Staff routes: `routes/staff.ts` mounts
+  `staff-leads.ts`, `staff-site.ts` (team, keys, jobs) and `staff-files.ts`
+  over the shared `staff-context.ts`. Contracts and admin:
   `workspace-leads.ts`, `lead-work.ts`; admin `components/leads/`
   (`stage-move-dialog.tsx`, `change-request-card.tsx`),
   `components/tasks/task-composer.tsx`.
