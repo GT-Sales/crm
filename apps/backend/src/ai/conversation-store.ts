@@ -717,7 +717,14 @@ export class DatabaseAiConversationStore implements AiConversationStore {
         where q.workspace_id = ${scope.workspaceId} and q.actor_id = ${scope.actorId}
           and q.conversation_id = ${input.conversationId}
           and q.role = 'user' and q.request_id is not null
-          and q.id <> ${input.beforeMessageId}
+          -- Strictly before the anchor question's saved position, by the same
+          -- order the rows are read in: a question another tab saved after it
+          -- is not history of this turn.
+          and (q.created_at, q.id) < (
+            select b.created_at, b.id from app.ai_messages b
+            where b.workspace_id = ${scope.workspaceId} and b.actor_id = ${scope.actorId}
+              and b.conversation_id = ${input.conversationId} and b.id = ${input.beforeMessageId}
+          )
         order by q.created_at desc, q.id desc
         limit ${AI_HISTORY_SCAN_MESSAGES}
       `);
